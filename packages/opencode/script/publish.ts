@@ -73,7 +73,10 @@ if (version !== pkg.version)
 const present = new Set<string>()
 if (!fs.existsSync("./dist")) problems.push("missing dist/ (run script/build.ts first)")
 else
-  for (const filepath of new Bun.Glob("*/package.json").scanSync({ cwd: "./dist" })) present.add(filepath.split("/")[0])
+  // Bun.Glob returns backslash-separated paths on Windows (upstream publish.ts:27-29 reads the name
+  // from the file instead), so split on either separator.
+  for (const filepath of new Bun.Glob("*/package.json").scanSync({ cwd: "./dist" }))
+    present.add(filepath.split(/[\\/]/)[0])
 for (const name of expectedPlatforms) {
   if (!present.has(name)) {
     problems.push(`missing dist/${name}`)
