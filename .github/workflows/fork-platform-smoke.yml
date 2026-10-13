@@ -94,14 +94,17 @@ jobs:
           HORDECODE_HOME: ${{ runner.temp }}/hordecode-home2
         run: |
           set -u
-          PREFIX="${{ runner.temp }}/npm-prefix"
+          TEMP_DIR="${{ runner.temp }}"
+          # Git Bash keeps "D:\a\_temp" verbatim; npm's shell shim then resolves a broken path.
+          if [ "$RUNNER_OS" = "Windows" ]; then TEMP_DIR="$(cygpath -m "$TEMP_DIR")"; fi
+          PREFIX="$TEMP_DIR/npm-prefix"
           mkdir -p "$PREFIX" "$HORDECODE_HOME"
           npm install -g --prefix "$PREFIX" ./dist/hordecode-${{ matrix.target }}/hordecode-${{ matrix.target }}-${{ inputs.version }}.tgz ./dist/hordecode/hordecode-${{ inputs.version }}.tgz
-          if [ "$RUNNER_OS" = "Windows" ]; then export PATH="$PREFIX:$PATH"; else export PATH="$PREFIX/bin:$PATH"; fi
+          if [ "$RUNNER_OS" = "Windows" ]; then export PATH="$(cygpath -u "$PREFIX"):$PATH"; else export PATH="$PREFIX/bin:$PATH"; fi
           which hordecode horde
           hordecode --version
           horde --version
-          cd "${{ runner.temp }}"
+          cd "$TEMP_DIR"
           hordecode serve --port 4098 --hostname 127.0.0.1 > serve2.log 2>&1 &
           SERVE=$!
           n=0
