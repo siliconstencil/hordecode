@@ -26,6 +26,15 @@ describe("providerOptions", () => {
     ).toEqual(["openai", "anthropic", "aws", "mistral", "custom-z", "__opencode_custom_provider__"])
   })
 
+  test("keeps the opencode API-key providers listed first, as upstream does", () => {
+    const values = providerOptions([
+      { id: "deepseek", name: "DeepSeek" },
+      { id: "opencode-go", name: "OpenCode Go" },
+      { id: "opencode", name: "OpenCode Zen" },
+    ]).map((option) => option.value)
+    expect(values).toEqual(["opencode", "opencode-go", "deepseek", "__opencode_custom_provider__"])
+  })
+
   test("does not collide with a configured provider named other", () => {
     const values = providerOptions([{ id: "other", name: "Other Provider" }]).map((option) => option.value)
     expect(new Set(values).size).toBe(values.length)

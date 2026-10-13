@@ -6,9 +6,11 @@ import { FSUtil } from "@opencode-ai/core/fs-util"
 import { LSP } from "@/lsp/lsp"
 import DESCRIPTION from "./read.txt"
 import { InstanceState } from "@/effect/instance-state"
+import { SessionCwd } from "@opencode-ai/core/tool/session-cwd"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import { Instruction } from "../session/instruction"
-import { isPdfAttachment, sniffAttachmentMime } from "@/util/media"
+import { isPdfAttachment, sniffAttachmentMime } from "@opencode-ai/core/util/media"
+import { Provider } from "@/provider/provider"
 
 const DEFAULT_READ_LIMIT = 2000
 const MAX_LINE_LENGTH = 2000
@@ -64,13 +66,14 @@ type Metadata = {
 export const ReadTool = Tool.define<
   typeof Parameters,
   Metadata,
-  FSUtil.Service | Instruction.Service | LSP.Service | Scope.Scope
+  FSUtil.Service | Instruction.Service | LSP.Service | Provider.Service | Scope.Scope
 >(
   "read",
   Effect.gen(function* () {
     const fs = yield* FSUtil.Service
     const instruction = yield* Instruction.Service
     const lsp = yield* LSP.Service
+    const provider = yield* Provider.Service
     const scope = yield* Scope.Scope
 
     const miss = Effect.fn("ReadTool.miss")(function* (filepath: string) {
@@ -233,7 +236,8 @@ export const ReadTool = Tool.define<
       const instance = yield* InstanceState.context
       let filepath = params.filePath
       if (!path.isAbsolute(filepath)) {
-        filepath = path.resolve(instance.directory, filepath)
+        // Session cwd (change_directory) anchors relative paths; MiMo Code 0.1.11 tool/read.ts:153.
+        filepath = path.resolve(SessionCwd.get(ctx.sessionID, instance.directory), filepath)
       }
       if (process.platform === "win32") {
         filepath = FSUtil.normalizePath(filepath)
@@ -301,11 +305,53 @@ export const ReadTool = Tool.define<
       const sample = yield* readSample(filepath, Number(stat.size), SAMPLE_BYTES)
 
       const mime = sniffAttachmentMime(sample, FSUtil.mimeType(filepath))
-      const isImage = SUPPORTED_IMAGE_MIMES.has(mime)
 
-      if (isImage || isPdfAttachment(mime)) {
+      if (SUPPORTED_IMAGE_MIMES.has(mime)) {
+        // The active model is carried on ctx.extra.model (set on both the
+        // agent-call path and the @file resolution path). Fail closed when the
+        // capability is unknown or disabled, mirroring the upstream read.ts behavior.
+        const activeModel = (ctx.extra as { model?: Provider.Model } | undefined)?.model
+        const supportsImage = activeModel?.capabilities.input.image ?? false
+        if (!supportsImage) {
+          const preferred = yield* provider.getVisionModel().pipe(Effect.orElseSucceed(() => undefined))
+          const preferredRef = preferred ? `${preferred.providerID}/${preferred.id}` : undefined
+          const dispatch = preferredRef
+            ? `dispatch a vision-capable subagent via a supervisor tool call, using a model with vision support (e.g. ${preferredRef})`
+            : `no vision-capable model is configured — ask the user to configure one or use an OCR tool`
+          const warning = [
+            `Cannot read image "${path.basename(filepath)}" — the current model has no vision support, so its visual content is unavailable.`,
+            `If you need to understand the image visually, ${dispatch}.`,
+            `If you instead need the file's raw binary structure, use a shell tool such as \`hexdump -C ${filepath}\` — do not use the read tool for that.`,
+          ].join("\n")
+          return {
+            title,
+            output: warning,
+            metadata: { preview: warning, truncated: false, loaded: [] as string[] },
+          }
+        }
         const bytes = yield* fs.readFile(filepath)
-        const msg = isPdfAttachment(mime) ? "PDF read successfully" : "Image read successfully"
+        const msg = "Image read successfully"
+        return {
+          title,
+          output: msg,
+          metadata: {
+            preview: msg,
+            truncated: false,
+            loaded: loaded.map((item) => item.filepath),
+          },
+          attachments: [
+            {
+              type: "file" as const,
+              mime,
+              url: `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`,
+            },
+          ],
+        }
+      }
+
+      if (isPdfAttachment(mime)) {
+        const bytes = yield* fs.readFile(filepath)
+        const msg = "PDF read successfully"
         return {
           title,
           output: msg,

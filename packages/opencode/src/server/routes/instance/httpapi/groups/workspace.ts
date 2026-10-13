@@ -12,7 +12,7 @@ import { described } from "./metadata"
 const root = "/experimental/workspace"
 export const CreatePayload = Schema.Struct(Struct.omit(Workspace.CreateInput.fields, ["projectID"]))
 export const WarpPayload = Schema.Struct({
-  id: Schema.NullOr(Workspace.Info.fields.id),
+  id: Schema.optionalKey(Schema.NullOr(Workspace.Info.fields.id)),
   sessionID: Workspace.SessionWarpInput.fields.sessionID,
   copyChanges: Workspace.SessionWarpInput.fields.copyChanges,
 })

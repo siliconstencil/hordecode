@@ -2,9 +2,10 @@ import yargs from "yargs"
 import { TuiThreadCommand } from "./cli/cmd/tui"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { hideBin } from "yargs/helpers"
+import path from "path"
 const cli = yargs(hideBin(process.argv))
   .parserConfiguration({ "populate--": true })
-  .scriptName("opencode")
+  .scriptName(path.basename(process.argv0 || "opencode"))
   .wrap(100)
   .help("help", "show help")
   .alias("help", "h")
@@ -25,7 +26,10 @@ const cli = yargs(hideBin(process.argv))
   })
   .middleware((opts) => {
     if (opts.printLogs) process.env.OPENCODE_PRINT_LOGS = "1"
-    if (opts.logLevel) process.env.OPENCODE_LOG_LEVEL = opts.logLevel
+    if (opts.logLevel) {
+      process.env.HORDECODE_LOG_LEVEL = opts.logLevel
+      process.env.OPENCODE_LOG_LEVEL = opts.logLevel
+    }
   })
   .command(TuiThreadCommand)
   .parse()

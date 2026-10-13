@@ -9,7 +9,7 @@ export interface Coordinator<Key, E> {
   /** Starts execution while idle or joins the active execution. */
   readonly run: (key: Key) => Effect.Effect<void, E>
   /** Registers one coalesced follow-up after newly recorded work. */
-  readonly wake: (key: Key) => Effect.Effect<void>
+  readonly wake: (key: Key, steps?: number) => Effect.Effect<void>
   /** Stops active execution and waits for its cleanup. */
   readonly interrupt: (key: Key) => Effect.Effect<void>
 }
@@ -19,10 +19,11 @@ type Entry<E> = {
   owner?: Fiber.Fiber<void, never>
   pendingWake: boolean
   stopping: boolean
+  steps?: number
 }
 
 export const make = <Key, E>(options: {
-  readonly drain: (key: Key, force: boolean) => Effect.Effect<void, E>
+  readonly drain: (key: Key, force: boolean, steps?: number) => Effect.Effect<void, E>
 }): Effect.Effect<Coordinator<Key, E>, never, Scope.Scope> =>
   Effect.gen(function* () {
     const active = new Map<Key, Entry<E>>()
@@ -34,11 +35,11 @@ export const make = <Key, E>(options: {
       stopping: false,
     })
 
-    const start = (key: Key, entry: Entry<E>, force: boolean, successor = false) => {
+    const start = (key: Key, entry: Entry<E>, force: boolean, successor = false, steps?: number) => {
       const ready = Deferred.makeUnsafe<void>()
       const owner = fork(
         (successor ? Effect.yieldNow : Deferred.await(ready)).pipe(
-          Effect.andThen(Effect.suspend(() => options.drain(key, force))),
+          Effect.andThen(Effect.suspend(() => options.drain(key, force, steps))),
           Effect.onExit((exit) => Effect.sync(() => settle(key, entry, exit))),
           Effect.exit,
           Effect.asVoid,
@@ -51,7 +52,7 @@ export const make = <Key, E>(options: {
     const settle = (key: Key, entry: Entry<E>, exit: Exit.Exit<void, E>) => {
       if (Exit.isSuccess(exit) && !entry.stopping && entry.pendingWake) {
         entry.pendingWake = false
-        start(key, entry, false, true)
+        start(key, entry, false, true, entry.steps)
         return
       }
 
@@ -59,7 +60,7 @@ export const make = <Key, E>(options: {
       if (successor === undefined) active.delete(key)
       else {
         active.set(key, successor)
-        start(key, successor, false, true)
+        start(key, successor, false, true, entry.steps)
       }
       Deferred.doneUnsafe(entry.done, exit)
     }
@@ -78,17 +79,19 @@ export const make = <Key, E>(options: {
         return restore(Deferred.await(next.done))
       })
 
-    const wake = (key: Key) =>
+    const wake = (key: Key, steps?: number) =>
       Effect.sync(() => {
         const entry = active.get(key)
         if (entry !== undefined) {
           entry.pendingWake = true
+          entry.steps = steps
           return
         }
 
         const next = makeEntry()
+        next.steps = steps
         active.set(key, next)
-        start(key, next, false)
+        start(key, next, false, false, steps)
       })
 
     const interrupt = (key: Key): Effect.Effect<void> =>

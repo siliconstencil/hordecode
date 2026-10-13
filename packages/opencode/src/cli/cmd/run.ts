@@ -125,7 +125,7 @@ async function toolError(part: ToolPart) {
 
 export const RunCommand = effectCmd({
   command: "run [message..]",
-  describe: "run opencode with a message",
+  describe: "run hordecode with a message",
   // --attach connects to a remote server (no local instance needed); the
   // default path runs an in-process server and needs the project instance.
   instance: (args) => !args.attach,
@@ -189,17 +189,17 @@ export const RunCommand = effectCmd({
       })
       .option("attach", {
         type: "string",
-        describe: "attach to a running opencode server (e.g., http://localhost:4096)",
+        describe: "attach to a running hordecode server (e.g., http://localhost:4096)",
       })
       .option("password", {
         alias: ["p"],
         type: "string",
-        describe: "basic auth password (defaults to OPENCODE_SERVER_PASSWORD)",
+        describe: "basic auth password (defaults to HORDECODE_SERVER_PASSWORD or OPENCODE_SERVER_PASSWORD)",
       })
       .option("username", {
         alias: ["u"],
         type: "string",
-        describe: "basic auth username (defaults to OPENCODE_SERVER_USERNAME or 'opencode')",
+        describe: "basic auth username (defaults to HORDECODE_SERVER_USERNAME, OPENCODE_SERVER_USERNAME or 'hordecode')",
       })
       .option("dir", {
         type: "string",
@@ -668,6 +668,17 @@ export const RunCommand = effectCmd({
       }
 
       async function execute(sdk: OpencodeClient) {
+        // Fork delta: without credentials no opencode public tier is offered, so a
+        // fresh install can have zero usable providers; say so instead of failing
+        // inside the server (packages/core/src/provider/provider.ts defaultModel).
+        if (!args.model) {
+          const providers = await sdk.config.providers()
+          const usable = providers.data?.providers.some((item) => Object.keys(item.models).length > 0)
+          if (!usable) {
+            UI.error("No provider configured. Run `horde providers` to connect one.")
+            process.exit(1)
+          }
+        }
         const sess = await session(sdk)
         if (!sess?.id) {
           UI.error("Session not found")
@@ -696,9 +707,14 @@ export const RunCommand = effectCmd({
         // created, and replies issued from inside the loop must use that client.
         async function loop(client: OpencodeClient, events: Awaited<ReturnType<typeof sdk.event.subscribe>>) {
           const toggles = new Map<string, boolean>()
+          const sessions = new Set([sessionID])
           let error: string | undefined
 
           for await (const event of events.stream) {
+            if (event.type === "session.created" && event.properties.info.parentID) {
+              if (sessions.has(event.properties.info.parentID)) sessions.add(event.properties.info.id)
+            }
+
             if (
               event.type === "message.updated" &&
               event.properties.sessionID === sessionID &&
@@ -795,7 +811,7 @@ export const RunCommand = effectCmd({
 
             if (event.type === "permission.asked") {
               const permission = event.properties
-              if (permission.sessionID !== sessionID) continue
+              if (!sessions.has(permission.sessionID)) continue
 
               if (auto) {
                 await client.permission.reply({
@@ -830,6 +846,7 @@ export const RunCommand = effectCmd({
           const completed = loop(client, events).catch((e) => {
             console.error(e)
             process.exitCode = 1
+            return e
           })
           async function finish() {
             if (args.attach) return

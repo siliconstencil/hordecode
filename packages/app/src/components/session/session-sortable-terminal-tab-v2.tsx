@@ -129,7 +129,7 @@ export function SortableTerminalTabV2(props: {
   return (
     <div
       ref={sortable.ref}
-      class="outline-none focus:outline-none focus-visible:outline-none"
+      class="outline-none focus:outline-none"
       classList={{
         "h-full flex items-center": props.newLayout,
         "h-full": !props.newLayout,
@@ -146,7 +146,7 @@ export function SortableTerminalTabV2(props: {
               onContextMenu={menu}
               class="!shadow-none"
               classes={{
-                button: "border-0 outline-none focus:outline-none focus-visible:outline-none !shadow-none !ring-0",
+                button: "border-0 outline-none focus:outline-none !shadow-none !ring-0",
               }}
               closeButton={
                 <IconButton

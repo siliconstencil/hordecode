@@ -180,6 +180,13 @@ export const model = (input: Provider.Model | RequestInput, headers?: Record<str
 
 export const request = (input: RequestInput) => {
   const converted = messages(input.messages)
+  // meta/muse-spark only supports "auto" for tool_choice -- coerce here as
+  // defense-in-depth (wire is already normalized in LLM.Service, but this
+  // adapter is also reachable via direct LLMNative.request callers).
+  const effectiveToolChoice =
+    input.model.providerID === "meta" && input.toolChoice && input.toolChoice !== "auto"
+      ? undefined
+      : input.toolChoice
   // This is the only native adapter boundary that should construct canonical
   // @opencode-ai/llm request objects from opencode's session/AI SDK-shaped data.
   return LLM.request({
@@ -187,7 +194,7 @@ export const request = (input: RequestInput) => {
     system: [...(input.system ?? []).map(SystemPart.make), ...converted.system],
     messages: converted.messages,
     tools: tools(input.tools),
-    toolChoice: input.toolChoice,
+    toolChoice: effectiveToolChoice,
     generation: generation(input),
     providerOptions: input.providerOptions,
   })

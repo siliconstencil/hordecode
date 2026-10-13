@@ -5,6 +5,7 @@ import type { TextareaRenderable } from "@opentui/core"
 import { selectedForeground, tint, useTheme } from "../../context/theme"
 import type { QuestionAnswer, QuestionRequest } from "@opencode-ai/sdk/v2"
 import { useSDK } from "../../context/sdk"
+import { useSync } from "../../context/sync"
 import { SplitBorder } from "../../ui/border"
 import { useTuiConfig } from "../../config"
 import { useBindings, useOpencodeModeStack } from "../../keymap"
@@ -13,6 +14,7 @@ const QUESTION_MODE = "question"
 
 export function QuestionPrompt(props: { request: QuestionRequest; directory?: string }) {
   const sdk = useSDK()
+  const sync = useSync()
   const { theme } = useTheme()
   const renderer = useRenderer()
   const tuiConfig = useTuiConfig()
@@ -47,18 +49,28 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
 
   function submit() {
     const answers = questions().map((_, i) => store.answers[i] ?? [])
-    void sdk.client.question.reply({
-      requestID: props.request.id,
-      directory: props.directory,
-      answers,
-    })
+    const sid = props.request.sessionID
+    const rid = props.request.id
+    sdk.client.question
+      .reply({
+        requestID: rid,
+        directory: props.directory,
+        answers,
+      })
+      .then(() => sync.removeQuestionOptimistic(sid, rid))
+      .catch(() => sync.removeQuestionOptimistic(sid, rid))
   }
 
   function reject() {
-    void sdk.client.question.reject({
-      requestID: props.request.id,
-      directory: props.directory,
-    })
+    const sid = props.request.sessionID
+    const rid = props.request.id
+    sdk.client.question
+      .reject({
+        requestID: rid,
+        directory: props.directory,
+      })
+      .then(() => sync.removeQuestionOptimistic(sid, rid))
+      .catch(() => sync.removeQuestionOptimistic(sid, rid))
   }
 
   function pick(answer: string, custom: boolean = false) {
@@ -71,11 +83,16 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
       setStore("custom", inputs)
     }
     if (single()) {
-      void sdk.client.question.reply({
-        requestID: props.request.id,
-        directory: props.directory,
-        answers: [[answer]],
-      })
+      const sid = props.request.sessionID
+      const rid = props.request.id
+      sdk.client.question
+        .reply({
+          requestID: rid,
+          directory: props.directory,
+          answers: [[answer]],
+        })
+        .then(() => sync.removeQuestionOptimistic(sid, rid))
+        .catch(() => sync.removeQuestionOptimistic(sid, rid))
       return
     }
     setStore("tab", store.tab + 1)
@@ -441,6 +458,7 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
                         textColor={theme.text}
                         focusedTextColor={theme.text}
                         cursorColor={theme.primary}
+                        cursorStyle={tuiConfig.cursor}
                       />
                     </box>
                   </Show>

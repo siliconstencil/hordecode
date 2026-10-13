@@ -4,6 +4,7 @@ import { Image } from "@/image/image"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Cause, Deferred, Effect, Exit, Layer, Context, Scope, Schema } from "effect"
 import * as Stream from "effect/Stream"
+import type { ModelMessage } from "ai"
 import { Agent } from "@/agent/agent"
 import { Config } from "@/config/config"
 import { Permission } from "@/permission"
@@ -23,11 +24,147 @@ import { Question } from "@/question"
 import { errorMessage } from "@/util/error"
 import { isRecord } from "@/util/record"
 import { EventV2Bridge } from "@/event-v2-bridge"
+import { Bus } from "@opencode-ai/bus"
 import { Database } from "@opencode-ai/core/database/database"
+import { SessionCallTable } from "@opencode-ai/core/session/call.sql"
+import { Metrics } from "@opencode-ai/core/metrics"
 import { Usage, type LLMEvent } from "@opencode-ai/llm"
+import { monitor as tryBestMonitor, type TryBestIncident } from "./try-best-detector"
+import { Flag } from "@opencode-ai/core/flag/flag"
 
 const DOOM_LOOP_THRESHOLD = 3
+
+// Type extraction helpers for version mismatches between opencode and core
+function extractModelId(model: unknown): string | null {
+  if (typeof model === "object" && model !== null) {
+    const m = model as { modelID?: string; id?: string }
+    return m.modelID ?? m.id ?? null
+  }
+  return null
+}
+
+function extractProviderId(model: unknown): string | null {
+  if (typeof model === "object" && model !== null) {
+    const m = model as { providerID?: string }
+    return m.providerID ?? null
+  }
+  return null
+}
+
+function extractTokenProperty(tokens: unknown, prop: string): number {
+  if (typeof tokens === "object" && tokens !== null) {
+    const t = tokens as { input?: number; output?: number; reasoning?: number; cache?: { read?: number; write?: number } }
+    switch (prop) {
+      case "input": return t.input ?? 0
+      case "output": return t.output ?? 0
+      case "reasoning": return t.reasoning ?? 0
+      case "cache_read": return t.cache?.read ?? 0
+      case "cache_write": return t.cache?.write ?? 0
+    }
+  }
+  return 0
+}
+
+function describeTryBest(incident: TryBestIncident) {
+  if (incident.reason === "edit_repeat") return `A near-identical edit to ${incident.evidence.path ?? "the same file"} repeated ${incident.evidence.count} times.`
+  if (incident.reason === "bash_retry") return `The same failing command was retried ${incident.evidence.count} times without an intervening successful edit.`
+  return `${incident.evidence.count} consecutive ${incident.evidence.action ?? "same-kind"} actions made no observable progress.`
+}
 export type Result = "compact" | "stop" | "continue"
+
+function coerceStringifiedJSON(value: unknown): unknown {
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        return coerceStringifiedJSON(JSON.parse(trimmed))
+      } catch {
+        return value
+      }
+    }
+    return value
+  }
+  if (Array.isArray(value)) return value.map(coerceStringifiedJSON)
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, coerceStringifiedJSON(v)]),
+    )
+  }
+  return value
+}
+
+const OPERATION_TOOLS = new Set(["supervisor", "task", "cron", "session"])
+
+function coerceFlatOperation(value: unknown, toolName?: string): unknown {
+  if (toolName !== undefined && !OPERATION_TOOLS.has(toolName)) return value
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return value
+  const obj = value as Record<string, unknown>
+  if ("operation" in obj) {
+    const op = obj["operation"]
+    if (op !== null && typeof op === "object" && !Array.isArray(op)) {
+      const opObj = op as Record<string, unknown>
+      if (typeof opObj["action"] !== "string") {
+        if (typeof obj["action"] === "string") {
+          opObj["action"] = obj["action"]
+          return value
+        }
+        if (
+          typeof opObj["subagent_type"] === "string" ||
+          typeof opObj["prompt"] === "string" ||
+          typeof opObj["description"] === "string"
+        ) {
+          opObj["action"] = "run"
+          return value
+        }
+      }
+    } else if (typeof op === "string") {
+      try {
+        const parsed = JSON.parse(op.trim())
+        if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+          obj["operation"] = coerceStringifiedJSON(parsed)
+          return coerceFlatOperation(obj, toolName)
+        }
+      } catch {}
+    }
+    return value
+  }
+  if (typeof obj["action"] === "string") return { operation: obj }
+  if (
+    typeof obj["subagent_type"] === "string" ||
+    typeof obj["prompt"] === "string" ||
+    typeof obj["description"] === "string"
+  ) {
+    return { operation: { action: "run", ...obj } }
+  }
+  return value
+}
+
+function normalizeToolInput(value: unknown, toolName?: string): unknown {
+  return coerceFlatOperation(coerceStringifiedJSON(value), toolName)
+}
+
+export type ProposedToolCall = {
+  toolCallId: string
+  toolName: string
+  input: Record<string, any>
+  providerMetadata?: Record<string, any>
+}
+
+export type ReplayInput = {
+  reasoning?: string
+  reasoningMetadata?: Record<string, any>
+  text?: string
+  textMetadata?: Record<string, any>
+  toolCalls: ProposedToolCall[]
+  finishReason: string
+  usage?: Usage
+  providerMetadata?: Record<string, any>
+  tools: Record<string, { execute?: (input: Record<string, unknown>, options: Record<string, unknown>) => Promise<unknown> }>
+  messages: ModelMessage[]
+  selection?: { winner: number; total: number }
+  thinkingMs?: number
+  overhead?: { cost: number; tokensIn: number; tokensOut: number }
+}
 
 export interface Handle {
   readonly message: SessionV1.Assistant
@@ -45,6 +182,7 @@ export interface Handle {
     },
   ) => Effect.Effect<void>
   readonly process: (streamInput: LLM.StreamInput) => Effect.Effect<Result>
+  readonly replay: (input: ReplayInput) => Effect.Effect<Result>
 }
 
 type Input = {
@@ -72,6 +210,8 @@ interface ProcessorContext extends Input {
   needsCompaction: boolean
   currentText: SessionV1.TextPart | undefined
   reasoningMap: Record<string, SessionV1.ReasoningPart>
+  stopReason?: string | null
+  stopErrorType?: string | null
 }
 
 type StreamEvent = LLMEvent
@@ -93,6 +233,7 @@ const layer = Layer.effect(
     const status = yield* SessionStatus.Service
     const image = yield* Image.Service
     const events = yield* EventV2Bridge.Service
+    const bus = yield* Bus.Service
     const database = yield* Database.Service
 
     const create = Effect.fn("SessionProcessor.create")(function* (input: Input) {
@@ -113,6 +254,71 @@ const layer = Layer.effect(
         reasoningMap: {},
       }
       let aborted = false
+
+      const cfg = yield* config.get()
+      const tryBestConfig = cfg.experimental?.try_best
+      const tryBest = Flag.HORDECODE_ENABLE_TRY_BEST_HANDOFF
+        ? tryBestMonitor(input.sessionID, input.assistantMessage.agentID, tryBestConfig)
+        : undefined
+
+      let streamStartMs: number | undefined
+      let firstTokenMs: number | undefined
+      const markFirstToken = () => {
+        if (firstTokenMs === undefined) firstTokenMs = performance.now()
+      }
+      function classifyError(e: unknown): string | null {
+        if (!e) return null
+        const msg = e instanceof Error ? e.message : String(e)
+        if (/abort/i.test(msg)) return "abort"
+        if (/timeout/i.test(msg)) return "timeout"
+        if (/rate.?limit|429/i.test(msg)) return "rate_limit"
+        if (/auth|unauthorized|401|403/i.test(msg)) return "auth"
+        if (/context.*overflow|token.*limit/i.test(msg)) return "context_overflow"
+        if (/schema|invalid.*arg/i.test(msg)) return "schema_error"
+        return "provider_error"
+      }
+
+      const detectTryBest = Effect.fn("SessionProcessor.detectTryBest")(function* (part: SessionV1.ToolPart) {
+        if (ctx.blocked) return
+        const incident = tryBest?.consume(part)
+        if (!incident) return
+        tryBest?.reset()
+        ctx.blocked = true
+        ctx.stopReason = "blocked_try_best"
+        ctx.stopErrorType = "blocked_try_best"
+        const detail = describeTryBest(incident)
+        yield* session.updatePart({
+          id: PartID.ascending(),
+          messageID: ctx.assistantMessage.id,
+          sessionID: ctx.sessionID,
+          type: "text",
+          text: `Try-best loop detected; this turn was paused. ${detail}`,
+          synthetic: true,
+          metadata: {
+            origin: {
+              kind: "try_best",
+              providerID: input.model.providerID,
+              modelID: input.model.id,
+              incident,
+            },
+          },
+          time: { start: Date.now(), end: Date.now() },
+        }).pipe(Effect.ignore)
+        yield* bus.publish(Session.Event.TryBestDetected, {
+          sessionID: ctx.sessionID,
+          agentID: ctx.assistantMessage.agentID,
+          providerID: input.model.providerID,
+          modelID: input.model.id,
+          ...incident,
+        }).pipe(Effect.ignore)
+        yield* bus.publish(Metrics.TryBestDetected, {
+          sessionID: ctx.sessionID,
+          reason: incident.reason,
+          provider: input.model.providerID,
+          model_id: input.model.id,
+          count: incident.evidence?.count ?? 1,
+        }).pipe(Effect.ignore)
+      })
 
       const parse = (e: unknown) =>
         MessageV2.fromError(e, {
@@ -168,7 +374,7 @@ const layer = Layer.effect(
       ) {
         const match = yield* readToolCall(toolCallID)
         if (!match || match.part.state.status !== "running") return
-        yield* session.updatePart({
+        const part = yield* session.updatePart({
           ...match.part,
           state: {
             status: "completed",
@@ -180,25 +386,34 @@ const layer = Layer.effect(
             attachments: output.attachments,
           },
         })
+        yield* detectTryBest(part)
         yield* settleToolCall(toolCallID)
       })
 
       const failToolCall = Effect.fn("SessionProcessor.failToolCall")(function* (toolCallID: string, error: unknown) {
         const match = yield* readToolCall(toolCallID)
         if (!match || match.part.state.status !== "running") return false
-        yield* session.updatePart({
+        const recoverable = (error as { recoverable?: unknown })?.recoverable === true
+        const part = yield* session.updatePart({
           ...match.part,
           state: {
             status: "error",
             input: match.part.state.input,
             error: errorMessage(error),
             // Keep metadata streamed while running so failures retain progress detail (e.g. execute's child calls).
-            metadata: match.part.state.metadata,
+            metadata: recoverable
+              ? { ...match.part.state.metadata, recoverable: true }
+              : match.part.state.metadata,
             time: { start: match.part.state.time.start, end: Date.now() },
           },
         })
+        yield* detectTryBest(part)
         if (error instanceof PermissionV1.RejectedError || error instanceof Question.RejectedError) {
           ctx.blocked = ctx.shouldBreak
+          if (ctx.blocked) {
+            ctx.stopReason = "permission_deny"
+            ctx.stopErrorType = "permission_deny"
+          }
         }
         yield* settleToolCall(toolCallID)
         return true
@@ -369,14 +584,28 @@ const layer = Layer.effect(
             }
 
             const agent = yield* agents.get(ctx.assistantMessage.agent)
-            yield* permission.ask({
-              permission: "doom_loop",
-              patterns: [value.name],
-              sessionID: ctx.assistantMessage.sessionID,
-              metadata: { tool: value.name, input },
-              always: [value.name],
-              ruleset: agent.permission,
-            })
+            yield* permission
+              .ask({
+                permission: "doom_loop",
+                patterns: [value.name],
+                sessionID: ctx.assistantMessage.sessionID,
+                metadata: { tool: value.name, input },
+                always: [value.name],
+                ruleset: agent.permission,
+              })
+              .pipe(
+                Effect.catchIf(
+                  (error) =>
+                    error instanceof PermissionV1.DeniedError ||
+                    error instanceof PermissionV1.RejectedError,
+                  () =>
+                    Effect.sync(() => {
+                      ctx.stopReason = "doom_loop"
+                      ctx.stopErrorType = "doom_loop"
+                      ctx.blocked = ctx.shouldBreak
+                    }),
+                ),
+              )
             return
           }
 
@@ -435,6 +664,20 @@ const layer = Layer.effect(
           case "step-finish": {
             const completedSnapshot = yield* snapshot.track()
             yield* Effect.forEach(Object.keys(ctx.reasoningMap), finishReasoning)
+            // Anthropic reports thinking blocks it removed before the model saw the
+            // prompt. Prefix mismatches mean opencode changed history behind a signed
+            // block; log them so the churn can be tracked down.
+            const dropped = isRecord(value.providerMetadata?.anthropic)
+              ? value.providerMetadata.anthropic.inputTransformations
+              : undefined
+            if (Array.isArray(dropped) && dropped.length > 0) {
+              yield* Effect.logWarning("thinking blocks dropped by provider", {
+                sessionID: ctx.sessionID,
+                messageID: ctx.assistantMessage.id,
+                model: ctx.model.id,
+                transformations: JSON.stringify(dropped),
+              })
+            }
             const usage = Session.getUsage({
               model: ctx.model,
               usage: value.usage ?? new Usage({}),
@@ -454,6 +697,41 @@ const layer = Layer.effect(
               cost: usage.cost,
             })
             yield* session.updateMessage(ctx.assistantMessage)
+            yield* Effect.gen(function* () {
+              const finishReason = typeof value.reason === "string" ? value.reason : (value.reason as { type?: string })?.type ?? null
+              const modelId = extractModelId(ctx.model)
+              const providerId = extractProviderId(ctx.model)
+              const latencyMs = streamStartMs !== undefined ? Math.round(performance.now() - streamStartMs) : null
+              const ttftMs = streamStartMs !== undefined && firstTokenMs !== undefined ? Math.round(firstTokenMs - streamStartMs) : null
+              const derivedErrorType = ctx.stopErrorType ?? (finishReason === "error" ? (classifyError(value.reason) ?? "provider_error") : null)
+              const derivedStopReason = ctx.stopReason ?? (finishReason === "stop" && ctx.blocked ? "blocked" : null)
+              yield* database.db
+                .insert(SessionCallTable)
+                .values({
+                  call_id: PartID.ascending(),
+                  session_id: ctx.assistantMessage.sessionID,
+                  message_id: ctx.assistantMessage.id,
+                  provider_id: providerId ?? "unknown",
+                  model_id: modelId ?? "unknown",
+                  variant: null,
+                  tokens_input: extractTokenProperty(usage.tokens, "input"),
+                  tokens_output: extractTokenProperty(usage.tokens, "output"),
+                  tokens_reasoning: extractTokenProperty(usage.tokens, "reasoning"),
+                  tokens_cache_read: extractTokenProperty(usage.tokens, "cache_read"),
+                  tokens_cache_write: extractTokenProperty(usage.tokens, "cache_write"),
+                  latency_ms: latencyMs,
+                  ttft_ms: ttftMs,
+                  finish_reason: finishReason,
+                  error_type: derivedErrorType,
+                  stop_reason: derivedStopReason,
+                  cost_microusd: Math.round((usage.cost ?? 0) * 1_000_000),
+                  time_created: Date.now(),
+                  time_updated: Date.now(),
+                })
+                .run()
+              ctx.stopReason = null
+              ctx.stopErrorType = null
+            }).pipe(Effect.tapError((e) => Effect.logWarning("session_call insert failed", { error: String(e) })), Effect.ignore)
             if (ctx.snapshot) {
               const patch = yield* snapshot.patch(ctx.snapshot)
               if (patch.files.length) {
@@ -637,10 +915,17 @@ const layer = Layer.effect(
             ctx.currentText = undefined
             ctx.reasoningMap = {}
             yield* status.set(ctx.sessionID, { type: "busy" })
+            streamStartMs = performance.now()
+            firstTokenMs = undefined
             const stream = llm.stream(streamInput)
 
             yield* stream.pipe(
-              Stream.tap((event) => handleEvent(event)),
+              Stream.tap((event) =>
+                Effect.gen(function* () {
+                  if (event.type === "text-delta" || event.type === "reasoning-delta" || event.type === "tool-input-start" || event.type === "text-start" || event.type === "reasoning-start") markFirstToken()
+                  yield* handleEvent(event as StreamEvent)
+                }),
+              ),
               Stream.takeUntil(() => ctx.needsCompaction),
               Stream.runDrain,
             )
@@ -682,6 +967,174 @@ const layer = Layer.effect(
         })
       })
 
+      const replay = Effect.fn("SessionProcessor.replay")(function* (input: ReplayInput) {
+        yield* Effect.logInfo("replay", { toolCalls: input.toolCalls.length, finish: input.finishReason })
+        ctx.needsCompaction = false
+        ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
+        const ctrl = new AbortController()
+        return yield* Effect.gen(function* () {
+          yield* Effect.gen(function* () {
+            ctx.currentText = undefined
+            ctx.reasoningMap = {}
+            yield* status.set(ctx.sessionID, { type: "busy" })
+            // opencode/src/session/processor.ts:966 (constructed step-start event) vs StreamEvent union
+            yield* handleEvent({ type: "step-start", index: 0 } as unknown as StreamEvent)
+            const selectionNote = input.selection
+              ? `[max mode] selected candidate ${input.selection.winner + 1} of ${input.selection.total}`
+              : undefined
+            const reasoningText = [selectionNote, input.reasoning].filter(Boolean).join("\n\n")
+            if (reasoningText) {
+              const rid = "reasoning-replay"
+              const backdatedStart = input.thinkingMs ? Date.now() - input.thinkingMs : undefined
+              // opencode/src/session/processor.ts:979 (constructed reasoning-start event) vs StreamEvent union
+              yield* handleEvent({
+                type: "reasoning-start",
+                id: rid,
+                providerMetadata: input.reasoningMetadata,
+                ...(backdatedStart ? { time: { start: backdatedStart } } : {}),
+              } as unknown as StreamEvent)
+              yield* handleEvent({
+                type: "reasoning-delta",
+                id: rid,
+                text: reasoningText,
+                providerMetadata: input.reasoningMetadata,
+              } as unknown as StreamEvent)
+              yield* handleEvent({
+                type: "reasoning-end",
+                id: rid,
+                providerMetadata: input.reasoningMetadata,
+              } as unknown as StreamEvent)
+            }
+            if (input.text) {
+              const tid = "text-replay"
+              yield* handleEvent({
+                type: "text-start",
+                id: tid,
+                providerMetadata: input.textMetadata,
+              } as unknown as StreamEvent)
+              yield* handleEvent({
+                type: "text-delta",
+                id: tid,
+                text: input.text,
+                providerMetadata: input.textMetadata,
+              } as unknown as StreamEvent)
+              yield* handleEvent({
+                type: "text-end",
+                id: tid,
+                providerMetadata: input.textMetadata,
+              } as unknown as StreamEvent)
+            }
+            for (const call of input.toolCalls) {
+              if (ctx.needsCompaction) break
+              yield* handleEvent({
+                type: "tool-input-start",
+                id: call.toolCallId,
+                name: call.toolName,
+                providerMetadata: call.providerMetadata,
+              } as unknown as StreamEvent)
+              yield* handleEvent({
+                type: "tool-call",
+                id: call.toolCallId,
+                name: call.toolName,
+                input: call.input,
+                providerMetadata: call.providerMetadata,
+              } as unknown as StreamEvent)
+              const t = input.tools[call.toolName]
+              if (!t || !t.execute) {
+                yield* handleEvent({
+                  type: "tool-error",
+                  id: call.toolCallId,
+                  name: call.toolName,
+                  message: `Tool "${call.toolName}" has no executor`,
+                  error: new Error(`Tool "${call.toolName}" has no executor`),
+                } as unknown as StreamEvent) // opencode/src/session/processor.ts:1036 (constructed tool-error event) vs StreamEvent union
+                continue
+              }
+              const normalizedInput = normalizeToolInput(call.input, call.toolName) as Record<string, unknown>
+              // opencode/src/session/processor.ts:1040 (tool info schema structure) vs runtime tool definition
+              const schemaCandidate = (t as unknown as { inputSchema?: { "~standard"?: { validate?: (v: unknown) => unknown } } })
+                .inputSchema?.["~standard"]?.validate
+              if (schemaCandidate) {
+                const v = schemaCandidate(normalizedInput) as { issues?: unknown[] }
+                const maybePromise = v as Promise<{ issues?: unknown[] }>
+                const res = typeof (maybePromise as Promise<unknown>).then === "function" ? yield* Effect.promise(() => maybePromise) : v
+                if ((res as { issues?: unknown[] }).issues?.length) {
+                  yield* handleEvent({
+                    type: "tool-error",
+                    id: call.toolCallId,
+                    name: call.toolName,
+                    message: `Invalid arguments for ${call.toolName}: ${JSON.stringify((res as { issues: unknown[] }).issues)}`,
+                    error: new Error(JSON.stringify((res as { issues: unknown[] }).issues)),
+                  } as unknown as StreamEvent)
+                  continue
+                }
+              }
+              const outcome = yield* Effect.tryPromise({
+                try: () =>
+                  t.execute!(normalizedInput as never, {
+                    toolCallId: call.toolCallId,
+                    messages: input.messages,
+                    abortSignal: ctrl.signal,
+                  }),
+                catch: (e) => e,
+              }).pipe(
+                Effect.map((output) => ({ ok: true as const, output })),
+                Effect.catch((error) => Effect.succeed({ ok: false as const, error })),
+              )
+              if (!outcome.ok) {
+                yield* handleEvent({
+                  type: "tool-error",
+                  id: call.toolCallId,
+                  name: call.toolName,
+                  message: errorMessage(outcome.error),
+                  error: outcome.error,
+                } as unknown as StreamEvent)
+              } else {
+                yield* handleEvent({
+                  type: "tool-result",
+                  id: call.toolCallId,
+                  name: call.toolName,
+                  result: { type: "json" as const, value: outcome.output },
+                } as unknown as StreamEvent)
+              }
+            }
+            yield* handleEvent({
+              type: "step-finish",
+              index: 0,
+              reason: input.finishReason,
+              usage: input.usage ?? new Usage({}),
+              providerMetadata: input.providerMetadata,
+            } as unknown as StreamEvent)
+            if (
+              input.overhead &&
+              (input.overhead.cost > 0 || input.overhead.tokensIn > 0 || input.overhead.tokensOut > 0)
+            ) {
+              ctx.assistantMessage.cost += input.overhead.cost
+              yield* session.updateMessage(ctx.assistantMessage)
+            }
+          }).pipe(
+            Effect.onInterrupt(() =>
+              Effect.gen(function* () {
+                aborted = true
+                ctrl.abort()
+                if (!ctx.assistantMessage.error) {
+                  yield* halt(new DOMException("Aborted", "AbortError"))
+                }
+              }),
+            ),
+            Effect.catchCauseIf(
+              (cause) => !Cause.hasInterruptsOnly(cause),
+              (cause) => Effect.fail(Cause.squash(cause)),
+            ),
+            Effect.catch(halt),
+            Effect.ensuring(cleanup()),
+          )
+          if (ctx.needsCompaction) return "compact" as Result
+          if (ctx.blocked || ctx.assistantMessage.error) return "stop" as Result
+          return "continue" as Result
+        })
+      })
+
       return {
         get message() {
           return ctx.assistantMessage
@@ -689,6 +1142,7 @@ const layer = Layer.effect(
         updateToolCall,
         completeToolCall,
         process,
+        replay,
       } satisfies Handle
     })
 
@@ -698,7 +1152,7 @@ const layer = Layer.effect(
 
 export const node = LayerNode.make({
   service: Service,
-  layer: layer,
+  layer: layer.pipe(Layer.provide(Bus.layer)),
   deps: [
     Session.node,
     Config.node,

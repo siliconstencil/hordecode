@@ -4,6 +4,11 @@ import { Script } from "@opencode-ai/script"
 import { $ } from "bun"
 import { fileURLToPath } from "url"
 
+if (process.env.HORDECODE_RELEASE_CONFIRMED !== "1") {
+  console.error("Blocked: set HORDECODE_RELEASE_CONFIRMED=1 to run the publish cascade (local-only policy).")
+  process.exit(1)
+}
+
 console.log("=== publishing ===\n")
 
 const dir = fileURLToPath(new URL("..", import.meta.url))
@@ -37,9 +42,6 @@ await prepareReleaseFiles()
 
 console.log("\n=== cli ===\n")
 await $`bun ./packages/opencode/script/publish.ts`
-
-console.log("\n=== preview cli ===\n")
-await $`bun ./packages/cli/script/publish.ts`
 
 console.log("\n=== sdk ===\n")
 await $`bun ./packages/sdk/js/script/publish.ts`

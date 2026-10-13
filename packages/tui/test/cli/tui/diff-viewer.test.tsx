@@ -211,14 +211,14 @@ const session = {
 test("branch diff source requests branch VCS diff", async () => {
   const viewer = await renderDiffViewer([], 20, {
     name: "diff",
-    params: { mode: "branch", sessionID: "session-1", returnRoute: startRoute },
+    params: { mode: "git", sessionID: "session-1", returnRoute: startRoute },
   })
   try {
     expect(viewer.current()).toEqual({
       name: "diff",
-      params: { mode: "branch", sessionID: "session-1", returnRoute: startRoute },
+      params: { mode: "git", sessionID: "session-1", returnRoute: startRoute },
     })
-    expect(viewer.vcsDiffInput()).toEqual({ directory: "/repo/session", mode: "branch", context: 12 })
+    expect(viewer.vcsDiffInput()).toEqual({ directory: "/repo/session", mode: "git", context: 12 })
     expect(viewer.sessionDiffInput()).toBeUndefined()
   } finally {
     viewer.app.renderer.destroy()

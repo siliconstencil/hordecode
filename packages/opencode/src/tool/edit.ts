@@ -14,8 +14,10 @@ import { Watcher } from "@opencode-ai/core/filesystem/watcher"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Format } from "../format"
 import { InstanceState } from "@/effect/instance-state"
+import { SessionCwd } from "@opencode-ai/core/tool/session-cwd"
 import { Snapshot } from "@/snapshot"
-import { assertExternalDirectoryEffect } from "./external-directory"
+import { assertWriteAllowed, askEditUnlessMemory } from "./external-directory"
+import { assertFileRead } from "./read-state"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import * as Bom from "@/util/bom"
 
@@ -79,8 +81,16 @@ export const EditTool = Tool.define(
           const instance = yield* InstanceState.context
           const filePath = path.isAbsolute(params.filePath)
             ? params.filePath
-            : path.join(instance.directory, params.filePath)
-          yield* assertExternalDirectoryEffect(ctx, filePath)
+            : // Session cwd (change_directory) anchors relative paths; MiMo Code 0.1.11 tool/edit.ts:80.
+              path.join(SessionCwd.get(ctx.sessionID, instance.directory), params.filePath)
+          yield* assertWriteAllowed(ctx, filePath)
+
+          // The "create new file" branch (oldString === "") is effectively a
+          // write, so a prior Read isn't meaningful there. For real edits we
+          // require Read first so the model is operating on current contents.
+          if (params.oldString !== "") {
+            assertFileRead(ctx, filePath, "edit", instance.directory)
+          }
 
           let diff = ""
           let contentOld = ""
@@ -99,14 +109,9 @@ export const EditTool = Tool.define(
                 contentOld = ""
                 contentNew = next.text
                 diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
-                yield* ctx.ask({
-                  permission: "edit",
+                yield* askEditUnlessMemory(ctx, filePath, {
                   patterns: [path.relative(instance.worktree, filePath)],
-                  always: ["*"],
-                  metadata: {
-                    filepath: filePath,
-                    diff,
-                  },
+                  diff,
                 })
                 yield* afs.writeWithDirs(filePath, Bom.join(contentNew, desiredBom))
                 if (yield* format.file(filePath)) {
@@ -142,14 +147,9 @@ export const EditTool = Tool.define(
                   normalizeLineEndings(contentNew),
                 ),
               )
-              yield* ctx.ask({
-                permission: "edit",
+              yield* askEditUnlessMemory(ctx, filePath, {
                 patterns: [path.relative(instance.worktree, filePath)],
-                always: ["*"],
-                metadata: {
-                  filepath: filePath,
-                  diff,
-                },
+                diff,
               })
 
               yield* afs.writeWithDirs(filePath, Bom.join(contentNew, desiredBom))

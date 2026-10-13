@@ -1,6 +1,7 @@
 {
   "name": "@opencode-ai/app",
-  "version": "1.17.18",
+  "version": "0.1.0",
+  "hordecodeBase": "1.17.18",
   "description": "",
   "type": "module",
   "exports": {
@@ -12,14 +13,14 @@
     "./index.css": "./src/index.css"
   },
   "scripts": {
-    "typecheck": "tsgo -b",
+    "typecheck": "tsc --noEmit",
     "typecheck:e2e": "tsgo -p e2e/tsconfig.json",
     "start": "vite",
     "dev": "vite",
     "build": "vite build",
     "serve": "vite preview",
     "test": "bun run test:unit && bun run test:browser",
-    "test:unit": "bun test --only-failures --preload ./happydom.ts ./src",
+    "test:unit": "bun test --preload ./happydom.ts ./src",
     "test:browser": "bun test --conditions=browser --preload ./happydom.ts ./test-browser",
     "test:unit:watch": "bun test --watch --preload ./happydom.ts ./src",
     "test:e2e": "playwright test",
@@ -54,7 +55,6 @@
     "@dnd-kit/solid": "0.5.0",
     "@kobalte/core": "catalog:",
     "@opencode-ai/core": "workspace:*",
-    "@opencode-ai/schema": "workspace:*",
     "@opencode-ai/sdk": "workspace:*",
     "@opencode-ai/session-ui": "workspace:*",
     "@opencode-ai/ui": "workspace:*",

@@ -11,9 +11,32 @@ export interface InstanceState<A, E = never, R = never> {
   readonly cache: ScopedCache.ScopedCache<string, A, E, R>
 }
 
+let warnedMissingInstance = false
+
 export const context = Effect.gen(function* () {
   const ctx = yield* InstanceRef
-  if (!ctx) return yield* Effect.die(new Error("InstanceRef not provided"))
+  if (!ctx) {
+    // Upstream dies here (instance-state.ts:16). The fork falls back to the process cwd so the
+    // TUI worker can start; warn once so any other caller that runs without an instance shows
+    // up in the log instead of writing rows under a made-up project id.
+    if (!warnedMissingInstance) {
+      warnedMissingInstance = true
+      yield* Effect.logWarning("InstanceRef not provided; falling back to the process cwd as instance")
+    }
+    const cwd = process.cwd()
+    const now = Date.now()
+    return {
+      directory: cwd,
+      worktree: cwd,
+      project: {
+        id: cwd,
+        directory: cwd,
+        worktree: cwd,
+        time: { created: now, updated: now },
+        sandboxes: [],
+      },
+    } as unknown as InstanceContext
+  }
   return ctx
 })
 

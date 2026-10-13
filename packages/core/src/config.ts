@@ -4,6 +4,7 @@ import { makeLocationNode } from "./effect/app-node"
 import path from "path"
 import { type ParseError, parse } from "jsonc-parser"
 import { Context, Effect, Layer, Option, Schema } from "effect"
+import { ZodOverride } from "./util/effect-zod"
 import { Permission } from "@opencode-ai/schema/permission"
 import { FSUtil } from "./fs-util"
 import { Global } from "./global"
@@ -13,6 +14,12 @@ import { AbsolutePath } from "./schema"
 import { ConfigAgent } from "./config/agent"
 import { ConfigAttachments } from "./config/attachments"
 import { ConfigCompaction } from "./config/compaction"
+
+// Pre-decoded empty compaction config carrying the schema-level defaults
+// (max_context + prune). Used as the decode default for the whole `compaction`
+// block so both the runner and subagent overflow paths see the same defaults
+// even when no `compaction` block is present in any config file.
+const compactionDefaults = Schema.decodeUnknownSync(ConfigCompaction.Info)({})
 import { ConfigCommand } from "./config/command"
 import { ConfigExperimental } from "./config/experimental"
 import { ConfigFormatter } from "./config/formatter"
@@ -60,7 +67,7 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   permissions: Permission.Ruleset.pipe(Schema.optional).annotate({
     description: "Ordered tool permission rules applied to agent tool use",
   }),
-  agents: Schema.Record(Schema.String, ConfigAgent.Info).pipe(Schema.optional).annotate({
+  agents: Schema.Record(Schema.String, Schema.Any).pipe(Schema.optional).annotate({
     description: "Named built-in agent overrides and custom agent definitions",
   }),
   snapshots: Schema.Boolean.pipe(Schema.optional).annotate({
@@ -84,7 +91,12 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   mcp: ConfigMCP.Info.pipe(Schema.optional).annotate({
     description: "MCP server configuration",
   }),
-  compaction: ConfigCompaction.Info.pipe(Schema.optional).annotate({
+  compaction: ConfigCompaction.Info.pipe(
+    Schema.optional,
+    // Surface the compaction defaults even when no `compaction` block is present,
+    // so the runner and subagent overflow paths agree at the default window.
+    Schema.withDecodingDefault(Effect.succeed(compactionDefaults)),
+  ).annotate({
     description: "Conversation compaction behavior",
   }),
   skills: Schema.String.pipe(Schema.Array, Schema.optional).annotate({
@@ -139,7 +151,7 @@ const layer = Layer.effect(
     const global = yield* Global.Service
     const location = yield* Location.Service
     const policy = yield* Policy.Service
-    const names = ["opencode.json", "opencode.jsonc"]
+    const names = ["opencode.json", "opencode.jsonc", "hordecode.json", "hordecode.jsonc"]
     const decodeOptions = { errors: "all", onExcessProperty: "ignore", propertyOrder: "original" } as const
     const decodeInfo = Schema.decodeUnknownOption(Info, decodeOptions)
     const decodeV1Info = Schema.decodeUnknownOption(ConfigV1.Info, decodeOptions)
@@ -162,8 +174,14 @@ const layer = Layer.effect(
     })
 
     const loadDirectory = Effect.fnUntraced(function* (directory: AbsolutePath) {
+      // Later entries are more specific and win; opencode files are compat, hordecode files are primary.
+      const opencodeName = names.filter((n) => n.startsWith("opencode"))
+      const hordecodeName = names.filter((n) => n.startsWith("hordecode"))
       return [
-        ...(yield* Effect.forEach(names, (file) => loadFile(path.join(directory, file))).pipe(
+        ...(yield* Effect.forEach(opencodeName, (file) => loadFile(path.join(directory, file))).pipe(
+          Effect.map((configs) => configs.filter((config): config is Document => config !== undefined)),
+        )),
+        ...(yield* Effect.forEach(hordecodeName, (file) => loadFile(path.join(directory, file))).pipe(
           Effect.map((configs) => configs.filter((config): config is Document => config !== undefined)),
         )),
         new Directory({ type: "directory", path: directory }),
@@ -178,7 +196,7 @@ const layer = Layer.effect(
       ? []
       : yield* fs
           .up({
-            targets: [".opencode", ...names.toReversed()],
+            targets: [".hordecode", ".opencode", ...names.toReversed()],
             start: location.directory,
             stop: location.project.directory,
           })
@@ -186,20 +204,20 @@ const layer = Layer.effect(
     const directories = [
       globalDirectory,
       ...discovered
-        .filter((item) => path.basename(item) === ".opencode")
+        .filter((item) => path.basename(item) === ".hordecode" || path.basename(item) === ".opencode")
         .toReversed()
         .map((directory) => AbsolutePath.make(directory)),
     ]
     // A config closer to the opened directory should win over one higher up.
     // Search starts nearby, so reverse the results before applying them.
-    const directPaths = discovered.filter((item) => path.basename(item) !== ".opencode").toReversed()
+    const directPaths = discovered.filter((item) => path.basename(item) !== ".hordecode" && path.basename(item) !== ".opencode").toReversed()
     const direct = yield* Effect.forEach(directPaths, loadFile).pipe(
       Effect.orDie,
       Effect.map((configs) => configs.filter((config): config is Document => config !== undefined)),
     )
     const supplementary = yield* Effect.forEach(directories, loadDirectory).pipe(Effect.orDie)
     // Apply general settings first and more specific settings last:
-    // global config, project files, then `.opencode` files.
+    // global config, project files, then `.hordecode` and `.opencode` files (hordecode takes precedence).
     const configs = [...(supplementary[0] ?? []), ...direct, ...supplementary.slice(1).flat()]
     // Rules use the opposite order so a user-global rule can override a
     // repository rule. Statement order inside each file stays unchanged.

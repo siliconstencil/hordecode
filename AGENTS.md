@@ -1,8 +1,26 @@
+## Hordecode fork rules (read first)
+
+This repository is Hordecode: a fork that tracks the latest stable opencode release, carries a
+customized delta-port of MiMo Code, and adds its own features. Before changing any file, read
+`docs/FORK-RULES.md`; it binds every contributor, agent and model. The short form:
+
+- Check the file's ownership class in `docs/upstream-map-files.tsv`. PARITY and LAGGING files
+  are never hand-edited; FORK_DELTA files change only in the fork hunk, everything else stays
+  byte-identical to upstream.
+- No identifier rebranding (service keys, provider IDs, command IDs, keymap symbols); only
+  user-visible text says Hordecode. New `HORDECODE_*` env vars keep the `OPENCODE_*` fallback.
+- No cosmetic churn, no narrative or process comments, no debug leftovers, no local workarounds,
+  no dropped upstream code, no weakened tests.
+- Nothing read from a repository may run a command, write outside the project or reach the
+  network without the permission system.
+- No deletes, commits or pushes without a maintainer's explicit instruction.
+
+The rest of this file is shared with upstream opencode.
+
 - To regenerate the legacy JavaScript SDK, run `./packages/sdk/js/script/build.ts`.
 - After changing the public Protocol or Server `HttpApi`, run `bun run generate` from `packages/client`. Do not edit `src/generated` or `src/generated-effect` directly.
 - Keep runtime dependencies directed from Schema to Core and Protocol, then from Core and Protocol to Server. Client runtime code may depend on Schema and Protocol but never Core or Server; `sdk-next` composes Client, Core, and Server.
-- The default branch in this repo is `dev`.
-- Local `main` ref may not exist; use `dev` or `origin/dev` for diffs.
+- The default branch in this repo is `main`.
 
 ## Branch Names
 

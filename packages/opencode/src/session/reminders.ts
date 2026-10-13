@@ -23,6 +23,27 @@ export const apply = Effect.fn("SessionReminders.apply")(function* (input: {
   const userMessage = input.messages.findLast((msg) => msg.info.role === "user")
   if (!userMessage) return input.messages
 
+  // General mode-transition reminder. When the active agent differs from
+  // the previous assistant turn's agent, inject a synthetic system-reminder
+  // naming the new mode, its description, and its available skill namespace.
+  // This is data-driven from Agent.Info — no per-mode hardcoded branches.
+  const assistantMessage = input.messages.findLast((msg) => msg.info.role === "assistant")
+  const previousAgent = assistantMessage?.info.agent
+  const currentAgent = input.agent.name
+  if (previousAgent && previousAgent !== currentAgent && input.agent.description) {
+    const skillsNote = input.agent.skillPipeline
+      ? `Available skills: \`${input.agent.skillPipeline}:*\``
+      : "All registered skills are available."
+    userMessage.parts.push({
+      id: PartID.ascending(),
+      messageID: userMessage.info.id,
+      sessionID: userMessage.info.sessionID,
+      type: "text",
+      text: `<system-reminder>\nMode switched to **${currentAgent}**: ${input.agent.description}\n${skillsNote}\n</system-reminder>`,
+      synthetic: true,
+    })
+  }
+
   if (!flags.experimentalPlanMode) {
     if (input.agent.name === "plan") {
       userMessage.parts.push({
@@ -48,7 +69,6 @@ export const apply = Effect.fn("SessionReminders.apply")(function* (input: {
     return input.messages
   }
 
-  const assistantMessage = input.messages.findLast((msg) => msg.info.role === "assistant")
   if (input.agent.name !== "plan" && assistantMessage?.info.agent === "plan") {
     const ctx = yield* InstanceState.context
     const plan = Session.plan(input.session, ctx)

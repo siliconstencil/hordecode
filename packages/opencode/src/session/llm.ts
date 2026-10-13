@@ -13,7 +13,7 @@ import type { LLMClientService } from "@opencode-ai/llm/route"
 import { GitLabWorkflowLanguageModel } from "gitlab-ai-provider"
 import { ProviderTransform } from "@/provider/transform"
 import { Config } from "@/config/config"
-import type { Agent } from "@/agent/agent"
+import { Agent } from "@/agent/agent"
 import type { MessageV2 } from "./message-v2"
 import { Plugin } from "@/plugin"
 import { Permission } from "@/permission"
@@ -111,6 +111,17 @@ const live: Layer.Layer<
         flags,
         isWorkflow,
       })
+      // meta/muse-spark only supports "auto" for tool_choice
+      // AI_APICallError: only "auto" is supported. Unlike deepseek's
+      // thinking-mode workaround, meta's restriction is unconditional, so any
+      // non-auto value must be coerced to auto (undefined defaults to auto).
+      // Structured-output ("required") and max-steps ("none") enforcement for
+      // meta relies on prompt-based alternatives already injected by prompt.ts:
+      // STRUCTURED_OUTPUT_SYSTEM_PROMPT and MAX_STEPS_PROMPT.
+      const effectiveToolChoice =
+        input.model.providerID === "meta" && input.toolChoice && input.toolChoice !== "auto"
+          ? undefined
+          : input.toolChoice
 
       // Wire up toolExecutor for DWS workflow models so that tool calls
       // from the workflow service are executed via opencode's tool system
@@ -146,7 +157,7 @@ const live: Layer.Layer<
           }
         }
 
-        const ruleset = Permission.merge(input.agent.permission ?? [], input.permission ?? [])
+        const ruleset = Agent.runtimePermission(input.agent, input.permission)
         workflowModel.sessionPreapprovedTools = Object.keys(prepared.tools).filter((name) => {
           const match = ruleset.findLast((rule) => Wildcard.match(name, rule.permission))
           return !match || match.action !== "ask"
@@ -231,7 +242,7 @@ const live: Layer.Layer<
           llmClient,
           messages: prepared.messages,
           tools: prepared.tools,
-          toolChoice: input.toolChoice,
+          toolChoice: effectiveToolChoice,
           temperature: prepared.params.temperature,
           topP: prepared.params.topP,
           topK: prepared.params.topK,
@@ -316,7 +327,7 @@ const live: Layer.Layer<
           providerOptions: ProviderTransform.providerOptions(input.model, prepared.params.options),
           activeTools: Object.keys(prepared.tools).filter((x) => x !== "invalid"),
           tools: prepared.tools,
-          toolChoice: input.toolChoice,
+          toolChoice: effectiveToolChoice,
           maxOutputTokens: prepared.params.maxOutputTokens,
           abortSignal: input.abort,
           headers: prepared.headers,

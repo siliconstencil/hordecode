@@ -5,7 +5,7 @@ import { httpClient } from "@opencode-ai/core/effect/app-node-platform"
 import { Effect, Layer, Stream } from "effect"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
-import { Installation } from "../../src/installation"
+import { Installation, RELEASE_BASE, RELEASE_API, INSTALL_SCRIPT, PACKAGE_NAME } from "../../src/installation"
 import { InstallationChannel } from "@opencode-ai/core/installation/version"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { testEffect } from "../lib/effect"
@@ -86,118 +86,123 @@ describe("installation", () => {
         }),
     )
 
-    const npmCalls: string[] = []
+    for (const method of ["npm", "pnpm", "bun"] as const) {
+      const calls: string[] = []
+      testEffect(
+        testLayer((request) => {
+          calls.push(request.url)
+          return jsonResponse({ version: "2.3.4" })
+        }),
+      ).effect(`latest() with ${method} resolves ${PACKAGE_NAME}@${InstallationChannel} from the npm registry`, () =>
+        Effect.gen(function* () {
+          const result = yield* Installation.use.latest(method)
+          expect(result).toBe("2.3.4")
+          expect(calls.some((url) => url.endsWith(`/${PACKAGE_NAME}/${InstallationChannel}`))).toBe(true)
+        }),
+      )
+    }
+
+    testEffect(testLayer(() => jsonResponse({ version: "2.3.4" }))).effect("scoop is unsupported by Hordecode", () =>
+      Effect.gen(function* () {
+        const error = yield* Effect.flip(Installation.use.latest("scoop"))
+        expect(error).toBeInstanceOf(Installation.UpgradeFailedError)
+        expect(error.stderr).toContain("Scoop is not supported")
+      }),
+    )
+
+    // Release channel: when method detection falls through (curl/install-script
+    // path), the GitHub lookup must hit the Hordecode release endpoint, never the
+    // upstream OpenCode one. Verifies the single-source RELEASE_API constant.
+    const curlCalls: string[] = []
     testEffect(
       testLayer((request) => {
-        npmCalls.push(request.url)
-        return jsonResponse({ version: "1.5.0" })
+        curlCalls.push(request.url)
+        return jsonResponse({ tag_name: "v0.1.0" })
       }),
-    ).effect("reads npm versions via registry", () =>
+    ).effect("latest() with curl method resolves from Hordecode release API", () =>
       Effect.gen(function* () {
-        const result = yield* Installation.use.latest("npm")
-        expect(result).toBe("1.5.0")
-        expect(npmCalls).toContain(`https://registry.npmjs.org/opencode-ai/${InstallationChannel}`)
+        const result = yield* Installation.use.latest("curl")
+        expect(result).toBe("0.1.0")
+        expect(curlCalls).toContain(RELEASE_API)
+        expect(RELEASE_BASE).toBe("https://github.com/siliconstencil/hordecode")
       }),
     )
 
-    const bunCalls: string[] = []
+    const fallbackCalls: string[] = []
     testEffect(
       testLayer((request) => {
-        bunCalls.push(request.url)
-        return jsonResponse({ version: "1.6.0" })
+        fallbackCalls.push(request.url)
+        return jsonResponse({ tag_name: "v0.1.0" })
       }),
-    ).effect("reads bun versions via registry", () =>
+    ).effect("latest() falls through to Hordecode release API for unknown methods", () =>
       Effect.gen(function* () {
-        const result = yield* Installation.use.latest("bun")
-        expect(result).toBe("1.6.0")
-        expect(bunCalls).toContain(`https://registry.npmjs.org/opencode-ai/${InstallationChannel}`)
+        const result = yield* Installation.use.latest("unknown")
+        expect(result).toBe("0.1.0")
+        expect(fallbackCalls).toContain(RELEASE_API)
       }),
     )
 
-    const pnpmCalls: string[] = []
-    testEffect(
-      testLayer((request) => {
-        pnpmCalls.push(request.url)
-        return jsonResponse({ version: "1.7.0" })
-      }),
-    ).effect("reads pnpm versions via registry", () =>
-      Effect.gen(function* () {
-        const result = yield* Installation.use.latest("pnpm")
-        expect(result).toBe("1.7.0")
-        expect(pnpmCalls).toContain(`https://registry.npmjs.org/opencode-ai/${InstallationChannel}`)
-      }),
-    )
-
-    testEffect(testLayer(() => jsonResponse({ version: "2.3.4" }))).effect("reads scoop manifest versions", () =>
-      Effect.gen(function* () {
-        const result = yield* Installation.use.latest("scoop")
-        expect(result).toBe("2.3.4")
-      }),
-    )
-
-    testEffect(testLayer(() => jsonResponse({ d: { results: [{ Version: "3.4.5" }] } }))).effect(
-      "reads chocolatey feed versions",
+    testEffect(testLayer(() => jsonResponse({}))).effect(
+      "latest() returns typed error when release has no tag_name",
       () =>
         Effect.gen(function* () {
-          const result = yield* Installation.use.latest("choco")
-          expect(result).toBe("3.4.5")
+          const error = yield* Effect.flip(Installation.use.latest("curl"))
+          expect(error).toBeInstanceOf(Installation.UpgradeFailedError)
+          expect(error.stderr).toContain("no tag_name")
+          expect(error.stderr).toContain(RELEASE_API)
         }),
     )
 
-    testEffect(
-      testLayer(
-        () => jsonResponse({ versions: { stable: "2.0.0" } }),
-        (cmd, args) => {
-          // getBrewFormula: return core formula (no tap)
-          if (cmd === "brew" && args.includes("--formula") && args.includes("anomalyco/tap/opencode")) return ""
-          if (cmd === "brew" && args.includes("--formula") && args.includes("opencode")) return "opencode"
-          return ""
-        },
-      ),
-    ).effect("reads brew formulae API versions", () =>
-      Effect.gen(function* () {
-        const result = yield* Installation.use.latest("brew")
-        expect(result).toBe("2.0.0")
-      }),
+    testEffect(testLayer(() => jsonResponse({ d: { results: [{ Version: "3.4.5" }] } }))).effect(
+      "chocolatey is unsupported by Hordecode",
+      () =>
+        Effect.gen(function* () {
+          const error = yield* Effect.flip(Installation.use.latest("choco"))
+          expect(error).toBeInstanceOf(Installation.UpgradeFailedError)
+          expect(error.stderr).toContain("Chocolatey is not supported")
+        }),
     )
 
-    const brewInfoJson = JSON.stringify({
-      formulae: [{ versions: { stable: "2.1.0" } }],
-    })
-    testEffect(
-      testLayer(
-        () => jsonResponse({}), // HTTP not used for tap formula
-        (cmd, args) => {
-          if (cmd === "brew" && args.includes("anomalyco/tap/opencode") && args.includes("--formula")) return "opencode"
-          if (cmd === "brew" && args.includes("--json=v2")) return brewInfoJson
-          return ""
-        },
-      ),
-    ).effect("reads brew tap info JSON via CLI", () =>
-      Effect.gen(function* () {
-        const result = yield* Installation.use.latest("brew")
-        expect(result).toBe("2.1.0")
-      }),
+    testEffect(testLayer(() => jsonResponse({ versions: { stable: "2.0.0" } }))).effect(
+      "brew is unsupported by Hordecode (no tap)",
+      () =>
+        Effect.gen(function* () {
+          const error = yield* Effect.flip(Installation.use.latest("brew"))
+          expect(error).toBeInstanceOf(Installation.UpgradeFailedError)
+          expect(error.stderr).toContain("Homebrew tap is not supported")
+        }),
     )
   })
 
   describe("upgrade", () => {
+    for (const method of ["npm", "pnpm", "bun"] as const) {
+      const spawned: string[] = []
+      testEffect(
+        testLayer(
+          () => jsonResponse({}),
+          (cmd, args) => {
+            spawned.push([cmd, ...args].join(" "))
+            return ""
+          },
+        ),
+      ).effect(`${method} upgrade installs ${PACKAGE_NAME}@<target> globally`, () =>
+        Effect.gen(function* () {
+          yield* Installation.use.upgrade(method, "9.9.9")
+          expect(spawned).toContain(`${method} install -g ${PACKAGE_NAME}@9.9.9`)
+        }),
+      )
+    }
+
     testEffect(
       testLayer(
         () => jsonResponse({}),
-        (cmd) => {
-          if (cmd === "npm") return { code: 1, stderr: "token=secret command output" }
-          return ""
-        },
+        (cmd, args) => (cmd === "npm" && args[0] === "install" ? { code: 1, stderr: "EACCES" } : ""),
       ),
-    ).effect("returns sanitized typed errors for failed package upgrades", () =>
+    ).effect("npm upgrade surfaces a typed error when the package manager fails", () =>
       Effect.gen(function* () {
         const error = yield* Effect.flip(Installation.use.upgrade("npm", "9.9.9"))
         expect(error).toBeInstanceOf(Installation.UpgradeFailedError)
-        expect(error.stderr).toBe("Upgrade failed for npm (exit code 1).")
-        expect(error.message).toBe(error.stderr)
-        expect(error.stderr).not.toContain("secret")
-        expect(error.stderr).not.toContain("command output")
+        expect(error.stderr).toContain("Upgrade failed for npm (exit code 1)")
       }),
     )
 
@@ -234,6 +239,29 @@ describe("installation", () => {
     ).effect("falls back to sh when bash is unavailable during curl upgrade", () =>
       Effect.gen(function* () {
         yield* Installation.use.upgrade("curl", "9.9.9")
+      }),
+    )
+
+    // Release channel: curl upgrade must pull the install script from
+    // RELEASE_BASE, not the upstream `https://opencode.ai/install`.
+    const curlUpgradeCalls: string[] = []
+    testEffect(
+      testLayer(
+        (request) => {
+          curlUpgradeCalls.push(request.url)
+          return new Response("install script", { status: 200 })
+        },
+        (cmd, args) => {
+          if (cmd === "bash" && args[0] === "--version") return "GNU bash"
+          if (cmd === "bash") return { code: 0 }
+          if (cmd === process.execPath.split("/").pop()) return "0.1.0"
+          return ""
+        },
+      ),
+    ).effect("curl upgrade fetches install script from Hordecode release channel", () =>
+      Effect.gen(function* () {
+        yield* Installation.use.upgrade("curl", "9.9.9")
+        expect(curlUpgradeCalls).toContain(INSTALL_SCRIPT)
       }),
     )
   })

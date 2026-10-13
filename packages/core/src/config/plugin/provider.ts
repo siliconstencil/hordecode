@@ -76,30 +76,45 @@ export const Plugin = define({
                   if (config.request.variant !== undefined) model.request.variant = config.request.variant
                 }
                 if (config.variants !== undefined) {
-                  for (const variant of config.variants) {
-                    let existing = model.variants.find((item) => item.id === variant.id)
-                    if (!existing) {
-                      existing = {
-                        id: variant.id,
-                        headers: {},
-                        body: {},
-                      }
-                      model.variants.push(existing)
+                  for (const [id, options] of Object.entries(config.variants)) {
+                    const variantID = ModelV2.VariantID.make(id)
+                    const headers = options.headers as Record<string, string> | undefined
+                    const body = options.body as Record<string, unknown> | undefined
+                    const existing = model.variants.find((variant) => variant.id === variantID)
+                    if (existing === undefined) {
+                      model.variants.push({ id: variantID, headers: headers ?? {}, body: body ?? {} })
+                      continue
                     }
-                    Object.assign(existing.headers, variant.headers)
-                    Object.assign(existing.body, variant.body)
+                    if (headers !== undefined) Object.assign(existing.headers, headers)
+                    if (body !== undefined) Object.assign(existing.body, body)
                   }
                 }
                 if (config.cost !== undefined) {
-                  model.cost = (Array.isArray(config.cost) ? config.cost : [config.cost]).map((cost) => ({
-                    tier: cost.tier && { ...cost.tier },
-                    input: cost.input,
-                    output: cost.output,
+                  const existing = model.cost[0]
+                  const base = {
+                    input: config.cost.input ?? existing?.input ?? 0,
+                    output: config.cost.output ?? existing?.output ?? 0,
                     cache: {
-                      read: cost.cache?.read ?? 0,
-                      write: cost.cache?.write ?? 0,
+                      read: config.cost.cache_read ?? existing?.cache?.read ?? 0,
+                      write: config.cost.cache_write ?? existing?.cache?.write ?? 0,
                     },
-                  }))
+                  }
+                  if (config.cost.context_over_200k) {
+                    model.cost = [
+                      base,
+                      {
+                        tier: { type: "context" as const, size: 200_000 },
+                        input: config.cost.context_over_200k.input,
+                        output: config.cost.context_over_200k.output,
+                        cache: {
+                          read: config.cost.context_over_200k.cache_read ?? 0,
+                          write: config.cost.context_over_200k.cache_write ?? 0,
+                        },
+                      },
+                    ]
+                  } else {
+                    model.cost = [base]
+                  }
                 }
                 if (config.disabled !== undefined) model.enabled = !config.disabled
                 if (config.limit !== undefined) model.limit = { ...model.limit, ...config.limit }

@@ -5,6 +5,7 @@ import { SessionID } from "@/session/schema"
 import { QuestionID } from "./schema"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { QuestionV1 } from "@opencode-ai/schema/question-v1"
+import { Storage } from "@/storage/storage"
 
 export const Option = QuestionV1.Option
 export type Option = typeof Option.Type
@@ -41,6 +42,7 @@ interface PendingEntry {
 
 interface State {
   pending: Map<QuestionID, PendingEntry>
+  neverAsk: boolean
 }
 
 // Service
@@ -57,6 +59,8 @@ export interface Interface {
   }) => Effect.Effect<void, NotFoundError>
   readonly reject: (requestID: QuestionID) => Effect.Effect<void, NotFoundError>
   readonly list: () => Effect.Effect<ReadonlyArray<Request>>
+  readonly neverAsk: () => Effect.Effect<boolean>
+  readonly setNeverAsk: (enabled: boolean) => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Question") {}
@@ -65,22 +69,25 @@ const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const events = yield* EventV2Bridge.Service
+    const storage = yield* Storage.Service
     const state = yield* InstanceState.make<State>(
-      Effect.fn("Question.state")(function* () {
-        const state = {
-          pending: new Map<QuestionID, PendingEntry>(),
-        }
-
+      Effect.fn("Question.state")(function* (ctx) {
+        const pending = new Map<QuestionID, PendingEntry>()
         yield* Effect.addFinalizer(() =>
           Effect.gen(function* () {
-            for (const item of state.pending.values()) {
+            for (const item of pending.values()) {
               yield* Deferred.fail(item.deferred, new RejectedError())
             }
-            state.pending.clear()
+            pending.clear()
           }),
         )
 
-        return state
+        const map = yield* storage.read<Record<string, boolean>>(["question", "never-ask"]).pipe(
+          Effect.orElseSucceed(() => ({}) as Record<string, boolean>),
+        )
+        const neverAsk = map[ctx.directory] ?? false
+
+        return { pending, neverAsk }
       }),
     )
 
@@ -152,10 +159,26 @@ const layer = Layer.effect(
       return Array.from(pending.values(), (x) => x.info)
     })
 
-    return Service.of({ ask, reply, reject, list })
+    const neverAsk = Effect.fn("Question.neverAsk")(function* () {
+      return (yield* InstanceState.get(state)).neverAsk
+    })
+
+    const setNeverAsk = Effect.fn("Question.setNeverAsk")(function* (enabled: boolean) {
+      const s = yield* InstanceState.get(state)
+      const dir = yield* InstanceState.directory
+      s.neverAsk = enabled
+      const map = yield* storage.read<Record<string, boolean>>(["question", "never-ask"]).pipe(
+        Effect.orElseSucceed(() => ({}) as Record<string, boolean>),
+      )
+      map[dir] = enabled
+      yield* storage.write(["question", "never-ask"], map).pipe(Effect.orElseSucceed(() => undefined))
+      yield* Effect.logInfo("never-ask", { enabled, dir })
+    })
+
+    return Service.of({ ask, reply, reject, list, neverAsk, setNeverAsk })
   }),
 )
 
-export const node = LayerNode.make({ service: Service, layer: layer, deps: [EventV2Bridge.node] })
+export const node = LayerNode.make({ service: Service, layer: layer, deps: [EventV2Bridge.node, Storage.node] })
 
 export * as Question from "."

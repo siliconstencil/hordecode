@@ -1,9 +1,10 @@
 import path from "path"
 import fs from "fs/promises"
-import { describe, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { Effect, Layer, Schema } from "effect"
 import { FastCheck } from "effect/testing"
 import { Config } from "@opencode-ai/core/config"
+import { thirdPartyPluginPackages } from "@opencode-ai/core/config/config"
 import { ConfigProvider } from "@opencode-ai/core/config/provider"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -609,7 +610,7 @@ describe("Config", () => {
               models: {
                 model: {
                   request: { body: { reasoningEffort: "high" } },
-                  variants: [{ id: "fast", body: { temperature: 0.2 } }],
+                  variants: { fast: { temperature: 0.2 } },
                 },
               },
             })
@@ -621,7 +622,7 @@ describe("Config", () => {
                   request: {
                     body: { temperature: 0.3, reasoning: { effort: "high" }, service_tier: "priority" },
                   },
-                  variants: [{ id: "high", body: { reasoning: { effort: "high", summary: "auto" } } }],
+                  variants: { high: { reasoning: { effort: "high", summary: "auto" } } },
                 },
               },
             })
@@ -639,7 +640,7 @@ describe("Config", () => {
             })
             expect(documents[0]?.info.compaction).toEqual({
               auto: true,
-              prune: undefined,
+              prune: true,
               keep: { tokens: 2000 },
               buffer: 10000,
             })
@@ -795,4 +796,51 @@ describe("Config", () => {
       }),
     ),
   )
+
+  // Background plugin install: startup should never fetch
+  // workspace-bundled packages from npm. Third-party plugins declared in
+  // config are still installed, but path-based / built-in packages are
+  // skipped. The dedupe is by package name.
+  describe("thirdPartyPluginPackages", () => {
+    test("returns an empty list when plugin is undefined or empty", () => {
+      expect(thirdPartyPluginPackages(undefined)).toEqual([])
+      expect(thirdPartyPluginPackages([])).toEqual([])
+    })
+
+    test("excludes path-based plugin specs (file://, absolute, ./local)", () => {
+      expect(
+        thirdPartyPluginPackages([
+          "./local-plugin.js",
+          "/abs/path/plugin.ts",
+          "file:///abs/plugin.js",
+        ]),
+      ).toEqual([])
+    })
+
+    test("resolves a single third-party plugin spec to its npm package name", () => {
+      expect(thirdPartyPluginPackages(["some-npm-plugin"])).toEqual(["some-npm-plugin"])
+      expect(thirdPartyPluginPackages(["some-npm-plugin@^1.0.0"])).toEqual(["some-npm-plugin"])
+      expect(thirdPartyPluginPackages([{ package: "another-plugin", options: {} }])).toEqual([
+        "another-plugin",
+      ])
+    })
+
+    test("deduplicates by package name across mixed specs", () => {
+      expect(
+        thirdPartyPluginPackages(["foo", "foo@2.0.0", { package: "bar" }, { package: "bar", options: {} }]),
+      ).toEqual(["foo", "bar"])
+    })
+
+    test("includes @opencode-ai/plugin when declared (always installed upstream-side, pinned to OpenCodePluginApiVersion)", () => {
+      // Third-party OpenCode plugins import `@opencode-ai/plugin` and need it
+      // present in their config dir's `node_modules`. The background install
+      // below always pins it to `OpenCodePluginApiVersion` (= the upstream
+      // base SDK/API version this fork's plugin loader is written against),
+      // never to the Hordecode product version. Returning it from
+      // thirdPartyPluginPackages is intentional -- the install layer treats it
+      // uniformly with other declared plugins.
+      expect(thirdPartyPluginPackages(["@opencode-ai/plugin"])).toEqual(["@opencode-ai/plugin"])
+      expect(thirdPartyPluginPackages(["@opencode-ai/plugin@1.17.18"])).toEqual(["@opencode-ai/plugin"])
+    })
+  })
 })

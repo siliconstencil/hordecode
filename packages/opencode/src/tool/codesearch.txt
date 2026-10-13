@@ -1,0 +1,1 @@
+Search code repositories using Exa. Find code snippets, implementations, and examples across public repositories. Use when the user asks to find code examples, library usage patterns, or SDK implementations.

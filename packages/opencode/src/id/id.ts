@@ -74,7 +74,20 @@ export function timestamp(id: string): number {
   const prefix = id.split("_")[0]
   const hex = id.slice(prefix.length + 1, prefix.length + 13)
   const encoded = BigInt("0x" + hex)
-  return Number(encoded / BigInt(0x1000))
+  const low = Number(encoded / BigInt(0x1000))
+  const P = 68719476736
+  const now = Date.now()
+  const base = Math.floor(now / P) * P
+  let best = base + low
+  let bestDiff = Math.abs(best - now)
+  for (const cand of [best - P, best + P]) {
+    const d = Math.abs(cand - now)
+    if (d < bestDiff) {
+      best = cand
+      bestDiff = d
+    }
+  }
+  return best
 }
 
 export * as Identifier from "./id"

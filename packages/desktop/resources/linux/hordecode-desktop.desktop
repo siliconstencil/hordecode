@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Hordecode
+Exec=/opt/Hordecode/ai.hordecode.desktop %U
+Terminal=false
+Type=Application
+Icon=ai.hordecode.desktop
+StartupWMClass=ai.hordecode.desktop
+NoDisplay=true
+Comment=Open source AI coding agent
+Categories=Development;

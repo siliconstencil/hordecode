@@ -1,0 +1,42 @@
+name: fork-typecheck
+
+on:
+  pull_request:
+    paths:
+      - "packages/**"
+  push:
+    branches:
+      - main
+      - fork/main
+      - dev
+      - ci
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install
+        run: bun install
+      - name: Fork rules
+        run: bun run script/fork-check.ts --strict
+      - name: typecheck inbox
+        run: bun run typecheck
+        working-directory: packages/inbox
+      - name: typecheck core
+        run: bun run typecheck
+        working-directory: packages/core
+      - name: check orphaned tables
+        run: bun run check:orphaned-tables
+        working-directory: packages/core
+      - name: typecheck opencode
+        run: bun run typecheck
+        working-directory: packages/opencode
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+      - name: typecheck supervisor
+        run: bun run typecheck
+        working-directory: packages/supervisor

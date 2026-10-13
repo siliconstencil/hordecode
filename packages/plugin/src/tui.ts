@@ -392,10 +392,16 @@ export type TuiState = {
     status: (sessionID: string) => SessionStatus | undefined
     permission: (sessionID: string) => ReadonlyArray<PermissionRequest>
     question: (sessionID: string) => ReadonlyArray<QuestionRequest>
+    goal: (sessionID: string) => TuiSidebarGoalSync | undefined
+    task: (sessionID: string) => ReadonlyArray<TuiSidebarTaskItem>
+    instructions: (sessionID: string) => ReadonlyArray<string> | undefined
   }
   part: (messageID: string) => ReadonlyArray<Part>
+  instructions: () => ReadonlyArray<string>
   lsp: () => ReadonlyArray<TuiSidebarLspItem>
   mcp: () => ReadonlyArray<TuiSidebarMcpItem>
+  cron: () => ReadonlyArray<TuiSidebarCronItem>
+  supervisor: () => ReadonlyArray<TuiSidebarSupervisorItem>
 }
 
 type TuiBindingLookupView = {
@@ -446,10 +452,53 @@ export type TuiSidebarLspItem = Pick<LspStatus, "id" | "root" | "status">
 
 export type TuiSidebarTodoItem = Pick<Todo, "content" | "status">
 
+export type TuiSidebarGoalVerdict = {
+  ok?: boolean
+  error?: boolean
+  impossible?: boolean
+  attempt: number
+}
+
+export type TuiSidebarGoalSync = {
+  condition?: string
+  verdicts: Record<string, TuiSidebarGoalVerdict>
+  lastMessageID?: string
+}
+
+export type TuiSidebarTaskItem = {
+  id: string
+  status: string
+  summary: string
+  owner: string | null
+  ended_at: number | null
+}
+
 export type TuiSidebarFileItem = {
   file: string
   additions: number
   deletions: number
+}
+
+export type TuiSidebarCronItem = {
+  id: string
+  cron: string
+  prompt: string
+  kind?: string
+  recurring?: boolean
+}
+
+export type TuiSidebarSupervisorItem = {
+  supervisor_id: string
+  session_id: string
+  mode: "subagent" | "peer" | "main"
+  status: "pending" | "running" | "completed" | "failed" | "cancelled" | "unknown"
+  agent: string
+  description: string
+  parent_supervisor_id: string | null
+  time_created: number
+  time_updated: number
+  turn_count: number
+  last_turn_time: number | null
 }
 
 export type TuiHostSlotMap = {

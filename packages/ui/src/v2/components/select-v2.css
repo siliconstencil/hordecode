@@ -133,7 +133,7 @@
   text-align: left;
   font-style: normal;
   font-weight: 440;
-  font-size: 13px;
+  font-size: var(--font-size-small);
   line-height: 16px;
   letter-spacing: -0.04px;
   color: var(--v2-text-text-base);

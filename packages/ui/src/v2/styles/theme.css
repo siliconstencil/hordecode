@@ -142,6 +142,13 @@
 
     --font-family-text: "Inter", sans-serif;
     --v2-font-family-sans: "Inter", sans-serif;
+
+    --font-size-xx-small: 11px;
+    --font-size-x-small: 12px;
+    --font-size-small: 13px;
+    --font-size-base: 14px;
+    --font-size-large: 16px;
+    --font-size-x-large: 20px;
   }
 
   /* OS preference fallback (no JS needed) */

@@ -1,6 +1,7 @@
 export * as ServerAuth from "./auth"
 
 import { Config as EffectConfig, Context, Effect, Layer, Option, Redacted } from "effect"
+import { Flag } from "@opencode-ai/core/flag/flag"
 
 export type Credentials = {
   password?: string
@@ -28,8 +29,14 @@ export class Config extends Context.Service<Config, Info>()("@opencode/ServerAut
       Effect.gen(function* () {
         return Config.of(
           yield* EffectConfig.all({
-            password: EffectConfig.string("OPENCODE_SERVER_PASSWORD").pipe(EffectConfig.option),
-            username: EffectConfig.string("OPENCODE_SERVER_USERNAME").pipe(EffectConfig.withDefault("opencode")),
+            password: EffectConfig.string("HORDECODE_SERVER_PASSWORD").pipe(
+              EffectConfig.orElse(() => EffectConfig.string("OPENCODE_SERVER_PASSWORD")),
+              EffectConfig.option,
+            ),
+            username: EffectConfig.string("HORDECODE_SERVER_USERNAME").pipe(
+              EffectConfig.orElse(() => EffectConfig.string("OPENCODE_SERVER_USERNAME")),
+              EffectConfig.withDefault("hordecode"),
+            ),
           }),
         )
       }),
@@ -50,14 +57,34 @@ export function authorized(credentials: DecodedCredentials, config: Info) {
 }
 
 export function header(credentials?: Credentials) {
-  const password = credentials?.password ?? process.env.OPENCODE_SERVER_PASSWORD
+  const password = credentials?.password ?? Flag.HORDECODE_SERVER_PASSWORD
   if (!password) return undefined
 
-  return `Basic ${Buffer.from(`${credentials?.username ?? process.env.OPENCODE_SERVER_USERNAME ?? "opencode"}:${password}`).toString("base64")}`
+  return `Basic ${Buffer.from(`${credentials?.username ?? Flag.HORDECODE_SERVER_USERNAME ?? "hordecode"}:${password}`).toString("base64")}`
 }
 
 export function headers(credentials?: Credentials) {
   const authorization = header(credentials)
   if (!authorization) return undefined
   return { Authorization: authorization }
+}
+
+// Flag-sourced variant, kept alongside the Config-based header()/headers()
+// rather than replacing it -- middleware/authorization.ts and routes.ts
+// depend on Config/required/authorized/header/headers. Overwriting verbatim
+// silently broke both files; restored the Config-based implementation and
+// kept this function as an addition instead of a replacement.
+export function serverAuthHeader(credentials?: { password?: string; username?: string }): string | undefined {
+  const password = credentials?.password ?? Flag.HORDECODE_SERVER_PASSWORD
+  if (!password) return undefined
+  const username = credentials?.username ?? Flag.HORDECODE_SERVER_USERNAME ?? "hordecode"
+  return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`
+}
+
+export function serverAuthHeaders(credentials?: { password?: string; username?: string }):
+  | { Authorization: string }
+  | undefined {
+  const header = serverAuthHeader(credentials)
+  if (!header) return undefined
+  return { Authorization: header }
 }

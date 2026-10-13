@@ -26,6 +26,10 @@
     &:focus:not(:disabled) {
       background-color: var(--icon-strong-focus);
     }
+    &:focus-visible:not(:disabled) {
+      background-color: var(--icon-strong-focus);
+      box-shadow: var(--shadow-xs-border-focus);
+    }
     &:active:not(:disabled) {
       background-color: var(--icon-strong-active);
     }
@@ -157,7 +161,7 @@
 
     /* text-14-medium */
     font-family: var(--font-family-sans);
-    font-size: 14px;
+    font-size: var(--font-size-base);
     font-style: normal;
     font-weight: var(--font-weight-medium);
     line-height: var(--line-height-large); /* 142.857% */

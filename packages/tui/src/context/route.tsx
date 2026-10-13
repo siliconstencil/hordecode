@@ -1,7 +1,7 @@
 import { createStore, reconcile } from "solid-js/store"
+import { createMemo, type Accessor } from "solid-js"
 import { createSimpleContext } from "./helper"
-import type { PromptInfo } from "../prompt/history"
-import { useTuiStartup } from "./runtime"
+import type { PromptInfo } from "../component/prompt/history"
 
 export type HomeRoute = {
   type: "home"
@@ -11,6 +11,14 @@ export type HomeRoute = {
 export type SessionRoute = {
   type: "session"
   sessionID: string
+  agentID?: string
+  /** When set, the session view renders the full-screen workflow detail page for
+   * this run (replacing the message stream), mirroring how agentID renders a
+   * subagent's conversation. Cleared to return to the main conversation. */
+  workflowRunID?: string
+  /** When an agent (agentID) was opened FROM a workflow page, this records that
+   * origin run so "back" returns to the workflow rather than the main conversation. */
+  fromWorkflowRunID?: string
   prompt?: PromptInfo
 }
 
@@ -25,9 +33,14 @@ export type Route = HomeRoute | SessionRoute | PluginRoute
 export const { use: useRoute, provider: RouteProvider } = createSimpleContext({
   name: "Route",
   init: (props: { initialRoute?: Route }) => {
-    const startup = useTuiStartup()
+    const routeEnv = process.env["HORDECODE_ROUTE"] ?? process.env["OPENCODE_ROUTE"]
     const [store, setStore] = createStore<Route>(
-      props.initialRoute ?? initialRoute(startup.initialRoute) ?? { type: "home" },
+      props.initialRoute ??
+        (routeEnv
+          ? JSON.parse(routeEnv)
+          : {
+              type: "home",
+            }),
     )
 
     return {
@@ -41,20 +54,16 @@ export const { use: useRoute, provider: RouteProvider } = createSimpleContext({
   },
 })
 
-function initialRoute(value: unknown): Route | undefined {
-  if (!value || typeof value !== "object" || !("type" in value)) return
-  if (value.type === "home") return { type: "home" }
-  if (value.type === "session" && "sessionID" in value && typeof value.sessionID === "string") {
-    return { type: "session", sessionID: value.sessionID }
-  }
-  if (value.type === "plugin" && "id" in value && typeof value.id === "string") {
-    return { type: "plugin", id: value.id }
-  }
-}
-
 export type RouteContext = ReturnType<typeof useRoute>
 
 export function useRouteData<T extends Route["type"]>(type: T) {
   const route = useRoute()
   return route.data as Extract<Route, { type: typeof type }>
+}
+
+export function useCurrentAgentID(): Accessor<string> {
+  const route = useRoute()
+  return createMemo(() =>
+    route.data.type === "session" ? (route.data.agentID ?? "main") : "main",
+  )
 }

@@ -9,3 +9,7 @@ export function reviewTooltipKeybind(command: CommandKeybind, _translate?: (key:
 export function newTabTooltipKeybind(command: CommandKeybind, _translate?: (key: string) => string) {
   return command.keybindParts("tab.new")
 }
+
+export function sidebarTooltipKeybind(command: CommandKeybind, _translate?: (key: string) => string) {
+  return command.keybindParts("sidebar.toggle")
+}

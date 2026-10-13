@@ -10,7 +10,7 @@
 
   [data-slot="checkbox-v2-error"] {
     color: var(--v2-state-fg-danger);
-    font-size: 12px;
+    font-size: var(--font-size-x-small);
     font-weight: var(--font-weight-regular);
     line-height: var(--line-height-normal);
     letter-spacing: var(--letter-spacing-normal);
@@ -101,14 +101,14 @@
     align-items: center;
     user-select: none;
     color: var(--v2-text-text-base);
-    font-size: 13px;
+    font-size: var(--font-size-small);
     line-height: 20px;
     letter-spacing: -0.04px;
   }
 
   [data-slot="checkbox-v2-description"] {
     color: var(--v2-text-text-muted);
-    font-size: 11px;
+    font-size: var(--font-size-xx-small);
     font-weight: 440;
     line-height: 1;
     letter-spacing: 0.05px;

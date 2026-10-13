@@ -210,4 +210,5 @@ const layer = Layer.effect(
   }),
 )
 
-export const node = makeGlobalNode({ service: Service, layer, deps: [httpClient, FSUtil.node, Global.node] })
+// Thunk to break module-init TDZ.
+export const node = makeGlobalNode({ service: Service, layer, deps: () => [httpClient, FSUtil.node, Global.node] })

@@ -243,7 +243,7 @@ export function deriveInactiveColor(brightColor: ColorInput, factor: number = 0.
   return RGBA.fromValues(baseRgba.r, baseRgba.g, baseRgba.b, factor)
 }
 
-export type KnightRiderStyle = "blocks" | "diamonds"
+export type KnightRiderStyle = "blocks" | "diamonds" | "plane"
 
 export interface KnightRiderOptions {
   width?: number
@@ -307,8 +307,18 @@ export function createFrames(options: KnightRiderOptions = {}): string[] {
 
   // Generate dynamic frames where inactive pixels are dots and active ones are blocks
   const frames = Array.from({ length: totalFrames }, (_, frameIndex) => {
+    const state = getScannerState(frameIndex, width, trailOptions)
     return Array.from({ length: width }, (_, charIndex) => {
-      const index = calculateColorIndex(frameIndex, charIndex, width, trailOptions)
+      if (style === "plane") {
+        const dd = state.isMovingForward ? state.activePosition - charIndex : charIndex - state.activePosition
+        if (dd === 0) return "🛸"
+        if (dd > 0 && dd < trailOptions.colors.length) {
+          return ["·", "∙", "˙"][(frameIndex + dd) % 3]!
+        }
+        return " "
+      }
+
+      const index = calculateColorIndex(frameIndex, charIndex, width, trailOptions, state)
 
       if (style === "diamonds") {
         const shapes = ["⬥", "◆", "⬩", "⬪"]

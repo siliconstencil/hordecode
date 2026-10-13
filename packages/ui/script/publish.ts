@@ -6,6 +6,11 @@ import { rm } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { pack } from "./pack"
 
+if (process.env.HORDECODE_RELEASE_CONFIRMED !== "1") {
+  console.error("Blocked: set HORDECODE_RELEASE_CONFIRMED=1 to publish (local-only policy).")
+  process.exit(1)
+}
+
 process.chdir(fileURLToPath(new URL("..", import.meta.url)))
 
 const pkg = (await Bun.file("package.json").json()) as { name: string; version: string }

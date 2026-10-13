@@ -290,6 +290,45 @@ describe("InstructionContext", () => {
     }),
   )
 
+  it.effect("honors the project instruction opt-out via HORDECODE_DISABLE_PROJECT_CONFIG", () =>
+    Effect.gen(function* () {
+      const previousOpencode = process.env.OPENCODE_DISABLE_PROJECT_CONFIG
+      const previousHordecode = process.env.HORDECODE_DISABLE_PROJECT_CONFIG
+      let scanned = false
+      process.env.OPENCODE_DISABLE_PROJECT_CONFIG = undefined
+      process.env.HORDECODE_DISABLE_PROJECT_CONFIG = "1"
+
+      yield* SystemContextRegistry.Service.pipe(
+        Effect.flatMap((service) => service.load()),
+        Effect.provide(
+          instructionLayer({
+            config: "/global",
+            filesystemLayer: Layer.effect(
+              FSUtil.Service,
+              FSUtil.Service.pipe(
+                Effect.map((fs) => FSUtil.Service.of({ ...fs, up: () => Effect.sync(() => ((scanned = true), [])) })),
+              ),
+            ).pipe(Layer.provide(LayerNode.compile(FSUtil.node))),
+            locationServiceLayer: Layer.succeed(
+              Location.Service,
+              Location.Service.of(location({ directory: AbsolutePath.make("/repo") })),
+            ),
+          }),
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (previousOpencode === undefined) delete process.env.OPENCODE_DISABLE_PROJECT_CONFIG
+            else process.env.OPENCODE_DISABLE_PROJECT_CONFIG = previousOpencode
+            if (previousHordecode === undefined) delete process.env.HORDECODE_DISABLE_PROJECT_CONFIG
+            else process.env.HORDECODE_DISABLE_PROJECT_CONFIG = previousHordecode
+          }),
+        ),
+      )
+
+      expect(scanned).toBe(false)
+    }),
+  )
+
   it.effect("does not discover project instructions outside the canonical project root", () =>
     Effect.gen(function* () {
       let scanned = false

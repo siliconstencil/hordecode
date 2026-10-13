@@ -19,7 +19,26 @@ import { ConsoleSwitchPayload, SessionListQuery, ToolListQuery, WorktreeApiError
 
 function mapWorktreeError<A, R>(self: Effect.Effect<A, Worktree.Error, R>) {
   return self.pipe(
-    Effect.mapError((error) => new WorktreeApiError({ name: error._tag, data: { message: error.message } })),
+    Effect.catch((error) =>
+      Effect.gen(function* () {
+        // Worktree errors are declared API errors (WorktreeErrorName union) and
+        // carry user-facing messages; surface them as-is so clients see the
+        // domain error, e.g. "Worktrees are only supported for git projects".
+        const declared = (["WorktreeNotGitError", "WorktreeNameGenerationFailedError", "WorktreeCreateFailedError", "WorktreeStartCommandFailedError", "WorktreeRemoveFailedError", "WorktreeResetFailedError", "WorktreeListFailedError"] as const).includes(error._tag as never)
+        if (declared) {
+          return yield* new WorktreeApiError({
+            name: error._tag as never,
+            data: { message: error.message },
+          })
+        }
+        const ref = `err_${crypto.randomUUID().slice(0, 8)}`
+        yield* Effect.logError("worktree operation failed", { error, ref })
+        return yield* new WorktreeApiError({
+          name: error._tag as never,
+          data: { message: `Unexpected server error. Check server logs for details. (ref: ${ref})` },
+        })
+      }),
+    ),
   )
 }
 

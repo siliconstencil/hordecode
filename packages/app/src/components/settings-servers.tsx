@@ -13,7 +13,7 @@ export const SettingsServers: Component = () => {
           when={controller.isFormMode()}
           fallback={
             <>
-              <div class="sticky top-0 z-10 bg-[linear-gradient(to_bottom,var(--surface-stronger-non-alpha)_calc(100%_-_24px),transparent)]">
+              <div class="sticky-section-header">
                 <div class="flex flex-col gap-1 pt-6 pb-8">
                   <h2 class="text-16-medium text-text-strong">{language.t("status.popover.tab.servers")}</h2>
                 </div>

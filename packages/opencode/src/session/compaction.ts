@@ -16,12 +16,14 @@ import { Effect, Layer, Context } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { isOverflow as overflow, usable } from "./overflow"
 import { serviceUse } from "@opencode-ai/core/effect/service-use"
-import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
-import { buildPrompt } from "@opencode-ai/core/session/compaction"
+import { buildPrompt, retainVerbatim } from "@opencode-ai/core/session/compaction"
+import { Database } from "@opencode-ai/core/database/database"
+import { writeAnchorTraceDb } from "@opencode-ai/core/session/anchor-trace"
 import { SessionCompactionEvent } from "@opencode-ai/schema/session-compaction-event"
+import { resetOnCompaction } from "@opencode-ai/cron/sentinel"
 
 export const Event = SessionCompactionEvent
 
@@ -29,9 +31,8 @@ export const PRUNE_MINIMUM = 20_000
 export const PRUNE_PROTECT = 40_000
 const TOOL_OUTPUT_MAX_CHARS = 2_000
 const PRUNE_PROTECTED_TOOLS = ["skill"]
-const DEFAULT_TAIL_TURNS = 2
 const MIN_PRESERVE_RECENT_TOKENS = 2_000
-const MAX_PRESERVE_RECENT_TOKENS = 8_000
+const MAX_PRESERVE_RECENT_TOKENS = 15_000
 type Turn = {
   start: number
   end: number
@@ -47,6 +48,42 @@ type CompletedCompaction = {
   userIndex: number
   assistantIndex: number
   summary: string | undefined
+}
+
+const truncate = (value: string) =>
+  value.length <= TOOL_OUTPUT_MAX_CHARS ? value : `${value.slice(0, TOOL_OUTPUT_MAX_CHARS)}\n[truncated]`
+
+const serialize = (message: SessionV1.WithParts) => {
+  if (message.info.role === "user") {
+    const text = message.parts
+      .filter((part): part is SessionV1.TextPart => part.type === "text" && !part.ignored)
+      .map((part) => part.text)
+      .filter(Boolean)
+      .join("\n")
+    const files = message.parts.flatMap((part) =>
+      part.type === "file" ? [`[Attached ${part.mime}: ${part.filename ?? "file"}]`] : [],
+    )
+    return [...(text ? [`[User]: ${text}`] : []), ...files].join("\n")
+  }
+  return message.parts
+    .flatMap((part) => {
+      if (part.type === "text") return part.text ? [`[Assistant]: ${part.text}`] : []
+      if (part.type === "reasoning") return part.text ? [`[Assistant reasoning]: ${part.text}`] : []
+      if (part.type !== "tool") return []
+      const call = `[Assistant tool call]: ${part.tool}(${JSON.stringify(part.state.input)})`
+      if (part.state.status === "completed") {
+        const attachments = (part.state.attachments ?? []).map(
+          (item) => `[Attached ${item.mime}: ${item.filename ?? "file"}]`,
+        )
+        const output = part.state.time.compacted
+          ? "[Old tool result content cleared]"
+          : truncate([part.state.output, ...attachments].join("\n"))
+        return [call, `[Tool result]: ${output}`]
+      }
+      if (part.state.status === "error") return [call, `[Tool error]: ${part.state.error}`]
+      return [call]
+    })
+    .join("\n")
 }
 
 function summaryText(message: SessionV1.WithParts) {
@@ -127,18 +164,38 @@ function splitTurn(input: {
   })
 }
 
+export function conversationHadMedia(messages: SessionV1.WithParts[]): boolean {
+  return messages.some((m) => m.parts.some((p) => p.type === "file" && MessageV2.isMedia(p.mime)))
+}
+
+// Builds the synthetic auto-compaction follow-up message shown to the user after
+// a native compaction. The overflow branch must only attribute the size limit to
+// media attachments when the compacted conversation actually contained media --
+// otherwise it fabricates a cause that never occurred (fabrication). Pre-existing
+// upstream bug: compaction.ts:465 unconditionally
+// claims "large media attachments" on every overflow, ported verbatim to fork.
+export function buildCompactContinueText(input: { overflow: boolean; hadMedia: boolean }): string {
+  const mediaNotice = input.overflow
+    ? input.hadMedia
+      ? "The previous request exceeded the provider's size limit due to large media attachments. The conversation was compacted and media files were removed from context. If the user was asking about attached images or files, explain that the attachments were too large to process and suggest they try again with smaller or fewer files.\n\n"
+      : "The previous request exceeded the provider's size limit. The conversation was compacted to fit within the context window.\n\n"
+    : ""
+  return mediaNotice + "Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed."
+}
+
 export interface Interface {
   readonly isOverflow: (input: {
     tokens: SessionV1.Assistant["tokens"]
     model: Provider.Model
   }) => Effect.Effect<boolean>
-  readonly prune: (input: { sessionID: SessionID }) => Effect.Effect<void>
+  readonly prune: (input: { sessionID: SessionID; agentID?: string }) => Effect.Effect<void>
   readonly process: (input: {
     parentID: MessageID
     messages: SessionV1.WithParts[]
     sessionID: SessionID
     auto: boolean
     overflow?: boolean
+    agentID?: string
   }) => Effect.Effect<"continue" | "stop">
   readonly create: (input: {
     sessionID: SessionID
@@ -146,6 +203,7 @@ export interface Interface {
     model: { providerID: ProviderV2.ID; modelID: ModelV2.ID }
     auto: boolean
     overflow?: boolean
+    agentID?: string
   }) => Effect.Effect<void>
 }
 
@@ -163,7 +221,11 @@ const layer = Layer.effect(
     const processors = yield* SessionProcessor.Service
     const provider = yield* Provider.Service
     const events = yield* EventV2Bridge.Service
-    const flags = yield* RuntimeFlags.Service
+    // Capture the session DB at checkpoint point for layer construction so processCompaction stays R=never (no Database.Service
+    // ripple into Interface.process). anchor_trace is NOT gated by
+    // memory.disable_write -- RAG-OFF
+    // does not defeat the anchor.
+    const database = yield* Database.Service
 
     const isOverflow = Effect.fn("SessionCompaction.isOverflow")(function* (input: {
       tokens: SessionV1.Assistant["tokens"]
@@ -173,7 +235,6 @@ const layer = Layer.effect(
         cfg: yield* config.get(),
         tokens: input.tokens,
         model: input.model,
-        outputTokenMax: flags.outputTokenMax,
       })
     })
 
@@ -190,27 +251,22 @@ const layer = Layer.effect(
       cfg: ConfigV1.Info
       model: Provider.Model
     }) {
-      const limit = input.cfg.compaction?.tail_turns ?? DEFAULT_TAIL_TURNS
-      if (limit <= 0) return { head: input.messages, tail_start_id: undefined }
+      const limit = input.cfg.compaction?.tail_turns
+      if (limit !== undefined && limit <= 0) return { head: input.messages, tail_start_id: undefined }
       const budget = preserveRecentBudget({ cfg: input.cfg, model: input.model })
       const all = turns(input.messages)
       if (!all.length) return { head: input.messages, tail_start_id: undefined }
-      const recent = all.slice(-limit)
-      const sizes = yield* Effect.forEach(
-        recent,
-        (turn) =>
-          estimate({
-            messages: input.messages.slice(turn.start, turn.end),
-            model: input.model,
-          }),
-        { concurrency: 1 },
-      )
+      const recent = limit === undefined ? all : all.slice(-limit)
 
       let total = 0
       let keep: Tail | undefined
       for (let i = recent.length - 1; i >= 0; i--) {
         const turn = recent[i]!
-        const size = sizes[i]
+        // estimate lazily so cost stays proportional to the retained tail, not the whole session
+        const size = yield* estimate({
+          messages: input.messages.slice(turn.start, turn.end),
+          model: input.model,
+        })
         if (total + size <= budget) {
           total += size
           keep = { start: turn.start, id: turn.id }
@@ -239,16 +295,19 @@ const layer = Layer.effect(
     })
 
     // goes backwards through parts until there are PRUNE_PROTECT tokens worth of tool
-    // calls, then erases output of older tool calls to free context space
-    const prune = Effect.fn("SessionCompaction.prune")(function* (input: { sessionID: SessionID }) {
+    // calls, then erases output of older tool calls to free context space.
+    // Scoped to (sessionID, agentID): when agentID is set, filters to that supervisor's
+    // messages — main-agent messages stay untouched.
+    const prune = Effect.fn("SessionCompaction.prune")(function* (input: { sessionID: SessionID; agentID?: string }) {
       const cfg = yield* config.get()
       if (!cfg.compaction?.prune) return
-      yield* Effect.logInfo("pruning")
+      yield* Effect.logInfo("pruning", { agentID: input.agentID ?? "main" })
 
-      const msgs = yield* session
+      const all = yield* session
         .messages({ sessionID: input.sessionID })
         .pipe(Effect.catchIf(NotFoundError.isInstance, () => Effect.succeed(undefined)))
-      if (!msgs) return
+      if (!all) return
+      const msgs = all as SessionV1.WithParts[]
 
       let total = 0
       let pruned = 0
@@ -268,9 +327,10 @@ const layer = Layer.effect(
           if (part.state.time.compacted) break loop
           const estimate = Token.estimate(part.state.output)
           total += estimate
-          if (total <= PRUNE_PROTECT) continue
-          pruned += estimate
-          toPrune.push(part)
+          if (total > PRUNE_PROTECT) {
+            pruned += estimate
+            toPrune.push(part)
+          }
         }
       }
 
@@ -292,15 +352,22 @@ const layer = Layer.effect(
       sessionID: SessionID
       auto: boolean
       overflow?: boolean
+      agentID?: string
     }) {
-      const parent = input.messages.findLast((m) => m.info.id === input.parentID)
+      const parentIdx = input.messages.findLastIndex((m) => m.info.id === input.parentID)
+      const parent = parentIdx >= 0 ? input.messages[parentIdx] : undefined
       if (!parent || parent.info.role !== "user") {
         throw new Error(`Compaction parent must be a user message: ${input.parentID}`)
       }
       const userMessage = parent.info
       const compactionPart = parent.parts.find((part): part is SessionV1.CompactionPart => part.type === "compaction")
 
-      let messages = input.messages
+      const boundaryIdx = input.messages.findLastIndex(
+        (m, i) => i < parentIdx && m.info.role === "user" && m.parts.some((p) => p.type === "compaction"),
+      )
+      const scoped = boundaryIdx >= 0 ? input.messages.slice(boundaryIdx) : input.messages
+
+      let messages = scoped
       let replay:
         | {
             info: SessionV1.User
@@ -308,12 +375,12 @@ const layer = Layer.effect(
           }
         | undefined
       if (input.overflow) {
-        const idx = input.messages.findIndex((m) => m.info.id === input.parentID)
+        const idx = scoped.findIndex((m) => m.info.id === input.parentID)
         for (let i = idx - 1; i >= 0; i--) {
-          const msg = input.messages[i]
+          const msg = scoped[i]
           if (msg.info.role === "user" && !msg.parts.some((p) => p.type === "compaction")) {
             replay = { info: msg.info, parts: msg.parts }
-            messages = input.messages.slice(0, i)
+            messages = scoped.slice(0, i)
             break
           }
         }
@@ -321,7 +388,7 @@ const layer = Layer.effect(
           replay && messages.some((m) => m.info.role === "user" && !m.parts.some((p) => p.type === "compaction"))
         if (!hasContent) {
           replay = undefined
-          messages = input.messages
+          messages = scoped
         }
       }
 
@@ -330,7 +397,12 @@ const layer = Layer.effect(
         ? yield* provider.getModel(agent.model.providerID, agent.model.modelID).pipe(Effect.orDie)
         : yield* provider.getModel(userMessage.model.providerID, userMessage.model.modelID).pipe(Effect.orDie)
       const cfg = yield* config.get()
-      const history = compactionPart && messages.at(-1)?.info.id === input.parentID ? messages.slice(0, -1) : messages
+      // FIX-8: pass the FULL pre-boundary list to select, not the boundary-scoped
+      // `messages`. The L2 prior/hidden summary filter still drops the prior summary
+      // (via `hidden` below), but `keep` (and any turns before the boundary) remain
+      // reachable so `tail_start_id` is anchored correctly instead of collapsing to
+      // undefined.
+      const history = compactionPart && input.messages.at(-1)?.info.id === input.parentID ? input.messages.slice(0, -1) : input.messages
       const prior = completedCompactions(history)
       const hidden = new Set(prior.flatMap((item) => [item.userIndex, item.assistantIndex]))
       const previousSummary = prior.at(-1)?.summary
@@ -345,13 +417,27 @@ const layer = Layer.effect(
         { sessionID: input.sessionID },
         { context: [], prompt: undefined },
       )
-      const nextPrompt = compacting.prompt ?? buildPrompt({ previousSummary, context: compacting.context })
       const msgs = structuredClone(selected.head)
       yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
-      const modelMessages = yield* MessageV2.toModelMessagesEffect(msgs, model, {
-        stripMedia: true,
-        toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
-      })
+      const conversation = msgs.map(serialize).filter(Boolean).join("\n\n")
+      // anchor = session state pointer; verbatim = high-signal lines scored by core retainVerbatim.
+      const nextPrompt =
+        compacting.prompt ??
+        [
+          buildPrompt({
+            previousSummary,
+            context: [conversation],
+            anchor: `session:${input.sessionID}`,
+            verbatim: retainVerbatim(msgs.map(serialize).filter((x): x is string => Boolean(x))),
+          }),
+          ...compacting.context,
+        ]
+          .filter(Boolean)
+          .join("\n\n")
+      // Non-blocking anchor_trace write before the compaction LLM call; mirrors the core default hook.
+      yield* writeAnchorTraceDb(database.db, { sessionID: input.sessionID, source: "hook" }).pipe(
+        Effect.catchCause(() => Effect.void),
+      )
       const ctx = yield* InstanceState.context
       const msg: SessionV1.Assistant = {
         id: MessageID.ascending(),
@@ -392,10 +478,19 @@ const layer = Layer.effect(
         tools: {},
         system: [],
         messages: [
-          ...modelMessages,
           {
             role: "user",
-            content: [{ type: "text", text: nextPrompt }],
+            content: [
+              {
+                type: "text",
+                text: [
+                  nextPrompt,
+                  ...(compacting.prompt ? ["The following is the conversation history:", conversation] : []),
+                ]
+                  .filter(Boolean)
+                  .join("\n\n"),
+              },
+            ],
           },
         ],
         model,
@@ -478,11 +573,8 @@ const layer = Layer.effect(
               agent: userMessage.agent,
               model: userMessage.model,
             })
-            const text =
-              (input.overflow
-                ? "The previous request exceeded the provider's size limit due to large media attachments. The conversation was compacted and media files were removed from context. If the user was asking about attached images or files, explain that the attachments were too large to process and suggest they try again with smaller or fewer files.\n\n"
-                : "") +
-              "Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed."
+            const hadMedia = conversationHadMedia(messages)
+            const text = buildCompactContinueText({ overflow: input.overflow === true, hadMedia })
             yield* session.updatePart({
               id: PartID.ascending(),
               messageID: continueMsg.id,
@@ -506,6 +598,7 @@ const layer = Layer.effect(
       if (processor.message.error) return "stop"
       if (result === "continue") {
         yield* events.publish(Event.Compacted, { sessionID: input.sessionID })
+        yield* Effect.sync(() => resetOnCompaction(input.sessionID))
       }
       return result
     })
@@ -555,7 +648,7 @@ export const node = LayerNode.make({
     SessionProcessor.node,
     Provider.node,
     EventV2Bridge.node,
-    RuntimeFlags.node,
+    Database.node,
   ],
 })
 

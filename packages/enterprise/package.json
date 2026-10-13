@@ -1,11 +1,13 @@
 {
   "name": "@opencode-ai/enterprise",
-  "version": "1.17.18",
+  "version": "0.1.0",
+  "hordecodeBase": "1.17.18",
   "private": true,
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "typecheck": "tsgo --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
     "dev": "vite dev",
     "build": "vite build",
     "build:cloudflare": "OPENCODE_DEPLOYMENT_TARGET=cloudflare vite build",
@@ -14,6 +16,7 @@
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",
+    "@opencode-ai/sdk": "workspace:*",
     "@opencode-ai/session-ui": "workspace:*",
     "@opencode-ai/ui": "workspace:*",
     "aws4fetch": "^1.0.20",
@@ -28,6 +31,7 @@
     "luxon": "catalog:",
     "nitro": "3.0.1-alpha.1",
     "solid-js": "catalog:",
+    "sst": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {

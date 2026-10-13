@@ -11,19 +11,26 @@ function View(props: { api: TuiPluginApi }) {
   const off = createMemo(() => !props.api.state.config.lsp)
 
   return (
-    <box>
-      <box flexDirection="row" gap={1} onMouseDown={() => list().length > 2 && setOpen((x) => !x)}>
-        <Show when={list().length > 2}>
-          <text fg={theme().text}>{open() ? "▼" : "▶"}</text>
-        </Show>
-        <text fg={theme().text}>
-          <b>LSP</b>
-        </text>
-      </box>
-      <Show when={list().length <= 2 || open()}>
-        <Show when={list().length === 0}>
-          <text fg={theme().textMuted}>{off() ? "LSPs are disabled" : "LSPs will activate as files are read"}</text>
-        </Show>
+    <Show when={!off() && list().length > 0}>
+      <box flexShrink={0} gap={0}>
+        <box
+          flexDirection="row"
+          justifyContent="space-between"
+          onMouseDown={() => list().length > 2 && setOpen((x) => !x)}
+        >
+          <text fg={theme().text}>
+            <b>LSP</b>
+          </text>
+          <box flexDirection="row" gap={1}>
+            <text fg={theme().textMuted}>
+              {list().length > 0 ? `${list().length} active` : "0 active"}
+            </text>
+            <Show when={list().length > 2}>
+              <text fg={theme().textMuted}>{open() ? "▾" : "▸"}</text>
+            </Show>
+          </box>
+        </box>
+        <Show when={list().length <= 2 || open()}>
         <For each={list()}>
           {(item) => (
             <box flexDirection="row" gap={1}>
@@ -41,8 +48,9 @@ function View(props: { api: TuiPluginApi }) {
             </box>
           )}
         </For>
-      </Show>
-    </box>
+        </Show>
+      </box>
+    </Show>
   )
 }
 

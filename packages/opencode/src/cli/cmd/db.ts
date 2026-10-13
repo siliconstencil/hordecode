@@ -7,7 +7,7 @@ import { effectCmd } from "../effect-cmd"
 
 const QueryCommand = effectCmd({
   command: "$0 [query]",
-  describe: "open an interactive sqlite3 shell or run a query",
+  describe: "open an interactive sqlite3 shell or run a raw SQL query (sqlite3 dot-commands like .tables / .schema are NOT supported in the raw-SQL path; run without [query] for the interactive shell where they work)",
   instance: false,
   builder: (yargs: Argv) => {
     return yargs

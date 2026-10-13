@@ -1,5 +1,6 @@
 import { afterEach, expect } from "bun:test"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { Cause, Effect, Exit, Layer } from "effect"
 import path from "path"
 import { disposeAllInstances, TestInstance } from "../fixture/fixture"
@@ -17,7 +18,7 @@ import { Skill } from "../../src/skill"
 import { Truncate } from "../../src/tool/truncate"
 
 const agentLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
-  LayerNode.compile(
+  AppNodeBuilder.build(
     LayerNode.group([Agent.node, Plugin.node, Provider.node, Auth.node, Config.node, Skill.node, RuntimeFlags.node]),
     [[RuntimeFlags.node, RuntimeFlags.layer(flags)]],
   )
@@ -73,10 +74,11 @@ it.instance("plan agent denies edits except .opencode/plans/*", () =>
   Effect.gen(function* () {
     const plan = yield* load((svc) => svc.get("plan"))
     expect(plan).toBeDefined()
-    // Wildcard is denied
-    expect(evalPerm(plan, "edit")).toBe("deny")
+    // Wildcard is denied -- evaluated via runtimePermission so the edit block,
+    // which lives in planAgent.hardPermission, is included
+    expect(Permission.evaluate("edit", "*", Agent.runtimePermission(plan!)).action).toBe("deny")
     // But specific path is allowed
-    expect(Permission.evaluate("edit", ".opencode/plans/foo.md", plan!.permission).action).toBe("allow")
+    expect(Permission.evaluate("edit", ".opencode/plans/foo.md", Agent.runtimePermission(plan!)).action).toBe("allow")
   }),
 )
 
@@ -120,6 +122,14 @@ it.instance("explore agent denies edit and write", () =>
   }),
 )
 
+it.instance("explore agent allows codesearch", () =>
+  Effect.gen(function* () {
+    const explore = yield* load((svc) => svc.get("explore"))
+    expect(explore).toBeDefined()
+    expect(evalPerm(explore, "codesearch")).toBe("allow")
+  }),
+)
+
 it.instance("explore agent asks for external directories and allows whitelisted external paths", () =>
   Effect.gen(function* () {
     const explore = yield* load((svc) => svc.get("explore"))
@@ -160,13 +170,13 @@ it.instance(
   },
 )
 
-it.instance("general agent denies todo tools", () =>
+it.instance("general agent allows todo tools", () =>
   Effect.gen(function* () {
     const general = yield* load((svc) => svc.get("general"))
     expect(general).toBeDefined()
     expect(general?.mode).toBe("subagent")
     expect(general?.hidden).toBeUndefined()
-    expect(evalPerm(general, "todowrite")).toBe("deny")
+    expect(evalPerm(general, "todowrite")).toBe("allow")
   }),
 )
 
@@ -705,8 +715,8 @@ it.instance(
 )
 
 it.instance(
-  "defaultAgent throws when default_agent points to hidden agent",
-  () => expectDefaultAgentError('default agent "compaction" is hidden'),
+  "defaultAgent throws when default_agent points to a hidden subagent",
+  () => expectDefaultAgentError('default agent "compaction" is a subagent'),
   {
     config: {
       default_agent: "compaction",
@@ -742,13 +752,35 @@ it.instance(
 )
 
 it.instance(
-  "defaultAgent throws when all primary agents are disabled",
+  "defaultAgent falls back to another visible primary when the classic primaries are disabled",
+  () =>
+    Effect.gen(function* () {
+      const agent = yield* load((svc) => svc.defaultAgent())
+      // build/plan are gone, but harness/max/research are still
+      // primary + visible, so defaultAgent() must return one of them.
+      expect(["harness", "max", "research"]).toContain(agent)
+    }),
+  {
+    config: {
+      agent: {
+        build: { disable: true },
+        plan: { disable: true },
+      },
+    },
+  },
+)
+
+it.instance(
+  "defaultAgent throws when every primary agent is disabled",
   () => expectDefaultAgentError("no primary visible agent found"),
   {
     config: {
       agent: {
         build: { disable: true },
         plan: { disable: true },
+        harness: { disable: true },
+        max: { disable: true },
+        research: { disable: true },
       },
     },
   },

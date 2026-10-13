@@ -1,5 +1,6 @@
 import { afterEach, describe, expect } from "bun:test"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { Effect, Layer } from "effect"
 import path from "path"
 import fs from "fs/promises"
@@ -32,7 +33,7 @@ afterEach(async () => {
 })
 
 const it = testEffect(
-  LayerNode.compile(
+  AppNodeBuilder.build(
     LayerNode.group([
       LSP.node,
       FSUtil.node,

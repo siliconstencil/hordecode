@@ -222,7 +222,15 @@ describe("run entry body", () => {
     })
   })
 
-  test("promotes task results to markdown and falls back to structured task summaries", () => {
+  test("renders completed task tool finals as structured task snapshots", () => {
+    const output = [
+      '<task id="child-1" state="completed">',
+      "<task_result>",
+      "# Findings\n\n- Footer stays live",
+      "</task_result>",
+      "</task>",
+    ].join("\n")
+
     expect(
       entryBody(
         toolCommit({
@@ -234,13 +242,7 @@ describe("run entry body", () => {
               subagent_type: "explore",
             },
             title: "",
-            output: [
-              '<task id="child-1" state="completed">',
-              "<task_result>",
-              "# Findings\n\n- Footer stays live",
-              "</task_result>",
-              "</task>",
-            ].join("\n"),
+            output,
             metadata: {
               sessionId: "child-1",
             },
@@ -249,8 +251,13 @@ describe("run entry body", () => {
         }),
       ),
     ).toEqual({
-      type: "markdown",
-      content: "# Findings\n\n- Footer stays live",
+      type: "structured",
+      snapshot: {
+        kind: "task",
+        title: "# Explore Task",
+        rows: [output],
+        tail: "",
+      },
     })
 
     expect(
@@ -277,7 +284,7 @@ describe("run entry body", () => {
     ).toEqual({
       kind: "task",
       title: "# Explore Task",
-      rows: ["Inspect reducer"],
+      rows: [['<task id="child-1" state="completed">', "<task_result>", "", "</task_result>", "</task>"].join("\n")],
       tail: "",
     })
   })

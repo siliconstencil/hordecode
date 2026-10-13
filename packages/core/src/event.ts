@@ -323,7 +323,7 @@ export const layerWith = (options?: LayerOptions) =>
                           if (commit) yield* commit(seq)
                           yield* db
                             .insert(EventSequenceTable)
-                            .values([{ aggregate_id: aggregateID, seq, owner_id: input?.ownerID }])
+                            .values([{ aggregate_id: aggregateID, seq, owner_id: input?.ownerID ?? null }])
                             .onConflictDoUpdate({
                               target: EventSequenceTable.aggregate_id,
                               set: {
@@ -635,4 +635,4 @@ export const layerWith = (options?: LayerOptions) =>
   )
 
 const layer = layerWith()
-export const node = makeGlobalNode({ service: Service, layer: layer, deps: [Database.node] })
+export const node = makeGlobalNode({ service: Service, layer: layer, deps: () => [Database.node] })

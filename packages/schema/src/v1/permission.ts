@@ -48,7 +48,14 @@ export const Approval = Schema.Struct({ projectID: Project.ID, patterns: Schema.
 })
 export type Approval = typeof Approval.Type
 
-export const AskInput = Schema.Struct({ ...Request.fields, id: Schema.optional(ID), ruleset: Ruleset }).annotate({
+export const AskInput = Schema.Struct({
+  ...Request.fields,
+  id: Schema.optional(ID),
+  ruleset: Ruleset,
+  interactive: Schema.optional(Schema.Boolean),
+  forward: Schema.optional(Schema.Struct({ parentSessionID: Schema.String })),
+  inherit: Schema.optional(Schema.Struct({ parentSessionID: Schema.String })),
+}).annotate({
   identifier: "PermissionAskInput",
 })
 export type AskInput = typeof AskInput.Type

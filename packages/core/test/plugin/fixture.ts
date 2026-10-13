@@ -15,15 +15,16 @@ import { Npm } from "@opencode-ai/core/npm"
 import { PluginV2 } from "@opencode-ai/core/plugin"
 import { Reference } from "@opencode-ai/core/reference"
 import { SkillV2 } from "@opencode-ai/core/skill"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Option } from "effect"
 import { tempLocationLayer } from "../fixture/location"
 
 const npmLayer = Layer.succeed(
   Npm.Service,
   Npm.Service.of({
-    add: () => Effect.succeed({ directory: "", entrypoint: undefined }),
+    add: () => Effect.succeed({ directory: "", entrypoint: Option.none() }),
     install: () => Effect.void,
-    which: () => Effect.succeed(undefined),
+    which: () => Effect.succeed(Option.none()),
+    outdated: () => Effect.succeed(false),
   }),
 )
 

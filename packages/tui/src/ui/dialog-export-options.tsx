@@ -3,7 +3,9 @@ import { useTheme } from "../context/theme"
 import { useDialog, type DialogContext } from "./dialog"
 import { createStore } from "solid-js/store"
 import { onMount, Show } from "solid-js"
+import { useTuiConfig } from "../config"
 import { useBindings } from "../keymap"
+import { useLanguage } from "../context/language"
 
 export type DialogExportOptionsProps = {
   defaultFilename: string
@@ -24,6 +26,8 @@ export type DialogExportOptionsProps = {
 export function DialogExportOptions(props: DialogExportOptionsProps) {
   const dialog = useDialog()
   const { theme } = useTheme()
+  const tuiConfig = useTuiConfig()
+  const t = useLanguage().t
   let textarea: TextareaRenderable
   const [store, setStore] = createStore({
     thinking: props.defaultThinking,
@@ -85,15 +89,15 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
     <box paddingLeft={2} paddingRight={2} gap={1}>
       <box flexDirection="row" justifyContent="space-between">
         <text attributes={TextAttributes.BOLD} fg={theme.text}>
-          Export Options
+          {t("tui.dialog.export.title")}
         </text>
         <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
-          esc
+          {t("tui.dialog.close_hint")}
         </text>
       </box>
       <box gap={1}>
         <box>
-          <text fg={theme.text}>Filename:</text>
+          <text fg={theme.text}>{t("tui.dialog.export.filename")}</text>
         </box>
         <textarea
           onSubmit={() => {
@@ -111,11 +115,12 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
             val.traits = { status: "FILENAME" }
           }}
           initialValue={props.defaultFilename}
-          placeholder="Enter filename"
+          placeholder={t("tui.dialog.export.filename_placeholder")}
           placeholderColor={theme.textMuted}
           textColor={theme.text}
           focusedTextColor={theme.text}
           cursorColor={theme.text}
+          cursorStyle={tuiConfig.cursor}
         />
       </box>
       <box flexDirection="column">
@@ -129,7 +134,9 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
           <text fg={store.active === "thinking" ? theme.primary : theme.textMuted}>
             {store.thinking ? "[x]" : "[ ]"}
           </text>
-          <text fg={store.active === "thinking" ? theme.primary : theme.text}>Include thinking</text>
+          <text fg={store.active === "thinking" ? theme.primary : theme.text}>
+            {t("tui.dialog.export.include_thinking")}
+          </text>
         </box>
         <box
           flexDirection="row"
@@ -141,7 +148,9 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
           <text fg={store.active === "toolDetails" ? theme.primary : theme.textMuted}>
             {store.toolDetails ? "[x]" : "[ ]"}
           </text>
-          <text fg={store.active === "toolDetails" ? theme.primary : theme.text}>Include tool details</text>
+          <text fg={store.active === "toolDetails" ? theme.primary : theme.text}>
+            {t("tui.dialog.export.include_tool_details")}
+          </text>
         </box>
         <box
           flexDirection="row"
@@ -153,7 +162,9 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
           <text fg={store.active === "assistantMetadata" ? theme.primary : theme.textMuted}>
             {store.assistantMetadata ? "[x]" : "[ ]"}
           </text>
-          <text fg={store.active === "assistantMetadata" ? theme.primary : theme.text}>Include assistant metadata</text>
+          <text fg={store.active === "assistantMetadata" ? theme.primary : theme.text}>
+            {t("tui.dialog.export.include_assistant_metadata")}
+          </text>
         </box>
         <box
           flexDirection="row"
@@ -165,19 +176,23 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
           <text fg={store.active === "openWithoutSaving" ? theme.primary : theme.textMuted}>
             {store.openWithoutSaving ? "[x]" : "[ ]"}
           </text>
-          <text fg={store.active === "openWithoutSaving" ? theme.primary : theme.text}>Open without saving</text>
+          <text fg={store.active === "openWithoutSaving" ? theme.primary : theme.text}>
+            {t("tui.dialog.export.open_without_saving")}
+          </text>
         </box>
       </box>
       <Show when={store.active !== "filename"}>
         <text fg={theme.textMuted} paddingBottom={1}>
-          Press <span style={{ fg: theme.text }}>space</span> to toggle, <span style={{ fg: theme.text }}>return</span>{" "}
-          to confirm
+          {t("tui.dialog.export.hint.toggle_prefix")} <span style={{ fg: theme.text }}>space</span>{" "}
+          {t("tui.dialog.export.hint.toggle_action")}, <span style={{ fg: theme.text }}>return</span>{" "}
+          {t("tui.dialog.export.hint.confirm_action")}
         </text>
       </Show>
       <Show when={store.active === "filename"}>
         <text fg={theme.textMuted} paddingBottom={1}>
-          Press <span style={{ fg: theme.text }}>return</span> to confirm, <span style={{ fg: theme.text }}>tab</span>{" "}
-          for options
+          {t("tui.dialog.export.hint.toggle_prefix")} <span style={{ fg: theme.text }}>return</span>{" "}
+          {t("tui.dialog.export.hint.confirm_action")}, <span style={{ fg: theme.text }}>tab</span>{" "}
+          {t("tui.dialog.export.hint.options_action")}
         </text>
       </Show>
     </box>

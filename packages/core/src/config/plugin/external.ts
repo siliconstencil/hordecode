@@ -2,7 +2,7 @@ export * as ConfigExternalPlugin from "./external"
 
 import type { Plugin as EffectPlugin } from "@opencode-ai/plugin/v2/effect"
 import type { Plugin as PromisePlugin } from "@opencode-ai/plugin/v2/promise"
-import { Effect, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 import path from "path"
 import { fileURLToPath, pathToFileURL } from "url"
 import { Config } from "../../config"
@@ -74,7 +74,7 @@ export const Plugin = define({
         yield* Effect.gen(function* () {
           const entrypoint = path.isAbsolute(ref.package)
             ? pathToFileURL(ref.package).href
-            : (yield* npm.add(ref.package)).entrypoint
+            : Option.getOrNull((yield* npm.add(ref.package)).entrypoint)
           if (!entrypoint) return
 
           const mod = yield* Effect.promise(() => import(entrypoint))

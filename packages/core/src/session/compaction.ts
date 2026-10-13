@@ -1,25 +1,56 @@
 export * as SessionCompaction from "./compaction"
 
 import { LLM, LLMError, LLMEvent, Message, type LLMRequest, type Model } from "@opencode-ai/llm"
-import { DateTime, Effect, Stream } from "effect"
+import { Context, DateTime, Effect, Stream } from "effect"
+
+// Service class for session compaction. Interface will be refined when
+// SessionCompaction is fully ported.
+export class Service extends Context.Service<Service, any>()("@opencode/SessionCompaction") {}
 import type { Config } from "../config"
 import type { EventV2 } from "../event"
 import { SessionEvent } from "./event"
 import { SessionMessage } from "./message"
 import { SessionSchema } from "./schema"
+import { contextWindow } from "./overflow"
+import type { Provider } from "../provider/index"
 import { Token } from "../util/token"
 
 const DEFAULT_BUFFER = 20_000
 const DEFAULT_KEEP_TOKENS = 8_000
 const TOOL_OUTPUT_MAX_CHARS = 2_000
 const SUMMARY_OUTPUT_TOKENS = 4_096
+
+// Cache-awareness: PromptCacheBoundary + prefix-extension-summary/v1
+// System prompt + tools are the stable cache prefix (Anthropic write +%25 / read %10).
+// Compaction summary is a suffix extension so long sessions retain ~%90 vs ~%85 hit (~5% protected).
+// Keep prefix stable; append summary as suffix, never mutate prefix.
+export const PROMPT_CACHE_BOUNDARY = {
+  stablePrefixLabel: "system+tools",
+  stableThrough: "system" as const,
+  extensionId: "prefix-extension-summary/v1" as const,
+  suffixId: "summary-preserved-suffix/v1" as const,
+  changeReason: "compaction-summary-suffix" as const,
+} as const
+
+// Cache-prefix-stability marker for system prompt: compaction must not alter
+// system/tools content. Summary is injected as suffix extension only.
+export const CACHE_PREFIX_STABLE = true as const
 const SUMMARY_TEMPLATE = `Output exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.
 <template>
 ## Objective
 - [one or two brief sentences describing what the user is trying to accomplish]
 
 ## Important Details
-- [constraints/preferences, decisions and why, important facts/assumptions, exact context needed to continue, or "(none)"]
+- [constraints/preferences, important facts/assumptions, exact context needed to continue, or "(none)"]
+
+## Decisions
+- [decision | rationale | turn or context where it was made; only record decisions that still affect the work, or "(none)"]
+
+## Rejected Options
+- [option considered and not chosen | reason it was rejected; preserve the negative space so the choice is not re-litigated, or "(none)"]
+
+## Constraints
+- [constraint, preference, or requirement that must hold verbatim, or "(none)"]
 
 ## Work State
 ### Completed
@@ -43,7 +74,18 @@ Rules:
 - Keep every section, even when empty.
 - Use terse bullets, not prose paragraphs.
 - Preserve exact file paths, symbols, commands, error strings, URLs, and identifiers when known.
+- Record decisions with their rationale and the turn/context where they were made; record rejected options with the reason they were rejected.
+- Preserve high-signal verbatim content marked in <retained-verbatim> exactly as given, without paraphrasing or dropping it.
 - Do not mention the summary process or that context was compacted.`
+const SUMMARY_UPDATE_INSTRUCTIONS = `The <prior-summary> summarizes everything that happened before the <conversation>. Construct a new summary that combines both. The <prior-summary> is discarded after this: anything you do not carry into the new summary is lost.
+
+When combining:
+- Carry forward objectives, constraints, user directives, decisions, and parallel workstreams from the <prior-summary> even when the <conversation> does not mention them. Drop only what is finished and no longer needed.
+- The <conversation> is more recent than the <prior-summary>. Where they conflict, the conversation wins: state the corrected fact and drop the old claim.
+- Add new progress, decisions, constraints, and context from the conversation.
+- Move completed work from "Active" to "Completed".
+- If a blocker has been resolved, update the summary to reflect that while keeping any details still needed to continue the work.
+- Update "Objective" and "Next Move" to reflect the current work state.`
 
 type Entry = {
   readonly seq: number
@@ -54,6 +96,8 @@ type Settings = {
   readonly auto: boolean
   readonly buffer: number
   readonly tokens: number
+  readonly maxContext: number | string | Record<string, number | string> | undefined
+  readonly reserved: number | undefined
 }
 
 type Dependencies = {
@@ -62,6 +106,16 @@ type Dependencies = {
     readonly stream: (request: LLMRequest) => Stream.Stream<LLMEvent, LLMError>
   }
   readonly config: readonly Config.Entry[]
+  // optional fire-and-forget gate fired once overflow is confirmed, BEFORE the
+  // compaction LLM call. Hook errors must never block compaction.
+  readonly hooks?: {
+    readonly beforeCompact?: (input: {
+      readonly sessionID: SessionSchema.ID
+      readonly reason: "auto"
+      readonly tokenEstimate: number
+      readonly contextLimit: number
+    }) => Effect.Effect<void, never>
+  }
 }
 
 type Input = {
@@ -111,6 +165,41 @@ const serialize = (message: SessionMessage.Message) => {
   return ""
 }
 
+// Scored verbatim retention: extract the highest-signal conversation lines
+// and instruct the compaction agent to preserve them verbatim. Scoring:
+// tool error=100,
+// user correction=90, user text=70. Operates on the SERIALIZED line stream so
+// both core (serialize) and opencode (opencode compaction.ts serialize) share
+// the same scorer -- both emit `[User]:`, `[Tool error]:` prefixes.
+const VERBATIM_CAP_CHARS = 2_000
+const CORRECTION_RE =
+  /\b(no|not|wrong|incorrect|instead|don'?t|dont|never|yanl\?s|hata|duzelt|aslinda|actually|rather)\b/i
+
+export const retainVerbatim = (serialized: readonly string[]): string | undefined => {
+  const kept: Array<{ score: number; text: string }> = []
+  for (const line of serialized) {
+    if (line.startsWith("[Tool error]:")) {
+      kept.push({ score: 100, text: line.slice(0, 400) })
+    } else if (line.startsWith("[User]:")) {
+      const text = line.slice("[User]:".length).trim()
+      if (!text) continue
+      kept.push({ score: CORRECTION_RE.test(text) ? 90 : 70, text: line.slice(0, 600) })
+    }
+  }
+  kept.sort((a, b) => b.score - a.score)
+  const unique: string[] = []
+  const seen = new Set<string>()
+  let total = 0
+  for (const item of kept) {
+    if (seen.has(item.text)) continue
+    seen.add(item.text)
+    if (total + item.text.length > VERBATIM_CAP_CHARS) break
+    total += item.text.length
+    unique.push(item.text)
+  }
+  return unique.length === 0 ? undefined : unique.join("\n")
+}
+
 const settings = (documents: readonly Config.Entry[]) => {
   const configured = documents
     .filter((entry): entry is Config.Document => entry.type === "document")
@@ -120,15 +209,32 @@ const settings = (documents: readonly Config.Entry[]) => {
       auto: current.auto ?? result.auto,
       buffer: current.buffer ?? result.buffer,
       tokens: current.keep?.tokens ?? result.tokens,
+      maxContext: current.max_context ?? result.maxContext,
+      reserved: current.reserved ?? result.reserved,
     }),
-    { auto: true, buffer: DEFAULT_BUFFER, tokens: DEFAULT_KEEP_TOKENS },
+    { auto: true, buffer: DEFAULT_BUFFER, tokens: DEFAULT_KEEP_TOKENS, maxContext: undefined, reserved: undefined },
   )
 }
+
+// The runner resolves the llm `Model` (window lives on `route.defaults.limits`),
+// but Overflow consumes the core `Provider.Model` (window on `limit`). Adapt only
+// the fields Overflow reads so the runner gate reuses the exact same window math
+// as the subagent/supervisor overflow path.
+const toProviderModel = (model: Model): Provider.Model =>
+  ({
+    id: model.id,
+    providerID: model.provider,
+    limit: {
+      context: model.route.defaults.limits?.context ?? 0,
+      input: 0,
+      output: model.route.defaults.limits?.output ?? 0,
+    },
+  }) as unknown as Provider.Model
 
 const select = (
   entries: readonly Entry[],
   tokens: number,
-): { readonly head: string; readonly recent: string } | undefined => {
+): { readonly head: string; readonly headLines: readonly string[]; readonly recent: string } | undefined => {
   const conversation = entries
     .filter((entry) => entry.message.type !== "compaction")
     .map((entry) => serialize(entry.message))
@@ -136,39 +242,63 @@ const select = (
   if (conversation.length === 0) return
   let total = 0
   let split = conversation.length
-  let splitPrefix = ""
-  let splitSuffix = ""
   for (let index = conversation.length - 1; index >= 0; index--) {
     const next = total + Token.estimate(conversation[index])
-    if (next > tokens) {
-      const remaining = Math.max(0, tokens - total) * 4
-      if (remaining > 0) {
-        splitPrefix = conversation[index].slice(0, -remaining)
-        splitSuffix = conversation[index].slice(-remaining)
-        split = index + 1
-      }
-      break
-    }
+    if (next > tokens) break
     total = next
     split = index
   }
   return {
-    head: [...conversation.slice(0, split), splitPrefix].filter(Boolean).join("\n\n"),
-    recent: [splitSuffix, ...conversation.slice(split)].filter(Boolean).join("\n\n"),
+    head: conversation.slice(0, split).join("\n\n"),
+    headLines: conversation.slice(0, split),
+    recent: conversation.slice(split).join("\n\n"),
   }
 }
 
-export const buildPrompt = (input: { readonly previousSummary?: string; readonly context: readonly string[] }) =>
-  [
-    input.previousSummary
-      ? `Update the anchored summary below using the conversation history above.\nPreserve still-true details, remove stale details, and merge in the new facts.\n<previous-summary>\n${input.previousSummary}\n</previous-summary>`
-      : "Create a new anchored summary from the conversation history.",
+export const buildPrompt = (input: {
+  readonly previousSummary?: string
+  readonly context: readonly string[]
+  readonly anchor?: string
+  readonly verbatim?: string
+}) => {
+  const conversation = `Here is the conversation so far:\n\n<conversation>\n${input.context.join("\n\n")}\n</conversation>`
+  // Anchor and verbatim blocks extend the summary suffix (PROMPT_CACHE_BOUNDARY.suffixId).
+  const suffix = [
+    input.verbatim
+      ? `Preserve the following high-signal content VERBATIM in the summary -- do not paraphrase, summarize, or drop it:\n<retained-verbatim>\n${input.verbatim}\n</retained-verbatim>`
+      : "",
+    input.anchor ? `The full session state anchor is: ${input.anchor} [${PROMPT_CACHE_BOUNDARY.suffixId}]` : "",
+  ].filter(Boolean)
+  if (!input.previousSummary)
+    return [
+      conversation,
+      "Create a new anchored summary from the conversation history in the <conversation> tags above so another coding agent can continue the work.",
+      SUMMARY_TEMPLATE,
+      ...suffix,
+    ].join("\n\n")
+  return [
+    conversation,
+    `Here is the summary of the conversation before the <conversation> above:\n\n<prior-summary>\n${input.previousSummary}\n</prior-summary>`,
+    SUMMARY_UPDATE_INSTRUCTIONS,
     SUMMARY_TEMPLATE,
-    ...input.context,
+    ...suffix,
   ].join("\n\n")
+}
 
 export const make = (dependencies: Dependencies) => {
   const config = settings(dependencies.config)
+  // The pre-compact anchor record is written to SQLite (writeAnchorTraceDb) in
+  // the processCompaction path where Database.Service is in scope. Without a
+  // consumer hook nothing else is written, so compaction never creates files
+  // in the user's working directory. An explicit consumer hook still runs.
+  const beforeCompact =
+    dependencies.hooks?.beforeCompact ??
+    ((_input: {
+      readonly sessionID: SessionSchema.ID
+      readonly reason: "auto"
+      readonly tokenEstimate: number
+      readonly contextLimit: number
+    }) => Effect.void)
   const compactAfterOverflow = Effect.fn("SessionCompaction.compactAfterOverflow")(function* (input: Input) {
     const context = input.model.route.defaults.limits?.context
     if (context === undefined || context <= 0) return false
@@ -179,9 +309,20 @@ export const make = (dependencies: Dependencies) => {
     const summaryPrompt = buildPrompt({
       previousSummary: previousSummary?.type === "compaction" ? previousSummary.summary : undefined,
       context: [previousSummary?.type === "compaction" ? previousSummary.recent : "", selected.head].filter(Boolean),
+      anchor: `session:${input.sessionID}`,
+      verbatim: retainVerbatim(selected.headLines),
     })
     const summaryOutput = Math.min(output || SUMMARY_OUTPUT_TOKENS, SUMMARY_OUTPUT_TOKENS)
-    if (Token.estimate(summaryPrompt) > context - summaryOutput) return false
+    const tokenEstimate = Token.estimate(summaryPrompt)
+    if (tokenEstimate > context - summaryOutput) return false
+    // Non-blocking pre-compact checkpoint gate for consumer hooks. Hook failure
+    // never blocks compaction (catchAllCause -> void).
+    yield* beforeCompact({
+      sessionID: input.sessionID,
+      reason: "auto",
+      tokenEstimate,
+      contextLimit: context,
+    }).pipe(Effect.catchCause(() => Effect.void))
     const messageID = SessionMessage.ID.create()
     yield* dependencies.events.publish(SessionEvent.Compaction.Started, {
       sessionID: input.sessionID,
@@ -196,6 +337,7 @@ export const make = (dependencies: Dependencies) => {
       .stream(
         LLM.request({
           model: input.model,
+          http: input.request.http,
           messages: [Message.user(summaryPrompt)],
           tools: [],
           generation: { maxTokens: summaryOutput },
@@ -227,11 +369,24 @@ export const make = (dependencies: Dependencies) => {
     const context = input.model.route.defaults.limits?.context
     if (context === undefined || context <= 0) return false
     const output = input.request.generation?.maxTokens ?? input.model.route.defaults.limits?.output ?? 0
-    if (
-      estimate({ system: input.request.system, messages: input.request.messages, tools: input.request.tools }) <=
-      context - Math.max(output, config.buffer)
-    )
-      return false
+    const tokens = estimate({ system: input.request.system, messages: input.request.messages, tools: input.request.tools })
+    // When compaction.max_context is set (including the schema default), align this
+    // runner gate with the subagent/supervisor overflow window (Overflow.contextWindow)
+    // so both paths compact at the same threshold. When max_context is unset, keep the
+    // legacy raw window-minus-buffer behavior for backward compatibility.
+    const threshold =
+      config.maxContext === undefined
+        ? context - Math.max(output, config.buffer)
+        : contextWindow({
+            cfg: {
+              compaction: {
+                max_context: config.maxContext,
+                reserved: config.reserved,
+              },
+            },
+            model: toProviderModel(input.model),
+          }).usable
+    if (tokens <= threshold) return false
     return yield* compactAfterOverflow(input)
   })
   return {

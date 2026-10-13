@@ -1,5 +1,6 @@
-import { describe, expect, test } from "bun:test"
-import { parsePluginSpecifier } from "../../src/plugin/shared"
+import { describe, expect, spyOn, test } from "bun:test"
+import { Npm } from "@opencode-ai/core/npm"
+import { parsePluginSpecifier, resolvePluginTarget } from "../../src/plugin/shared"
 
 describe("parsePluginSpecifier", () => {
   test("parses standard npm package without version", () => {
@@ -84,5 +85,39 @@ describe("parsePluginSpecifier", () => {
       pkg: "@opencode/acme",
       version: "latest",
     })
+  })
+})
+
+describe("resolvePluginTarget", () => {
+  test("resolves a bare npm name to `${name}@latest` (upstream contract)", async () => {
+    // Spy on Npm.add and assert a bare spec gets the `@latest` suffix
+    // appended, matching the upstream behavior. A later change made this throw
+    // ("no pinned version") which broke every existing OpenCode user's
+    // `opencode.json` declaring a plugin by bare name -- the upstream-compat
+    // invariant violation that was reverted.
+    const add = spyOn(Npm, "add").mockImplementation(async (spec) => ({
+      directory: `/tmp/resolve/${spec}`,
+      entrypoint: undefined,
+    }))
+    try {
+      await resolvePluginTarget("acme")
+      await resolvePluginTarget("@scope/foo")
+      expect(add.mock.calls.map((c) => c[0])).toEqual(["acme@latest", "@scope/foo@latest"])
+    } finally {
+      add.mockRestore()
+    }
+  })
+
+  test("passes a versioned spec through to Npm.add unchanged", async () => {
+    const add = spyOn(Npm, "add").mockImplementation(async (spec) => ({
+      directory: `/tmp/resolve/${spec}`,
+      entrypoint: undefined,
+    }))
+    try {
+      await resolvePluginTarget("acme@1.2.3")
+      expect(add.mock.calls.map((c) => c[0])).toEqual(["acme@1.2.3"])
+    } finally {
+      add.mockRestore()
+    }
   })
 })

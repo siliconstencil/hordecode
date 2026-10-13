@@ -20,7 +20,7 @@ export const groupNames = {
   "server.health": "health",
   "server.location": "location",
   "server.agent": "agents",
-  "server.session": "sessions",
+  "server.session": "session",
   "server.message": "messages",
   "server.model": "models",
   "server.provider": "providers",
@@ -50,4 +50,5 @@ export const endpointNames = {
   "question.request.list": "listRequests",
 } as const
 
-export const omitEndpoints = new Set(["fs.read", "pty.connect", "pty.connectToken"])
+export const promiseOmitEndpoints = new Set(["fs.read", "pty.connect", "pty.connectToken"])
+export const effectOmitEndpoints = new Set(["fs.read", "pty.connect", "pty.connectToken"])

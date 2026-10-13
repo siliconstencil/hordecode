@@ -8,7 +8,8 @@ import { ACPProfile } from "@/acp/profile"
 
 export const AcpCommand = effectCmd({
   command: "acp",
-  describe: "start ACP (Agent Client Protocol) server",
+  describe:
+    "start ACP (Agent Client Protocol) server. ACP traffic is stdio NDJSON (JSON-RPC 2.0 over stdin/stdout); the --port/--hostname flags configure the bundled hordecode HTTP API and do not expose ACP over a TCP port.",
   builder: (yargs) => {
     return withNetworkOptions(yargs).option("cwd", {
       describe: "working directory",

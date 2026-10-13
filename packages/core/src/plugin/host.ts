@@ -1,6 +1,6 @@
 export * as PluginHost from "./host"
 
-import type { PluginContext as Interface } from "@opencode-ai/plugin/v2/effect"
+import type { PluginContext } from "@opencode-ai/plugin/v2/effect"
 import { Effect, Schema } from "effect"
 import { AgentV2 } from "../agent"
 import { AISDK } from "../aisdk"
@@ -9,7 +9,8 @@ import { CommandV2 } from "../command"
 import { Credential } from "../credential"
 import { Integration } from "../integration"
 import { ModelV2 } from "../model"
-import { PluginV2 } from "../plugin"
+import { Plugin as SchemaPlugin } from "@opencode-ai/schema/plugin"
+import type { Interface as PluginInterface } from "../plugin"
 import { ProviderV2 } from "../provider"
 import { Reference } from "../reference"
 import type { DeepMutable } from "../schema"
@@ -17,7 +18,7 @@ import { SkillV2 } from "../skill"
 
 const mutable = <T>(value: T) => value as DeepMutable<T>
 
-export const make = Effect.fn("PluginHost.make")(function* (plugin: PluginV2.Interface) {
+export const make = Effect.fn("PluginHost.make")(function* (plugin: PluginInterface) {
   const agents = yield* AgentV2.Service
   const aisdk = yield* AISDK.Service
   const catalog = yield* Catalog.Service
@@ -191,8 +192,8 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: PluginV2.Int
         ),
     },
     plugin: {
-      add: (input) => plugin.add(PluginV2.ID.make(input.id), input.effect),
-      remove: (id) => plugin.remove(PluginV2.ID.make(id)),
+      add: (input) => plugin.add(SchemaPlugin.ID.make(input.id), input.effect),
+      remove: (id) => plugin.remove(SchemaPlugin.ID.make(id)),
     },
     reference: {
       reload: reference.reload,
@@ -211,9 +212,9 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: PluginV2.Int
         skill.transform((draft) =>
           callback({
             source: (source) => draft.source(Schema.decodeUnknownSync(SkillV2.Source)(source)),
-            list: draft.list,
+            list: () => mutable(draft.list()),
           }),
         ),
     },
-  } satisfies Interface
+  } satisfies PluginContext
 })

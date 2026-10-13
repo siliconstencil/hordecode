@@ -19,6 +19,10 @@ export const SessionMessagesQuery = Schema.Struct({
         "Opaque pagination cursor returned as cursor.previous or cursor.next in the previous response. Do not combine with order.",
     }),
   ),
+  agent_id: Schema.optional(Schema.String).annotate({
+    description:
+      "Filter by message slice. Omitted = main-agent slice only (default). Pass a subagent's supervisor id to fetch its slice. Pass `*` to return every message regardless of slice.",
+  }),
 }).annotate({ identifier: "SessionMessagesQuery" })
 
 export const MessageGroup = HttpApiGroup.make("server.message")

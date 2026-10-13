@@ -13,7 +13,7 @@ import { ConfigProviderV1 } from "../../v1/config/provider"
 import { ConfigProviderOptionsV1 } from "../../v1/config/provider-options"
 import { ConfigV1 } from "../../v1/config/config"
 
-const defaultServer = "https://console.opencode.ai"
+const defaultServer = "https://opencode.ai/console"
 const clientID = "opencode-cli"
 const methodID = Integration.MethodID.make("device")
 const RemoteResponse = Schema.Struct({ config: ConfigV1.Info })
@@ -45,9 +45,18 @@ function oauth(http: HttpClient.HttpClient) {
     authorize: () =>
       Effect.gen(function* () {
         const device = yield* post(http, `${defaultServer}/auth/device/code`, { client_id: clientID }, Device)
+        const verification = yield* Effect.try({
+          try: () => {
+            const url = new URL(device.verification_uri_complete, `${defaultServer}/`)
+            if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("expected HTTP(S)")
+            return url
+          },
+          catch: (cause) =>
+            new Error(`Invalid device verification URL: ${cause instanceof Error ? cause.message : String(cause)}`),
+        })
         return {
           mode: "auto" as const,
-          url: `${defaultServer}${device.verification_uri_complete}`,
+          url: verification.href,
           instructions: `Enter code: ${device.user_code}`,
           callback: poll(http, defaultServer, device.device_code, Duration.seconds(device.interval)),
         }
@@ -164,13 +173,14 @@ export const OpencodePlugin = define<HttpClient.HttpClient | EventV2.Service | S
 
       const item = catalog.provider.get(ProviderV2.ID.opencode)
       if (!item) return
-      const hasKey = Boolean(process.env.OPENCODE_API_KEY || connected || item.provider.request.body.apiKey)
-      catalog.provider.update(item.provider.id, (provider) => {
-        if (!hasKey) provider.request.body.apiKey = "public"
-      })
-      if (hasKey) return
+      const hasKey = Boolean(
+        process.env.HORDECODE_API_KEY || process.env.OPENCODE_API_KEY || connected || item.provider.request.body.apiKey,
+      )
+      // Hordecode never surfaces the opencode free tier (no cost.input > 0): opencode's server only serves it to
+      // the opencode client. Without credentials the paid models are disabled too. Upstream opencode.ts:167-175
+      // keeps the free ones with apiKey "public"; MiMo Code 0.1.11 provider.ts:306-313 is the pattern used here.
       for (const model of item.models.values()) {
-        if (!model.cost.some((cost) => cost.input > 0)) continue
+        if (hasKey && model.cost.some((cost) => cost.input > 0)) continue
         catalog.model.update(item.provider.id, model.id, (draft) => {
           draft.enabled = false
         })

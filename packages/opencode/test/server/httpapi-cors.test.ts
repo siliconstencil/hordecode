@@ -16,7 +16,6 @@ const testStateLayer = Layer.effectDiscard(
       OPENCODE_SERVER_PASSWORD: Flag.OPENCODE_SERVER_PASSWORD,
     }
     Flag.OPENCODE_SERVER_PASSWORD = "secret"
-    yield* Effect.promise(() => resetDatabase())
     yield* Effect.addFinalizer(() =>
       Effect.promise(async () => {
         Flag.OPENCODE_SERVER_PASSWORD = original.OPENCODE_SERVER_PASSWORD

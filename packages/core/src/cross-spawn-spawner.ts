@@ -26,6 +26,7 @@ import { PassThrough } from "node:stream"
 import launch from "cross-spawn"
 import { makeGlobalNode } from "./effect/app-node"
 import { filesystem, path } from "./effect/app-node-platform"
+import * as InstanceState from "./effect/instance-state"
 
 const toError = (err: unknown): Error => (err instanceof globalThis.Error ? err : new globalThis.Error(String(err)))
 
@@ -270,20 +271,20 @@ export const make = Effect.gen(function* () {
       const proc = launch(command.command, command.args, opts)
       let end = false
       let exit: readonly [code: number | null, signal: NodeJS.Signals | null] | undefined
-      proc.on("error", (err) => {
+      proc.on("error", InstanceState.bind((err: NodeJS.ErrnoException) => {
         resume(Effect.fail(toPlatformError("spawn", err, command)))
-      })
-      proc.on("exit", (...args) => {
+      }))
+      proc.on("exit", InstanceState.bind((...args: readonly [code: number | null, signal: NodeJS.Signals | null]) => {
         exit = args
-      })
-      proc.on("close", (...args) => {
+      }))
+      proc.on("close", InstanceState.bind((...args: readonly [code: number | null, signal: NodeJS.Signals | null]) => {
         if (end) return
         end = true
         Deferred.doneUnsafe(signal, Exit.succeed(exit ?? args))
-      })
-      proc.on("spawn", () => {
+      }))
+      proc.on("spawn", InstanceState.bind(() => {
         resume(Effect.succeed([proc, signal]))
-      })
+      }))
       return Effect.sync(() => {
         proc.kill("SIGTERM")
       })

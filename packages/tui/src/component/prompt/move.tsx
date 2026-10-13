@@ -103,7 +103,7 @@ export function usePromptMove(input: { projectID: () => string | undefined; sess
 
   function sessionContext(sessionID: string) {
     const session = sync.session.get(sessionID)
-    const messages = (sync.data.message[sessionID] ?? [])
+    const messages = (Object.values(sync.data.message[sessionID] ?? {}).flat())
       .slice(-6)
       .map((message) =>
         [

@@ -1,7 +1,8 @@
 import { TextAttributes } from "@opentui/core"
 import { useTheme } from "../context/theme"
 import { useDialog, type DialogContext } from "./dialog"
-import { useBindings } from "../keymap"
+import { useKeyboard } from "@opentui/solid"
+import { useLanguage } from "../context/language"
 
 export type DialogAlertProps = {
   title: string
@@ -12,20 +13,14 @@ export type DialogAlertProps = {
 export function DialogAlert(props: DialogAlertProps) {
   const dialog = useDialog()
   const { theme } = useTheme()
+  const t = useLanguage().t
 
-  useBindings(() => ({
-    bindings: [
-      {
-        key: "return",
-        desc: "Confirm alert",
-        group: "Dialog",
-        cmd: () => {
-          props.onConfirm?.()
-          dialog.clear()
-        },
-      },
-    ],
-  }))
+  useKeyboard((evt) => {
+    if (evt.name === "return") {
+      props.onConfirm?.()
+      dialog.clear()
+    }
+  })
   return (
     <box paddingLeft={2} paddingRight={2} gap={1}>
       <box flexDirection="row" justifyContent="space-between">
@@ -33,7 +28,7 @@ export function DialogAlert(props: DialogAlertProps) {
           {props.title}
         </text>
         <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
-          esc
+          {t("tui.dialog.close_hint")}
         </text>
       </box>
       <box paddingBottom={1}>
@@ -49,7 +44,7 @@ export function DialogAlert(props: DialogAlertProps) {
             dialog.clear()
           }}
         >
-          <text fg={theme.selectedListItemText}>ok</text>
+          <text fg={theme.selectedListItemText}>{t("tui.dialog.ok")}</text>
         </box>
       </box>
     </box>

@@ -1,0 +1,181 @@
+diff --git a/dist/index.js b/dist/index.js
+index dca128d3a790378c51a24a16d92585178343b278..39132f63c065397b75ac17aa2e9010d0407c89c0 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -696,7 +696,7 @@ var OpenAICompatibleChatLanguageModel = class {
+               finishReason = { unified: "error", raw: void 0 };
+               controller.enqueue({
+                 type: "error",
+-                error: chunk.value.error.message
++                error: chunk.value.error
+               });
+               return;
+             }
+@@ -791,6 +791,7 @@ var OpenAICompatibleChatLanguageModel = class {
+                       arguments: (_e = toolCallDelta.function.arguments) != null ? _e : ""
+                     },
+                     hasFinished: false,
++                    lastValidDelta: undefined,
+                     thoughtSignature: (_h = (_g = (_f = toolCallDelta.extra_content) == null ? void 0 : _f.google) == null ? void 0 : _g.thought_signature) != null ? _h : void 0
+                   };
+                   const toolCall2 = toolCalls[index];
+@@ -803,24 +804,7 @@ var OpenAICompatibleChatLanguageModel = class {
+                       });
+                     }
+                     if ((0, import_provider_utils2.isParsableJson)(toolCall2.function.arguments)) {
+-                      controller.enqueue({
+-                        type: "tool-input-end",
+-                        id: toolCall2.id
+-                      });
+-                      controller.enqueue({
+-                        type: "tool-call",
+-                        toolCallId: (_k = toolCall2.id) != null ? _k : (0, import_provider_utils2.generateId)(),
+-                        toolName: toolCall2.function.name,
+-                        input: toolCall2.function.arguments,
+-                        ...toolCall2.thoughtSignature ? {
+-                          providerMetadata: {
+-                            [providerOptionsName]: {
+-                              thoughtSignature: toolCall2.thoughtSignature
+-                            }
+-                          }
+-                        } : {}
+-                      });
+-                      toolCall2.hasFinished = true;
++                      toolCall2.lastValidDelta = toolCall2.function.arguments;
+                     }
+                   }
+                   continue;
+@@ -837,25 +821,8 @@ var OpenAICompatibleChatLanguageModel = class {
+                   id: toolCall.id,
+                   delta: (_o = toolCallDelta.function.arguments) != null ? _o : ""
+                 });
+-                if (((_p = toolCall.function) == null ? void 0 : _p.name) != null && ((_q = toolCall.function) == null ? void 0 : _q.arguments) != null && (0, import_provider_utils2.isParsableJson)(toolCall.function.arguments)) {
+-                  controller.enqueue({
+-                    type: "tool-input-end",
+-                    id: toolCall.id
+-                  });
+-                  controller.enqueue({
+-                    type: "tool-call",
+-                    toolCallId: (_r = toolCall.id) != null ? _r : (0, import_provider_utils2.generateId)(),
+-                    toolName: toolCall.function.name,
+-                    input: toolCall.function.arguments,
+-                    ...toolCall.thoughtSignature ? {
+-                      providerMetadata: {
+-                        [providerOptionsName]: {
+-                          thoughtSignature: toolCall.thoughtSignature
+-                        }
+-                      }
+-                    } : {}
+-                  });
+-                  toolCall.hasFinished = true;
++                if (((_p = toolCallDelta.function) == null ? void 0 : _p.arguments) != null && (0, import_provider_utils2.isParsableJson)(toolCallDelta.function.arguments)) {
++                  toolCall.lastValidDelta = toolCallDelta.function.arguments;
+                 }
+               }
+             }
+@@ -879,7 +846,7 @@ var OpenAICompatibleChatLanguageModel = class {
+                 type: "tool-call",
+                 toolCallId: (_a2 = toolCall.id) != null ? _a2 : (0, import_provider_utils2.generateId)(),
+                 toolName: toolCall.function.name,
+-                input: toolCall.function.arguments,
++                input: (0, import_provider_utils2.isParsableJson)(toolCall.function.arguments) ? toolCall.function.arguments : (toolCall.lastValidDelta != null ? toolCall.lastValidDelta : toolCall.function.arguments),
+                 ...toolCall.thoughtSignature ? {
+                   providerMetadata: {
+                     [providerOptionsName]: {
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 3b1e1b6bdec5032e3b4fa5ffbcc8cdf3dfe1cc40..59063898be02bc5d3ed4151cafa32d9aa3f52808 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -683,7 +683,7 @@ var OpenAICompatibleChatLanguageModel = class {
+               finishReason = { unified: "error", raw: void 0 };
+               controller.enqueue({
+                 type: "error",
+-                error: chunk.value.error.message
++                error: chunk.value.error
+               });
+               return;
+             }
+@@ -778,6 +778,7 @@ var OpenAICompatibleChatLanguageModel = class {
+                       arguments: (_e = toolCallDelta.function.arguments) != null ? _e : ""
+                     },
+                     hasFinished: false,
++                    lastValidDelta: undefined,
+                     thoughtSignature: (_h = (_g = (_f = toolCallDelta.extra_content) == null ? void 0 : _f.google) == null ? void 0 : _g.thought_signature) != null ? _h : void 0
+                   };
+                   const toolCall2 = toolCalls[index];
+@@ -790,24 +791,7 @@ var OpenAICompatibleChatLanguageModel = class {
+                       });
+                     }
+                     if (isParsableJson(toolCall2.function.arguments)) {
+-                      controller.enqueue({
+-                        type: "tool-input-end",
+-                        id: toolCall2.id
+-                      });
+-                      controller.enqueue({
+-                        type: "tool-call",
+-                        toolCallId: (_k = toolCall2.id) != null ? _k : generateId(),
+-                        toolName: toolCall2.function.name,
+-                        input: toolCall2.function.arguments,
+-                        ...toolCall2.thoughtSignature ? {
+-                          providerMetadata: {
+-                            [providerOptionsName]: {
+-                              thoughtSignature: toolCall2.thoughtSignature
+-                            }
+-                          }
+-                        } : {}
+-                      });
+-                      toolCall2.hasFinished = true;
++                      toolCall2.lastValidDelta = toolCall2.function.arguments;
+                     }
+                   }
+                   continue;
+@@ -824,25 +808,8 @@ var OpenAICompatibleChatLanguageModel = class {
+                   id: toolCall.id,
+                   delta: (_o = toolCallDelta.function.arguments) != null ? _o : ""
+                 });
+-                if (((_p = toolCall.function) == null ? void 0 : _p.name) != null && ((_q = toolCall.function) == null ? void 0 : _q.arguments) != null && isParsableJson(toolCall.function.arguments)) {
+-                  controller.enqueue({
+-                    type: "tool-input-end",
+-                    id: toolCall.id
+-                  });
+-                  controller.enqueue({
+-                    type: "tool-call",
+-                    toolCallId: (_r = toolCall.id) != null ? _r : generateId(),
+-                    toolName: toolCall.function.name,
+-                    input: toolCall.function.arguments,
+-                    ...toolCall.thoughtSignature ? {
+-                      providerMetadata: {
+-                        [providerOptionsName]: {
+-                          thoughtSignature: toolCall.thoughtSignature
+-                        }
+-                      }
+-                    } : {}
+-                  });
+-                  toolCall.hasFinished = true;
++                if (((_p = toolCallDelta.function) == null ? void 0 : _p.arguments) != null && isParsableJson(toolCallDelta.function.arguments)) {
++                  toolCall.lastValidDelta = toolCallDelta.function.arguments;
+                 }
+               }
+             }
+@@ -866,7 +833,7 @@ var OpenAICompatibleChatLanguageModel = class {
+                 type: "tool-call",
+                 toolCallId: (_a2 = toolCall.id) != null ? _a2 : generateId(),
+                 toolName: toolCall.function.name,
+-                input: toolCall.function.arguments,
++                input: isParsableJson(toolCall.function.arguments) ? toolCall.function.arguments : (toolCall.lastValidDelta != null ? toolCall.lastValidDelta : toolCall.function.arguments),
+                 ...toolCall.thoughtSignature ? {
+                   providerMetadata: {
+                     [providerOptionsName]: {
+diff --git a/src/chat/openai-compatible-chat-language-model.ts b/src/chat/openai-compatible-chat-language-model.ts
+index 8c622db23c2d9a7373701f5a1b0c2ba109e24602..643c3db68a6043e097edc1122e0eb53fd13495c5 100644
+--- a/src/chat/openai-compatible-chat-language-model.ts
++++ b/src/chat/openai-compatible-chat-language-model.ts
+@@ -442,7 +442,7 @@ export class OpenAICompatibleChatLanguageModel implements LanguageModelV3 {
+               finishReason = { unified: 'error', raw: undefined };
+               controller.enqueue({
+                 type: 'error',
+-                error: chunk.value.error.message,
++                error: chunk.value.error,
+               });
+               return;
+             }

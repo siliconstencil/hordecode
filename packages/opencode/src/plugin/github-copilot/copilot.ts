@@ -1,7 +1,7 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
 import type { Model } from "@opencode-ai/sdk/v2"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
-import { iife } from "@/util/iife"
+import { iife } from "@opencode-ai/core/util/iife"
 import { setTimeout as sleep } from "node:timers/promises"
 import { CopilotModels } from "./models"
 import { MessageV2 } from "@/session/message-v2"
@@ -361,6 +361,7 @@ export async function CopilotAuthPlugin(input: PluginInput): Promise<Hooks> {
       if (!incoming.model.providerID.includes("github-copilot")) return
 
       output.headers["X-GitHub-Api-Version"] = API_VERSION
+      output.headers["X-Interaction-Id"] = incoming.sessionID
       if (incoming.agent === "title") {
         output.headers["X-Interaction-Type"] = "agent-session-name-generation"
       }

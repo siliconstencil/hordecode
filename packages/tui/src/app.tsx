@@ -4,12 +4,13 @@ import { createDefaultOpenTuiKeymap } from "@opentui/keymap/opentui"
 import { Deferred, Effect } from "effect"
 import { Global } from "@opencode-ai/core/global"
 import { Flag } from "@opencode-ai/core/flag/flag"
+import { Log } from "@opencode-ai/core/util"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { ClipboardProvider, useClipboard } from "./context/clipboard"
 import { ExitProvider, useExit } from "./context/exit"
 import { EpilogueProvider } from "./context/epilogue"
 import * as Selection from "./util/selection"
-import { createCliRenderer, MouseButton } from "@opentui/core"
+import { createCliRenderer, MouseButton, TextAttributes } from "@opentui/core"
 import { RouteProvider, useRoute } from "./context/route"
 import {
   Switch,
@@ -31,25 +32,28 @@ import { ErrorComponent } from "./component/error-component"
 import { PluginRouteMissing } from "./component/plugin-route-missing"
 import { ProjectProvider, useProject } from "./context/project"
 import { EditorContextProvider } from "./context/editor"
+import { LocationProvider } from "./context/location"
 import { useEvent } from "./context/event"
 import { SDKProvider, useSDK } from "./context/sdk"
 import { StartupLoading } from "./component/startup-loading"
 import { SyncProvider, useSync } from "./context/sync"
 import { DataProvider } from "./context/data"
-import { LocationProvider } from "./context/location"
 import { LocalProvider, useLocal } from "./context/local"
-import { PermissionProvider } from "./context/permission"
+import { KeybindProvider } from "./context/keybind"
+import { PermissionProvider, usePermission } from "./context/permission"
 import { DialogModel } from "./component/dialog-model"
 import { useConnected } from "./component/use-connected"
 import { DialogMcp } from "./component/dialog-mcp"
-import { DialogStatus } from "./component/dialog-status"
 import { DialogDebug } from "./component/dialog-debug"
+import { DialogStatus } from "./component/dialog-status"
 import { DialogThemeList } from "./component/dialog-theme-list"
+import { DialogLanguageList } from "./component/dialog-language-list"
 import { DialogHelp } from "./ui/dialog-help"
 import { DialogAgent } from "./component/dialog-agent"
 import { DialogSessionList } from "./component/dialog-session-list"
 import { DialogWorkspaceList } from "./component/dialog-workspace-list"
 import { DialogConsoleOrg } from "./component/dialog-console-org"
+import { DialogLogin } from "./component/dialog-login"
 import { ThemeProvider, useTheme } from "./context/theme"
 import { Home } from "./routes/home"
 import { Session } from "./routes/session"
@@ -61,9 +65,10 @@ import { DialogConfirm } from "./ui/dialog-confirm"
 import { ToastProvider, useToast } from "./ui/toast"
 import { isDefaultTitle } from "./util/session"
 import { KVProvider, useKV } from "./context/kv"
+import { LanguageProvider } from "./context/language"
 import * as Model from "./util/model"
 import { ArgsProvider, useArgs, type Args } from "./context/args"
-import open from "open"
+import { openUrl } from "@opencode-ai/core/open"
 import { PromptRefProvider, usePromptRef } from "./context/prompt"
 import { TuiConfigProvider, useTuiConfig, type TuiConfig } from "./config"
 import { createTuiApiAdapters } from "./plugin/adapters"
@@ -81,6 +86,12 @@ import {
 
 import type { EventSource } from "./context/sdk"
 import { DialogVariant } from "./component/dialog-variant"
+import { DialogWorkflows } from "./component/dialog-workflows"
+import { DialogWorktree } from "./component/dialog-worktree"
+import { DialogImageList } from "./component/dialog-image-list"
+import { DialogLogoDesign } from "./component/dialog-logo-design"
+import { DialogContextLimit } from "./component/dialog-context-limit"
+import { CommandProvider } from "./component/dialog-command"
 import { createTuiAttention } from "./attention"
 import * as TuiAudio from "./audio"
 import { win32DisableProcessedInput, win32FlushInputBuffer } from "./terminal-win32"
@@ -88,6 +99,8 @@ import { destroyRenderer } from "./util/renderer"
 import { cliErrorMessage, errorFormat } from "./util/error"
 
 registerOpencodeSpinner()
+
+const log = Log.create({ service: "tui.app" })
 
 const appGlobalBindingCommands = [
   "session.list",
@@ -125,7 +138,6 @@ const appBindingCommands = [
   "theme.mode.lock",
   "help.show",
   "docs.open",
-  "diff.open",
   "workspace.list",
   "app.debug",
   "app.console",
@@ -137,6 +149,7 @@ const appBindingCommands = [
   "app.toggle.diffwrap",
   "app.toggle.paste_summary",
   "app.toggle.session_directory_filter",
+  "permission.mode",
 ] as const
 
 export type TuiInput = {
@@ -274,14 +287,17 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                     >
                       <TuiStartupProvider
                         value={{
-                          initialRoute: process.env.OPENCODE_ROUTE ? JSON.parse(process.env.OPENCODE_ROUTE) : undefined,
-                          skipInitialLoading: Boolean(process.env.OPENCODE_FAST_BOOT),
+                          initialRoute: (process.env.HORDECODE_ROUTE ?? process.env.OPENCODE_ROUTE)
+                            ? JSON.parse((process.env.HORDECODE_ROUTE ?? process.env.OPENCODE_ROUTE)!)
+                            : undefined,
+                          skipInitialLoading: Boolean(process.env.HORDECODE_FAST_BOOT ?? process.env.OPENCODE_FAST_BOOT),
                         }}
                       >
                         <ClipboardProvider>
                           <OpencodeKeymapProvider keymap={keymap}>
                             <ArgsProvider {...input.args}>
                               <KVProvider>
+                                <LanguageProvider>
                                 <ToastProvider>
                                   <RouteProvider
                                     initialRoute={
@@ -302,41 +318,46 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                           headers={input.headers}
                                           events={input.events}
                                         >
-                                          <PermissionProvider>
-                                            <ProjectProvider>
-                                              <SyncProvider>
-                                                <DataProvider>
-                                                  <ThemeProvider mode={mode}>
-                                                    <LocalProvider>
+                                          <ProjectProvider>
+                                            <SyncProvider>
+                                              <DataProvider>
+                                                <ThemeProvider mode={mode}>
+                                                  <LocalProvider>
+                                                    <KeybindProvider>
+                                                    <PermissionProvider>
                                                       <PromptStashProvider>
-                                                        <DialogProvider>
-                                                          <FrecencyProvider>
-                                                            <PromptHistoryProvider>
-                                                              <PromptRefProvider>
-                                                                <EditorContextProvider>
-                                                                  <LocationProvider>
-                                                                    <App
-                                                                      onSnapshot={input.onSnapshot}
-                                                                      pluginHost={input.pluginHost}
-                                                                    />
-                                                                  </LocationProvider>
-                                                                </EditorContextProvider>
-                                                              </PromptRefProvider>
-                                                            </PromptHistoryProvider>
-                                                          </FrecencyProvider>
-                                                        </DialogProvider>
-                                                      </PromptStashProvider>
-                                                    </LocalProvider>
-                                                  </ThemeProvider>
-                                                </DataProvider>
-                                              </SyncProvider>
-                                            </ProjectProvider>
-                                          </PermissionProvider>
+                                                      <DialogProvider>
+                                                        <CommandProvider>
+                                                        <FrecencyProvider>
+                                                          <PromptHistoryProvider>
+                                                            <PromptRefProvider>
+                                                              <EditorContextProvider>
+                                                                <LocationProvider>
+                                                                  <App
+                                                                    onSnapshot={input.onSnapshot}
+                                                                    pluginHost={input.pluginHost}
+                                                                  />
+                                                                </LocationProvider>
+                                                              </EditorContextProvider>
+                                                            </PromptRefProvider>
+                                                          </PromptHistoryProvider>
+                                                        </FrecencyProvider>
+                                                      </CommandProvider>
+                                                      </DialogProvider>
+                                                    </PromptStashProvider>
+                                                    </PermissionProvider>
+                                                    </KeybindProvider>
+                                                  </LocalProvider>
+                                                </ThemeProvider>
+                                              </DataProvider>
+                                            </SyncProvider>
+                                          </ProjectProvider>
                                         </SDKProvider>
                                       </PluginRuntimeProvider>
                                     </TuiConfigProvider>
                                   </RouteProvider>
                                 </ToastProvider>
+                                </LanguageProvider>
                               </KVProvider>
                             </ArgsProvider>
                           </OpencodeKeymapProvider>
@@ -356,8 +377,10 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
   )
   yield* Effect.sync(() => {
     win32FlushInputBuffer()
-    if (result.reason !== undefined)
+    if (result.reason !== undefined) {
       process.stderr.write((cliErrorMessage(result.reason) ?? errorFormat(result.reason)) + "\n")
+      process.exitCode = 1
+    }
     if (result.epilogue) process.stdout.write(result.epilogue + "\n")
   })
 })
@@ -384,6 +407,74 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
   const pluginRuntime = usePluginRuntime()
   const attention = createTuiAttention({ renderer, config: tuiConfig, kv })
   const clipboard = useClipboard()
+  const permission = usePermission()
+
+  // Hydrate never-ask from server on startup (durable via Storage).
+  // When workspace is undefined (plain non-project session) we omit the
+  // query param so WorkspaceRoutingMiddleware falls back to directory=cwd
+  // rather than sending workspace="" which previously triggered the
+  // "Failed to persist never-ask" path on some validation branches.
+  onMount(() => {
+    void (async () => {
+      try {
+        const workspace = project.workspace.current() ?? undefined
+        // SDK client.question.neverAsk return type is API response, not boolean; narrow to method signature
+        const anyClient = sdk.client as unknown as {
+          question?: { neverAsk?: (args: unknown) => Promise<boolean> }
+        }
+        if (anyClient.question?.neverAsk) {
+          const value = await anyClient.question.neverAsk({
+            query: workspace ? { workspace } : {},
+          })
+          if (typeof value === "boolean") local.neverAsk.set(value)
+          return
+        }
+        const directory = sdk.directory
+        const params = new URLSearchParams()
+        if (workspace) params.set("workspace", workspace)
+        if (directory) params.set("directory", directory)
+        const qs = params.toString() ? `?${params.toString()}` : ""
+        const res = await sdk.fetch(`${sdk.url}/question/never-ask${qs}`, {
+          headers: directory ? { "x-opencode-directory": encodeURIComponent(directory) } : undefined,
+        })
+        if (!res.ok) {
+          console.warn("never-ask hydration failed", res.status)
+          return
+        }
+        // res.json() returns Promise<unknown>, cast to unknown for type narrowing in conditionals
+        const data = (await res.json()) as unknown
+        if (typeof data === "boolean") local.neverAsk.set(data)
+        else if (data && typeof (data as { enabled: unknown }).enabled === "boolean")
+          local.neverAsk.set((data as { enabled: boolean }).enabled)
+      } catch {}
+    })()
+  })
+
+  // Auto-approve permission requests when permission.mode === "auto"
+  event.on("permission.asked", (evt) => {
+    if (permission.mode !== "auto") return
+    void sdk.client.permission
+      .reply({
+        requestID: evt.properties.id,
+        reply: "once",
+        workspace: project.workspace.current(),
+      })
+      .catch(() => {})
+  })
+  createEffect(() => {
+    if (permission.mode !== "auto") return
+    const all = Object.values(sync.data.permission).flat()
+    if (all.length === 0) return
+    for (const req of all) {
+      void sdk.client.permission
+        .reply({
+          requestID: req.id,
+          reply: "once",
+          workspace: project.workspace.current(),
+        })
+        .catch(() => {})
+    }
+  })
 
   const api = createTuiApi(
     createTuiApiAdapters({
@@ -423,11 +514,26 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
   const offSelectionKeys = keymap.intercept(
     "key",
     ({ event }) => {
-      if (!Flag.OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT) return
+      if (!Flag.HORDECODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT) return
       Selection.handleSelectionKey(renderer, toast, event, clipboard)
     },
     { priority: 1 },
   )
+  createEffect(() => {
+    if (sync.status !== "error") return
+    const off = keymap.intercept(
+      "key",
+      ({ event }) => {
+        if (event.name !== "r" || event.ctrl || event.meta) return
+        void sync.bootstrap().catch(() => {})
+        event.preventDefault?.()
+        event.stopPropagation?.()
+      },
+      { priority: 100 },
+    )
+    onCleanup(off)
+  })
+
   onCleanup(() => {
     offSelectionKeys()
     attention.dispose()
@@ -454,24 +560,24 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
     if (!terminalTitleEnabled() || Flag.OPENCODE_DISABLE_TERMINAL_TITLE) return
 
     if (route.data.type === "home") {
-      renderer.setTerminalTitle("OpenCode")
+      renderer.setTerminalTitle("Hordecode")
       return
     }
 
     if (route.data.type === "session") {
       const session = sync.session.get(route.data.sessionID)
       if (!session || isDefaultTitle(session.title)) {
-        renderer.setTerminalTitle("OpenCode")
+        renderer.setTerminalTitle("Hordecode")
         return
       }
 
-      const title = session.title.length > 40 ? session.title.slice(0, 37) + "..." : session.title
-      renderer.setTerminalTitle(`OC | ${title}`)
+      const title = session.title.length > 40 ? session.title.slice(0, 37) + "…" : session.title
+      renderer.setTerminalTitle(`HC | ${title}`)
       return
     }
 
     if (route.data.type === "plugin") {
-      renderer.setTerminalTitle(`OC | ${route.data.id}`)
+      renderer.setTerminalTitle(`HC | ${route.data.id}`)
     }
   })
 
@@ -593,6 +699,15 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         },
       },
       {
+        name: "workflow.list",
+        title: "Workflows",
+        category: "Session",
+        slashName: "workflows",
+        run: () => {
+          dialog.replace(() => <DialogWorkflows />)
+        },
+      },
+      {
         name: "workspace.copy_path",
         title: "Copy worktree path",
         category: "Workspace",
@@ -611,7 +726,7 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         name: "workspace.list",
         title: "Manage workspaces",
         category: "Workspace",
-        hidden: !Flag.OPENCODE_EXPERIMENTAL_WORKSPACES,
+        hidden: !Flag.HORDECODE_EXPERIMENTAL_WORKSPACES,
         slashName: "workspaces",
         run: () => {
           dialog.replace(() => <DialogWorkspaceList />)
@@ -736,6 +851,62 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         },
       },
       {
+        name: "question.never_ask.toggle",
+        title: local.neverAsk.current() ? "Disable never-ask" : "Enable never-ask",
+        category: "Agent",
+        slashName: "never-ask",
+        run: async () => {
+          const next = !local.neverAsk.current()
+          local.neverAsk.set(next)
+          toast.show({
+            variant: next ? "warning" : "info",
+            message: next
+              ? "Never-ask ON — I won't prompt you; I'll pick the best option myself until you turn it off (/never-ask). Permission requests still need your approval."
+              : "Never-ask OFF — I'll ask you at decision points again.",
+            duration: 4000,
+          })
+          dialog.clear()
+          try {
+            const workspace = project.workspace.current()
+            // SDK client.question.setNeverAsk return type is API response, not boolean; narrow to method signature
+            const anyClient = sdk.client as unknown as {
+              question?: {
+                neverAsk?: (args: unknown) => Promise<boolean>
+                setNeverAsk?: (args: unknown) => Promise<boolean>
+              }
+            }
+            const workspaceQuery = workspace || undefined
+            if (anyClient.question?.setNeverAsk) {
+              // SDK params are flat: { workspace?, directory?, enabled? } — omit when empty to avoid InvalidWorkspace/MissingWorkspace (empty string => 500)
+              const params: Record<string, unknown> = { enabled: next }
+              if (workspaceQuery) params.workspace = workspaceQuery
+              if (sdk.directory) params.directory = sdk.directory
+              await anyClient.question.setNeverAsk(params)
+            } else {
+              // fallback when SDK not regenerated yet: uses sdk.fetch + absolute url + directory header so WorkspaceRoutingMiddleware resolves correctly
+              const directory = sdk.directory
+              const sp = new URLSearchParams()
+              if (workspaceQuery) sp.set("workspace", workspaceQuery)
+              if (directory) sp.set("directory", directory)
+              const qs2 = sp.toString() ? `?${sp.toString()}` : ""
+              const url2 = `${sdk.url.replace(/\/$/, "")}/question/never-ask${qs2}`
+              const res = await sdk.fetch(url2, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  ...(directory ? { "x-opencode-directory": encodeURIComponent(directory) } : {}),
+                },
+                body: JSON.stringify({ enabled: next }),
+              })
+              if (!res.ok) throw new Error(`setNeverAsk failed ${res.status}`)
+            }
+          } catch {
+            local.neverAsk.set(!next)
+            toast.show({ variant: "error", message: "Failed to persist never-ask", duration: 4000 })
+          }
+        },
+      },
+      {
         name: "provider.connect",
         title: "Connect provider",
         suggested: !connected(),
@@ -744,6 +915,28 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
           dialog.replace(() => <DialogProviderList />)
         },
         category: "Provider",
+      },
+      {
+        name: "provider.login",
+        title: "Login",
+        slashName: "login",
+        category: "Provider",
+        run: () => {
+          dialog.replace(() => <DialogLogin />)
+        },
+      },
+      {
+        name: "provider.logout",
+        title: "Logout",
+        slashName: "logout",
+        category: "Provider",
+        run: async () => {
+          await sdk.client.auth.remove({ providerID: "" })
+          await sdk.client.instance.dispose()
+          await sync.bootstrap()
+          toast.show({ message: "Logged out", variant: "info" })
+          dialog.clear()
+        },
       },
       ...(sync.data.console_state.switchableOrgCount > 1
         ? [
@@ -779,6 +972,16 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         category: "System",
       },
       {
+        name: "worktree.list",
+        title: "Worktrees",
+        slashName: "worktree",
+        slashAliases: ["wt"],
+        run: () => {
+          dialog.replace(() => <DialogWorktree />)
+        },
+        category: "System",
+      },
+      {
         name: "theme.switch",
         title: "Switch theme",
         slashName: "themes",
@@ -788,8 +991,36 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         category: "System",
       },
       {
+        name: "background.switch",
+        title: "Switch background image",
+        slashName: "background",
+        run: () => {
+          dialog.replace(() => <DialogImageList />)
+        },
+        category: "System",
+      },
+      {
+        name: "logo.switch",
+        title: "Switch logo design",
+        slashName: "logo",
+        run: () => {
+          dialog.replace(() => <DialogLogoDesign />)
+        },
+        category: "System",
+      },
+      {
+        name: "context.limit",
+        title: "Set context limit",
+        slashName: "context-limit",
+        run: () => {
+          DialogContextLimit.show(dialog)
+        },
+        category: "System",
+      },
+      {
         name: "theme.switch_mode",
         title: mode() === "dark" ? "Switch to light mode" : "Switch to dark mode",
+        slashName: mode() === "dark" ? "light" : "dark",
         run: () => {
           setMode(mode() === "dark" ? "light" : "dark")
           dialog.clear()
@@ -818,11 +1049,23 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
       {
         name: "docs.open",
         title: "Open docs",
+        slashName: "doc",
+        slashAliases: ["docs"],
         run: () => {
-          open("https://opencode.ai/docs").catch(() => {})
+          openUrl("https://hordecode.com/docs/").catch(() => {})
           dialog.clear()
         },
         category: "System",
+      },
+      {
+        name: "language.switch",
+        title: "Switch language",
+        slashName: "language",
+        slashAliases: ["lang"],
+        category: "System",
+        run: () => {
+          dialog.replace(() => <DialogLanguageList />)
+        },
       },
       {
         name: "app.exit",
@@ -944,12 +1187,18 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         },
       },
       {
+        // permission.mode = auto-approve tool permissions; never_ask = auto-decide questions, permissions excluded
         name: "permission.mode",
-        title:
-          local.permission.mode === "auto" ? "Disable auto-approve permissions" : "Enable auto-approve permissions",
-        category: "System",
+        title: permission.mode === "auto" ? "Disable auto-approve permissions" : "Enable auto-approve permissions",
+        category: "Agent",
         run: () => {
-          local.permission.toggle()
+          permission.toggle()
+          const enabled = permission.mode === "auto"
+          toast.show({
+            variant: enabled ? "warning" : "info",
+            message: enabled ? "Auto-approve enabled" : "Auto-approve disabled",
+            duration: 3000,
+          })
           dialog.clear()
         },
       },
@@ -997,6 +1246,18 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
     })
   })
 
+  event.on("tui.instructions.loaded", (evt, { workspace }) => {
+    if (workspace !== project.workspace.current()) return
+    const files = evt.properties.files
+    if (files.length === 0) return
+    toast.show({
+      title: "Instructions loaded",
+      message: files.join(", "),
+      variant: "info",
+      duration: 5000,
+    })
+  })
+
   event.on("tui.session.select", (evt, { workspace }) => {
     if (workspace !== project.workspace.current()) return
     route.navigate({
@@ -1029,7 +1290,7 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
   })
 
   event.on("installation.update-available", async (evt) => {
-    console.log("installation.update-available", evt)
+    log.info("installation.update-available", { version: evt.properties.version })
     const version = evt.properties.version
 
     const skipped = kv.get("skipped_version")
@@ -1051,7 +1312,7 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
 
     toast.show({
       variant: "info",
-      message: `Updating to v${version}...`,
+      message: `Updating to v${version}…`,
       duration: 30000,
     })
 
@@ -1070,7 +1331,7 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
     await DialogAlert.show(
       dialog,
       "Update Complete",
-      `Successfully updated to OpenCode v${result.data.version}. Please restart the application.`,
+       `Successfully updated to Hordecode v${result.data.version}. Please restart the application.`,
     )
 
     void exit()
@@ -1091,7 +1352,7 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
       flexDirection="column"
       backgroundColor={theme.background}
       onMouseDown={(evt) => {
-        if (!Flag.OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT) return
+        if (!Flag.HORDECODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT) return
         if (evt.button !== MouseButton.RIGHT) return
 
         if (!Selection.copy(renderer, toast, clipboard)) return
@@ -1099,7 +1360,7 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         evt.stopPropagation()
       }}
       onMouseUp={
-        !Flag.OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT
+        !Flag.HORDECODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT
           ? () => Selection.copy(renderer, toast, clipboard)
           : undefined
       }
@@ -1125,6 +1386,28 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
           <pluginRuntime.Slot name="app_bottom" />
         </box>
         <pluginRuntime.Slot name="app" />
+      </Show>
+      <Show when={sync.status === "error"}>
+        <box
+          position="absolute"
+          left={0}
+          right={0}
+          top={0}
+          bottom={0}
+          justifyContent="center"
+          alignItems="center"
+          backgroundColor={theme.background}
+        >
+          <box flexDirection="column" gap={1} alignItems="center" padding={2} backgroundColor={theme.backgroundPanel}>
+            <text fg={theme.error} attributes={TextAttributes.BOLD}>
+              Bootstrap failed
+            </text>
+            <text fg={theme.textMuted} wrapMode="word" maxWidth={60}>
+              {sync.data.bootstrapError ?? "Unknown error"}
+            </text>
+            <text fg={theme.textMuted}>Press r to retry</text>
+          </box>
+        </box>
       </Show>
       <Show when={!startup.skipInitialLoading}>
         <StartupLoading ready={ready} />

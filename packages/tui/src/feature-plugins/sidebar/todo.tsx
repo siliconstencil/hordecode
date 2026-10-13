@@ -1,4 +1,4 @@
-import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
+import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plugin/tui"
 import type { BuiltinTuiPlugin } from "../builtins"
 import { createMemo, For, Show, createSignal } from "solid-js"
 import { TodoItem } from "../../component/todo-item"
@@ -9,7 +9,10 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
   const [open, setOpen] = createSignal(true)
   const theme = () => props.api.theme.current
   const list = createMemo(() => props.api.state.session.todo(props.session_id))
-  const show = createMemo(() => list().length > 0 && list().some((item) => item.status !== "completed"))
+  const tasks = createMemo(() => props.api.state.session.task(props.session_id))
+  const show = createMemo(
+    () => tasks().length === 0 && list().length > 0 && list().some((item) => item.status !== "completed"),
+  )
 
   return (
     <Show when={show()}>
@@ -32,7 +35,7 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
 
 const tui: TuiPlugin = async (api) => {
   api.slots.register({
-    order: 400,
+    order: 401,
     slots: {
       sidebar_content(_ctx, props) {
         return <View api={api} session_id={props.session_id} />
@@ -41,7 +44,7 @@ const tui: TuiPlugin = async (api) => {
   })
 }
 
-const plugin: BuiltinTuiPlugin = {
+const plugin: BuiltinTuiPlugin & { id: string } = {
   id,
   tui,
 }

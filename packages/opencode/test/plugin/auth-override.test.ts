@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import path from "path"
 import { pathToFileURL } from "url"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { Effect } from "effect"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { provideInstance, TestInstance, tmpdirScoped } from "../fixture/fixture"
@@ -14,10 +15,10 @@ import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { Config } from "@/config/config"
 
-const it = testEffect(LayerNode.compile(LayerNode.group([CrossSpawnSpawner.node, FSUtil.node])))
+const it = testEffect(AppNodeBuilder.build(LayerNode.group([CrossSpawnSpawner.node, FSUtil.node])))
 
 function providerAuthLayer(directory: string, plugins: string[]) {
-  return LayerNode.compile(ProviderAuth.node, [
+  return AppNodeBuilder.build(ProviderAuth.node, [
     [
       Config.node,
       TestConfig.layer({

@@ -70,7 +70,7 @@
     gap: 8px;
     min-width: 0;
 
-    font-size: 13px;
+    font-size: var(--font-size-small);
     font-weight: 440;
     line-height: 100%;
     letter-spacing: -0.04px;
@@ -83,7 +83,7 @@
     flex: none;
     height: 11px;
 
-    font-size: 11px;
+    font-size: var(--font-size-xx-small);
     font-weight: 530;
     line-height: 100%;
     letter-spacing: 0.05px;
@@ -106,7 +106,7 @@
     border: 0.5px solid var(--menu-v2-badge-border);
     border-radius: 2px;
 
-    font-size: 11px;
+    font-size: var(--font-size-xx-small);
     font-weight: 530;
     line-height: 100%;
     letter-spacing: 0.05px;
@@ -169,7 +169,7 @@
   height: 28px;
   padding: 0 12px;
 
-  font-size: 11px;
+  font-size: var(--font-size-xx-small);
   font-weight: 530;
   line-height: 100%;
   letter-spacing: 0.05px;

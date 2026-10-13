@@ -32,6 +32,7 @@ async function mountPrompt(input: {
     { DialogProvider },
     { DialogPrompt },
     { KVProvider },
+    { LanguageProvider },
     { ThemeProvider },
     { TuiConfigProvider },
     { ToastProvider },
@@ -40,6 +41,7 @@ async function mountPrompt(input: {
     import("../../../src/ui/dialog"),
     import("../../../src/ui/dialog-prompt"),
     import("../../../src/context/kv"),
+    import("../../../src/context/language"),
     import("../../../src/context/theme"),
     import("../../../src/config"),
     import("../../../src/ui/toast"),
@@ -68,13 +70,15 @@ async function mountPrompt(input: {
         <OpencodeKeymapProvider keymap={keymap}>
           <TuiConfigProvider config={resolvedConfig}>
             <KVProvider>
-              <ThemeProvider mode="dark">
-                <ToastProvider>
-                  <DialogProvider>
-                    <DialogPrompt title="Rename Session" value="draft" onConfirm={input.onConfirm} />
-                  </DialogProvider>
-                </ToastProvider>
-              </ThemeProvider>
+              <LanguageProvider>
+                <ThemeProvider mode="dark">
+                  <ToastProvider>
+                    <DialogProvider>
+                      <DialogPrompt title="Rename Session" value="draft" onConfirm={input.onConfirm} />
+                    </DialogProvider>
+                  </ToastProvider>
+                </ThemeProvider>
+              </LanguageProvider>
             </KVProvider>
           </TuiConfigProvider>
         </OpencodeKeymapProvider>

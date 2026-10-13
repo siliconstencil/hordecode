@@ -2,7 +2,7 @@ import { useDialog } from "../ui/dialog"
 import { DialogSelect } from "../ui/dialog-select"
 import { useRoute } from "../context/route"
 import { useSync } from "../context/sync"
-import { createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js"
+import { createMemo, createResource, createSignal, onMount } from "solid-js"
 import path from "path"
 import { Locale } from "../util/locale"
 import { useProject } from "../context/project"
@@ -17,29 +17,35 @@ import { Spinner } from "./spinner"
 import { errorMessage } from "../util/error"
 import { DialogSessionDeleteFailed } from "./dialog-session-delete-failed"
 import { useCommandShortcut } from "../keymap"
-import { useEvent } from "../context/event"
+import { classifySession } from "@opencode-ai/core/session/visibility"
 
-type SessionListFilter = { scope?: "project"; path?: string }
+export type DialogSessionListQueryOptions = {
+  filter: { path?: string; scope?: string }
+  search?: string
+}
 
-export function createDialogSessionListQuery(input: { search?: string; filter: SessionListFilter }) {
-  const search = input.search?.trim()
+export function createDialogSessionListQuery(options: DialogSessionListQueryOptions) {
+  const limit = options.search ? 30 : 100
+  const search = options.search?.trim() || undefined
   return {
     roots: true,
-    limit: search ? 30 : 100,
+    limit,
     ...(search ? { search } : {}),
-    ...input.filter,
+    ...(options.filter.path ? { path: options.filter.path } : {}),
+    ...(options.filter.scope ? { scope: options.filter.scope } : {}),
   }
 }
 
-export function loadDialogSessionList<T>(input: {
-  search?: string
-  filter: SessionListFilter
-  list: (query: ReturnType<typeof createDialogSessionListQuery>) => Promise<{ data?: T[] }>
-}) {
-  return input.list(createDialogSessionListQuery(input)).then(
-    (result) => result.data,
-    () => undefined,
-  )
+export async function loadDialogSessionList<T>(input: {
+  filter: Record<string, unknown>
+  list: () => Promise<{ data?: T[] }>
+}): Promise<T[] | undefined> {
+  try {
+    const result = await input.list()
+    return result.data
+  } catch {
+    return undefined
+  }
 }
 
 export function DialogSessionList() {
@@ -49,54 +55,34 @@ export function DialogSessionList() {
   const project = useProject()
   const { theme } = useTheme()
   const sdk = useSDK()
-  const event = useEvent()
   const local = useLocal()
   const toast = useToast()
   const [toDelete, setToDelete] = createSignal<string>()
-  const [deleted, setDeleted] = createSignal(new Set<string>())
   const [search, setSearch] = createDebouncedSignal("", 150)
   const deleteHint = useCommandShortcut("session.delete")
   const quickSwitch1 = useCommandShortcut("session.quick_switch.1")
   const quickSwitch9 = useCommandShortcut("session.quick_switch.9")
 
-  const [browseResults, { refetch: refetchBrowse }] = createResource(
-    () => sync.session.query(),
-    (filter) => loadDialogSessionList({ filter, list: (query) => sdk.client.session.list(query) }),
-  )
   const [searchResults, { refetch }] = createResource(
     () => ({ query: search(), filter: sync.session.query() }),
-    (input) => {
+    async (input) => {
       if (!input.query) return undefined
-      return loadDialogSessionList({
-        search: input.query,
-        filter: input.filter,
-        list: (query) => sdk.client.session.list(query),
-      })
+      const result = await sdk.client.session.list({ search: input.query, limit: 30, ...input.filter })
+      return result.data ?? []
     },
   )
 
   const currentSessionID = createMemo(() => (route.data.type === "session" ? route.data.sessionID : undefined))
-  const sessions = createMemo(() => {
-    const result = searchResults() ?? browseResults() ?? sync.data.session
-    const synced = new Map(sync.data.session.map((session) => [session.id, session]))
-    const ids = new Set(result.map((session) => session.id))
-    const extra = [currentSessionID(), ...local.session.pinned()].flatMap((id) => {
-      if (!id || ids.has(id)) return []
-      const session = synced.get(id)
-      if (session) ids.add(id)
-      return session ? [session] : []
-    })
-    const query = search().trim().toLowerCase()
-    return [...result.map((session) => synced.get(session.id) ?? session), ...extra]
-      .filter((session) => !deleted().has(session.id))
-      .filter((session) => !query || session.title.toLowerCase().includes(query))
-  })
+  const sessions = createMemo(() => searchResults() ?? sync.data.session)
 
-  onCleanup(
-    event.on("session.deleted", (event) => {
-      setDeleted((current) => new Set(current).add(event.properties.info.id))
-    }),
-  )
+  // A child session is listed only if the render prohibition would allow it.
+  // The supervisor rows come from the sync store rather than a fetch: a host is
+  // only IN that store because it was created during this TUI's lifetime, and
+  // the same lifetime delivers its supervisor.registered event — so rows are
+  // present for exactly the population that can leak. undefined means no rows,
+  // which classifySession renders (fail-open for legacy transcripts).
+  const listable = (x: { id: string; parentID?: string | null }) =>
+    classifySession(x, sync.data.supervisor?.[x.id]?.map((s) => ({ mode: s.mode, agent: s.agent }))).renderable
 
   function recover(session: NonNullable<ReturnType<typeof sessions>[number]>) {
     const workspace = project.workspace.get(session.workspaceID!)
@@ -161,7 +147,6 @@ export function DialogSessionList() {
           }
           await project.workspace.sync()
           await sync.session.refresh()
-          await refetchBrowse()
           if (search()) await refetch()
           if (info?.workspaceID === session.workspaceID) {
             route.navigate({ type: "home" })
@@ -186,13 +171,15 @@ export function DialogSessionList() {
   }
 
   function orderByRecency(sessionsList: NonNullable<ReturnType<typeof sessions>>) {
+    const current = currentSessionID()
+    const isChildOfCurrent = (x: { parentID?: string | null }) => current !== undefined && x.parentID === current
     return sessionsList
-      .filter((x) => x.parentID === undefined)
+      .filter((x) => x.parentID === undefined || (isChildOfCurrent(x) && listable(x)))
       .toSorted((a, b) => b.time.updated - a.time.updated)
       .map((x) => x.id)
   }
 
-  const browseOrder = createMemo(() => orderByRecency(browseResults() ?? sync.data.session))
+  const [browseOrder] = createSignal<string[]>(orderByRecency(sync.data.session))
 
   const quickSwitchHint = createMemo(() => {
     const first = quickSwitch1()
@@ -207,16 +194,13 @@ export function DialogSessionList() {
 
   const options = createMemo(() => {
     const today = new Date().toDateString()
-    const sessionMap = new Map(
-      sessions()
-        .filter((x) => x.parentID === undefined)
-        .map((x) => [x.id, x]),
-    )
+    const current = currentSessionID()
+    const isChildOfCurrent = (x: { parentID?: string | null }) => current !== undefined && x.parentID === current
+    const filteredForMap = sessions().filter((x) => x.parentID === undefined || (isChildOfCurrent(x) && listable(x)))
+    const sessionMap = new Map(filteredForMap.map((x) => [x.id, x]))
 
     const searchResult = searchResults()
-    const order = searchResult ? orderByRecency(sessions()) : browseOrder()
-    const current = currentSessionID()
-    const displayOrder = current && sessionMap.has(current) && !order.includes(current) ? [...order, current] : order
+    const displayOrder = searchResult ? orderByRecency(searchResult) : browseOrder()
 
     const pinned = local.session.pinned().filter((id) => sessionMap.has(id))
     const pinnedSet = new Set(pinned)
@@ -225,13 +209,22 @@ export function DialogSessionList() {
     function buildOption(id: string, category: string) {
       const x = sessionMap.get(id)
       if (!x) return undefined
+      const date = new Date(x.time.created)
+      const timeStr =
+        date.toDateString() === today
+          ? date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+          : `${date.getMonth() + 1}/${date.getDate()} ` +
+            date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
       const directory = x.path
         ? x.directory.endsWith(x.path)
           ? x.directory.slice(0, -x.path.length).replace(/\/$/, "")
           : undefined
         : x.directory
-      const footer =
-        directory && directory !== project.data.project.mainDir ? Locale.truncate(path.basename(directory), 20) : ""
+      const dirStr =
+        directory && directory !== project.data.project.mainDir
+          ? ` - ${Locale.truncate(path.basename(directory), 15)}`
+          : ""
+      const footer = `${timeStr}${dirStr}`
 
       const isDeleting = toDelete() === x.id
       const status = sync.data.session_status?.[x.id]
@@ -274,7 +267,6 @@ export function DialogSessionList() {
       title="Sessions"
       options={options()}
       skipFilter={true}
-      preserveSelection={true}
       current={currentSessionID()}
       onFilter={setSearch}
       onMove={() => {
@@ -336,7 +328,6 @@ export function DialogSessionList() {
               if (status && status !== "connected") {
                 await sync.session.refresh()
               }
-              await refetchBrowse()
               if (search()) await refetch()
               setToDelete(undefined)
               return

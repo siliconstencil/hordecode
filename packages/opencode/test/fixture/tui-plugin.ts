@@ -102,8 +102,10 @@ type Opts = {
     vcs?: HostPluginApi["state"]["vcs"]
     session?: Partial<HostPluginApi["state"]["session"]>
     part?: HostPluginApi["state"]["part"]
+    instructions?: HostPluginApi["state"]["instructions"]
     lsp?: HostPluginApi["state"]["lsp"]
     mcp?: HostPluginApi["state"]["mcp"]
+    cron?: HostPluginApi["state"]["cron"]
   }
   theme?: {
     selected?: string
@@ -321,10 +323,16 @@ export function createTuiPluginApi(opts: Opts = {}): HostPluginApi {
         status: opts.state?.session?.status ?? (() => undefined),
         permission: opts.state?.session?.permission ?? (() => []),
         question: opts.state?.session?.question ?? (() => []),
+        goal: opts.state?.session?.goal ?? (() => undefined),
+        task: opts.state?.session?.task ?? (() => []),
+        instructions: opts.state?.session?.instructions ?? (() => undefined),
       },
       part: opts.state?.part ?? (() => []),
+      instructions: opts.state?.instructions ?? (() => []),
       lsp: opts.state?.lsp ?? (() => []),
       mcp: opts.state?.mcp ?? (() => []),
+      supervisor: (opts.state as { supervisor?: HostPluginApi["state"]["supervisor"] })?.supervisor ?? (() => []),
+      cron: opts.state?.cron ?? (() => []),
     },
     theme: {
       get current() {

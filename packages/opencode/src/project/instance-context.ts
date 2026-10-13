@@ -1,14 +1,7 @@
-import { LocalContext } from "@/util/local-context"
+export { context } from "@opencode-ai/project/instance"
+export type { InstanceContext } from "@opencode-ai/project/instance"
 import { FSUtil } from "@opencode-ai/core/fs-util"
-import type * as Project from "./project"
-
-export interface InstanceContext {
-  directory: string
-  worktree: string
-  project: Project.Info
-}
-
-export const context = LocalContext.create<InstanceContext>("instance")
+import type { InstanceContext } from "@opencode-ai/project/instance"
 
 /**
  * Check if a path is within the project boundary.

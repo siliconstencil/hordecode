@@ -1,12 +1,16 @@
 import { Effect, Stream } from "effect"
 import os from "os"
 import { createWriteStream } from "node:fs"
+import { realpathSync } from "node:fs"
 import * as Tool from "./tool"
 import path from "path"
 import { containsPath, type InstanceContext } from "../project/instance-context"
 import { InstanceState } from "@/effect/instance-state"
+import { SessionCwd } from "@opencode-ai/core/tool/session-cwd"
 import { lazy } from "@/util/lazy"
 import { Language, type Node } from "web-tree-sitter"
+import { withoutCredentials } from "@opencode-ai/core/util/credential-env"
+import { Git } from "@/git"
 
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { fileURLToPath } from "url"
@@ -21,6 +25,7 @@ import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { ShellPrompt, type Parameters } from "./shell/prompt"
 import { BashArity } from "@/permission/arity"
+import * as BashInteractive from "./bash-interactive"
 
 export { Parameters } from "./shell/prompt"
 
@@ -65,6 +70,85 @@ const CMD_FILES = new Set([
 const FLAGS = new Set(["-destination", "-literalpath", "-path"])
 const SWITCHES = new Set(["-confirm", "-debug", "-force", "-nonewline", "-recurse", "-verbose", "-whatif"])
 
+// Irreversible file/directory removal commands. Names are matched
+// case-insensitively for PowerShell; bash is case-sensitive.
+const DELETE_COMMANDS = new Set([
+  "rm",
+  "rmdir",
+  "unlink",
+  "shred",
+  // Windows / PowerShell removal verbs and their common aliases. `remove-item`
+  // is the canonical verb; `ri`, `rd`, `del`, `erase` are aliases.
+  "del",
+  "erase",
+  "rd",
+  "remove-item",
+  "ri",
+])
+
+// git subcommands that destroy history, working tree state, or remote branches.
+// Value is the set of tokens (flag or subcommand keyword) that must appear
+// anywhere in the argv for the invocation to count as destructive. An empty
+// set means the subcommand is destructive on its own.
+const GIT_DESTRUCTIVE = new Map<string, Set<string>>([
+  ["reset", new Set(["--hard"])],
+  ["clean", new Set(["-f", "-ff", "-fd", "-fdx", "-df", "-dfx", "-fx", "--force"])],
+  ["branch", new Set(["-D", "--delete"])],
+  ["tag", new Set(["-d", "--delete"])],
+  ["worktree", new Set(["remove"])],
+  ["push", new Set(["--force", "-f"])],
+  ["stash", new Set(["drop", "clear"])],
+])
+
+// macOS reports /tmp and /var as symlinks into /private, so containment must be
+// checked on REALPATHS: a lexical check would reject the literal "/tmp/x" even
+// though it lives inside the canonical os.tmpdir() jail. "/tmp" is listed
+// alongside os.tmpdir() because on macOS they are DIFFERENT directories
+// (/private/tmp vs /private/var/folders/...). Mirrors tool-script.ts's jail.
+function tmpRoots() {
+  return [os.tmpdir(), ...(process.platform === "win32" ? [] : ["/tmp"])]
+}
+
+function realpathBestEffort(p: string) {
+  let cur = p
+  let suffix = ""
+  while (true) {
+    try {
+      return path.join(realpathSync.native(cur), suffix)
+    } catch {
+      suffix = suffix ? path.join(path.basename(cur), suffix) : path.basename(cur)
+      const parent = path.dirname(cur)
+      if (parent === cur) return p
+      cur = parent
+    }
+  }
+}
+
+function insideTmp(resolved: string) {
+  const abs = realpathBestEffort(resolved)
+  return tmpRoots()
+    .map(realpathBestEffort)
+    .some((root) => abs !== root && abs.startsWith(root + path.sep))
+}
+
+// Returns true when `tokens` (the flat argv of a single command node) invokes
+// an irreversible deletion -- either a direct removal command (rm, remove-item,
+// ...) or a destructive git subcommand (git reset --hard, git clean -f, ...).
+// `ps` toggles PowerShell case-insensitive matching.
+function isDelete(tokens: string[], ps: boolean) {
+  if (tokens.length === 0) return false
+  const head = ps ? tokens[0].toLowerCase() : tokens[0]
+  if (DELETE_COMMANDS.has(head)) return true
+  if (head === "git" && tokens.length >= 2) {
+    const sub = tokens[1]
+    const flags = GIT_DESTRUCTIVE.get(sub)
+    if (!flags) return false
+    if (flags.size === 0) return true
+    return tokens.slice(2).some((tok) => flags.has(tok))
+  }
+  return false
+}
+
 type Part = {
   type: string
   text: string
@@ -74,6 +158,7 @@ type Scan = {
   dirs: Set<string>
   patterns: Set<string>
   always: Set<string>
+  deletes: Set<string>
 }
 
 type Chunk = {
@@ -290,6 +375,28 @@ const ask = Effect.fn("ShellTool.ask")(function* (ctx: Tool.Context, scan: Scan,
   })
 })
 
+// Secondary confirmation for irreversible deletion commands. Uses its own
+// permission type ("bash_delete"), which the Permission layer flags as
+// forced-ask: no `allow` rule (not even a broad `"*": allow`) can silently
+// pre-approve it -- only an explicit `deny` blocks. `always` is empty because
+// a persisted "allow all deletes" rule is exactly what forced-ask exists to
+// prevent. The delete UI shows the full command, so this ask FULLY replaces
+// the regular bash/external_directory prompts when it fires (see the caller
+// below) -- deletion is authorized in a single, unambiguous confirmation.
+const askDelete = Effect.fn("ShellTool.askDelete")(function* (
+  ctx: Tool.Context,
+  scan: Scan,
+  command: string,
+) {
+  const patterns = Array.from(scan.deletes)
+  yield* ctx.ask({
+    permission: "bash_delete",
+    patterns,
+    always: [],
+    metadata: { command, deletes: patterns },
+  })
+})
+
 function cmd(shell: string, command: string, cwd: string, env: NodeJS.ProcessEnv) {
   if (process.platform === "win32" && Shell.ps(shell)) {
     return ChildProcess.make(shell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], {
@@ -344,7 +451,52 @@ export const ShellTool = Tool.define(
     const trunc = yield* Truncate.Service
     const plugin = yield* Plugin.Service
     const flags = yield* RuntimeFlags.Service
+    const gitSvc = yield* Git.Service
     const defaultTimeoutMs = flags.bashDefaultTimeoutMs ?? 2 * 60 * 1000
+
+    // Layer-2 floor for git authorship: an agent may create a worktree/clone or
+    // commit in an ad-hoc dir via this shell tool, bypassing Worktree.setup()'s
+    // per-worktree local-config fix. Propagate the project repo's own identity so
+    // those commits are attributed the same way a commit in the project repo is.
+    //
+    // Behavioral contract of this floor and its cache:
+    //   - It only ever PROPAGATES an identity the repo itself already resolves.
+    //     It never invents one: when the repo has no identity -- or there is no
+    //     repo at all -- nothing is injected and git resolves authorship itself
+    //     (config, then `EMAIL`, then its own `user@hostname` autodetect, then
+    //     its own error). A hardcoded substitute would misattribute the commit
+    //     AND pre-empt resolution paths `git config` cannot see.
+    //   - It is delivered as GIT_AUTHOR_*/GIT_COMMITTER_* ENV, and git gives env
+    //     vars precedence OVER `user.name`/`user.email` config -- including the
+    //     config of some OTHER repo the command happens to run in. That is
+    //     exactly why an unresolved field must inject nothing rather than a
+    //     placeholder: a placeholder would outrank that repo's correct config.
+    //   - Because the resolved value is memoized per worktree path for the
+    //     lifetime of the process, a `git config user.name ...` performed
+    //     mid-session is NOT picked up until the process restarts.
+    //   - Operator-set GIT_AUTHOR_*/GIT_COMMITTER_* still win: shellEnv only
+    //     fills the vars that are absent from process.env (see below).
+    //
+    // resolveGitIdentity and gitIdentityCache live in this outer setup block,
+    // not inside shellEnv, precisely so the cache persists across every call.
+    const gitIdentityCache = new Map<string, { name?: string; email?: string }>()
+    const resolveGitIdentity = Effect.fn("ShellTool.resolveGitIdentity")(function* (worktree: string) {
+      const cached = gitIdentityCache.get(worktree)
+      if (cached) return cached
+      // Non-git projects set worktree to "/". There is no project repo whose
+      // identity we could propagate, and whatever repo a git command does run in
+      // has its own config -- which injected env would override. Inject nothing.
+      if (worktree === "/") {
+        const none: { name?: string; email?: string } = {}
+        gitIdentityCache.set(worktree, none)
+        return none
+      }
+      const name = (yield* gitSvc.run(["config", "user.name"], { cwd: worktree })).text().trim()
+      const email = (yield* gitSvc.run(["config", "user.email"], { cwd: worktree })).text().trim()
+      const identity = { ...(name ? { name } : {}), ...(email ? { email } : {}) }
+      gitIdentityCache.set(worktree, identity)
+      return identity
+    })
 
     const cygpath = Effect.fn("ShellTool.cygpath")(function* (shell: string, text: string) {
       const lines = yield* spawner
@@ -375,6 +527,46 @@ export const ShellTool = Tool.define(
       return yield* resolvePath(next, cwd, shell)
     })
 
+    // Whether EVERY delete in this command line is a plain removal confined to a
+    // temp root -- the one case where the forced-ask confirmation is skipped.
+    //
+    // Fails closed on purpose, in four ways. Any single miss means "ask":
+    //   1. Only DELETE_COMMANDS qualify. Destructive git subcommands
+    //      (reset --hard, push --force, stash drop, ...) act on repository state,
+    //      not on a path in tmp, so they can never earn the exemption.
+    //   2. A delete with no path arguments cannot be shown to be tmp-scoped.
+    //   3. An argument `argPath` declines to resolve -- a glob, a `$VAR`, a `$(...)`
+    //      substitution (see `dynamic`) -- is UNKNOWN, and unknown is not tmp.
+    //      This is the load-bearing case: `rm -rf $BUILD_DIR/*` must still ask.
+    //   4. A resolved path outside a temp root, including a root itself
+    //      (`insideTmp` requires a strict descendant, so `rm -rf /tmp` asks).
+    //   5. A path inside the PROJECT, even when the project itself lives under a
+    //      temp root (a real configuration -- the test fixtures do exactly this).
+    //      Scratch space earns the exemption because it holds no durable work;
+    //      a checkout's own files are durable wherever they happen to sit.
+    const tmpOnlyDelete = Effect.fn("ShellTool.tmpOnlyDelete")(function* (
+      root: Node,
+      cwd: string,
+      ps: boolean,
+      shell: string,
+      instance: InstanceContext,
+    ) {
+      for (const node of commands(root)) {
+        const command = parts(node)
+        const tokens = command.map((item) => item.text)
+        if (!isDelete(tokens, ps)) continue
+        const head = ps ? tokens[0]?.toLowerCase() : tokens[0]
+        if (!head || !DELETE_COMMANDS.has(head)) return false
+        const args = pathArgs(command, ps)
+        if (args.length === 0) return false
+        for (const arg of args) {
+          const resolved = yield* argPath(arg, cwd, ps, shell)
+          if (!resolved || !insideTmp(resolved) || containsPath(resolved, instance)) return false
+        }
+      }
+      return true
+    })
+
     const collect = Effect.fn("ShellTool.collect")(function* (
       root: Node,
       cwd: string,
@@ -386,6 +578,7 @@ export const ShellTool = Tool.define(
         dirs: new Set<string>(),
         patterns: new Set<string>(),
         always: new Set<string>(),
+        deletes: new Set<string>(),
       }
       const shellKind = ShellID.toKind(Shell.name(shell))
 
@@ -408,6 +601,8 @@ export const ShellTool = Tool.define(
           scan.patterns.add(source(node))
           scan.always.add(BashArity.prefix(tokens).join(" ") + " *")
         }
+
+        if (isDelete(tokens, ps)) scan.deletes.add(source(node))
       }
 
       return scan
@@ -419,8 +614,28 @@ export const ShellTool = Tool.define(
         { cwd, sessionID: ctx.sessionID, callID: ctx.callID },
         { env: {} },
       )
+      const instanceCtx = yield* InstanceState.context
+      const identity = yield* resolveGitIdentity(instanceCtx.worktree)
+      // Only fill vars the operator hasn't already set, so an explicit
+      // GIT_AUTHOR_* in the environment still wins over our floor -- and only
+      // fields the repo itself resolved, so an unresolved field is left for git.
+      const gitFloor: Record<string, string> = {}
+      if (identity.name && !process.env["GIT_AUTHOR_NAME"]) gitFloor["GIT_AUTHOR_NAME"] = identity.name
+      if (identity.email && !process.env["GIT_AUTHOR_EMAIL"]) gitFloor["GIT_AUTHOR_EMAIL"] = identity.email
+      if (identity.name && !process.env["GIT_COMMITTER_NAME"]) gitFloor["GIT_COMMITTER_NAME"] = identity.name
+      if (identity.email && !process.env["GIT_COMMITTER_EMAIL"]) gitFloor["GIT_COMMITTER_EMAIL"] = identity.email
+      // withoutCredentials: this env goes to agent-authored commands.
       return {
-        ...process.env,
+        ...withoutCredentials(process.env),
+        // Python ignores the console code page when stdout is a pipe and falls
+        // back to the ANSI code page (GBK on zh-CN), producing mojibake. Force
+        // UTF-8 for child Python processes on Windows.
+        ...(process.platform === "win32" ? { PYTHONIOENCODING: "utf-8" } : {}),
+        // Git authorship floor. Placed after process.env so the spread order
+        // reads naturally, but it can never clobber an operator value: gitFloor
+        // only ever holds keys that were absent from process.env. A plugin's
+        // extra.env comes last and so can still override the floor.
+        ...gitFloor,
         ...extra.env,
       }
     })
@@ -609,9 +824,9 @@ export const ShellTool = Tool.define(
           execute: (params: Parameters, ctx: Tool.Context) =>
             Effect.gen(function* () {
               const instanceCtx = yield* InstanceState.context
-              const cwd = params.workdir
-                ? yield* resolvePath(params.workdir, instanceCtx.directory, shell)
-                : instanceCtx.directory
+              // Session cwd (change_directory) is the base directory; MiMo Code 0.1.11 tool/bash.ts:841.
+              const base = SessionCwd.get(ctx.sessionID, instanceCtx.directory)
+              const cwd = params.workdir ? yield* resolvePath(params.workdir, base, shell) : base
               if (params.timeout !== undefined && params.timeout < 0) {
                 throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
               }
@@ -624,9 +839,60 @@ export const ShellTool = Tool.define(
                   )
                   const scan = yield* collect(tree.rootNode, cwd, ps, shell, instanceCtx)
                   if (!containsPath(cwd, instanceCtx)) scan.dirs.add(cwd)
-                  yield* ask(ctx, scan, params)
+                  // Delete-containing commands are authorized by askDelete alone --
+                  // the delete UI shows the full command (including any external
+                  // paths it touches), so a separate bash/external_directory
+                  // prompt would just be a second confirmation of the same thing.
+                  // Two bypasses fall back to the regular ask (where a `bash: deny`
+                  // rule still blocks): the instance's auto-approve-delete state
+                  // trusts every delete (defaults to false when absent), and
+                  // `tmpOnlyDelete` trusts one whose every target is provably inside
+                  // a temp root -- scratch space holds no durable user work, and that
+                  // check fails closed on anything it cannot resolve.
+                  const skipDeleteAsk =
+                    scan.deletes.size === 0 ||
+                    (ctx.autoApproveDelete ? yield* ctx.autoApproveDelete() : false) ||
+                    (yield* tmpOnlyDelete(tree.rootNode, cwd, ps, shell, instanceCtx))
+                  if (!skipDeleteAsk) {
+                    yield* askDelete(ctx, scan, params.command)
+                  } else {
+                    yield* ask(ctx, scan, params)
+                  }
                 }),
               )
+
+              // Interactive mode: hand the terminal to the user for direct
+              // interaction (password input, y/N confirmation, SSH passphrase).
+              // The request is parked in BashInteractive until a client replies.
+              if (params.interactive) {
+                const env = yield* shellEnv(ctx, cwd)
+                const description = params.description ?? params.command
+                yield* ctx.metadata({
+                  metadata: {
+                    output: "(waiting for user interaction...)",
+                    description,
+                  },
+                })
+                const interactiveResult = yield* Effect.tryPromise(() =>
+                  BashInteractive.request({
+                    command: params.command,
+                    cwd,
+                    env: env as Record<string, string>,
+                    description,
+                  }),
+                ).pipe(Effect.orDie)
+                return {
+                  title: description,
+                  metadata: {
+                    output: interactiveResult.output || "(interactive command completed)",
+                    exit: interactiveResult.exitCode,
+                    truncated: false,
+                  },
+                  output:
+                    interactiveResult.output ||
+                    `(interactive command completed with exit code ${interactiveResult.exitCode})`,
+                }
+              }
 
               return yield* run(
                 {

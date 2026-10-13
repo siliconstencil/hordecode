@@ -735,7 +735,7 @@ export const dict = {
   "sidebar.empty.title": "没有打开的项目",
   "sidebar.empty.description": "打开一个项目以开始使用",
 
-  "app.name.desktop": "OpenCode Desktop",
+  "app.name.desktop": "Hordecode",
 
   "settings.section.desktop": "桌面",
   "settings.section.server": "服务器",
@@ -1012,6 +1012,9 @@ export const dict = {
   "session.header.open.finder": "访达",
   "session.header.open.fileExplorer": "文件资源管理器",
   "session.header.open.fileManager": "文件管理器",
+  "session.header.reveal.finder": "在访达中显示",
+  "session.header.reveal.fileExplorer": "在文件资源管理器中显示",
+  "session.header.reveal.containingFolder": "打开所在文件夹",
   "session.header.open.app.vscode": "VS Code",
   "session.header.open.app.cursor": "Cursor",
   "session.header.open.app.zed": "Zed",

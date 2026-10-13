@@ -1,10 +1,13 @@
 import { Effect } from "effect"
+import { eq } from "drizzle-orm"
 import { effectCmd } from "../effect-cmd"
 import { Session } from "@/session/session"
 import { NotFoundError } from "@/storage/storage"
 import { Database } from "@opencode-ai/core/database/database"
 import { SessionTable } from "@opencode-ai/core/session/sql"
+import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { Project } from "@/project/project"
+import type { ID as ProjectID } from "@opencode-ai/core/project/schema"
 import { InstanceRef } from "@/effect/instance-ref"
 
 interface SessionStats {
@@ -85,12 +88,13 @@ const getAllSessions = Effect.fnUntraced(function* () {
   return (yield* db.select().from(SessionTable).all().pipe(Effect.orDie)).map((row) => Session.fromRow(row))
 })
 
-const aggregateSessionStats = Effect.fn("Cli.stats.aggregate")(function* (
+export const aggregateSessionStats = Effect.fn("Cli.stats.aggregate")(function* (
   days?: number,
   projectFilter?: string,
   currentProject?: Project.Info,
 ) {
   const svc = yield* Session.Service
+  const db = yield* Database.Service
   const sessions = yield* getAllSessions()
   const MS_IN_DAY = 24 * 60 * 60 * 1000
 
@@ -117,7 +121,22 @@ const aggregateSessionStats = Effect.fn("Cli.stats.aggregate")(function* (
       if (!currentProject) throw new Error("currentProject required when projectFilter is empty string")
       filteredSessions = filteredSessions.filter((session) => session.projectID === currentProject.id)
     } else {
-      filteredSessions = filteredSessions.filter((session) => session.projectID === projectFilter)
+      //  --project previously only matched session.projectID, so users
+      // had to paste a project hash. Resolve the filter through ProjectTable
+      // by name first: matching rows contribute their IDs to the filter set,
+      // and any session whose projectID is in the union (name-resolved or
+      // direct hash) survives. Unresolved non-hash strings still fall
+      // through to the ID match, so a name with no rows returns the same
+      // zero-result contract a user would have seen pre-fix.
+      const projectRows = yield* db.db
+        .select({ id: ProjectTable.id })
+        .from(ProjectTable)
+        .where(eq(ProjectTable.name, projectFilter))
+        .all()
+        .pipe(Effect.orDie)
+      const nameMatchedIds = new Set<string>(projectRows.map((row) => row.id as ProjectID))
+      nameMatchedIds.add(projectFilter)
+      filteredSessions = filteredSessions.filter((session) => nameMatchedIds.has(session.projectID))
     }
   }
 
@@ -229,8 +248,17 @@ const aggregateSessionStats = Effect.fn("Cli.stats.aggregate")(function* (
   )
 
   for (const result of results) {
-    earliestTime = Math.min(earliestTime, result.earliestTime)
-    latestTime = Math.max(latestTime, result.latestTime)
+    //  guard against epoch=0 / missing timestamps. A session with
+    // time_created=0 (NULL or uninitialized) would otherwise drag
+    // earliestTime to 0 and inflate rangeDays to "days since 1970"
+    // (~20696 today). Same for latestTime: a future-dated or zero
+    // latestTime would skew the range upward.
+    if (result.earliestTime > 0) {
+      earliestTime = Math.min(earliestTime, result.earliestTime)
+    }
+    if (result.latestTime > 0) {
+      latestTime = Math.max(latestTime, result.latestTime)
+    }
     sessionTotalTokens.push(result.sessionTotalTokens)
 
     stats.totalMessages += result.messageCount

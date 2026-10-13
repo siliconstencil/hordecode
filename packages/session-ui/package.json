@@ -1,6 +1,7 @@
 {
   "name": "@opencode-ai/session-ui",
-  "version": "1.17.18",
+  "version": "0.1.0",
+  "hordecodeBase": "1.17.18",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -21,8 +22,8 @@
     "./v2/*": "./src/v2/components/*.tsx"
   },
   "scripts": {
-    "typecheck": "tsgo --noEmit",
-    "test": "bun test src --only-failures"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test src"
   },
   "devDependencies": {
     "@tsconfig/node22": "catalog:",

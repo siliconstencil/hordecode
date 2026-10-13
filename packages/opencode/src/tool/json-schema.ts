@@ -16,9 +16,32 @@ export function fromSchema(schema: Schema.Top): JSONSchema7 {
     ...(Object.keys(document.definitions).length > 0 ? { $defs: document.definitions } : {}),
   })
   const inlined = dropDefinitionsIfResolved(inlineLocalReferences(result))
-  if (!isJsonSchema(inlined)) throw new Error("tool JSON Schema helper produced a non-schema value")
-  cache.set(schema, inlined)
-  return inlined
+  const withObjectUnions = addObjectTypeToObjectUnions(inlined)
+  if (!isJsonSchema(withObjectUnions)) throw new Error("tool JSON Schema helper produced a non-schema value")
+  cache.set(schema, withObjectUnions)
+  return withObjectUnions
+}
+
+// Effect's JSON-schema compiler emits `anyOf`/`oneOf` for a union without a
+// `type`, which makes some model clients stringify the envelope instead of
+// producing an object. The task tool forces `type: "object"` on a
+// discriminated `operation` node (`.meta({ type: "object" })`) for exactly this
+// reason. Effect's `jsonSchema` annotation override is a no-op in beta.83, so we
+// add `type: "object"` to every union node whose members are all objects. Nodes
+// whose members mix types (e.g. `string | number`) are left untouched.
+function addObjectTypeToObjectUnions(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(addObjectTypeToObjectUnions)
+  if (!isRecord(value)) return value
+  if (value.type === undefined && (Array.isArray(value.anyOf) || Array.isArray(value.oneOf))) {
+    const members = (value.anyOf ?? value.oneOf) as unknown[]
+    if (members.length > 0 && members.every((member) => isRecord(member) && member.type === "object")) {
+      value.type = "object"
+    }
+  }
+  for (const key of Object.keys(value)) {
+    value[key] = addObjectTypeToObjectUnions(value[key])
+  }
+  return value
 }
 
 export function fromTool(tool: Tool.Def): JSONSchema7 {

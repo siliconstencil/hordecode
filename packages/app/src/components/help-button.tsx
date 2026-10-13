@@ -38,7 +38,7 @@ export function HelpButton() {
   return (
     <a
       href="https://opencode.ai"
-      aria-label="Open the OpenCode website"
+      aria-label="Open the Hordecode website"
       data-component="icon-button-v2"
       data-size="large"
       class={`${triggerClass} fixed bottom-5 right-5 z-50 flex items-center justify-center`}
@@ -103,10 +103,10 @@ export function TabsInfoPopup() {
               onContextMenu={(event) => event.preventDefault()}
             />
             <div class="absolute inset-x-0 bottom-0 flex w-full flex-col items-start gap-1.5 bg-[linear-gradient(180deg,rgba(0,0,0,0)_0%,#000000_100%)] px-3 py-5">
-              <p class="w-full select-none text-[13px] font-[530] leading-none tracking-[-0.04px] text-[#FFFFFF]">
+              <p class="w-full select-none text-[13px] font-[530] leading-none tracking-[-0.04px] text-white">
                 Introducing Tabs
               </p>
-              <p class="w-full select-none text-[13px] font-[440] leading-[140%] tracking-[-0.04px] text-[#808080]">
+              <p class="w-full select-none text-[13px] font-[440] leading-[140%] tracking-[-0.04px] text-v2-text-text-muted">
                 A faster, more intuitive way to work.
               </p>
             </div>

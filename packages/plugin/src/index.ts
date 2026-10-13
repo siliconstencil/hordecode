@@ -162,6 +162,72 @@ export type AuthHook = {
   )[]
 }
 
+export type SupervisorMode = "peer" | "subagent"
+
+export type SupervisorLifecycle = "ephemeral" | "persistent"
+
+export type SupervisorOutcome = "success" | "failure" | "cancelled"
+
+export type SupervisorStopBaseInput = {
+  readonly sessionID: string
+  readonly parentSessionID?: string
+  readonly supervisorID: string
+  readonly parentSupervisorID?: string
+  readonly agentType: string
+  readonly mode: SupervisorMode
+  readonly lifecycle?: SupervisorLifecycle
+  readonly finalText?: string
+  readonly task: string
+  readonly description?: string
+  readonly task_id?: string
+  readonly iteration: number
+}
+
+export type SupervisorPreStopInput = SupervisorStopBaseInput
+
+export type SupervisorPostStopInput = SupervisorStopBaseInput & {
+  readonly outcome: SupervisorOutcome
+  readonly error?: string
+  readonly canWrite?: boolean
+}
+
+export type SupervisorStopOutput = {
+  continue?: boolean
+  reason?: string
+}
+
+export type SupervisorMatcher = {
+  readonly mode?: "subagent" | "peer"
+  readonly agentType?:
+    | string
+    | readonly string[]
+    | { readonly include: readonly string[]; readonly exclude?: readonly string[] }
+    | { readonly excludeOnly: readonly string[] }
+}
+
+export type SupervisorPreStopHook = (input: SupervisorPreStopInput, output: SupervisorStopOutput) => Promise<void>
+
+export type SupervisorPostStopHook = (input: SupervisorPostStopInput, output: SupervisorStopOutput) => Promise<void>
+
+export type SupervisorPreStopRegistration = SupervisorPreStopHook | { readonly matcher?: SupervisorMatcher; readonly run: SupervisorPreStopHook }
+
+export type SupervisorPostStopRegistration = SupervisorPostStopHook | { readonly matcher?: SupervisorMatcher; readonly run: SupervisorPostStopHook }
+
+export const BUILT_IN_AGENTS = [
+  "main",
+  "general",
+  "build",
+  "explore",
+  "summary",
+  "title",
+  "checkpoint-writer",
+  "dream",
+  "distill",
+  "compaction",
+] as const
+
+export type BuiltInAgent = (typeof BUILT_IN_AGENTS)[number]
+
 export type AuthOAuthResult = { url: string; instructions: string } & (
   | {
       method: "auto"
@@ -332,4 +398,10 @@ export interface Hooks {
    * Modify tool definitions (description and parameters) sent to LLM
    */
   "tool.definition"?: (input: { toolID: string }, output: { description: string; parameters: any }) => Promise<void>
+  /**
+   * Supervisor lifecycle hooks — called before/after the supervisor's main work completes (compat: supervisor.*).
+   */
+  "supervisor.preStop"?: SupervisorPreStopRegistration
+  "supervisor.postStop"?: SupervisorPostStopRegistration
 }
+

@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
-  - name: 💬 Discord Community
-    url: https://discord.gg/opencode
-    about: For support, troubleshooting, how-to questions, and real-time discussion.
+  - name: Documentation
+    url: https://hordecode.com/docs/
+    about: Setup, configuration and usage guides.
+  - name: Upstream opencode issues
+    url: https://github.com/anomalyco/opencode/issues
+    about: For bugs that also reproduce on upstream opencode.

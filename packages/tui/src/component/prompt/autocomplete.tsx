@@ -1,4 +1,4 @@
-import type { BoxRenderable, TextareaRenderable, ScrollBoxRenderable } from "@opentui/core"
+import type { BoxRenderable, TextareaRenderable, KeyEvent, ScrollBoxRenderable } from "@opentui/core"
 import { pathToFileURL } from "bun"
 import fuzzysort from "fuzzysort"
 import path from "path"
@@ -13,7 +13,6 @@ import { useData } from "../../context/data"
 import { getScrollAcceleration } from "../../util/scroll"
 import { useTuiPaths } from "../../context/runtime"
 import { useTuiConfig } from "../../config"
-import { useLocation } from "../../context/location"
 import { useTheme, selectedForeground } from "../../context/theme"
 import { SplitBorder } from "../../ui/border"
 import { useTerminalDimensions } from "@opentui/solid"
@@ -22,7 +21,6 @@ import type { PromptInfo } from "../../prompt/history"
 import { useFrecency } from "../../prompt/frecency"
 import { useBindings, useCommandSlashes, useOpencodeModeStack } from "../../keymap"
 import { displayCharAt, mentionTriggerIndex } from "../../prompt/display"
-import type { FileSystemEntry } from "@opencode-ai/sdk/v2"
 
 function removeLineRange(input: string) {
   const hashIndex = input.lastIndexOf("#")
@@ -58,7 +56,8 @@ function extractLineRange(input: string) {
 
 export type AutocompleteRef = {
   onInput: (value: string) => void
-  visible: false | "@" | "/"
+  onKeyDown: (e: KeyEvent) => void
+  visible: false | "@" | "$" | "/"
 }
 
 export type AutocompleteOption = {
@@ -96,7 +95,6 @@ export function Autocomplete(props: {
   const frecency = useFrecency()
   const tuiConfig = useTuiConfig()
   const paths = useTuiPaths()
-  const location = useLocation()
   const [store, setStore] = createStore({
     index: 0,
     selected: 0,
@@ -169,13 +167,13 @@ export function Autocomplete(props: {
     setStore("input", "keyboard")
   })
 
-  function insertPart(text: string, part: PromptInfo["parts"][number]) {
+  function insertPart(text: string, part: PromptInfo["parts"][number], prefix: "@" | "$" = "@") {
     const input = props.input()
     const currentCursorOffset = input.cursorOffset
 
     const charAfterCursor = displayCharAt(props.value, currentCursorOffset)
     const needsSpace = charAfterCursor !== " "
-    const append = "@" + text + (needsSpace ? " " : "")
+    const append = prefix + text + (needsSpace ? " " : "")
 
     input.cursorOffset = store.index
     const startCursor = input.logicalCursor
@@ -185,7 +183,7 @@ export function Autocomplete(props: {
     input.deleteRange(startCursor.row, startCursor.col, endCursor.row, endCursor.col)
     input.insertText(append)
 
-    const virtualText = "@" + text
+    const virtualText = prefix + text
     const extmarkStart = store.index
     const extmarkEnd = extmarkStart + Bun.stringWidth(virtualText)
 
@@ -239,18 +237,16 @@ export function Autocomplete(props: {
     }
   }
 
-  function createFilePart(
-    item: FileSystemEntry,
-    filePath: string,
-    lineRange?: { startLine: number; endLine?: number },
-  ) {
-    const urlObj = pathToFileURL(filePath)
+  function createFilePart(item: string, lineRange?: { startLine: number; endLine?: number }) {
+    const baseDir = (sync.path.directory || paths.cwd).replace(/\/+$/, "")
+    const fullPath = path.isAbsolute(item) ? item : path.join(baseDir, item)
+    const urlObj = pathToFileURL(fullPath)
     const filename =
-      lineRange && item.type !== "directory"
-        ? `${item.path}#${lineRange.startLine}${lineRange.endLine ? `-${lineRange.endLine}` : ""}`
-        : item.path
+      lineRange && !item.endsWith("/")
+        ? `${item}#${lineRange.startLine}${lineRange.endLine ? `-${lineRange.endLine}` : ""}`
+        : item
 
-    if (lineRange && item.type !== "directory") {
+    if (lineRange && !item.endsWith("/")) {
       urlObj.searchParams.set("start", String(lineRange.startLine))
       if (lineRange.endLine !== undefined) {
         urlObj.searchParams.set("end", String(lineRange.endLine))
@@ -259,9 +255,10 @@ export function Autocomplete(props: {
 
     return {
       filename,
+      url: urlObj.href,
       part: {
         type: "file" as const,
-        mime: item.type === "directory" ? "application/x-directory" : "text/plain",
+        mime: "text/plain",
         filename,
         url: urlObj.href,
         source: {
@@ -271,7 +268,7 @@ export function Autocomplete(props: {
             end: 0,
             value: "",
           },
-          path: item.path,
+          path: item,
         },
       },
     }
@@ -288,7 +285,7 @@ export function Autocomplete(props: {
   })
 
   function normalizeMentionPath(filePath: string) {
-    const baseDir = location()?.directory || sync.path.directory || paths.cwd
+    const baseDir = sync.path.directory || paths.cwd
     const absolute = path.resolve(filePath)
     const relative = path.relative(baseDir, absolute)
 
@@ -305,7 +302,7 @@ export function Autocomplete(props: {
       startLine: input.lineStart,
       endLine: input.lineEnd > input.lineStart ? input.lineEnd : undefined,
     }
-    const { filename, part } = createFilePart({ path: item, type: "file" }, input.filePath, lineRange)
+    const { filename, part } = createFilePart(item, lineRange)
     const index = store.visible === "@" ? store.index : props.input().cursorOffset
 
     setStore("visible", false)
@@ -314,20 +311,17 @@ export function Autocomplete(props: {
   }
 
   const [files] = createResource(
-    () => ({ query: search(), location: location() }),
-    async (input) => {
-      if (!store.visible || store.visible === "/") return []
+    () => search(),
+    async (query) => {
+      if (store.visible !== "@") return []
       if (referenceMatch()) return []
-      const { lineRange, baseQuery } = extractLineRange(input.query ?? "")
+      const { lineRange, baseQuery } = extractLineRange(query ?? "")
 
       // Get files from SDK
       const result = await sdk.client.v2.fs.find({
         query: baseQuery,
         limit: "20",
-        location: {
-          directory: input.location?.directory,
-          workspace: input.location?.workspaceID ?? project.workspace.current(),
-        },
+        location: { workspace: project.workspace.current() },
       })
 
       const options: AutocompleteOption[] = []
@@ -338,11 +332,7 @@ export function Autocomplete(props: {
         const width = props.anchor().width - 4
         options.push(
           ...result.data.data.map((item): AutocompleteOption => {
-            const { filename, part } = createFilePart(
-              item,
-              path.join(result.data.location.directory, item.path),
-              lineRange,
-            )
+            const { filename, url, part } = createFilePart(item.path, lineRange)
             return {
               display: Locale.truncateMiddle(filename, width),
               value: filename,
@@ -364,14 +354,15 @@ export function Autocomplete(props: {
   )
 
   const mcpResources = createMemo(() => {
-    if (!store.visible || store.visible === "/") return []
+    if (store.visible !== "@") return []
 
     const options: AutocompleteOption[] = []
     const width = props.anchor().width - 4
 
     for (const res of Object.values(sync.data.mcp_resource)) {
+      const text = `${res.name} (${res.uri})`
       options.push({
-        display: Locale.truncateMiddle(res.name, width),
+        display: Locale.truncateMiddle(text, width),
         // Match the name only; matching the URI caused unrelated fuzzy hits.
         value: res.name,
         description: res.description,
@@ -400,21 +391,27 @@ export function Autocomplete(props: {
   })
 
   const agents = createMemo(() => {
+    if (store.visible !== "$") return []
     return sync.data.agent
       .filter((agent) => !agent.hidden && agent.mode !== "primary")
       .map(
         (agent): AutocompleteOption => ({
-          display: "@" + agent.name,
+          display: "$" + agent.name,
+          description: agent.description,
           onSelect: () => {
-            insertPart(agent.name, {
-              type: "agent",
-              name: agent.name,
-              source: {
-                start: 0,
-                end: 0,
-                value: "",
+            insertPart(
+              agent.name,
+              {
+                type: "agent",
+                name: agent.name,
+                source: {
+                  start: 0,
+                  end: 0,
+                  value: "",
+                },
               },
-            })
+              "$",
+            )
           },
         }),
       )
@@ -448,7 +445,6 @@ export function Autocomplete(props: {
     const results: AutocompleteOption[] = [...slashes()]
 
     for (const serverCommand of sync.data.command) {
-      if (serverCommand.source === "skill") continue
       const label = serverCommand.source === "mcp" ? ":mcp" : ""
       results.push({
         display: "/" + serverCommand.name + label,
@@ -485,11 +481,15 @@ export function Autocomplete(props: {
       return referenceAliasesValue.filter((item) => item.display === `@${referenceMatchValue.name}`)
     }
 
+    if (store.visible === "$") {
+      return agentsValue
+    }
+
     // Files come from fff already fuzzy ranked and filtered
     // it shouldn't be additionally sorted by fuzzysort as it will loose the results
     const fileOptions: AutocompleteOption[] = store.visible === "@" ? filesValue || [] : []
     const nonFileOptions: AutocompleteOption[] =
-      store.visible === "@" ? [...referenceAliasesValue, ...agentsValue, ...mcpResources()] : [...commandsValue]
+      store.visible === "@" ? [...referenceAliasesValue, ...mcpResources()] : [...commandsValue]
 
     if (!searchValue) {
       return [...nonFileOptions, ...fileOptions]
@@ -507,7 +507,6 @@ export function Autocomplete(props: {
           ...(store.visible === "/" ? ["description" as const] : []),
           (obj) => obj.aliases?.join(" ") ?? "",
         ],
-        threshold: store.visible === "@" ? 0.5 : 0,
         limit: 10,
         scoreFn: (objResults) => {
           const displayResult = objResults[0]
@@ -640,7 +639,7 @@ export function Autocomplete(props: {
     ]),
   }))
 
-  function show(mode: "@" | "/") {
+  function show(mode: "@" | "$" | "/") {
     setStore({
       visible: mode,
       index: props.input().cursorOffset,
@@ -699,11 +698,38 @@ export function Autocomplete(props: {
           return
         }
 
+        // Check for "$" trigger - find the nearest "$" before cursor with no whitespace between
+        const dollarIdx = value.lastIndexOf("$")
+        if (dollarIdx !== -1 && dollarIdx < offset) {
+          const before = dollarIdx === 0 ? undefined : value[dollarIdx - 1]
+          const query = value.slice(dollarIdx + 1, offset)
+          if ((before === undefined || /\s/.test(before)) && !/\s/.test(query)) {
+            show("$")
+            setStore("index", dollarIdx)
+            return
+          }
+        }
+
         // Check for "@" trigger - find the nearest "@" before cursor with no whitespace between
         const idx = mentionTriggerIndex(value, offset)
         if (idx !== undefined) {
           show("@")
           setStore("index", idx)
+        }
+      },
+      onKeyDown(e: KeyEvent) {
+        if (!store.visible) {
+          if (e.name === "@" || e.name === "$") {
+            const cursorOffset = props.input().cursorOffset
+            const charBeforeCursor =
+              cursorOffset === 0 ? undefined : props.input().getTextRange(cursorOffset - 1, cursorOffset)
+            const canTrigger = charBeforeCursor === undefined || charBeforeCursor === "" || /\s/.test(charBeforeCursor)
+            if (canTrigger) show(e.name)
+          }
+
+          if (e.name === "/") {
+            if (props.input().cursorOffset === 0) show("/")
+          }
         }
       },
     })
@@ -769,7 +795,7 @@ export function Autocomplete(props: {
               </text>
               <Show when={option().description}>
                 <text fg={index === store.selected ? selectedForeground(theme) : theme.textMuted} wrapMode="none">
-                  {" " + option().description?.trimStart()}
+                  {option().description}
                 </text>
               </Show>
             </box>

@@ -17,6 +17,9 @@ import { Glob } from "@opencode-ai/core/util/glob"
 import { Discovery } from "./discovery"
 import { isRecord } from "@/util/record"
 import { escapeHtml } from "@/util/html"
+import { extractBuiltinBundle } from "@opencode-ai/skill/builtin/extract"
+import { extractHarnessBundle } from "@opencode-ai/skill/harness/extract"
+import { extractResearchBundle } from "@opencode-ai/skill/research/extract"
 
 const CLAUDE_EXTERNAL_DIR = ".claude"
 const AGENTS_EXTERNAL_DIR = ".agents"
@@ -29,14 +32,16 @@ const SKILL_PATTERN = "**/SKILL.md"
 // invalid config, so users hit cryptic startup errors. Loading this skill
 // when the model is asked to touch opencode's own config files gives it the
 // actual schemas instead of guesses.
-const CUSTOMIZE_OPENCODE_SKILL_NAME = "customize-opencode"
+const CUSTOMIZE_OPENCODE_SKILL_NAME = "customize-hordecode"
 const CUSTOMIZE_OPENCODE_SKILL_DESCRIPTION =
-  "Use ONLY when the user is editing or creating opencode's own configuration: opencode.json, opencode.jsonc, files under .opencode/, or files under ~/.config/opencode/. Also use when creating or fixing opencode agents, subagents, skills, plugins, MCP servers, or permission rules. Do not use for the user's own application code, or for any project that is not configuring opencode itself."
+  "Use ONLY when the user is editing or creating hordecode's own configuration: hordecode.json, hordecode.jsonc (or the compatible opencode.json, opencode.jsonc), files under .hordecode/ or .opencode/, or files under ~/.config/hordecode/. Also use when creating or fixing opencode agents, subagents, skills, plugins, MCP servers, or permission rules. Do not use for the user's own application code, or for any project that is not configuring opencode itself."
 const CUSTOMIZE_OPENCODE_SKILL_BODY = SkillPlugin.CustomizeOpencodeContent
 
 export const Info = Schema.Struct({
   name: Schema.String,
   description: Schema.optional(Schema.String),
+  aliases: Schema.optional(Schema.Array(Schema.String)),
+  bundled: Schema.optional(Schema.Boolean),
   location: Schema.String,
   content: Schema.String,
 })
@@ -50,11 +55,13 @@ const Issue = Schema.StructWithRest(
   [Schema.Record(Schema.String, Schema.Unknown)],
 )
 
-function isSkillFrontmatter(data: unknown): data is { name: string; description?: string } {
+function isSkillFrontmatter(data: unknown): data is { name: string; description?: string; aliases?: string[] } {
   return (
     isRecord(data) &&
     typeof data.name === "string" &&
-    (data.description === undefined || typeof data.description === "string")
+    (data.description === undefined || typeof data.description === "string") &&
+    (data.aliases === undefined ||
+      (Array.isArray(data.aliases) && data.aliases.every((alias) => typeof alias === "string")))
   )
 }
 
@@ -87,6 +94,7 @@ type State = {
 type DiscoveryState = {
   matches: string[]
   dirs: string[]
+  bundledRoots: string[]
 }
 
 type ScanState = {
@@ -100,9 +108,15 @@ export interface Interface {
   readonly all: () => Effect.Effect<Info[]>
   readonly dirs: () => Effect.Effect<string[]>
   readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
+  readonly reload: () => Effect.Effect<void>
 }
 
-const add = Effect.fnUntraced(function* (state: State, match: string, events: EventV2Bridge.Service["Service"]) {
+const add = Effect.fnUntraced(function* (
+  state: State,
+  match: string,
+  bundledRoots: string[],
+  events: EventV2Bridge.Service["Service"],
+) {
   const md = yield* Effect.tryPromise({
     try: () => ConfigMarkdown.parse(match),
     catch: (err) => err,
@@ -122,18 +136,34 @@ const add = Effect.fnUntraced(function* (state: State, match: string, events: Ev
 
   if (!isSkillFrontmatter(md.data)) return
 
-  if (state.skills[md.data.name]) {
-    yield* Effect.logWarning("duplicate skill name", {
-      name: md.data.name,
-      existing: state.skills[md.data.name].location,
-      duplicate: match,
-    })
+  const isBundled = bundledRoots.some((root) => match.startsWith(root))
+  const existing = state.skills[md.data.name]
+
+  if (existing) {
+    if (isBundled && !existing.bundled) return
+    if (!isBundled && existing.bundled) {
+      yield* Effect.logInfo("user skill overrides bundled", { name: md.data.name, location: match })
+    } else {
+      // User-visible layering: the same frontmatter-named skill is reachable
+      // from more than one default root (multi-root). The user copied the same
+      // skill into multiple tool-specific directories on purpose; we keep
+      // first-registered-wins semantics but warn-on-every-discovery is just
+      // noise on every boot. Downgraded to debug; promote back if this ever
+      // hides a real conflict.
+      yield* Effect.logDebug("duplicate skill name", {
+        name: md.data.name,
+        existing: existing.location,
+        duplicate: match,
+      })
+    }
   }
 
   state.dirs.add(path.dirname(match))
   state.skills[md.data.name] = {
     name: md.data.name,
     description: md.data.description,
+    aliases: md.data.aliases,
+    bundled: isBundled || undefined,
     location: match,
     content: md.content,
   }
@@ -181,6 +211,7 @@ const discoverSkills = Effect.fnUntraced(function* (
   worktree: string,
 ) {
   const state: ScanState = { matches: new Set(), dirs: new Set() }
+  const bundledRoots: string[] = []
 
   const externalDirs: string[] = []
   if (!disableExternalSkills) {
@@ -226,9 +257,49 @@ const discoverSkills = Effect.fnUntraced(function* (
     }
   }
 
+  // Discover builtin skills from @opencode-ai/skill bundle
+  const builtinRoot = yield* extractBuiltinBundle(fsys as never).pipe(
+    Effect.catch((e) =>
+      Effect.logWarning("failed to extract builtin skills", { error: e }).pipe(
+        Effect.as("" as string),
+      ),
+    ),
+  )
+  if (builtinRoot) {
+    bundledRoots.push(builtinRoot)
+    yield* scan(state, builtinRoot, SKILL_PATTERN, { dot: true, scope: "builtin" })
+  }
+
+  // Extract harness skills to disk
+  const harnessRoot = yield* extractHarnessBundle(fsys as never).pipe(
+    Effect.catch((e) =>
+      Effect.logWarning("failed to extract harness skills", { error: e }).pipe(
+        Effect.as("" as string),
+      ),
+    ),
+  )
+  if (harnessRoot) {
+    bundledRoots.push(harnessRoot)
+    yield* scan(state, harnessRoot, SKILL_PATTERN, { dot: true, scope: "harness" })
+  }
+
+  // Extract research skills to disk
+  const researchRoot = yield* extractResearchBundle(fsys as never).pipe(
+    Effect.catch((e) =>
+      Effect.logWarning("failed to extract research skills", { error: e }).pipe(
+        Effect.as("" as string),
+      ),
+    ),
+  )
+  if (researchRoot) {
+    bundledRoots.push(researchRoot)
+    yield* scan(state, researchRoot, SKILL_PATTERN, { dot: true, scope: "research" })
+  }
+
   return {
     matches: Array.from(state.matches),
     dirs: Array.from(state.dirs),
+    bundledRoots,
   }
 })
 
@@ -237,7 +308,7 @@ const loadSkills = Effect.fnUntraced(function* (
   discovered: DiscoveryState,
   events: EventV2Bridge.Service["Service"],
 ) {
-  yield* Effect.forEach(discovered.matches, (match) => add(state, match, events), {
+  yield* Effect.forEach(discovered.matches, (match) => add(state, match, discovered.bundledRoots, events), {
     concurrency: "unbounded",
     discard: true,
   })
@@ -286,14 +357,20 @@ const layer = Layer.effect(
       }),
     )
 
+    const resolveAlias = (name: string, skills: Record<string, Info>): Info | undefined => {
+      if (skills[name]) return skills[name]
+      if (name === "research:deliberate" && skills["harness:deliberate"]) return skills["harness:deliberate"]
+      if (name === "harness:deliberate" && skills["research:deliberate"]) return skills["research:deliberate"]
+      return undefined
+    }
     const get = Effect.fn("Skill.get")(function* (name: string) {
       const s = yield* InstanceState.get(state)
-      return s.skills[name]
+      return resolveAlias(name, s.skills) ?? s.skills[name]
     })
 
     const require = Effect.fn("Skill.require")(function* (name: string) {
       const s = yield* InstanceState.get(state)
-      const info = s.skills[name]
+      const info = resolveAlias(name, s.skills) ?? s.skills[name]
       if (info) return info
       return yield* new NotFoundError({ name, available: Object.keys(s.skills).toSorted() })
     })
@@ -314,7 +391,12 @@ const layer = Layer.effect(
       return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")
     })
 
-    return Service.of({ get, require, all, dirs, available })
+    const reload = Effect.fn("Skill.reload")(function* () {
+      yield* InstanceState.invalidate(discovered)
+      yield* InstanceState.invalidate(state)
+    })
+
+    return Service.of({ get, require, all, dirs, available, reload })
   }),
 )
 
@@ -350,5 +432,29 @@ export const node = LayerNode.make({
   layer: layer,
   deps: [Discovery.node, Config.node, EventV2Bridge.node, FSUtil.node, Global.node, RuntimeFlags.node],
 })
+
+export namespace Test {
+  export function withCommands(
+    commands: Record<string, { description?: string; agent?: string }>,
+  ): Layer.Layer<Service> {
+    const items = Object.entries(commands).map(([name, c]) => ({
+      name,
+      description: c.description ?? "",
+      location: `test:${name}`,
+      content: "",
+    }))
+    return Layer.succeed(
+      Service,
+      Service.of({
+        all: () => Effect.succeed(items),
+        get: () => Effect.die("Skill.Test.withCommands: get not implemented"),
+        require: () => Effect.die("Skill.Test.withCommands: require not implemented"),
+        dirs: () => Effect.die("Skill.Test.withCommands: dirs not implemented"),
+        available: () => Effect.die("Skill.Test.withCommands: available not implemented"),
+        reload: () => Effect.die("Skill.Test.withCommands: reload not implemented"),
+      }),
+    )
+  }
+}
 
 export * as Skill from "."

@@ -35,6 +35,7 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
         paddingRight={2}
         position={props.overlay ? "absolute" : "relative"}
       >
+        {/* Scrollable Sidebar Cards */}
         <scrollbox
           flexGrow={1}
           scrollAcceleration={scrollAcceleration()}
@@ -53,8 +54,8 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
               title={session()!.title}
               share_url={session()!.share?.url}
             >
-              <box paddingRight={1}>
-                <text fg={theme.text}>
+              <box flexShrink={0} gap={0}>
+                <text fg={theme.text} wrapMode="char">
                   <b>{session()!.title}</b>
                 </text>
                 <Show when={InstallationChannel !== "latest"}>
@@ -89,11 +90,16 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
         <box flexShrink={0} gap={1} paddingTop={1}>
           <pluginRuntime.Slot name="sidebar_footer" mode="single_winner" session_id={props.sessionID}>
             <text fg={theme.textMuted}>
-              <span style={{ fg: theme.success }}>•</span> <b>Open</b>
-              <span style={{ fg: theme.text }}>
-                <b>Code</b>
-              </span>{" "}
-              <span>{InstallationVersion}</span>
+              <span style={{ fg: theme.success }}>•</span>{" "}
+              <span style={{ fg: theme.primary }}>H</span>
+              <span style={{ fg: theme.primary }}>o</span>
+              <span style={{ fg: theme.primary }}>r</span>
+              <span style={{ fg: theme.primary }}>d</span>
+              <span style={{ fg: theme.primary }}>e</span>
+              <span style={{ fg: theme.text }}>c</span>
+              <span style={{ fg: theme.text }}>o</span>
+              <span style={{ fg: theme.text }}>d</span>
+              <span style={{ fg: theme.text }}>e</span> <span>{InstallationVersion}</span>
             </text>
           </pluginRuntime.Slot>
         </box>

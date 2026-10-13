@@ -79,6 +79,11 @@ jobs:
         working-directory: packages/opencode
         run: bun run test:httpapi
 
+      - name: Run try_best tests (packages/core)
+        if: runner.os == 'Linux'
+        working-directory: packages/core
+        run: bun run test:try-best
+
   e2e:
     name: e2e (${{ matrix.settings.name }})
     strategy:

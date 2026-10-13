@@ -1,14 +1,15 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "version": "1.17.18",
+  "version": "0.1.0",
+  "hordecodeBase": "1.18.34",
   "name": "@opencode-ai/llm",
   "type": "module",
   "license": "MIT",
   "private": true,
   "scripts": {
     "setup:recording-env": "bun run script/setup-recording-env.ts",
-    "test": "bun test --timeout 30000 --only-failures",
-    "typecheck": "tsgo --noEmit"
+    "test": "bun test --timeout 30000",
+    "typecheck": "tsc --noEmit"
   },
   "exports": {
     ".": "./src/index.ts",

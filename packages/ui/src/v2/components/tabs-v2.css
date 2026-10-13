@@ -57,7 +57,7 @@
   outline: none;
   user-select: none;
 
-  font-size: 13px;
+  font-size: var(--font-size-small);
   font-weight: 440;
   line-height: 100%;
   letter-spacing: -0.04px;
@@ -190,7 +190,7 @@
   width: 100%;
   padding-left: 4px;
   color: var(--v2-text-text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-x-small);
   font-weight: 500;
 }
 

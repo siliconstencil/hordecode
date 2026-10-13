@@ -84,6 +84,32 @@ const tui: TuiPlugin = async (api) => {
     errored.add(sessionID)
     notify(api, sessionID, sessionErrorMessage(event.properties.error), "error")
   })
+
+  api.event.on("session.try_best.detected", (event) => {
+    const { sessionID, reason } = event.properties
+    const label =
+      reason === "edit_repeat" ? "Repeated edit loop detected"
+      : reason === "bash_retry" ? "Repeated failing command detected"
+      : "No-progress loop detected"
+    notify(api, sessionID, `${label} -- turn paused`, "error")
+  })
+
+  api.event.on("supervisor.stuck", (event) => {
+    const { supervisorID, description, stuckDuration, sessionID } = event.properties
+    const mins = Math.max(1, Math.floor(stuckDuration / 60_000))
+    const msg = `Supervisor "${description}" (${supervisorID}) stuck -- no activity for ${mins}m`
+    notify(api, sessionID, msg, "error")
+    api.ui.toast({ message: msg, variant: "warning", duration: 8000 })
+  })
+
+  api.event.on("tui.toast.show", (event) => {
+    api.ui.toast({
+      title: event.properties.title,
+      message: event.properties.message,
+      variant: event.properties.variant,
+      duration: event.properties.duration,
+    })
+  })
 }
 
 const plugin: BuiltinTuiPlugin = {

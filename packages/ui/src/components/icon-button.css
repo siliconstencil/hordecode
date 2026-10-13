@@ -29,6 +29,10 @@
     &:focus:not(:disabled) {
       background-color: var(--icon-strong-focus);
     }
+    &:focus-visible:not(:disabled) {
+      background-color: var(--icon-strong-focus);
+      box-shadow: var(--shadow-xs-border-focus);
+    }
     &:active:not(:disabled) {
       background-color: var(--icon-strong-active);
     }
@@ -92,6 +96,7 @@
     }
     &:focus-visible:not(:disabled) {
       background-color: var(--surface-base-hover);
+      box-shadow: var(--shadow-xs-border-focus);
     }
     &:active:not(:disabled) {
       background-color: var(--surface-base-active);

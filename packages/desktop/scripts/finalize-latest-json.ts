@@ -160,8 +160,8 @@ const out: Record<string, { url: string; signature: string }> = {}
 const winxexe = pick(winx?.files ?? [], [".exe"])
 const winaexe = pick(wina?.files ?? [], [".exe"])
 
-const macxTarGz = "opencode-desktop-mac-x64.app.tar.gz"
-const macaTarGz = "opencode-desktop-mac-arm64.app.tar.gz"
+const macxTarGz = "hordecode-desktop-mac-x64.app.tar.gz"
+const macaTarGz = "hordecode-desktop-mac-arm64.app.tar.gz"
 
 const linxDeb = pick(linx?.files ?? [], [".deb"])
 const linxRpm = pick(linx?.files ?? [], [".rpm"])
@@ -213,6 +213,10 @@ const tag = `v${version}`
 if (dryRun) {
   console.log(`dry-run: wrote latest.json for ${tag} to ${file}`)
   process.exit(0)
+}
+if (process.env.HORDECODE_RELEASE_CONFIRMED !== "1") {
+  console.error("Blocked: set HORDECODE_RELEASE_CONFIRMED=1 to upload latest.json to a release (local-only policy).")
+  process.exit(1)
 }
 await $`gh release upload ${tag} ${file} --clobber --repo ${repo}`
 

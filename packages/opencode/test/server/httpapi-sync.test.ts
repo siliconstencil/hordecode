@@ -73,6 +73,27 @@ describe("sync HttpApi", () => {
   )
 
   it.instance(
+    "steal returns 400 when the workspace is not set",
+    () =>
+      Effect.gen(function* () {
+        const tmp = yield* TestInstance
+        const session = yield* Session.use.create({ title: "to-steal-bad" })
+        const headers = { "x-opencode-directory": tmp.directory, "content-type": "application/json" }
+
+        const response = yield* requestInDirectory(SyncPaths.steal, tmp.directory, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ sessionID: session.id }),
+        })
+
+        // Handler returns HttpApiError.BadRequest when InstanceState.workspaceID
+        // is unset. Confirms the short-circuit, not the setWorkspace call path.
+        expect(response.status).toBe(400)
+      }),
+    { git: true, config: { formatter: false, lsp: false } },
+  )
+
+  it.instance(
     "validates seq values",
     () =>
       Effect.gen(function* () {

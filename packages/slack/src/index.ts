@@ -19,22 +19,78 @@ const opencode = await createOpencode({
 })
 console.log("✅ Opencode server ready")
 
-const sessions = new Map<string, { client: any; server: any; sessionId: string; channel: string; thread: string }>()
-void (async () => {
+const SESSION_TTL_MS = 30 * 60 * 1000
+const SESSION_MAX_COUNT = 500
+type OpencodeType = Awaited<ReturnType<typeof createOpencode>>
+const sessions = new Map<
+  string,
+  {
+    client: OpencodeType["client"]
+    server: OpencodeType["server"]
+    sessionId: string
+    channel: string
+    thread: string
+    lastSeenAt: number
+  }
+>()
+
+const pruneSessions = (now: number) => {
+  sessions.forEach((session, key) => {
+    if (now - session.lastSeenAt > SESSION_TTL_MS) sessions.delete(key)
+  })
+  if (sessions.size <= SESSION_MAX_COUNT) return
+  const overflow = sessions.size - SESSION_MAX_COUNT
+  Array.from(sessions.entries())
+    .sort((left, right) => left[1].lastSeenAt - right[1].lastSeenAt)
+    .slice(0, overflow)
+    .forEach(([key]) => {
+      sessions.delete(key)
+    })
+}
+
+const touchSession = (sessionKey: string, now: number) => {
+  const session = sessions.get(sessionKey)
+  if (!session) return
+  session.lastSeenAt = now
+}
+
+async function subscribeLoop(): Promise<void> {
   const events = await opencode.client.event.subscribe()
   for await (const event of events.stream) {
     if (event.type === "message.part.updated") {
       const part = event.properties.part
       if (part.type === "tool") {
         // Find the session for this tool update
-        for (const [_sessionKey, session] of sessions.entries()) {
+        const now = Date.now()
+        pruneSessions(now)
+        for (const [sessionKey, session] of sessions.entries()) {
           if (session.sessionId === part.sessionID) {
+            touchSession(sessionKey, now)
             void handleToolUpdate(part, session.channel, session.thread)
             break
           }
         }
       }
     }
+  }
+}
+
+const MAX_RETRIES = 5
+const RETRY_DELAYS = [1_000, 2_000, 4_000, 8_000, 16_000]
+
+void (async () => {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await subscribeLoop()
+    } catch (error) {
+      console.error(`Subscribe error (attempt ${attempt + 1}):`, error)
+    }
+    if (attempt >= MAX_RETRIES) {
+      console.error(`Subscribe loop abandoned after ${MAX_RETRIES} retries`)
+      break
+    }
+    const delay = RETRY_DELAYS[attempt] ?? 16_000
+    await new Promise((resolve) => setTimeout(resolve, delay))
   }
 })()
 
@@ -68,8 +124,11 @@ app.message(async ({ message, say }) => {
   const channel = message.channel
   const thread = (message as any).thread_ts || message.ts
   const sessionKey = `${channel}-${thread}`
+  const now = Date.now()
+  pruneSessions(now)
 
   let session = sessions.get(sessionKey)
+  if (session) touchSession(sessionKey, now)
 
   if (!session) {
     console.log("🆕 Creating new opencode session...")
@@ -90,8 +149,9 @@ app.message(async ({ message, say }) => {
 
     console.log("✅ Created opencode session:", createResult.data.id)
 
-    session = { client, server, sessionId: createResult.data.id, channel, thread }
+    session = { client, server, sessionId: createResult.data.id, channel, thread, lastSeenAt: now }
     sessions.set(sessionKey, session)
+    pruneSessions(now)
 
     const shareResult = await client.session.share({ path: { id: createResult.data.id } })
     if (!shareResult.error && shareResult.data) {
@@ -121,13 +181,12 @@ app.message(async ({ message, say }) => {
   const response = result.data
 
   // Build response text
+  // AssistantMessage carries no text of its own; the reply text lives in the text parts.
   const responseText =
-    response.info?.content ||
     response.parts
-      ?.filter((p: any) => p.type === "text")
-      .map((p: any) => p.text)
-      .join("\n") ||
-    "I received your message but didn't have a response."
+      ?.filter((p) => p.type === "text")
+      .map((p) => p.text)
+      .join("\n") || "I received your message but didn't have a response."
 
   console.log("💬 Sending response:", responseText)
 

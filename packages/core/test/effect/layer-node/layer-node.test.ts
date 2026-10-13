@@ -21,6 +21,8 @@ const greetingLayer = Layer.effect(
 )
 const value = make({ service: Value, layer: valueLayer, deps: [] })
 const greeting = make({ service: Greeting, layer: greetingLayer, deps: [value] })
+const depsOf = (node: LayerNode.Node<unknown, unknown, any>): readonly LayerNode.Node<unknown, unknown, any>[] =>
+  typeof node.dependencies === "function" ? node.dependencies() : node.dependencies
 
 describe("layer node", () => {
   test("builds an untagged graph", async () => {
@@ -191,7 +193,7 @@ describe("layer node", () => {
     })
 
     const result = LayerNode.hoist(LayerNode.group([app]), tags.values.global)
-    expect(result.node.dependencies[0]?.dependencies[0]?.dependencies[0]).toMatchObject({
+    expect(depsOf(depsOf(depsOf(result.node)[0]!)[0]!)[0]).toMatchObject({
       kind: "group",
       dependencies: [],
     })
@@ -253,7 +255,7 @@ describe("layer node", () => {
     })
     const result = LayerNode.hoist(LayerNode.group([users]), tags.values.global)
 
-    expect(result.node.dependencies[0]?.dependencies[0]?.dependencies[0]).toMatchObject({
+    expect(depsOf(depsOf(depsOf(result.node)[0]!)[0]!)[0]).toMatchObject({
       kind: "group",
       dependencies: [],
     })

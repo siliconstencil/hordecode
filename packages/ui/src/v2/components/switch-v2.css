@@ -66,7 +66,7 @@
     height: 16px;
     user-select: none;
     color: var(--v2-text-text-faint);
-    font-size: 11px;
+    font-size: var(--font-size-xx-small);
     font-style: normal;
     font-weight: 440;
     line-height: 16px;
@@ -76,7 +76,7 @@
 
   [data-slot="switch-error"] {
     color: var(--v2-state-fg-danger);
-    font-size: 12px;
+    font-size: var(--font-size-x-small);
     font-weight: var(--font-weight-regular);
     line-height: var(--line-height-normal);
     letter-spacing: var(--letter-spacing-normal);

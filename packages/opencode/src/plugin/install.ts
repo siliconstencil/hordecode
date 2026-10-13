@@ -7,11 +7,11 @@ import {
   printParseErrorCode,
 } from "jsonc-parser"
 
-import * as ConfigPaths from "@/config/paths"
+import * as ConfigPaths from "@opencode-ai/core/config/paths"
 import { Global } from "@opencode-ai/core/global"
-import { Filesystem } from "@/util/filesystem"
-import { Flock } from "@opencode-ai/core/util/flock"
-import { isRecord } from "@/util/record"
+import { Filesystem } from "@opencode-ai/core/util"
+import { Flock } from "@opencode-ai/shared/util/flock"
+import { isRecord } from "@opencode-ai/core/util/record"
 
 import { parsePluginSpecifier, readPackageThemes, readPluginPackage, resolvePluginTarget } from "./shared"
 
@@ -31,7 +31,7 @@ export type PatchDeps = {
   readText: (file: string) => Promise<string>
   write: (file: string, text: string) => Promise<void>
   exists: (file: string) => Promise<boolean>
-  files: (dir: string, name: "opencode" | "tui") => string[]
+  files: (dir: string, name: "hordecode" | "opencode" | "tui") => string[]
 }
 
 export type PatchInput = {
@@ -334,11 +334,11 @@ function patchDir(input: PatchInput) {
   if (input.global) return input.config ?? Global.Path.config
   const git = input.vcs === "git" && input.worktree !== "/"
   const root = git ? input.worktree : input.directory
-  return path.join(root, ".opencode")
+  return path.join(root, ".hordecode")
 }
 
-function patchName(kind: Kind): "opencode" | "tui" {
-  if (kind === "server") return "opencode"
+function patchName(kind: Kind): "hordecode" | "tui" {
+  if (kind === "server") return "hordecode"
   return "tui"
 }
 
@@ -346,9 +346,14 @@ async function patchOne(dir: string, target: Target, spec: string, force: boolea
   const name = patchName(target.kind)
   await using _ = await Flock.acquire(`plug-config:${Filesystem.resolve(path.join(dir, name))}`)
 
-  const files = dep.files(dir, name)
-  let cfg = files[0]
-  for (const file of files) {
+  // Write target is always the hordecode-named file under <dir>. A project that
+  // also carries a legacy .opencode config still gets a fresh .hordecode entry:
+  // .hordecode/hordecode.jsonc (or its .json sibling) is the canonical Hordecode
+  // config; legacy .opencode files remain readable but are not patched by this
+  // command.
+  const candidates = dep.files(dir, name)
+  let cfg = candidates[0]
+  for (const file of candidates) {
     if (!(await dep.exists(file))) continue
     cfg = file
     break

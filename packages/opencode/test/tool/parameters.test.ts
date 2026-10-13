@@ -235,16 +235,18 @@ describe("tool parameters", () => {
   })
 
   describe("task", () => {
-    test("accepts description + prompt + subagent_type", () => {
-      const parsed = parse(Task, { description: "d", prompt: "p", subagent_type: "general" })
-      expect(parsed.subagent_type).toBe("general")
+    test("accepts create with summary", () => {
+      const parsed = parse(Task, { operation: { action: "create", summary: "x" } })
+      expect((parsed as any).operation.action).toBe("create")
     })
-    test("accepts optional background flag", () => {
-      const parsed = parse(Task, { description: "d", prompt: "p", subagent_type: "general", background: true })
-      expect(parsed.background).toBe(true)
+    test("accepts list", () => {
+      expect(accepts(Task, { operation: { action: "list" } })).toBe(true)
     })
-    test("rejects missing prompt", () => {
-      expect(accepts(Task, { description: "d", subagent_type: "general" })).toBe(false)
+    test("rejects missing summary on create", () => {
+      expect(accepts(Task, { operation: { action: "create" } as any })).toBe(false)
+    })
+    test("rejects unknown verb", () => {
+      expect(accepts(Task, { operation: { action: "progress" as any, id: "T1" } })).toBe(false)
     })
   })
 

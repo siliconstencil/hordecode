@@ -1,6 +1,7 @@
 import { Layer, ManagedRuntime } from "effect"
 import { attach } from "./run-service"
 import * as Observability from "@opencode-ai/core/observability"
+import { Scheduler } from "@opencode-ai/cron"
 
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Database } from "@opencode-ai/core/database/database"
@@ -53,10 +54,17 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { AppNodeBuilderV1 } from "./app-node-builder-v1"
+import { SupervisorNode, SupervisorRegistryNode, SessionCheckpointNode, SessionPruneNode, WorkflowNode, MemoryNode } from "./supervisor-node"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
-
+import { node as EmbeddingNode } from "@opencode-ai/memory/embedding/service"
+import { node as VectorStoreNode } from "@opencode-ai/memory/embedding/vector-store"
+import * as BashInteractive from "@/tool/bash-interactive"
 export const AppLayer = AppNodeBuilderV1.build(
   LayerNode.group([
+    SupervisorRegistryNode,
+    EmbeddingNode,
+    VectorStoreNode,
+    MemoryNode,
     Npm.node,
     FSUtil.node,
     Database.node,
@@ -96,6 +104,10 @@ export const AppLayer = AppNodeBuilderV1.build(
     Command.node,
     Truncate.node,
     ToolRegistry.node,
+    SupervisorNode,
+    SessionCheckpointNode,
+    SessionPruneNode,
+    WorkflowNode,
     Format.node,
     InstanceStore.node,
     Project.node,
@@ -106,30 +118,43 @@ export const AppLayer = AppNodeBuilderV1.build(
     ShareNext.node,
     SessionShare.node,
   ]),
-).pipe(Layer.provideMerge(AppNodeBuilderV1.build(Ripgrep.node)), Layer.provideMerge(Observability.layer))
+).pipe(
+  Layer.provideMerge(AppNodeBuilderV1.build(Ripgrep.node)),
+  Layer.provideMerge(Observability.layer),
+  Layer.provideMerge(Scheduler.layer),
+  Layer.provideMerge(BashInteractive.defaultLayer),
+)
 
-const rt = ManagedRuntime.make(AppLayer, { memoMap })
-type Runtime = Pick<typeof rt, "runSync" | "runPromise" | "runPromiseExit" | "runFork" | "runCallback" | "dispose">
+let rt: ManagedRuntime.ManagedRuntime<Layer.Success<typeof AppLayer>, Layer.Error<typeof AppLayer>> | undefined
+type Runtime = Pick<ManagedRuntime.ManagedRuntime<Layer.Success<typeof AppLayer>, Layer.Error<typeof AppLayer>>, "runSync" | "runPromise" | "runPromiseExit" | "runFork" | "runCallback" | "dispose">
 
-/** Services provided by AppRuntime — i.e. what an Effect run via AppRuntime.runPromise can yield. */
-export type AppServices = ManagedRuntime.ManagedRuntime.Services<typeof rt>
-const wrap = (effect: Parameters<typeof rt.runSync>[0]) => attach(effect as never) as never
+/** Services provided by AppRuntime — i.e.what an Effect run via AppRuntime.runPromise can yield. */
+export type AppServices = Layer.Success<typeof AppLayer>
+const wrap = (effect: any) => attach(effect as never) as never
+const ensure = () => {
+  if (!rt) rt = ManagedRuntime.make(AppLayer, { memoMap })
+  return rt
+}
 
 export const AppRuntime: Runtime = {
   runSync(effect) {
-    return rt.runSync(wrap(effect))
+    return ensure().runSync(wrap(effect))
   },
   runPromise(effect, options) {
-    return rt.runPromise(wrap(effect), options)
+    return ensure().runPromise(wrap(effect), options)
   },
   runPromiseExit(effect, options) {
-    return rt.runPromiseExit(wrap(effect), options)
+    return ensure().runPromiseExit(wrap(effect), options)
   },
   runFork(effect) {
-    return rt.runFork(wrap(effect))
+    return ensure().runFork(wrap(effect))
   },
   runCallback(effect) {
-    return rt.runCallback(wrap(effect))
+    return ensure().runCallback(wrap(effect))
   },
-  dispose: () => rt.dispose(),
+  dispose: () => {
+    const p = rt?.dispose()
+    rt = undefined
+    return p ?? Promise.resolve()
+  },
 }

@@ -3,21 +3,30 @@ import { Effect } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { SkillPlugin } from "@opencode-ai/core/plugin/skill"
 import { SkillV2 } from "@opencode-ai/core/skill"
+import type { PluginContext } from "@opencode-ai/plugin/v2/effect"
 import { testEffect } from "../lib/effect"
 import { host } from "./host"
 
 const it = testEffect(AppNodeBuilder.build(SkillV2.node))
 
 describe("SkillPlugin.Plugin", () => {
-  it.effect("registers the built-in customize-opencode skill", () =>
+  it.effect("registers the built-in customize-hordecode skill", () =>
     Effect.gen(function* () {
       const skill = yield* SkillV2.Service
-      yield* SkillPlugin.Plugin.effect(host({ skill: { ...skill, reload: skill.reload } }))
+      yield* SkillPlugin.Plugin.effect(
+        host({
+          skill: {
+            ...skill,
+            reload: skill.reload,
+            transform: skill.transform as unknown as PluginContext["skill"]["transform"],
+          },
+        }),
+      )
 
       expect(yield* skill.list()).toContainEqual(
         expect.objectContaining({
-          name: "customize-opencode",
-          description: expect.stringContaining("opencode's own configuration"),
+          name: "customize-hordecode",
+          description: expect.stringContaining("hordecode's own configuration"),
         }),
       )
     }),

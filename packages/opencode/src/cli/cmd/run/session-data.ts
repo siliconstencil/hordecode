@@ -395,27 +395,62 @@ function syncQuestion(data: SessionData, part: ToolPart): FooterOutput | undefin
 }
 
 function toolStatus(part: ToolPart): string {
-  if (part.tool !== "task") {
-    return `running ${part.tool}`
-  }
-
-  const state = part.state as {
-    input?: {
-      description?: unknown
-      subagent_type?: unknown
+  if (part.tool === "supervisor") {
+    const state = part.state as {
+      input?: {
+        description?: unknown
+        subagent_type?: unknown
+      }
     }
-  }
-  const desc = state.input?.description
-  if (typeof desc === "string" && desc.trim()) {
-    return `running ${desc.trim()}`
+    const desc = state.input?.description
+    if (typeof desc === "string" && desc.trim()) {
+      return `running ${desc.trim()}`
+    }
+    const type = state.input?.subagent_type
+    if (typeof type === "string" && type.trim()) {
+      return `running ${type.trim()}`
+    }
+    return "running supervisor"
   }
 
-  const type = state.input?.subagent_type
-  if (typeof type === "string" && type.trim()) {
-    return `running ${type.trim()}`
+  if (part.tool === "task") {
+    const state = part.state as {
+      input?: {
+        operation?: {
+          action?: unknown
+          summary?: unknown
+          id?: unknown
+        }
+      }
+    }
+    const op = state.input?.operation
+    if (op && typeof op === "object") {
+      const opObj = op as { action?: string; summary?: string; id?: string }
+      const action = typeof opObj.action === "string" ? opObj.action : undefined
+      const summary = typeof opObj.summary === "string" ? opObj.summary.trim() : undefined
+      const id = typeof opObj.id === "string" ? opObj.id.trim() : undefined
+      if (action) {
+        const labels: Record<string, string> = {
+          create: "Create",
+          list: "List",
+          get: "Get",
+          start: "Start",
+          block: "Block",
+          unblock: "Unblock",
+          done: "Complete",
+          abandon: "Abandon",
+          rename: "Rename",
+        }
+        const label = labels[action] ?? action
+        if (summary) return `running task ${label} — ${summary}`
+        if (id) return `running task ${label} — ${id}`
+        return `running task ${label}`
+      }
+    }
+    return "running task"
   }
 
-  return "running task"
+  return `running ${part.tool}`
 }
 
 // Returns true if we can flush this part's text to scrollback.

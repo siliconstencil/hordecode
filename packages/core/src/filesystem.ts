@@ -52,6 +52,7 @@ export interface Interface {
   readonly find: (input: FindInput) => Effect.Effect<Entry[]>
   readonly glob: (input: GlobInput) => Effect.Effect<readonly Entry[]>
   readonly grep: (input: GrepInput) => Effect.Effect<readonly Match[]>
+  readonly up: (options: { targets: string[]; start: string; stop?: string }) => Effect.Effect<string[], FSUtil.Error>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/FileSystem") {}
@@ -66,9 +67,18 @@ const baseLayer = Layer.effect(
     const resolve = Effect.fnUntraced(function* (input?: RelativePath) {
       const absolute = path.resolve(location.directory, input ?? ".")
       if (!FSUtil.contains(location.directory, absolute))
-        return yield* Effect.die(new Error("Path escapes the location"))
+        return yield* Effect.die(
+          new Error(
+            `Path ${JSON.stringify(absolute)} escapes the location directory ${JSON.stringify(location.directory)}`,
+          ),
+        )
       const real = yield* fs.realPath(absolute).pipe(Effect.orDie)
-      if (!FSUtil.contains(root, real)) return yield* Effect.die(new Error("Path escapes the location"))
+      if (!FSUtil.contains(root, real))
+        return yield* Effect.die(
+          new Error(
+            `Path ${JSON.stringify(absolute)} resolves through a symlink to ${JSON.stringify(real)} which escapes the location root ${JSON.stringify(root)}`,
+          ),
+        )
       return { absolute, real, directory: location.directory, root }
     })
     return Service.of({
@@ -107,6 +117,7 @@ const baseLayer = Layer.effect(
           ),
         )
       }),
+      up: fs.up,
     })
   }),
 )

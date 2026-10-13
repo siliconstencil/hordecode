@@ -7,6 +7,14 @@ export function time(input: number): string {
   return date.toLocaleTimeString(undefined, { timeStyle: "short" })
 }
 
+/** Local time plus the IANA timezone name, e.g. "1:23 PM · America/Los_Angeles". */
+export function timeOfDay(input: number): string {
+  const date = new Date(input)
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+  const tzLabel = tz === "UTC" ? "UTC" : tz.split("/").pop()?.replace(/_/g, " ") ?? tz
+  return `${time(input)} · ${tzLabel}`
+}
+
 export function datetime(input: number): string {
   const date = new Date(input)
   const localTime = time(input)

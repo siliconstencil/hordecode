@@ -16,7 +16,7 @@ import { FSUtil } from "@opencode-ai/core/fs-util"
 import { CurrentWorkingDirectory } from "./tui-cwd"
 import { ConfigPlugin } from "@/config/plugin"
 import { TuiKeybind } from "@opencode-ai/tui/config/keybind"
-import { InstallationLocal, InstallationVersion } from "@opencode-ai/core/installation/version"
+import { InstallationLocal, InstallationPluginVersion } from "@opencode-ai/core/installation/version"
 import { makeRuntime } from "@opencode-ai/core/effect/runtime"
 import { Filesystem } from "@/util/filesystem"
 import { ConfigVariable } from "@/config/variable"
@@ -168,12 +168,14 @@ const loadState = Effect.fn("TuiConfig.loadState")(function* (ctx: { directory: 
       acc.plugin_origins = plugins
     })
 
-  // Every config dir we may read from: global config dir, any `.opencode`
-  // folders between cwd and home, and OPENCODE_CONFIG_DIR.
+  // Every config dir we may read from: global config dir, any `.opencode` or
+  // `.hordecode` folders between cwd and home, and OPENCODE_CONFIG_DIR.
   const directories = yield* ConfigPaths.directories(ctx.directory)
   yield* Effect.promise(() => migrateTuiConfig({ directories, cwd: ctx.directory }))
 
-  const projectFiles = Flag.OPENCODE_DISABLE_PROJECT_CONFIG ? [] : yield* ConfigPaths.files("tui", ctx.directory)
+  const projectFiles = Flag.HORDECODE_DISABLE_PROJECT_CONFIG || Flag.OPENCODE_DISABLE_PROJECT_CONFIG
+    ? []
+    : yield* ConfigPaths.files("tui", ctx.directory)
 
   const acc: Acc = {
     result: {},
@@ -185,11 +187,13 @@ const loadState = Effect.fn("TuiConfig.loadState")(function* (ctx: { directory: 
     yield* mergeFile(acc, file)
   }
 
-  // 2. Explicit OPENCODE_TUI_CONFIG override, if set.
-  if (Flag.OPENCODE_TUI_CONFIG) {
-    const configFile = Flag.OPENCODE_TUI_CONFIG
-    yield* mergeFile(acc, configFile)
-    yield* Effect.logDebug("loaded custom tui config", { path: configFile })
+  // 2. Explicit TUI config override, if set. HORDECODE_TUI_CONFIG takes
+  // precedence over OPENCODE_TUI_CONFIG so the Hordecode-named flag wins on
+  // the same code path.
+  const customTuiConfig = Flag.HORDECODE_TUI_CONFIG ?? Flag.OPENCODE_TUI_CONFIG
+  if (customTuiConfig) {
+    yield* mergeFile(acc, customTuiConfig)
+    yield* Effect.logDebug("loaded custom tui config", { path: customTuiConfig })
   }
 
   // 3. Project tui files, applied root-first so the closest file wins.
@@ -197,13 +201,18 @@ const loadState = Effect.fn("TuiConfig.loadState")(function* (ctx: { directory: 
     yield* mergeFile(acc, file)
   }
 
-  // 4. `.opencode` directories (and OPENCODE_CONFIG_DIR) discovered while
-  // walking up the tree. Also returned below so callers can install plugin
-  // dependencies from each location.
-  const dirs = unique(directories).filter((dir) => dir.endsWith(".opencode") || dir === Flag.OPENCODE_CONFIG_DIR)
+  // 4. `.opencode` / `.hordecode` directories (and the explicit CONFIG_DIR)
+  // discovered while walking up the tree. `.hordecode` dirs come after
+  // `.opencode` in the list, so they merge later and win on conflict. Also
+  // returned below so callers can install plugin dependencies from each
+  // location. HORDECODE_CONFIG_DIR takes precedence over OPENCODE_CONFIG_DIR.
+  const customConfigDir = Flag.HORDECODE_CONFIG_DIR ?? Flag.OPENCODE_CONFIG_DIR
+  const dirs = unique(directories).filter(
+    (dir) => dir.endsWith(".opencode") || dir.endsWith(".hordecode") || dir === customConfigDir,
+  )
 
   for (const dir of dirs) {
-    if (!dir.endsWith(".opencode") && dir !== Flag.OPENCODE_CONFIG_DIR) continue
+    if (!dir.endsWith(".opencode") && !dir.endsWith(".hordecode") && dir !== customConfigDir) continue
     for (const file of ConfigPaths.fileInDirectory(dir, "tui")) {
       yield* mergeFile(acc, file)
     }
@@ -239,7 +248,7 @@ const layer = Layer.effect(
             add: [
               {
                 name: "@opencode-ai/plugin",
-                version: InstallationLocal ? undefined : InstallationVersion,
+                version: InstallationPluginVersion,
               },
             ],
           })

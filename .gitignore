@@ -32,3 +32,21 @@ UPCOMING_CHANGELOG.md
 logs/
 *.bun-build
 tsconfig.tsbuildinfo
+
+packages/opencode/database.db
+packages/opencode/database.db-shm
+packages/opencode/database.db-wal
+
+.opencode/hordecode.db
+.opencode/hordecode.db-shm
+.opencode/hordecode.db-wal
+
+database.db
+database.db-shm
+database.db-wal
+
+# .hordecode/ project-local plugin-install cache (analogous to node_modules) --
+# CLI-generated when `hordecode` is run with CWD inside a package dir; self-
+# contains its own .gitignore already, this stops it showing as untracked
+# noise in git status. Confirmed harmless 2026-08-01.
+.hordecode/

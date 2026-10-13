@@ -7,8 +7,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "bun test --timeout 5000 --only-failures",
-    "typecheck": "tsgo --noEmit"
+    "test": "bun test --timeout 5000",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "effect": "catalog:",

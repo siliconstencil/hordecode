@@ -64,29 +64,75 @@ export namespace Storage {
   }
 
   function s3(): Adapter {
-    const bucket = process.env.OPENCODE_STORAGE_BUCKET!
-    const region = process.env.OPENCODE_STORAGE_REGION || "us-east-1"
+    const bucket = process.env.HORDECODE_STORAGE_BUCKET ?? process.env.OPENCODE_STORAGE_BUCKET!
+    const region = process.env.HORDECODE_STORAGE_REGION || process.env.OPENCODE_STORAGE_REGION || "us-east-1"
     const client = new AwsClient({
       region,
-      accessKeyId: process.env.OPENCODE_STORAGE_ACCESS_KEY_ID!,
-      secretAccessKey: process.env.OPENCODE_STORAGE_SECRET_ACCESS_KEY!,
+      accessKeyId: process.env.HORDECODE_STORAGE_ACCESS_KEY_ID ?? process.env.OPENCODE_STORAGE_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.HORDECODE_STORAGE_SECRET_ACCESS_KEY ?? process.env.OPENCODE_STORAGE_SECRET_ACCESS_KEY!,
     })
     return createAdapter(client, `https://s3.${region}.amazonaws.com`, bucket)
   }
 
   function r2() {
-    const accountId = process.env.OPENCODE_STORAGE_ACCOUNT_ID!
+    const accountId = process.env.HORDECODE_STORAGE_ACCOUNT_ID ?? process.env.OPENCODE_STORAGE_ACCOUNT_ID!
     const client = new AwsClient({
-      accessKeyId: process.env.OPENCODE_STORAGE_ACCESS_KEY_ID!,
-      secretAccessKey: process.env.OPENCODE_STORAGE_SECRET_ACCESS_KEY!,
+      accessKeyId: process.env.HORDECODE_STORAGE_ACCESS_KEY_ID ?? process.env.OPENCODE_STORAGE_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.HORDECODE_STORAGE_SECRET_ACCESS_KEY ?? process.env.OPENCODE_STORAGE_SECRET_ACCESS_KEY!,
     })
-    return createAdapter(client, `https://${accountId}.r2.cloudflarestorage.com`, process.env.OPENCODE_STORAGE_BUCKET!)
+    return createAdapter(
+      client,
+      `https://${accountId}.r2.cloudflarestorage.com`,
+      process.env.HORDECODE_STORAGE_BUCKET ?? process.env.OPENCODE_STORAGE_BUCKET!,
+    )
+  }
+
+  function memory(): Adapter {
+    const store = new Map<string, string>()
+    const endpoint = "https://memory.local"
+    const bucket = "bucket"
+    interface MockClient {
+      fetch(url: string, init?: { method?: string; body?: string }): Promise<{ status: number; ok: boolean; text(): Promise<string> }>
+    }
+    const client: MockClient = {
+      async fetch(url: string, init?: { method?: string; body?: string }) {
+        const base = `${endpoint}/${bucket}`
+        const [pathPart, queryPart] = url.slice(base.length).split("?")
+        const method = init?.method ?? "GET"
+        if (method === "PUT") {
+          store.set(pathPart.slice(1), init!.body as string)
+          return { status: 200, ok: true, text: async () => "" }
+        }
+        if (method === "DELETE") {
+          store.delete(pathPart.slice(1))
+          return { status: 200, ok: true, text: async () => "" }
+        }
+        if (queryPart) {
+          const params = new URLSearchParams(queryPart)
+          const prefix = params.get("prefix") ?? ""
+          const startAfter = params.get("start-after")
+          const maxKeys = params.get("max-keys")
+          let keys = [...store.keys()].filter((k) => k.startsWith(prefix)).sort()
+          if (startAfter) keys = keys.filter((k) => k > startAfter)
+          if (maxKeys) keys = keys.slice(0, Number(maxKeys))
+          const xml = `<?xml version="1.0"?><ListBucketResult>${keys
+            .map((k) => `<Contents><Key>${k}</Key></Contents>`)
+            .join("")}</ListBucketResult>`
+          return { status: 200, ok: true, text: async () => xml }
+        }
+        const value = store.get(pathPart.slice(1))
+        if (value === undefined) return { status: 404, ok: false, text: async () => "" }
+        return { status: 200, ok: true, text: async () => value }
+      },
+    }
+    return createAdapter(client as AwsClient, endpoint, bucket)
   }
 
   const adapter = lazy(() => {
-    const type = process.env.OPENCODE_STORAGE_ADAPTER
+    const type = process.env.HORDECODE_STORAGE_ADAPTER ?? process.env.OPENCODE_STORAGE_ADAPTER
     if (type === "r2") return r2()
     if (type === "s3") return s3()
+    if (type === "memory") return memory()
     throw new Error("No storage adapter configured")
   })
 

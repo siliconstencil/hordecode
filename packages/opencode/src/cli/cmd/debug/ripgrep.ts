@@ -1,5 +1,6 @@
 import { EOL } from "os"
 import { Effect } from "effect"
+import type { Match } from "@opencode-ai/schema/filesystem"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { effectCmd } from "../../effect-cmd"
 import { cmd } from "../cmd"
@@ -44,6 +45,30 @@ const FilesCommand = effectCmd({
   }),
 })
 
+/**
+ * Stream a Match array to a writable sink as a single pretty-printed JSON
+ * array. Each match is written in its own `write()` call so the total output
+ * is never buffered into one giant blob; that matters because a single
+ * `process.stdout.write` of more than the OS pipe buffer (~1 MiB) is what
+ * silently truncates the previous `JSON.stringify(results, null, 2)` output
+ * when stdout is not a TTY.
+ */
+export const writeMatchesAsJsonArray = (
+  matches: readonly Match[],
+  write: (chunk: string) => void,
+): void => {
+  write("[\n")
+  for (let i = 0; i < matches.length; i++) {
+    const sep = i === 0 ? "" : ",\n"
+    const body = JSON.stringify(matches[i], null, 2)
+      .split("\n")
+      .map((line, j) => (j === 0 ? line : "  " + line))
+      .join("\n")
+    write(sep + body + "\n")
+  }
+  write("]\n")
+}
+
 const SearchCommand = effectCmd({
   command: "search <pattern>",
   describe: "search file contents using ripgrep",
@@ -74,6 +99,6 @@ const SearchCommand = effectCmd({
         limit: args.limit ?? 10_000,
       })
       .pipe(Effect.orDie)
-    process.stdout.write(JSON.stringify(results, null, 2) + EOL)
+    writeMatchesAsJsonArray(results, (chunk) => process.stdout.write(chunk))
   }),
 })

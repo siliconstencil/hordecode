@@ -295,4 +295,51 @@ describe("experimental HttpApi", () => {
       }),
     { git: true, config: { formatter: false, lsp: false } },
   )
+
+  it.instance("reports experimental capabilities", () =>
+    Effect.gen(function* () {
+      const tmp = yield* TestInstance
+      const response = yield* request(ExperimentalPaths.capabilities, tmp.directory)
+
+      expect(response.status).toBe(200)
+      const body = (yield* json(response)) as { backgroundSubagents: boolean }
+      expect(typeof body.backgroundSubagents).toBe("boolean")
+    }),
+  )
+
+  it.instance("sessionBackground returns false when the flag is off", () =>
+    Effect.gen(function* () {
+      const tmp = yield* TestInstance
+      const session = yield* createSession()
+      const response = yield* request(
+        ExperimentalPaths.sessionBackground.replace(":sessionID", session.id),
+        tmp.directory,
+        { method: "POST" },
+      )
+
+      expect(response.status).toBe(200)
+      expect(yield* json(response)).toBe(false)
+    }),
+    { config: { formatter: false, lsp: false } },
+  )
+
+  it.instance("sessionBackground returns 200 + false for an unknown session when the flag is off", () =>
+    Effect.gen(function* () {
+      const tmp = yield* TestInstance
+      // The handler's first guard is `if (!flags.experimentalBackgroundSubagents)
+      // return false`, so an unknown sessionID with the flag off returns the
+      // same payload as an empty background list (200, false). This is
+      // behavior worth pinning: a future refactor that adds per-session
+      // validation would either keep this contract or break it intentionally.
+      const response = yield* request(
+        ExperimentalPaths.sessionBackground.replace(":sessionID", "ses_does_not_exist"),
+        tmp.directory,
+        { method: "POST" },
+      )
+
+      expect(response.status).toBe(200)
+      expect(yield* json(response)).toBe(false)
+    }),
+    { config: { formatter: false, lsp: false } },
+  )
 })

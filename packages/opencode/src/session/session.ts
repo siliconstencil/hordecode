@@ -1,7 +1,16 @@
+import { exec } from "child_process"
+import { promisify } from "util"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
-import { Slug } from "@opencode-ai/core/util/slug"
+import { Slug } from "@opencode-ai/shared/util/slug"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { Log } from "@opencode-ai/core/util"
+import { Scheduler } from "@opencode-ai/cron"
+import { BusEvent } from "@opencode-ai/bus/bus-event"
+import z from "zod"
+
+const asyncExec = promisify(exec)
+
 import { serviceUse } from "@opencode-ai/core/effect/service-use"
 import path from "path"
 import { BackgroundJob } from "@/background/job"
@@ -9,6 +18,7 @@ import { Decimal } from "decimal.js"
 import type { ProviderMetadata, Usage } from "@opencode-ai/llm"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { Database } from "@opencode-ai/core/database/database"
+import { SupervisorRegistryService } from "@opencode-ai/supervisor/registry"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { SessionV2 } from "@opencode-ai/core/session"
 import * as SessionExecutionLocal from "@opencode-ai/core/session/execution/local"
@@ -26,11 +36,12 @@ import { inArray } from "drizzle-orm"
 import { lt } from "drizzle-orm"
 import { or } from "drizzle-orm"
 import type { SQL } from "drizzle-orm"
-import { PartTable, SessionTable } from "@opencode-ai/core/session/sql"
+import { MessageTable, PartTable, SessionTable } from "@opencode-ai/core/session/sql"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { MessageV2 } from "./message-v2"
 import type { InstanceContext } from "../project/instance-context"
 import { InstanceState } from "@/effect/instance-state"
+import { InstanceRef, WorkspaceRef } from "@/effect/instance-ref"
 import { Snapshot } from "@/snapshot"
 import { ProjectV2 } from "@opencode-ai/core/project"
 import { WorkspaceV2 } from "@opencode-ai/core/workspace"
@@ -44,6 +55,7 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { SessionMessage } from "@opencode-ai/schema/session-message"
+import { isShellApproved } from "@opencode-ai/cron/shell-approval"
 
 const parentTitlePrefix = "New session - "
 const childTitlePrefix = "Child session - "
@@ -274,10 +286,9 @@ export const ForkInput = Schema.Struct({
   sessionID: SessionID,
   messageID: Schema.optional(MessageID),
 })
-export const GetInput = SessionID
-export const ChildrenInput = SessionID
-export const RemoveInput = SessionID
+// Intended input for session.setTitle — handler uses UpdatePayload.title instead of this Struct directly (see groups/session.ts UpdatePayload and handlers/session.ts update).
 export const SetTitleInput = Schema.Struct({ sessionID: SessionID, title: Schema.String })
+// Intended input for session.setArchived — handler decomposes UpdatePayload.time.archived instead of this Struct directly.
 export const SetArchivedInput = Schema.Struct({
   sessionID: SessionID,
   time: Schema.optional(ArchivedTimestamp),
@@ -286,18 +297,10 @@ export const SetMetadataInput = Schema.Struct({
   sessionID: SessionID,
   metadata: Metadata,
 })
+// Intended input for session.setPermission — handler uses UpdatePayload.permission plus Permission.merge instead of this Struct directly.
 export const SetPermissionInput = Schema.Struct({
   sessionID: SessionID,
   permission: PermissionV1.Ruleset,
-})
-export const SetRevertInput = Schema.Struct({
-  sessionID: SessionID,
-  revert: Schema.optional(Revert),
-  summary: Schema.optional(Summary),
-})
-export const MessagesInput = Schema.Struct({
-  sessionID: SessionID,
-  limit: Schema.optional(NonNegativeInt),
 })
 export type ListInput = {
   directory?: string
@@ -326,20 +329,36 @@ export const Event = {
   Deleted: SessionV1.Event.Deleted,
   Diff: SessionV1.Event.Diff,
   Error: SessionV1.Event.Error,
+  TryBestDetected: BusEvent.define(
+    "session.try_best.detected",
+    z.object({
+      sessionID: z.string(),
+      agentID: z.string().optional(),
+      providerID: z.string(),
+      modelID: z.string(),
+      reason: z.enum(["edit_repeat", "bash_retry", "action_streak"]),
+      evidence: z.object({
+        tool: z.string(),
+        path: z.string().optional(),
+        command: z.string().optional(),
+        count: z.number().int().positive(),
+        similarity: z.number().min(0).max(1).optional(),
+        action: z.enum(["edit", "verify"]).optional(),
+      }),
+    }),
+  ) as unknown as BusEvent.Definition, // opencode/src/session/session.ts:347 (event definition shape)
 }
 
 export function plan(input: { slug: string; time: { created: number } }, instance: InstanceContext) {
   const base = instance.project.vcs
-    ? path.join(instance.worktree, ".opencode", "plans")
+    ? path.join(instance.worktree, ".hordecode", "plans")
     : path.join(Global.Path.data, "plans")
   return path.join(base, [input.time.created, input.slug].join("-") + ".md")
 }
 
 export const getUsage = (input: { model: Provider.Model; usage: Usage; metadata?: ProviderMetadata }) => {
-  const safe = (value: number) => {
-    if (!Number.isFinite(value)) return 0
-    return Math.max(0, value)
-  }
+  const finite = (value: number) => (Number.isFinite(value) ? value : 0)
+  const safe = (value: number) => Math.max(0, finite(value))
   const inputTokens = safe(input.usage.inputTokens ?? 0)
   const outputTokens = safe(input.usage.outputTokens ?? 0)
   const reasoningTokens = safe(input.usage.reasoningTokens ?? 0)
@@ -393,13 +412,13 @@ export const getUsage = (input: { model: Provider.Model; usage: Usage; metadata?
         ? new Decimal(totalNanoAiu).div(100_000_000_000).toNumber()
         : safe(
             new Decimal(0)
-              .add(new Decimal(tokens.input).mul(costInfo?.input ?? 0).div(1_000_000))
-              .add(new Decimal(tokens.output).mul(costInfo?.output ?? 0).div(1_000_000))
-              .add(new Decimal(tokens.cache.read).mul(costInfo?.cache?.read ?? 0).div(1_000_000))
-              .add(new Decimal(tokens.cache.write).mul(costInfo?.cache?.write ?? 0).div(1_000_000))
+              .add(new Decimal(tokens.input).mul(finite(costInfo?.input ?? 0)).div(1_000_000))
+              .add(new Decimal(tokens.output).mul(finite(costInfo?.output ?? 0)).div(1_000_000))
+              .add(new Decimal(tokens.cache.read).mul(finite(costInfo?.cache?.read ?? 0)).div(1_000_000))
+              .add(new Decimal(tokens.cache.write).mul(finite(costInfo?.cache?.write ?? 0)).div(1_000_000))
               // TODO: update models.dev to have better pricing model, for now:
               // charge reasoning tokens at the same rate as output tokens
-              .add(new Decimal(tokens.reasoning).mul(costInfo?.output ?? 0).div(1_000_000))
+              .add(new Decimal(tokens.reasoning).mul(finite(costInfo?.output ?? 0)).div(1_000_000))
               .toNumber(),
           ),
     tokens,
@@ -447,7 +466,7 @@ export interface Interface {
   readonly setShare: (input: { sessionID: SessionID; share: Info["share"] }) => Effect.Effect<void>
   readonly setWorkspace: (input: { sessionID: SessionID; workspaceID: Info["workspaceID"] }) => Effect.Effect<void>
   readonly diff: (sessionID: SessionID) => Effect.Effect<Snapshot.FileDiff[]>
-  readonly messages: (input: { sessionID: SessionID; limit?: number }) => Effect.Effect<SessionV1.WithParts[], NotFound>
+  readonly messages: (input: { sessionID: SessionID; limit?: number; agentID?: string }) => Effect.Effect<SessionV1.WithParts[], NotFound>
   readonly children: (parentID: SessionID) => Effect.Effect<Info[]>
   readonly remove: (sessionID: SessionID) => Effect.Effect<void, NotFound>
   readonly updateMessage: <T extends SessionV1.Info>(msg: T) => Effect.Effect<T>
@@ -471,6 +490,7 @@ export interface Interface {
     sessionID: SessionID,
     predicate: (msg: SessionV1.WithParts) => boolean,
   ) => Effect.Effect<Option.Option<SessionV1.WithParts>, NotFound>
+  readonly lastMainMessageID: (sessionID: SessionID) => Effect.Effect<MessageID | undefined>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Session") {}
@@ -485,11 +505,7 @@ export type Patch = Omit<Partial<Info>, "time" | "share" | "summary" | "revert" 
   permission?: Info["permission"] | null
 }
 
-const layer: Layer.Layer<
-  Service,
-  never,
-  BackgroundJob.Service | RuntimeFlags.Service | Database.Service | EventV2Bridge.Service
-> = Layer.effect(
+const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const { db } = yield* Database.Service
@@ -497,6 +513,138 @@ const layer: Layer.Layer<
     const background = yield* BackgroundJob.Service
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
+    const cronSched = yield* Scheduler.Scheduler
+    const supervisorReg = yield* SupervisorRegistryService.Service
+
+    const cronLog = Log.create({ service: "cron-bridge" })
+
+    const cronStartedForSession = new Set<SessionID>()
+
+    const isCronDisabled = () => {
+      const v = process.env.HORDECODE_DISABLE_CRON
+      if (!v) return false
+      const s = v.trim().toLowerCase()
+      return s !== "" && s !== "0" && s !== "false" && s !== "no" && s !== "off"
+    }
+
+    const startCronForSession = (
+      sessionID: SessionID,
+      directory: string,
+    ) => {
+      if (cronStartedForSession.has(sessionID)) return Effect.void
+      cronStartedForSession.add(sessionID)
+      cronLog.info("starting cron", { sessionID, directory })
+
+      // Fires run detached on AppRuntime, outside the instance that started the
+      // scheduler. Capture that instance here and provide it to every fire, so
+      // session writes see the real project (upstream InstanceState.context dies
+      // without an InstanceRef, effect/instance-state.ts:16).
+      let instance: InstanceContext | undefined
+      let workspace: WorkspaceV2.ID | undefined
+      const withInstance = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+        effect.pipe(
+          Effect.provideService(InstanceRef, instance),
+          Effect.provideService(WorkspaceRef, workspace),
+        )
+
+      const onFire = (task: { id: string; prompt: string; kind?: string; shell?: string }) => {
+        // Gate the cron wake site the same way as Inbox.send. If the user
+        // just cancelled this session, do not fork a wake via
+        // injectScheduledPrompt. The mark is cleared by the next
+        // user-source SessionPrompt.prompt; the cron task remains in storage
+        // and will fire on the tick after the user re-engages.
+        import("@opencode-ai/inbox/interrupt-latch")
+          .then(({ isInterrupted }) => {
+            if (isInterrupted(sessionID)) {
+              cronLog.info("cron.onFire: wake suppressed by interrupt latch", {
+                sessionID,
+                taskId: task.id,
+              })
+              return
+            }
+            return import("@/effect/app-runtime").then(({ AppRuntime }) => {
+              AppRuntime.runPromise(
+                withInstance(Effect.gen(function* () {
+                  const injectScheduledPrompt = yield* Effect.promise(() =>
+                    import("@opencode-ai/core/session/prompt").then((m: any) => m.injectScheduledPrompt),
+                  ).pipe(Effect.orDie)
+                  const resolveAtFireTime = yield* Effect.promise(() =>
+                    import("@opencode-ai/cron/sentinel").then((m: any) => m.resolveAtFireTime),
+                  ).pipe(Effect.map((fn: any) => fn as (p: string, d: string, s: string) => Promise<string>), Effect.orDie)
+                  const firedAtISO = new Date().toISOString().replace(/\.\d{3}Z$/, "Z")
+                  let value: string
+                  if (task.shell && !isShellApproved(task.shell)) {
+                    cronLog.warn("cron.onFire: shell command not approved, not executed", { sessionID, taskId: task.id })
+                    value = `[cron fire @ ${firedAtISO}] Shell command not executed: \`${task.shell}\` was not approved in this session. A scheduled shell command runs only after it is scheduled through the cron tool and approved.`
+                  } else if (task.shell) {
+                    const result = yield* Effect.tryPromise({
+                      try: () => asyncExec(task.shell!, { encoding: "utf-8", timeout: 30_000 }).then((r) => r.stdout),
+                      catch: (e) => `ERROR: ${e instanceof Error ? e.message : String(e)}`,
+                    }).pipe(Effect.catch((message) => Effect.succeed(message)))
+                    value = `[cron fire @ ${firedAtISO}]\n\`\`\`shell\n${task.shell}\n\`\`\`\n\n${result}`
+                  } else {
+                    const resolved = yield* Effect.tryPromise(() =>
+                      resolveAtFireTime(task.prompt, directory, sessionID),
+                    ).pipe(Effect.orElseSucceed(() => task.prompt))
+                    value = `[cron fire @ ${firedAtISO}] ${resolved}`
+                  }
+                  yield* injectScheduledPrompt({
+                    sessionID,
+                    value,
+                    origin: {
+                      kind: "cron",
+                      taskId: task.id,
+                      kindOfTask: (task.kind === "loop" ? "loop" : "cron") as "cron" | "loop",
+                      firedAt: firedAtISO,
+                    },
+                    priority: "later",
+                    isMeta: true,
+                  })
+                })) as Effect.Effect<void>,
+              ).catch((err: unknown) =>
+                cronLog.error("scheduled fire failed", { taskId: task.id, error: String(err) }),
+              )
+            })
+          })
+          .catch((err: unknown) =>
+            cronLog.error("failed to import interrupt-latch or app-runtime", { error: String(err) }),
+          )
+      }
+
+      const onLoopEnded = (e: { reason: string; prompt: string; via_keepalive?: boolean }) => {
+        cronLog.info("loop_ended", {
+          sessionID,
+          reason: e.reason,
+          prompt: e.prompt,
+          via_keepalive: e.via_keepalive ?? false,
+        })
+      }
+
+      return Effect.gen(function* () {
+        instance = yield* InstanceRef
+        workspace = yield* WorkspaceRef
+      }).pipe(Effect.andThen(cronSched.start({
+        workspaceRoot: directory,
+        sessionID,
+        isLoading: () => false,
+        isKilled: () => isCronDisabled(),
+        onFire,
+        onLoopEnded,
+      }))).pipe(
+        Effect.tapError((e) => Effect.logWarning(`[cron start] ${e}`)),
+        // No fork: scheduler.start yields directly into the caller. Cron
+        // hydration (lock acquire, hydrate, missed-task backfill) takes a
+        // few hundred ms; Session.create is already a synchronous operation
+        // from the caller's perspective, so the extra latency is fine.
+        // The previous forkIn(scope) / forkDetach both let the hydration
+        // fiber outlive the test scope and surface as `# Unhandled error
+        // between tests` (causePrettyError on `All fibers interrupted`).
+        // The underlying Scheduler is a process-wide singleton anyway, so
+        // scope-tied cleanup is not needed for correctness.
+        Effect.ignore,
+        Effect.asVoid,
+      )
+    }
 
     const createNext = Effect.fn("Session.createNext")(function* (input: {
       id?: SessionID
@@ -511,6 +659,19 @@ const layer: Layer.Layer<
       permission?: PermissionV1.Ruleset
     }) {
       const ctx = yield* InstanceState.context
+      // Child sessions inherit the parent's permission ruleset unless an explicit
+      // one is supplied. Subagent/peer spawns keep the parent's permission
+      // semantics (tool-visibility parity with the parent); parentID alone does
+      // not auto-inherit in the spawn layer, so derive it here from the
+      // persisted parent row.
+      const permission = input.permission
+        ? input.permission
+        : input.parentID
+          ? yield* db.select().from(SessionTable).where(eq(SessionTable.id, input.parentID)).get().pipe(
+            Effect.map((row) => row?.permission ?? undefined),
+            Effect.orDie,
+          )
+          : undefined
       const result: Info = {
         id: SessionID.descending(input.id),
         slug: Slug.create(),
@@ -524,7 +685,7 @@ const layer: Layer.Layer<
         agent: input.agent,
         model: input.model,
         metadata: input.metadata,
-        permission: input.permission ? [...input.permission] : undefined,
+        permission: permission ? [...permission] : undefined,
         cost: 0,
         tokens: EmptyTokens,
         time: {
@@ -536,13 +697,37 @@ const layer: Layer.Layer<
 
       yield* events.publish(SessionV1.Event.Created, { sessionID: result.id, info: result })
 
+      yield* supervisorReg.register({
+        sessionID: result.id,
+        supervisorID: "main",
+        mode: "main",
+        parentSupervisorID: undefined,
+        agent: "main",
+        description: "main agent",
+        contextMode: "full",
+        contextWatermark: undefined,
+        background: false,
+        lifecycle: "persistent",
+        tools: "INHERIT",
+      }).pipe(Effect.ignore)
+
+      // Root sessions start the Scheduler tick loop with proper callbacks
+      // so disk-persisted cron jobs fire without needing a user prompt.
+      if (!result.parentID && !isCronDisabled()) {
+        yield* startCronForSession(result.id, result.directory)
+      }
+
       return result
     })
 
     const get = Effect.fn("Session.get")(function* (id: SessionID) {
       const row = yield* db.select().from(SessionTable).where(eq(SessionTable.id, id)).get().pipe(Effect.orDie)
       if (!row) return yield* Effect.fail(new NotFoundError({ message: `Session not found: ${id}` }))
-      return fromRow(row)
+      const info = fromRow(row)
+      if (!info.parentID && !isCronDisabled()) {
+        yield* startCronForSession(info.id, info.directory)
+      }
+      return info
     })
 
     const list = Effect.fn("Session.list")(function* (input?: ListInput) {
@@ -607,25 +792,23 @@ const layer: Layer.Layer<
 
     const remove: Interface["remove"] = Effect.fnUntraced(function* (sessionID: SessionID) {
       const session = yield* get(sessionID)
-      try {
-        // `remove` needs to work in all cases, such as broken sessions that
-        // run cleanup without instance state.
-        const hasInstance = yield* InstanceState.directory.pipe(
-          Effect.as(true),
-          Effect.catchCause(() => Effect.succeed(false)),
-        )
 
-        if (hasInstance) yield* cancelBackgroundJobs(background, sessionID)
-        const kids = yield* children(sessionID)
-        for (const child of kids) {
-          yield* remove(child.id)
-        }
+      // `cancelBackgroundJobs` needs instance state; skip if unavailable
+      // (e.g. broken sessions without instance state). All other failures
+      // propagate so the caller sees the error instead of a silent true.
+      const hasInstance = yield* InstanceState.directory.pipe(
+        Effect.as(true),
+        Effect.catchCause(() => Effect.succeed(false)),
+      )
+      if (hasInstance) yield* cancelBackgroundJobs(background, sessionID)
 
-        yield* events.publish(SessionV1.Event.Deleted, { sessionID, info: session })
-        yield* events.remove(sessionID)
-      } catch (error) {
-        yield* Effect.logError("failed to remove session", { sessionID, error })
+      const kids = yield* children(sessionID)
+      for (const child of kids) {
+        yield* remove(child.id)
       }
+
+      yield* events.publish(SessionV1.Event.Deleted, { sessionID, info: session })
+      yield* events.remove(sessionID)
     })
 
     const updateMessage = <T extends SessionV1.Info>(msg: T): Effect.Effect<T> =>
@@ -702,10 +885,10 @@ const layer: Layer.Layer<
         metadata: structuredClone(original.metadata),
       })
       const msgs = yield* messages({ sessionID: input.sessionID })
+      const target = input.messageID ? msgs.findIndex((msg) => msg.info.id === input.messageID) : msgs.length
       const idMap = new Map<string, MessageID>()
 
-      for (const msg of msgs) {
-        if (input.messageID && msg.info.id >= input.messageID) break
+      for (const msg of msgs.slice(0, target < 0 ? msgs.length : target)) {
         const newID = MessageID.ascending()
         idMap.set(msg.info.id, newID)
 
@@ -829,7 +1012,7 @@ const layer: Layer.Layer<
 
     const messages: Interface["messages"] = Effect.fn("Session.messages")(function* (input) {
       if (input.limit) {
-        return (yield* MessageV2.page({ sessionID: input.sessionID, limit: input.limit }).pipe(
+        return (yield* MessageV2.page({ sessionID: input.sessionID, limit: input.limit, agentID: input.agentID }).pipe(
           Effect.provideService(Database.Service, database),
         )).items
       }
@@ -838,7 +1021,7 @@ const layer: Layer.Layer<
       const result = [] as SessionV1.WithParts[]
       let before: string | undefined
       while (true) {
-        const page = yield* MessageV2.page({ sessionID: input.sessionID, limit: size, before }).pipe(
+        const page = yield* MessageV2.page({ sessionID: input.sessionID, limit: size, before, agentID: input.agentID }).pipe(
           Effect.provideService(Database.Service, database),
         )
         if (page.items.length === 0) break
@@ -905,6 +1088,18 @@ const layer: Layer.Layer<
       return Option.none<SessionV1.WithParts>()
     })
 
+    const lastMainMessageID = Effect.fn("Session.lastMainMessageID")(function* (sessionID: SessionID) {
+      const row = yield* db
+        .select({ id: MessageTable.id })
+        .from(MessageTable)
+        .where(and(eq(MessageTable.session_id, sessionID), eq(MessageTable.agent_id, "main")))
+        .orderBy(desc(MessageTable.id))
+        .limit(1)
+        .get()
+        .pipe(Effect.orDie)
+      return row?.id
+    })
+
     return Service.of({
       list,
       listGlobal,
@@ -933,9 +1128,10 @@ const layer: Layer.Layer<
       getPart,
       updatePartDelta,
       findMessage,
+      lastMainMessageID,
     })
   }),
-)
+).pipe(Layer.provide(SupervisorRegistryService.defaultLayer))
 
 const cancelBackgroundJobs = Effect.fn("Session.cancelBackgroundJobs")(function* (
   background: BackgroundJob.Interface,
@@ -1012,7 +1208,7 @@ function listByProject(
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
-  deps: [BackgroundJob.node, RuntimeFlags.node, Database.node, EventV2Bridge.node],
+  deps: [BackgroundJob.node, RuntimeFlags.node, Database.node, EventV2Bridge.node, Scheduler.node],
 })
 
 export * as Session from "./session"

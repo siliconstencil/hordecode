@@ -46,6 +46,7 @@ import { SystemPrompt } from "../../src/session/system"
 import { Shell } from "@opencode-ai/core/shell"
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "@/tool/registry"
+import { SupervisorNode } from "@/effect/supervisor-node"
 import { Truncate } from "@/tool/truncate"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
@@ -57,6 +58,13 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { LocationServiceMap, locationServiceMapLayer } from "@opencode-ai/core/location-services"
+import { Location } from "@opencode-ai/core/location"
+import { InstanceBootstrap } from "@/project/bootstrap"
+import { InstanceStore } from "@/project/instance-store"
+import { SessionCheckpoint } from "@opencode-ai/core/session/checkpoint"
+
+const noopBootstrapLayer = Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void }))
+import { SessionPrune } from "@opencode-ai/core/session/prune"
 
 const summary = Layer.succeed(
   SessionSummary.Service,
@@ -71,6 +79,41 @@ const ref = {
   providerID: ProviderV2.ID.make("test"),
   modelID: ModelV2.ID.make("test-model"),
 }
+
+// Stub the checkpoint/prune services: their real defaultLayers pull heavy
+// dependency trees (core Config -> Auth/Account/Npm -> Database) that these
+// prompt tests do not provide. Layer.mock throws UnimplementedError as a
+// DEFECT which .catch() cannot intercept, so Layer.succeed is used.
+const checkpointStub = Layer.succeed(
+  SessionCheckpoint.Service,
+  SessionCheckpoint.Service.of({
+    hasCheckpoint: () => Effect.succeed(false),
+    lastBoundary: () => Effect.succeed(undefined),
+    insertRebuildBoundary: () => Effect.succeed(false),
+    isWriterRunning: () => Effect.succeed(false),
+    tryStartCheckpointWriter: () => Effect.succeed("skipped" as const),
+    waitForWriter: () => Effect.succeed("no-writer" as const),
+    waitForWriterSettlement: () => Effect.succeed({ outcome: "no-writer" } as const),
+    drainWriters: () => Effect.succeed({ drained: 0, timedOut: 0 }),
+    hasMemoryOrTasks: () => Effect.succeed(false),
+    loadLatest: () => Effect.succeed(undefined),
+    loadCheckpoints: () => Effect.succeed([]),
+    renderIndex: () => Effect.succeed(""),
+    renderRebuildContext: () => Effect.succeed(""),
+    maybeCheckpointOnIdle: () => Effect.succeed("skipped" as const),
+  }),
+)
+const pruneStub = Layer.succeed(
+  SessionPrune.Service,
+  SessionPrune.Service.of({
+    prune: () => Effect.void,
+    resetThresholds: () => Effect.void,
+    fireCheckpoints: () => Effect.void,
+    maxThresholdCrossed: () => Effect.succeed(false),
+  }),
+)
+const checkpointNode = LayerNode.make({ service: SessionCheckpoint.Service, layer: checkpointStub, deps: [] })
+const pruneNode = LayerNode.make({ service: SessionPrune.Service, layer: pruneStub, deps: [] })
 
 function withSh<A, E, R>(fx: () => Effect.Effect<A, E, R>) {
   return Effect.acquireUseRelease(
@@ -206,6 +249,7 @@ const promptRoot = LayerNode.group([
   SystemPrompt.node,
   CrossSpawnSpawner.node,
   RuntimeFlags.node,
+  SupervisorNode,
 ])
 
 function makePrompt(input?: { mcpInstructions?: MCP.ServerInstructions[]; processor?: "blocking" }) {
@@ -214,6 +258,10 @@ function makePrompt(input?: { mcpInstructions?: MCP.ServerInstructions[]; proces
     [LSP.node, lsp],
     [MCP.node, makeMcp(input?.mcpInstructions)],
     [RuntimeFlags.node, runtimeFlags],
+    [Location.node, Location.boundNode(Location.Ref.make({ directory: process.cwd() as Location.Ref["directory"] }))],
+    [checkpointNode, checkpointStub],
+    [pruneNode, pruneStub],
+    [InstanceStore.bootstrapNode, noopBootstrapLayer],
   ] as const
   if (input?.processor === "blocking") {
     return LayerNode.compile(promptRoot, [...replacements, [SessionProcessor.node, blockingProcessor]])
@@ -228,6 +276,10 @@ function makeHttp(input?: { mcpInstructions?: MCP.ServerInstructions[]; processo
     [LSP.node, lsp],
     [MCP.node, makeMcp(input?.mcpInstructions)],
     [RuntimeFlags.node, runtimeFlags],
+    [Location.node, Location.boundNode(Location.Ref.make({ directory: process.cwd() as Location.Ref["directory"] }))],
+    [checkpointNode, checkpointStub],
+    [pruneNode, pruneStub],
+    [InstanceStore.bootstrapNode, noopBootstrapLayer],
   ] as const
   if (input?.processor === "blocking") {
     return LayerNode.compile(root, [...replacements, [SessionProcessor.node, blockingProcessor]])
@@ -460,6 +512,46 @@ noLLMServer.instance(
   { config: cfg },
 )
 
+noLLMServer.instance(
+  "loop exits for a completed parent turn with nonmonotonic message IDs",
+  () =>
+    Effect.gen(function* () {
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Pinned" })
+      const userID = MessageID.make("msg_z_user")
+      const assistantID = MessageID.make("msg_a_assistant")
+      yield* sessions.updateMessage({
+        id: userID,
+        role: "user",
+        sessionID: chat.id,
+        agent: "build",
+        model: ref,
+        time: { created: 100 },
+      })
+      yield* sessions.updateMessage({
+        id: assistantID,
+        role: "assistant",
+        parentID: userID,
+        sessionID: chat.id,
+        mode: "build",
+        agent: "build",
+        cost: 0,
+        path: { cwd: "/tmp", root: "/tmp" },
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        modelID: ref.modelID,
+        providerID: ref.providerID,
+        time: { created: 200, completed: 201 },
+        finish: "stop",
+      })
+
+      const result = yield* prompt.loop({ sessionID: chat.id })
+
+      expect(result.info.id).toBe(assistantID)
+    }),
+  { config: cfg },
+)
+
 it.instance("loop exits without an LLM request for interrupted orphan tool calls", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)
@@ -525,8 +617,8 @@ withMcpInstructions.instance(
         title: "Pinned",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
       })
-      yield* llm.hang
       yield* user(chat.id, "hello")
+      yield* llm.text("hi")
 
       const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
       yield* awaitWithTimeout(llm.wait(1), "timed out waiting for MCP instruction request", "10 seconds")
@@ -810,6 +902,34 @@ it.instance("loop continues when finish is tool-calls", () =>
   }),
 )
 
+it.instance("loop continues when finish is unknown", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const session = yield* sessions.create({
+      title: "Pinned",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* prompt.prompt({
+      sessionID: session.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "hello" }],
+    })
+    yield* llm.push(reply())
+    yield* llm.text("second")
+
+    const result = yield* prompt.loop({ sessionID: session.id })
+    expect(yield* llm.calls).toBe(2)
+    expect(result.info.role).toBe("assistant")
+    if (result.info.role === "assistant") {
+      expect(result.parts.some((part) => part.type === "text" && part.text === "second")).toBe(true)
+      expect(result.info.finish).toBe("stop")
+    }
+  }),
+)
+
 it.instance("glob tool keeps instance context during prompt runs", () =>
   Effect.gen(function* () {
     const { dir, llm } = yield* useServerConfig(providerCfg)
@@ -890,7 +1010,7 @@ it.instance("failed subtask preserves metadata on error tool state", () =>
     const prompt = yield* SessionPrompt.Service
     const sessions = yield* Session.Service
     const chat = yield* sessions.create({ title: "Pinned" })
-    yield* llm.tool("task", {
+    yield* llm.tool("supervisor", {
       description: "inspect bug",
       prompt: "look into the cache key path",
       subagent_type: "general",
@@ -899,7 +1019,7 @@ it.instance("failed subtask preserves metadata on error tool state", () =>
     const msg = yield* user(chat.id, "hello")
     yield* addSubtask(chat.id, msg.id)
 
-    const result = yield* prompt.loop({ sessionID: chat.id })
+    const result = yield* prompt.loop({ sessionID: chat.id, agentID: "build" })
     expect(result.info.role).toBe("assistant")
     expect(yield* llm.calls).toBe(2)
 
@@ -934,7 +1054,7 @@ it.instance("subtask child inherits parent session external_directory allow", ()
     const msg = yield* user(chat.id, "hello")
     yield* addSubtask(chat.id, msg.id)
 
-    yield* prompt.loop({ sessionID: chat.id })
+    yield* prompt.loop({ sessionID: chat.id, agentID: "build" })
 
     const kids = yield* sessions.children(chat.id)
     expect(kids).toHaveLength(1)
@@ -944,12 +1064,19 @@ it.instance("subtask child inherits parent session external_directory allow", ()
       expect.arrayContaining([{ permission: "external_directory", pattern: "/tmp/allowed/*", action: "allow" }]),
     )
     expect(Permission.evaluate("external_directory", "/tmp/allowed/file", rules).action).toBe("allow")
-    expect(Permission.evaluate("task", "anything", rules).action).toBe("deny")
+    // Scoped ruleset is closed by default: an unspecified permission (task) is not
+    // auto-allowed; the evaluator returns "ask" (prompt), matching fork's
+    // core/permission/evaluate.ts (no implicit default-allow, no default-deny).
+    expect(Permission.evaluate("task", "anything", rules).action).toBe("ask")
   }),
 )
 
 noLLMServer.instance("prompt tools replace previous prompt tool rules", () =>
   Effect.gen(function* () {
+    // Without credentials no opencode model is offered, so register the test provider
+    // for the default-model lookup; noReply never calls it.
+    const { directory: dir } = yield* TestInstance
+    yield* writeConfig(dir, cfg)
     const prompt = yield* SessionPrompt.Service
     const sessions = yield* Session.Service
     const session = yield* sessions.create({ title: "Prompt tools" })
@@ -987,7 +1114,7 @@ it.instance(
       const msg = yield* user(chat.id, "hello")
       yield* addSubtask(chat.id, msg.id)
 
-      const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+      const fiber = yield* prompt.loop({ sessionID: chat.id, agentID: "build" }).pipe(Effect.forkChild)
 
       const tool = yield* pollWithTimeout(
         Effect.gen(function* () {
@@ -1011,7 +1138,7 @@ it.instance(
 )
 
 it.instance(
-  "running task tool preserves metadata after tool-call transition",
+  "running supervisor tool preserves metadata after tool-call transition",
   () =>
     Effect.gen(function* () {
       const { llm } = yield* useServerConfig(providerCfg)
@@ -1021,26 +1148,29 @@ it.instance(
         title: "Pinned",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
       })
-      yield* llm.tool("task", {
-        description: "inspect bug",
-        prompt: "look into the cache key path",
-        subagent_type: "general",
+      yield* llm.tool("supervisor", {
+        operation: {
+          action: "run",
+          description: "inspect bug",
+          prompt: "look into the cache key path",
+          subagent_type: "general",
+        },
       })
       yield* llm.hang
       yield* user(chat.id, "hello")
 
-      const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+      const fiber = yield* prompt.loop({ sessionID: chat.id, agentID: "build" }).pipe(Effect.forkChild)
 
       const tool = yield* pollWithTimeout(
         Effect.gen(function* () {
           const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
           const assistant = msgs.findLast((item) => item.info.role === "assistant" && item.info.agent === "build")
           const tool = assistant?.parts.find(
-            (part): part is SessionV1.ToolPart => part.type === "tool" && part.tool === "task",
+            (part): part is SessionV1.ToolPart => part.type === "tool" && part.tool === "supervisor",
           )
           if (tool?.state.status === "running" && tool.state.metadata?.sessionId) return tool
         }),
-        "timed out waiting for running task metadata",
+        "timed out waiting for running supervisor metadata",
       )
 
       if (tool.state.status !== "running") return
@@ -1217,50 +1347,48 @@ raceNoLLMServer.instance(
   3_000,
 )
 
-noLLMServer.instance(
+it.instance(
   "cancel finalizes subtask tool state",
   () =>
     Effect.gen(function* () {
-      const ready = yield* Deferred.make<void>()
-      const aborted = yield* Deferred.make<void>()
-      const registry = yield* ToolRegistry.Service
-      const { task } = yield* registry.named()
-      const original = task.execute
-      task.execute = (_args, ctx) =>
-        Effect.callback<never>((_resume) => {
-          ctx.abort.addEventListener("abort", () => succeedVoid(aborted), { once: true })
-          if (ctx.abort.aborted) succeedVoid(aborted)
-          succeedVoid(ready)
-          return Effect.sync(() => succeedVoid(aborted))
-        })
-      yield* Effect.addFinalizer(() => Effect.sync(() => void (task.execute = original)))
-
-      const { prompt, chat } = yield* boot()
+      const { llm } = yield* useServerConfig(providerCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Pinned" })
+      yield* llm.hang
       const msg = yield* user(chat.id, "hello")
       yield* addSubtask(chat.id, msg.id)
 
-      const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
-      yield* awaitWithTimeout(Deferred.await(ready), "timed out waiting for task tool to start", "10 seconds")
-      yield* prompt.cancel(chat.id)
+      const fiber = yield* prompt.loop({ sessionID: chat.id, agentID: "build" }).pipe(Effect.forkChild)
 
+      // override-free: poll the subtask tool part until it reaches "running"
+      const tool = yield* pollWithTimeout(
+        Effect.gen(function* () {
+          const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
+          const taskMsg = msgs.find((item) => item.info.role === "assistant" && item.info.agent === "general")
+          const tool = taskMsg?.parts.find((part): part is SessionV1.ToolPart => part.type === "tool")
+          if (tool?.state.status === "running" && tool.state.metadata?.sessionId) return tool
+        }),
+        "timed out waiting for running subtask metadata",
+      )
+
+      yield* prompt.cancel(chat.id)
       const exit = yield* Fiber.await(fiber)
       expect(Exit.isSuccess(exit)).toBe(true)
-      yield* awaitWithTimeout(Deferred.await(aborted), "timed out waiting for task tool abort", "10 seconds")
 
       const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
       const taskMsg = msgs.find((item) => item.info.role === "assistant" && item.info.agent === "general")
       expect(taskMsg?.info.role).toBe("assistant")
       if (!taskMsg || taskMsg.info.role !== "assistant") return
 
-      const tool = toolPart(taskMsg.parts)
-      expect(tool?.type).toBe("tool")
-      if (!tool) return
+      const finalized = toolPart(taskMsg.parts)
+      expect(finalized?.type).toBe("tool")
+      if (!finalized) return
 
-      expect(tool.state.status).not.toBe("running")
+      expect(finalized.state.status).not.toBe("running")
       expect(taskMsg.info.time.completed).toBeDefined()
       expect(taskMsg.info.finish).toBeDefined()
     }),
-  { config: cfg },
   30_000,
 )
 
@@ -1277,7 +1405,7 @@ it.instance(
       const msg = yield* user(chat.id, "hello")
       yield* addSubtask(chat.id, msg.id)
 
-      const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+      const fiber = yield* prompt.loop({ sessionID: chat.id, agentID: "build" }).pipe(Effect.forkChild)
       yield* llm.wait(1)
 
       const msgs = yield* MessageV2.filterCompactedEffect(chat.id)

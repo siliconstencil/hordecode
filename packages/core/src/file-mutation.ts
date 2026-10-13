@@ -115,6 +115,7 @@ const layer = Layer.effect(
           yield* fs.writeWithDirs(
             input.target.canonical,
             joinBom(next.text, Boolean(current && hasUtf8Bom(current)) || next.bom),
+            current !== undefined ? undefined : 0o644,
           )
           return writeResult(input.target, current !== undefined)
         }),

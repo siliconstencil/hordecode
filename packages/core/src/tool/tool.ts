@@ -5,12 +5,14 @@ import { Effect, JsonSchema, Schema } from "effect"
 import type { AgentV2 } from "../agent"
 import type { SessionMessage } from "../session/message"
 import type { SessionSchema } from "../session/schema"
+import { MessageV2 } from "../session/message-v2"
 
 export interface Context {
   readonly sessionID: SessionSchema.ID
   readonly agent: AgentV2.ID
   readonly assistantMessageID: SessionMessage.ID
   readonly toolCallID: string
+  readonly messages?: ReadonlyArray<MessageV2.WithParts>
 }
 
 export type SchemaType<A> = Schema.Codec<A, any, never, never>
@@ -25,6 +27,7 @@ export interface Definition<Input extends SchemaType<any>, Output extends Schema
 }
 
 export type AnyTool = Definition<any, any>
+export type Def = AnyTool
 export const Failure = ToolFailure
 export type Failure = ToolFailure
 
@@ -58,12 +61,22 @@ type Config<
     readonly input: Schema.Schema.Type<Input>
     readonly output: Output["Encoded"]
   }) => ReadonlyArray<Content>
+  readonly shell?: {
+    readonly description: string
+    readonly parse: (script: string) => Effect.Effect<ReadonlyArray<Schema.Schema.Type<Input>>, unknown>
+    readonly recover?: (rawArgs: unknown) => Schema.Schema.Type<Input> | undefined
+  }
 }
 
 type Runtime = {
   readonly permission?: string
   readonly definition: (name: string) => ToolDefinition
   readonly settle: (call: ToolCall, context: Context) => Effect.Effect<ToolOutput, ToolFailure>
+  readonly shell?: {
+    readonly description: string
+    readonly parse: (script: string) => Effect.Effect<ReadonlyArray<any>, unknown>
+    readonly recover?: (rawArgs: unknown) => any | undefined
+  }
 }
 
 const runtimes = new WeakMap<AnyTool, Runtime>()
@@ -76,6 +89,7 @@ export function make<
   const tool = Object.freeze({}) as Definition<Input, Structured>
   const definitions = new Map<string, ToolDefinition>()
   runtimes.set(tool, {
+    ...(config.shell ? { shell: config.shell } : {}),
     definition: (name) => {
       const cached = definitions.get(name)
       if (cached) return cached
@@ -145,9 +159,17 @@ export const withPermission = <Input extends SchemaType<any>, Output extends Sch
   return decorated
 }
 
+export function validationErrorMessage(id: string, error: unknown): string {
+  if (error instanceof Error) {
+    return `Invalid arguments for the ${id} tool:\n${error.message}`
+  }
+  return `The ${id} tool was called with invalid arguments: ${error}.\nPlease rewrite the input so it satisfies the expected schema.`
+}
+
 export const permission = (tool: AnyTool, name: string) => runtimeOf(tool).permission ?? name
 export const definition = (name: string, tool: AnyTool) => runtimeOf(tool).definition(name)
 export const settle = (tool: AnyTool, call: ToolCall, context: Context) => runtimeOf(tool).settle(call, context)
+export const shell = (tool: AnyTool) => runtimeOf(tool).shell
 
 function runtimeOf(tool: AnyTool) {
   const runtime = runtimes.get(tool)

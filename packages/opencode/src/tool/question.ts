@@ -21,6 +21,25 @@ export const QuestionTool = Tool.define<typeof Parameters, Metadata, Question.Se
       parameters: Parameters,
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context<Metadata>) =>
         Effect.gen(function* () {
+          const nope = yield* question.neverAsk()
+          if (nope) {
+            const autoAnswer = "[Never-Ask] The model will decide autonomously"
+            return {
+              title: `Auto-resolved ${params.questions.length} question${params.questions.length > 1 ? "s" : ""}`,
+              output:
+                "[Never-Ask] No user is available to answer (never-ask mode is on). " +
+                "Re-evaluate the options you just proposed for unattended/headless execution — " +
+                "prefer text-only, non-interactive, minimal-scope paths and avoid anything that needs a GUI or the user to be present. " +
+                "Pick the best option yourself and continue. " +
+                "IMPORTANT: You MUST explicitly state which option you chose and why in your response text (not just in thinking) — " +
+                "the user will review the conversation history later and needs to see what you decided without expanding thinking blocks. " +
+                "This applies only to this question; never-ask may be turned off later, so keep using the question tool at future decision points (the user may have returned).",
+              metadata: {
+                answers: params.questions.map(() => [autoAnswer]),
+              },
+            }
+          }
+
           const answers = yield* question.ask({
             sessionID: ctx.sessionID,
             questions: params.questions,

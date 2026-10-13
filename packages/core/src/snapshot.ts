@@ -26,6 +26,23 @@ export interface CompareInput {
   readonly to: ID
 }
 
+// Zod schema copied from snapshot/index.ts
+// for type compatibility with session.ts Info.zod schema and diff function.
+import z from "zod"
+
+export const FileDiff = z
+  .object({
+    file: z.string(),
+    patch: z.string(),
+    additions: z.number(),
+    deletions: z.number(),
+    status: z.enum(["added", "deleted", "modified"]).optional(),
+  })
+  .meta({
+    ref: "SnapshotFileDiff",
+  })
+export type FileDiff = z.infer<typeof FileDiff>
+
 export interface DiffInput extends CompareInput {
   readonly context?: number
   readonly paths?: readonly RelativePath[]

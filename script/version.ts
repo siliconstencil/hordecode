@@ -3,6 +3,11 @@
 import { Script } from "@opencode-ai/script"
 import { $ } from "bun"
 
+if (process.env.HORDECODE_RELEASE_CONFIRMED !== "1") {
+  console.error("Blocked: set HORDECODE_RELEASE_CONFIRMED=1 to create a GitHub release (local-only policy).")
+  process.exit(1)
+}
+
 const output = [`version=${Script.version}`]
 const sha = process.env.GITHUB_SHA ?? (await $`git rev-parse HEAD`.text()).trim()
 

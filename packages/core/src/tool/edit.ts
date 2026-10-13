@@ -16,8 +16,14 @@ import { FSUtil } from "../fs-util"
 import { LocationMutation } from "../location-mutation"
 import { PermissionV2 } from "../permission"
 import { ToolRegistry } from "./registry"
+import { assertFileRead } from "./read-state"
 import { Tool } from "./tool"
 import { Tools } from "./tools"
+
+// TODO: Add formatter integration after V2 formatter runtime exists.
+// TODO: Publish watcher/file-edit events after V2 watcher integration exists.
+// TODO: Add snapshots / undo after design exists.
+// TODO: Add LSP notification and diagnostics after V2 LSP runtime exists.
 
 export const name = "edit"
 
@@ -80,12 +86,250 @@ export const toModelOutput = (output: Output, oldString: string, newString: stri
     "```",
   ].join("\n")
 
-/** Deferred V2 edit behavior and UX integrations remain visible at the model-facing seam. */
-// TODO: Port V1 fuzzy correction strategies only after exact-edit behavior is established: line-trimmed matching, block-anchor fallback, indentation correction, and similarity-threshold review.
-// TODO: Add formatter integration after V2 formatter runtime exists.
-// TODO: Publish watcher/file-edit events after V2 watcher integration exists.
-// TODO: Add snapshots / undo after design exists.
-// TODO: Add LSP notification and diagnostics after V2 LSP runtime exists.
+// --- Fuzzy replacement chain ---
+
+type Replacer = (content: string, find: string) => Generator<string, void, unknown>
+
+const levenshtein = (a: string, b: string): number => {
+  if (a === "" || b === "") return Math.max(a.length, b.length)
+  const matrix = Array.from({ length: a.length + 1 }, (_, i) =>
+    Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+  )
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      matrix[i][j] = Math.min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost)
+    }
+  }
+  return matrix[a.length][b.length]
+}
+
+const SimpleReplacer: Replacer = function* (_content, find) {
+  yield find
+}
+
+const LineTrimmedReplacer: Replacer = function* (content, find) {
+  const originalLines = content.split("\n")
+  const searchLines = find.split("\n")
+  if (searchLines[searchLines.length - 1] === "") searchLines.pop()
+  for (let i = 0; i <= originalLines.length - searchLines.length; i++) {
+    let matches = true
+    for (let j = 0; j < searchLines.length; j++) {
+      if (originalLines[i + j].trim() !== searchLines[j].trim()) {
+        matches = false
+        break
+      }
+    }
+    if (matches) {
+      let matchStartIndex = 0
+      for (let k = 0; k < i; k++) matchStartIndex += originalLines[k].length + 1
+      let matchEndIndex = matchStartIndex
+      for (let k = 0; k < searchLines.length; k++) {
+        matchEndIndex += originalLines[i + k].length
+        if (k < searchLines.length - 1) matchEndIndex += 1
+      }
+      yield content.substring(matchStartIndex, matchEndIndex)
+    }
+  }
+}
+
+const BlockAnchorReplacer: Replacer = function* (content, find) {
+  const originalLines = content.split("\n")
+  const searchLines = find.split("\n")
+  if (searchLines.length < 3) return
+  if (searchLines[searchLines.length - 1] === "") searchLines.pop()
+  const firstLineSearch = searchLines[0].trim()
+  const lastLineSearch = searchLines[searchLines.length - 1].trim()
+  const candidates: Array<{ startLine: number; endLine: number }> = []
+  for (let i = 0; i < originalLines.length; i++) {
+    if (originalLines[i].trim() !== firstLineSearch) continue
+    for (let j = i + 2; j < originalLines.length; j++) {
+      if (originalLines[j].trim() === lastLineSearch) {
+        candidates.push({ startLine: i, endLine: j })
+        break
+      }
+    }
+  }
+  if (candidates.length === 0) return
+  if (candidates.length === 1) {
+    const { startLine, endLine } = candidates[0]
+    let matchStartIndex = 0
+    for (let k = 0; k < startLine; k++) matchStartIndex += originalLines[k].length + 1
+    let matchEndIndex = matchStartIndex
+    for (let k = startLine; k <= endLine; k++) {
+      matchEndIndex += originalLines[k].length
+      if (k < endLine) matchEndIndex += 1
+    }
+    yield content.substring(matchStartIndex, matchEndIndex)
+    return
+  }
+  let bestMatch: { startLine: number; endLine: number } | null = null
+  let maxSimilarity = -1
+  for (const candidate of candidates) {
+    const { startLine, endLine } = candidate
+    const linesToCheck = Math.min(searchLines.length - 2, endLine - startLine - 1)
+    let similarity = 0
+    if (linesToCheck > 0) {
+      for (let j = 1; j < searchLines.length - 1 && j < endLine - startLine; j++) {
+        const maxLen = Math.max(originalLines[startLine + j].trim().length, searchLines[j].trim().length)
+        if (maxLen === 0) continue
+        similarity += 1 - levenshtein(originalLines[startLine + j].trim(), searchLines[j].trim()) / maxLen
+      }
+      similarity /= linesToCheck
+    } else {
+      similarity = 1.0
+    }
+    if (similarity > maxSimilarity) {
+      maxSimilarity = similarity
+      bestMatch = candidate
+    }
+  }
+  if (maxSimilarity >= 0.3 && bestMatch) {
+    const { startLine, endLine } = bestMatch
+    let matchStartIndex = 0
+    for (let k = 0; k < startLine; k++) matchStartIndex += originalLines[k].length + 1
+    let matchEndIndex = matchStartIndex
+    for (let k = startLine; k <= endLine; k++) {
+      matchEndIndex += originalLines[k].length
+      if (k < endLine) matchEndIndex += 1
+    }
+    yield content.substring(matchStartIndex, matchEndIndex)
+  }
+}
+
+const WhitespaceNormalizedReplacer: Replacer = function* (content, find) {
+  const normalizeWhitespace = (text: string) => text.replace(/\s+/g, " ").trim()
+  const normalizedFind = normalizeWhitespace(find)
+  const lines = content.split("\n")
+  for (let i = 0; i < lines.length; i++) {
+    if (normalizeWhitespace(lines[i]) === normalizedFind) yield lines[i]
+  }
+  const findLines = find.split("\n")
+  if (findLines.length > 1) {
+    for (let i = 0; i <= lines.length - findLines.length; i++) {
+      if (normalizeWhitespace(lines.slice(i, i + findLines.length).join("\n")) === normalizedFind) {
+        yield lines.slice(i, i + findLines.length).join("\n")
+      }
+    }
+  }
+}
+
+const IndentationFlexibleReplacer: Replacer = function* (content, find) {
+  const removeIndentation = (text: string) => {
+    const lines = text.split("\n")
+    const nonEmpty = lines.filter((l) => l.trim().length > 0)
+    if (nonEmpty.length === 0) return text
+    const minIndent = Math.min(...nonEmpty.map((l) => (l.match(/^(\s*)/)?.[1].length ?? 0)))
+    return lines.map((l) => (l.trim().length === 0 ? l : l.slice(minIndent))).join("\n")
+  }
+  const normalizedFind = removeIndentation(find)
+  const contentLines = content.split("\n")
+  const findLines = find.split("\n")
+  for (let i = 0; i <= contentLines.length - findLines.length; i++) {
+    if (removeIndentation(contentLines.slice(i, i + findLines.length).join("\n")) === normalizedFind) {
+      yield contentLines.slice(i, i + findLines.length).join("\n")
+    }
+  }
+}
+
+const EscapeNormalizedReplacer: Replacer = function* (content, find) {
+  const unescape = (str: string) =>
+    str.replace(/\\(n|t|r|'|"|`|\\|\n|\$)/g, (_, c: string) => {
+      const map: Record<string, string> = { n: "\n", t: "\t", r: "\r", "'": "'", '"': '"', "`": "`", "\\": "\\", "\n": "\n", $: "$" }
+      return map[c] ?? _
+    })
+  const unescapedFind = unescape(find)
+  if (content.includes(unescapedFind)) yield unescapedFind
+  const lines = content.split("\n")
+  const findLines = unescapedFind.split("\n")
+  for (let i = 0; i <= lines.length - findLines.length; i++) {
+    if (unescape(lines.slice(i, i + findLines.length).join("\n")) === unescapedFind) {
+      yield lines.slice(i, i + findLines.length).join("\n")
+    }
+  }
+}
+
+const TrimmedBoundaryReplacer: Replacer = function* (content, find) {
+  const trimmedFind = find.trim()
+  if (trimmedFind === find) return
+  if (content.includes(trimmedFind)) yield trimmedFind
+  const lines = content.split("\n")
+  const findLines = find.split("\n")
+  for (let i = 0; i <= lines.length - findLines.length; i++) {
+    if (lines.slice(i, i + findLines.length).join("\n").trim() === trimmedFind) {
+      yield lines.slice(i, i + findLines.length).join("\n")
+    }
+  }
+}
+
+const ContextAwareReplacer: Replacer = function* (content, find) {
+  const findLines = find.split("\n")
+  if (findLines.length < 3) return
+  if (findLines[findLines.length - 1] === "") findLines.pop()
+  const contentLines = content.split("\n")
+  const firstLine = findLines[0].trim()
+  const lastLine = findLines[findLines.length - 1].trim()
+  for (let i = 0; i < contentLines.length; i++) {
+    if (contentLines[i].trim() !== firstLine) continue
+    for (let j = i + 2; j < contentLines.length; j++) {
+      if (contentLines[j].trim() !== lastLine) continue
+      const blockLines = contentLines.slice(i, j + 1)
+      if (blockLines.length !== findLines.length) continue
+      let matchingLines = 0
+      let totalNonEmpty = 0
+      for (let k = 1; k < blockLines.length - 1; k++) {
+        if (blockLines[k].trim().length > 0 || findLines[k].trim().length > 0) {
+          totalNonEmpty++
+          if (blockLines[k].trim() === findLines[k].trim()) matchingLines++
+        }
+      }
+      if (totalNonEmpty === 0 || matchingLines / totalNonEmpty >= 0.5) {
+        yield blockLines.join("\n")
+        return
+      }
+      break
+    }
+  }
+}
+
+const MultiOccurrenceReplacer: Replacer = function* (content, find) {
+  let startIndex = 0
+  while (true) {
+    const index = content.indexOf(find, startIndex)
+    if (index === -1) break
+    yield find
+    startIndex = index + find.length
+  }
+}
+
+const CLOSEST_MATCH_HINT_MAX_CHARS = 2000
+
+const buildNotFoundError = (content: string, oldString: string): string => {
+  const base = `String to replace not found in file. It must match exactly, including whitespace, indentation, and line endings.\nString: ${oldString}`
+  for (const replacer of [LineTrimmedReplacer, BlockAnchorReplacer, IndentationFlexibleReplacer, WhitespaceNormalizedReplacer, TrimmedBoundaryReplacer, EscapeNormalizedReplacer, ContextAwareReplacer]) {
+    for (const match of replacer(content, oldString)) {
+      if (match && match !== oldString && content.includes(match)) {
+        const truncated = match.length > CLOSEST_MATCH_HINT_MAX_CHARS ? match.slice(0, CLOSEST_MATCH_HINT_MAX_CHARS) + "\n... (truncated)" : match
+        return `${base}\n\nClosest match found in file (note the exact whitespace / indentation / line endings -- resubmit old_string copying this verbatim):\n${truncated}`
+      }
+    }
+  }
+  return base
+}
+
+const fuzzyReplace = (content: string, oldString: string, newString: string, replaceAll: boolean): string => {
+  for (const replacer of [SimpleReplacer, LineTrimmedReplacer, BlockAnchorReplacer, WhitespaceNormalizedReplacer, IndentationFlexibleReplacer, EscapeNormalizedReplacer, TrimmedBoundaryReplacer, ContextAwareReplacer, MultiOccurrenceReplacer]) {
+    for (const search of replacer(content, oldString)) {
+      const index = content.indexOf(search)
+      if (index === -1) continue
+      if (replaceAll) return content.replaceAll(search, newString)
+      const lastIndex = content.lastIndexOf(search)
+      if (index !== lastIndex) continue
+      return content.substring(0, index) + newString + content.substring(index + search.length)
+    }
+  }
+  return content
+}
 
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
@@ -158,15 +402,31 @@ const layer = Layer.effectDiscard(
                     source: permissionSource,
                   }),
                 )
+                assertFileRead(context, target.canonical, "edit")
                 const source = decodeUtf8(yield* unableToEdit(fs.readFile(target.canonical)))
                 const ending = detectLineEnding(source.text)
                 const oldString = convertToLineEnding(input.oldString, ending)
                 const newString = convertToLineEnding(input.newString, ending)
-                const replacements = countOccurrences(source.text, oldString)
+                let replacements = countOccurrences(source.text, oldString)
+                let matchedString = oldString
+                if (replacements === 0) {
+                  const fuzzyResult = fuzzyReplace(source.text, oldString, "", false)
+                  if (fuzzyResult !== source.text) {
+                    for (const replacer of [SimpleReplacer, LineTrimmedReplacer, BlockAnchorReplacer, WhitespaceNormalizedReplacer, IndentationFlexibleReplacer, EscapeNormalizedReplacer, TrimmedBoundaryReplacer, ContextAwareReplacer]) {
+                      for (const search of replacer(source.text, oldString)) {
+                        if (search !== oldString && source.text.includes(search)) {
+                          matchedString = search
+                          replacements = countOccurrences(source.text, search)
+                          break
+                        }
+                      }
+                      if (replacements > 0) break
+                    }
+                  }
+                }
                 if (replacements === 0) {
                   return yield* new ToolFailure({
-                    message:
-                      "Could not find oldString in the file. It must match exactly, including whitespace and indentation.",
+                    message: buildNotFoundError(source.text, oldString),
                   })
                 }
                 if (replacements > 1 && input.replaceAll !== true) {
@@ -178,8 +438,8 @@ const layer = Layer.effectDiscard(
 
                 const replaced =
                   input.replaceAll === true
-                    ? source.text.replaceAll(oldString, newString)
-                    : source.text.replace(oldString, newString)
+                    ? source.text.replaceAll(matchedString, newString)
+                    : source.text.replace(matchedString, newString)
                 const counts = diffLines(source.text, replaced).reduce(
                   (result, item) => ({
                     additions: result.additions + (item.added ? (item.count ?? 0) : 0),

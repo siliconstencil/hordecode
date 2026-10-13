@@ -14,10 +14,10 @@ const layer = Layer.effect(
     const store = yield* SessionStore.Service
     const locations = yield* LocationServiceMap.Service
     const coordinator = yield* SessionRunCoordinator.make<SessionSchema.ID, SessionRunner.RunError>({
-      drain: Effect.fnUntraced(function* (sessionID: SessionSchema.ID, force) {
+      drain: Effect.fnUntraced(function* (sessionID: SessionSchema.ID, force, steps?: number) {
         const session = yield* store.get(sessionID)
         if (!session) return yield* Effect.die(`Session not found: ${sessionID}`)
-        return yield* SessionRunner.Service.use((runner) => runner.run({ sessionID, force })).pipe(
+        return yield* SessionRunner.Service.use((runner) => runner.run({ sessionID, force, steps })).pipe(
           Effect.provide(locations.get(session.location)),
           Effect.tapCause((cause) =>
             Cause.hasInterruptsOnly(cause)

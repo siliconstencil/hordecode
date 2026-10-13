@@ -15,4 +15,13 @@ export class Policy extends Schema.Class<Policy>("ConfigV2.Experimental.Policy")
 
 export class Experimental extends Schema.Class<Experimental>("ConfigV2.Experimental")({
   policies: Policy.pipe(Schema.Array, Schema.optional),
+  try_best: Schema.optional(
+    Schema.Struct({
+      edit_window: Schema.optional(Schema.Number),
+      edit_similarity: Schema.optional(Schema.Number),
+      edit_matches: Schema.optional(Schema.Number),
+      action_streak: Schema.optional(Schema.Number),
+      bash_retries: Schema.optional(Schema.Number),
+    }),
+  ),
 }) {}

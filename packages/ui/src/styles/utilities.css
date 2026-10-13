@@ -43,6 +43,24 @@
   text-align: left;
 }
 
+.text-11-regular {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-xx-small);
+  font-style: normal;
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-large); /* 163.636% */
+  letter-spacing: var(--letter-spacing-normal);
+}
+
+.text-11-medium {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-xx-small);
+  font-style: normal;
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-large); /* 163.636% */
+  letter-spacing: var(--letter-spacing-normal);
+}
+
 .text-12-regular {
   font-family: var(--font-family-sans);
   font-size: var(--font-size-small);

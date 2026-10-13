@@ -3,19 +3,48 @@ import { sortBy, pipe } from "remeda"
 export function match(str: string, pattern: string) {
   if (str) str = str.replaceAll("\\", "/")
   if (pattern) pattern = pattern.replaceAll("\\", "/")
-  let escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&") // escape special regex chars
-    .replace(/\*/g, ".*") // * becomes .*
-    .replace(/\?/g, ".") // ? becomes .
-
-  // If pattern ends with " *" (space + wildcard), make the trailing part optional
-  // This allows "ls *" to match both "ls" and "ls -la"
-  if (escaped.endsWith(" .*")) {
-    escaped = escaped.slice(0, -3) + "( .*)?"
+  // Handle trailing " *" as optional (so "ls *" matches "ls" and "ls -la")
+  // Diverges from v0.1.5 which used RegExp(".*") and was ReDoS-prone;
+  // linear two-pointer matcher below is O(n*m) worst-case without backtracking blowup.
+  if (pattern.endsWith(" *")) {
+    const base = pattern.slice(0, -2)
+    if (linearMatch(str, base)) return true
   }
+  return linearMatch(str, pattern)
+}
 
-  const flags = process.platform === "win32" ? "si" : "s"
-  return new RegExp("^" + escaped + "$", flags).test(str)
+function linearMatch(str: string, pattern: string): boolean {
+  const win32 = process.platform === "win32"
+  if (win32) {
+    str = str.toLowerCase()
+    pattern = pattern.toLowerCase()
+  }
+  let s = 0
+  let p = 0
+  let star = -1
+  let sTmp = -1
+  while (s < str.length) {
+    // Star must be checked before literal match: a "*" pattern must consume
+    // any leading characters including a literal "*" in the input (e.g. glob
+    // pattern "**/*.txt" must match the "*" rule). Checking literal first
+    // consumed the star itself and misclassified it.
+    if (p < pattern.length && pattern[p] === "*") {
+      star = p
+      sTmp = s
+      p++
+    } else if (p < pattern.length && (pattern[p] === "?" || pattern[p] === str[s])) {
+      s++
+      p++
+    } else if (star !== -1) {
+      p = star + 1
+      sTmp++
+      s = sTmp
+    } else {
+      return false
+    }
+  }
+  while (p < pattern.length && pattern[p] === "*") p++
+  return p === pattern.length
 }
 
 export function all(input: string, patterns: Record<string, any>) {

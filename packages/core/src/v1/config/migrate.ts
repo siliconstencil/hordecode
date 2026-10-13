@@ -193,23 +193,22 @@ function migrateModel(info: typeof ConfigProviderV1.Model.Type, packageName?: st
   const packageID = info.provider?.npm ?? packageName
   const lowerer = ConfigProviderOptionsV1.get(packageID)
   const request = info.options && lowerer.request(info.options)
-  const costs = info.cost && [
-    {
-      input: info.cost.input,
-      output: info.cost.output,
-      cache: { read: info.cost.cache_read, write: info.cost.cache_write },
-    },
-    ...(info.cost.context_over_200k
-      ? [
-          {
-            tier: { type: "context" as const, size: 200_000 },
+  const costs = info.cost && {
+    input: info.cost.input,
+    output: info.cost.output,
+    cache_read: info.cost.cache_read,
+    cache_write: info.cost.cache_write,
+    ...(info.cost.context_over_200k === undefined
+      ? {}
+      : {
+          context_over_200k: {
             input: info.cost.context_over_200k.input,
             output: info.cost.context_over_200k.output,
-            cache: { read: info.cost.context_over_200k.cache_read, write: info.cost.context_over_200k.cache_write },
+            cache_read: info.cost.context_over_200k.cache_read,
+            cache_write: info.cost.context_over_200k.cache_write,
           },
-        ]
-      : []),
-  ]
+        }),
+  }
   const capabilities =
     info.tool_call !== undefined || info.modalities?.input !== undefined || info.modalities?.output !== undefined
       ? { tools: info.tool_call ?? false, input: info.modalities?.input ?? [], output: info.modalities?.output ?? [] }
@@ -235,10 +234,9 @@ function migrateModel(info: typeof ConfigProviderV1.Model.Type, packageName?: st
     },
     variants:
       info.variants &&
-      Object.entries(info.variants).map(([id, options]) => ({
-        id,
-        body: lowerer.request(options),
-      })),
+      Object.fromEntries(
+        Object.entries(info.variants).map(([id, options]) => [id, lowerer.request(options)]),
+      ),
     cost: costs,
     disabled: info.status === "deprecated" ? true : undefined,
     limit: info.limit && {

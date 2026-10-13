@@ -170,10 +170,14 @@ import type {
   QuestionAnswer,
   QuestionListErrors,
   QuestionListResponses,
+  QuestionNeverAskErrors,
+  QuestionNeverAskResponses,
   QuestionRejectErrors,
   QuestionRejectResponses,
   QuestionReplyErrors,
   QuestionReplyResponses,
+  QuestionSetNeverAskErrors,
+  QuestionSetNeverAskResponses,
   QuestionV2Reply,
   SessionAbortErrors,
   SessionAbortResponses,
@@ -215,6 +219,10 @@ import type {
   SessionStatusResponses,
   SessionSummarizeErrors,
   SessionSummarizeResponses,
+  SessionSupervisorErrors,
+  SessionSupervisorResponses,
+  SessionTaskErrors,
+  SessionTaskResponses,
   SessionTodoErrors,
   SessionTodoResponses,
   SessionUnrevertErrors,
@@ -395,6 +403,14 @@ import type {
   VcsGetResponses,
   VcsStatusErrors,
   VcsStatusResponses,
+  WorkflowListErrors,
+  WorkflowListResponses,
+  WorkflowResumeErrors,
+  WorkflowResumeResponses,
+  WorkflowStructureErrors,
+  WorkflowStructureResponses,
+  WorkflowTranscriptErrors,
+  WorkflowTranscriptResponses,
   WorktreeCreateErrors,
   WorktreeCreateInput,
   WorktreeCreateResponses,
@@ -1355,7 +1371,7 @@ export class Global extends HeyApiClient {
   /**
    * Upgrade opencode
    *
-   * Upgrade opencode to the specified version or latest if not specified.
+   * Upgrade opencode to the specified version.
    */
   public upgrade<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -3080,6 +3096,75 @@ export class Question extends HeyApiClient {
       ...params,
     })
   }
+
+  /**
+   * Get never-ask state
+   *
+   * Get current never-ask state.
+   */
+  public neverAsk<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<QuestionNeverAskResponses, QuestionNeverAskErrors, ThrowOnError>({
+      url: "/question/never-ask",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Set never-ask state
+   *
+   * Enable or disable never-ask: the question tool stays visible but returns a [Never-Ask] directive so the model resolves decisions itself.
+   */
+  public setNeverAsk<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      enabled?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "enabled" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<QuestionSetNeverAskResponses, QuestionSetNeverAskErrors, ThrowOnError>(
+      {
+        url: "/question/never-ask",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
+  }
 }
 
 export class Permission extends HeyApiClient {
@@ -3665,6 +3750,70 @@ export class Session2 extends HeyApiClient {
   }
 
   /**
+   * List session tasks
+   *
+   * List tasks registered for a session (the work-item registry).
+   */
+  public task<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionTaskResponses, SessionTaskErrors, ThrowOnError>({
+      url: "/session/{sessionID}/task",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List session supervisors
+   *
+   * List supervisors/subagents registered for a session, hydrated on TUI cold start.
+   */
+  public supervisor<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionSupervisorResponses, SessionSupervisorErrors, ThrowOnError>({
+      url: "/session/{sessionID}/supervisor",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Get message diff
    *
    * Get the file changes (diff) that resulted from a specific user message in the session.
@@ -3710,6 +3859,7 @@ export class Session2 extends HeyApiClient {
       workspace?: string
       limit?: number
       before?: string
+      agent_id?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3723,6 +3873,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "query", key: "limit" },
             { in: "query", key: "before" },
+            { in: "query", key: "agent_id" },
           ],
         },
       ],
@@ -3750,6 +3901,7 @@ export class Session2 extends HeyApiClient {
         modelID: string
       }
       agent?: string
+      agentID?: string
       noReply?: boolean
       tools?: {
         [key: string]: boolean
@@ -3772,6 +3924,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "messageID" },
             { in: "body", key: "model" },
             { in: "body", key: "agent" },
+            { in: "body", key: "agentID" },
             { in: "body", key: "noReply" },
             { in: "body", key: "tools" },
             { in: "body", key: "format" },
@@ -4103,6 +4256,7 @@ export class Session2 extends HeyApiClient {
         modelID: string
       }
       agent?: string
+      agentID?: string
       noReply?: boolean
       tools?: {
         [key: string]: boolean
@@ -4125,6 +4279,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "messageID" },
             { in: "body", key: "model" },
             { in: "body", key: "agent" },
+            { in: "body", key: "agentID" },
             { in: "body", key: "noReply" },
             { in: "body", key: "tools" },
             { in: "body", key: "format" },
@@ -5021,6 +5176,84 @@ export class Tui extends HeyApiClient {
   }
 }
 
+export class Workflow extends HeyApiClient {
+  /**
+   * List workflow runs
+   *
+   * List dynamic-workflow runs for a session. sessionID is REQUIRED — there is no per-user identity, so the session is the access boundary and an omitted/invalid sessionID is a 400 (never an unfiltered all-session listing). Empty when the workflow runtime is not running.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "sessionID" }] }])
+    return (options?.client ?? this.client).get<WorkflowListResponses, WorkflowListErrors, ThrowOnError>({
+      url: "/workflows",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Resume a workflow run
+   *
+   * Re-launch a persisted workflow run by id. Returns { runID, resumed }; resumed is false if the run is unknown, still running, or has no persisted script.
+   */
+  public resume<ThrowOnError extends boolean = false>(
+    parameters: {
+      runID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "runID" }] }])
+    return (options?.client ?? this.client).post<WorkflowResumeResponses, WorkflowResumeErrors, ThrowOnError>({
+      url: "/workflows/{runID}/resume",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get a workflow run's full transcript
+   *
+   * Return the complete ordered phase/log transcript for one run, straight from the runtime's in-memory buffer (uncapped, unlike the tool-part metadata copy). Empty when the runtime is down or the run is unknown.
+   */
+  public transcript<ThrowOnError extends boolean = false>(
+    parameters: {
+      runID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "runID" }] }])
+    return (options?.client ?? this.client).get<WorkflowTranscriptResponses, WorkflowTranscriptErrors, ThrowOnError>({
+      url: "/workflows/{runID}/transcript",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get a workflow run's structure tree
+   *
+   * Return the observability-only structure tree (phase/agent/workflow nodes with live status) for one run. Empty when the runtime is down or the run is unknown.
+   */
+  public structure<ThrowOnError extends boolean = false>(
+    parameters: {
+      runID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "runID" }] }])
+    return (options?.client ?? this.client).get<WorkflowStructureResponses, WorkflowStructureErrors, ThrowOnError>({
+      url: "/workflows/{runID}/structure",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Health extends HeyApiClient {
   /**
    * Check server health
@@ -5626,6 +5859,7 @@ export class Session3 extends HeyApiClient {
       prompt?: PromptInput
       delivery?: "steer" | "queue"
       resume?: boolean
+      steps?: number
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -5639,6 +5873,7 @@ export class Session3 extends HeyApiClient {
             { in: "body", key: "prompt" },
             { in: "body", key: "delivery" },
             { in: "body", key: "resume" },
+            { in: "body", key: "steps" },
           ],
         },
       ],
@@ -5834,6 +6069,7 @@ export class Session3 extends HeyApiClient {
       limit?: number
       order?: "asc" | "desc"
       cursor?: string
+      agent_id?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -5846,6 +6082,7 @@ export class Session3 extends HeyApiClient {
             { in: "query", key: "limit" },
             { in: "query", key: "order" },
             { in: "query", key: "cursor" },
+            { in: "query", key: "agent_id" },
           ],
         },
       ],
@@ -7210,6 +7447,11 @@ export class OpencodeClient extends HeyApiClient {
   private _tui?: Tui
   get tui(): Tui {
     return (this._tui ??= new Tui({ client: this.client }))
+  }
+
+  private _workflow?: Workflow
+  get workflow(): Workflow {
+    return (this._workflow ??= new Workflow({ client: this.client }))
   }
 
   private _v2?: V2

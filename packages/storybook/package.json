@@ -9,8 +9,6 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "catalog:",
-    "@opencode-ai/session-ui": "workspace:*",
-    "@opencode-ai/ui": "workspace:*",
     "@solidjs/meta": "catalog:",
     "@storybook/addon-a11y": "^10.2.13",
     "@storybook/addon-docs": "^10.2.13",

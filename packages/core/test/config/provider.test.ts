@@ -71,16 +71,15 @@ describe("ConfigProviderPlugin.Plugin", () => {
                     api: { type: "aisdk", package: "@ai-sdk/openai", url: "https://opencode.test/v1" },
                     models: {
                       "alpha-gpt-next": {
-                        variants: [
-                          {
-                            id: "high",
+                        variants: {
+                          high: {
                             body: {
                               reasoningEffort: "high",
                               reasoningSummary: "auto",
                               include: ["reasoning.encrypted_content"],
                             },
                           },
-                        ],
+                        },
                       },
                     },
                   },
@@ -131,7 +130,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
                   opencode: {
                     models: {
                       "alpha-gpt-next": {
-                        variants: [{ id: "high", body: { reasoningEffort: "high" } }],
+                        variants: { high: { body: { reasoningEffort: "high" } } },
                       },
                     },
                   },
@@ -179,12 +178,9 @@ describe("ConfigProviderPlugin.Plugin", () => {
                           limit: { context: 100, output: 50 },
                           cost: { input: 1, output: 2 },
                           request: request({ first: "first", shared: "first" }, "retained"),
-                          variants: [
-                            {
-                              id: "fast",
-                              headers: { first: "first", shared: "first" },
-                            },
-                          ],
+                          variants: {
+                            fast: { headers: { first: "first", shared: "first" } },
+                          },
                         },
                       },
                     },
@@ -208,16 +204,10 @@ describe("ConfigProviderPlugin.Plugin", () => {
                           name: "Last",
                           limit: { output: 75 },
                           request: request({ last: "last", shared: "last" }),
-                          variants: [
-                            {
-                              id: "fast",
-                              headers: { last: "last", shared: "last" },
-                            },
-                            {
-                              id: "slow",
-                              headers: { slow: "slow" },
-                            },
-                          ],
+                          variants: {
+                            fast: { headers: { last: "last", shared: "last" } },
+                            slow: { headers: { slow: "slow" } },
+                          },
                         },
                       },
                     },

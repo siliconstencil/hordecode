@@ -748,7 +748,7 @@ export const dict = {
   "sidebar.empty.title": "No hay proyectos abiertos",
   "sidebar.empty.description": "Abre un proyecto para empezar",
 
-  "app.name.desktop": "OpenCode Desktop",
+  "app.name.desktop": "Hordecode",
 
   "settings.section.desktop": "Escritorio",
   "settings.section.server": "Servidor",
@@ -1040,6 +1040,9 @@ export const dict = {
   "session.header.open.finder": "Finder",
   "session.header.open.fileExplorer": "Explorador de archivos",
   "session.header.open.fileManager": "Gestor de archivos",
+  "session.header.reveal.finder": "Revelar en Finder",
+  "session.header.reveal.fileExplorer": "Revelar en el Explorador de archivos",
+  "session.header.reveal.containingFolder": "Abrir carpeta contenedora",
   "session.header.open.app.vscode": "VS Code",
   "session.header.open.app.cursor": "Cursor",
   "session.header.open.app.zed": "Zed",

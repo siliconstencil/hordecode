@@ -9,6 +9,8 @@ import { MCP } from "../mcp"
 import { Skill } from "../skill"
 import PROMPT_INITIALIZE from "./template/initialize.txt"
 import PROMPT_REVIEW from "./template/review.txt"
+import PROMPT_LOOPS from "./template/loops.txt"
+import { Flag } from "@opencode-ai/core/flag/flag"
 import { LegacyEvent } from "@opencode-ai/schema/legacy-event"
 
 type State = {
@@ -46,6 +48,12 @@ export function hints(template: string) {
 export const Default = {
   INIT: "init",
   REVIEW: "review",
+  DREAM: "dream",
+  DISTILL: "distill",
+  GOAL: "goal",
+  DEEP_RESEARCH: "deep-research",
+  LOOPS: "loops",
+  REBUILD: "rebuild",
 } as const
 
 export interface Interface {
@@ -99,6 +107,111 @@ const layer = Layer.effect(
           },
           subtask: command.subtask,
           hints: hints(command.template),
+        }
+      }
+
+      commands[Default.DREAM] = {
+        name: Default.DREAM,
+        description: "manually consolidate project memory from memory files and raw trajectory",
+        agent: "dream",
+        source: "command",
+        subtask: false,
+        get template() {
+          return [
+            "Run one manual dream memory consolidation pass for the current project.",
+            "",
+            "User focus or constraints:",
+            "$ARGUMENTS",
+            "",
+            "Use the memory files as the working index and the raw hordecode trajectory database as the source of truth.",
+            "Use bash for read-only SQLite and filesystem inspection. Do not modify the database.",
+            "Consolidate only durable, verified information into project memory.",
+          ].join("\n")
+        },
+        hints: ["$ARGUMENTS"],
+      }
+      commands[Default.DISTILL] = {
+        name: Default.DISTILL,
+        description: "find repeated workflows in recent work and package them into skills, subagents, or commands",
+        agent: "distill",
+        source: "command",
+        subtask: false,
+        get template() {
+          return [
+            "Run one manual distill pass for the current project.",
+            "",
+            "User focus or constraints:",
+            "$ARGUMENTS",
+            "",
+            "Look back over recent work and identify repeated manual workflows worth packaging.",
+            "Use the raw hordecode trajectory database as the source of truth and memory files to spot cross-session patterns.",
+            "Inventory existing skills, agents, and commands first so you reuse or extend instead of duplicating.",
+            "Use bash for read-only SQLite and filesystem inspection. Do not modify the database.",
+            "Produce a compact shortlist, then create only the high-confidence missing assets.",
+          ].join("\n")
+        },
+        hints: ["$ARGUMENTS"],
+      }
+      commands[Default.GOAL] = {
+        name: Default.GOAL,
+        description: "set a stop-condition goal; runs until a judge says it's met. /goal clear to abort",
+        source: "command",
+        subtask: false,
+        get template() {
+          return "$ARGUMENTS"
+        },
+        hints: ["$ARGUMENTS"],
+      }
+      // Surface only: the underlying rebuild behavior depends on the
+      // checkpoint-to-main-loop wiring not yet implemented.
+      commands[Default.REBUILD] = {
+        name: Default.REBUILD,
+        description: "rebuild the conversation context now from the latest checkpoint (frees context; keeps recent messages)",
+        source: "command",
+        subtask: false,
+        get template() {
+          return "$ARGUMENTS"
+        },
+        hints: ["$ARGUMENTS"],
+      }
+
+      if (Flag.HORDECODE_EXPERIMENTAL_WORKFLOW_TOOL) {
+        commands[Default.DEEP_RESEARCH] = {
+          name: Default.DEEP_RESEARCH,
+          description: "deep multi-source, fact-checked research report (runs the deep-research workflow)",
+          source: "command",
+          subtask: false,
+          get template() {
+            return [
+              "The user wants a deep, multi-source, fact-checked research report.",
+              "",
+              "Research request:",
+              "$ARGUMENTS",
+              "",
+              "If the request is underspecified (missing scope, constraints, region, time range, etc.),",
+              "ask 2-3 brief clarifying questions FIRST, then weave the answers into a refined question.",
+              "",
+              "When the request is specific enough, run the built-in deep-research workflow:",
+              'workflow({ operation: "run", name: "deep-research", args: "<the refined research question>" })',
+              "",
+              "Pass the full refined question as `args`. The workflow fans out web searches, fetches sources,",
+              "adversarially verifies claims, and returns a cited report; relay its result to the user.",
+            ].join("\n")
+          },
+          hints: ["$ARGUMENTS"],
+        }
+      }
+
+      if (Flag.HORDECODE_EXPERIMENTAL_CRON) {
+        commands[Default.LOOPS] = {
+          name: Default.LOOPS,
+          description: "list active scheduled jobs; accepts `cancel <id>` to delete one",
+          source: "command",
+          subtask: false,
+          get template() {
+            return PROMPT_LOOPS
+          },
+          hints: ["$ARGUMENTS"],
         }
       }
 

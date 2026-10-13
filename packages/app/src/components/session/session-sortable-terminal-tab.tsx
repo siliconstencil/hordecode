@@ -115,7 +115,7 @@ export function SortableTerminalTab(props: { terminal: LocalPTY; onClose?: () =>
   return (
     <div
       use:sortable
-      class="outline-none focus:outline-none focus-visible:outline-none"
+      class="outline-none focus:outline-none"
       classList={{
         "h-full": true,
         "opacity-0": sortable.isActiveDraggable,
@@ -129,7 +129,7 @@ export function SortableTerminalTab(props: { terminal: LocalPTY; onClose?: () =>
           onContextMenu={menu}
           class="!shadow-none"
           classes={{
-            button: "border-0 outline-none focus:outline-none focus-visible:outline-none !shadow-none !ring-0",
+            button: "border-0 outline-none focus:outline-none !shadow-none !ring-0",
           }}
           closeButton={
             <IconButton

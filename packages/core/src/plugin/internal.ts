@@ -149,5 +149,5 @@ export const node = makeLocationNode({
     httpClient,
     SkillV2.node,
     Reference.node,
-  ],
+  ] as const,
 })

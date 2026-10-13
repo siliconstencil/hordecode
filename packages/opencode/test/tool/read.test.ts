@@ -1,6 +1,7 @@
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { afterEach, describe, expect } from "bun:test"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { Cause, Effect, Exit, Layer, Stream } from "effect"
 import path from "path"
 import { Agent } from "../../src/agent/agent"
@@ -17,6 +18,8 @@ import { Instruction } from "../../src/session/instruction"
 import { ReadTool } from "../../src/tool/read"
 import { Truncate } from "@/tool/truncate"
 import { Tool } from "@/tool/tool"
+import { Provider } from "@/provider/provider"
+import { ProviderTest } from "../fake/provider"
 import { Filesystem } from "@/util/filesystem"
 import {
   disposeAllInstances,
@@ -44,8 +47,20 @@ const ctx = {
   ask: () => Effect.void,
 }
 
+const visionModel = (image: boolean): Provider.Model => {
+  const base = ProviderTest.model()
+  return ProviderTest.model({
+    capabilities: { ...base.capabilities, input: { ...base.capabilities.input, image } },
+  })
+}
+
+const visionCtx = {
+  ...ctx,
+  extra: { model: visionModel(true) },
+}
+
 const readLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
-  LayerNode.compile(
+  AppNodeBuilder.build(
     LayerNode.group([
       Agent.node,
       FSUtil.node,
@@ -57,7 +72,7 @@ const readLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
     ]),
   )
 
-const it = testEffect(Layer.mergeAll(readLayer(), testInstanceStoreLayer))
+const it = testEffect(Layer.mergeAll(readLayer(), ProviderTest.fake().layer, testInstanceStoreLayer))
 
 const init = Effect.fn("ReadToolTest.init")(function* () {
   const info = yield* ReadTool
@@ -491,7 +506,7 @@ describe("tool.read truncation", () => {
       )
       yield* put(path.join(dir, "image.png"), png)
 
-      const result = yield* exec(dir, { filePath: path.join(dir, "image.png") })
+      const result = yield* exec(dir, { filePath: path.join(dir, "image.png") }, visionCtx)
       expect(result.metadata.truncated).toBe(false)
       expect(result.attachments).toBeDefined()
       expect(result.attachments?.length).toBe(1)
@@ -507,7 +522,7 @@ describe("tool.read truncation", () => {
       const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01])
       yield* put(path.join(dir, "image.bin"), jpeg)
 
-      const result = yield* exec(dir, { filePath: path.join(dir, "image.bin") })
+      const result = yield* exec(dir, { filePath: path.join(dir, "image.bin") }, visionCtx)
       expect(result.output).toBe("Image read successfully")
       expect(result.attachments?.[0].mime).toBe("image/jpeg")
       expect(result.attachments?.[0].url.startsWith("data:image/jpeg;base64,")).toBe(true)
@@ -516,7 +531,7 @@ describe("tool.read truncation", () => {
 
   it.live("large image files are properly attached without error", () =>
     Effect.gen(function* () {
-      const result = yield* exec(FIXTURES_DIR, { filePath: path.join(FIXTURES_DIR, "large-image.png") })
+      const result = yield* exec(FIXTURES_DIR, { filePath: path.join(FIXTURES_DIR, "large-image.png") }, visionCtx)
       expect(result.metadata.truncated).toBe(false)
       expect(result.attachments).toBeDefined()
       expect(result.attachments?.length).toBe(1)
@@ -603,6 +618,47 @@ describe("tool.read binary detection", () => {
 
       const err = yield* fail(dir, { filePath: path.join(dir, "module.wasm") })
       expect(err.message).toContain("Cannot read binary file")
+    }),
+  )
+})
+
+describe("tool.read vision gating", () => {
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01])
+
+  it.live("returns the text warning (not the image) when the model's image capability is false", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      yield* put(path.join(dir, "img.jpg"), jpeg)
+
+      const result = yield* exec(
+        dir,
+        { filePath: path.join(dir, "img.jpg") },
+        { ...ctx, extra: { model: visionModel(false) } },
+      )
+      expect(result.attachments).toBeUndefined()
+      expect(result.output).toContain("no vision support")
+    }),
+  )
+
+  it.live("returns the text warning (not the image) when no model is present on ctx", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      yield* put(path.join(dir, "img.jpg"), jpeg)
+
+      const result = yield* exec(dir, { filePath: path.join(dir, "img.jpg") }, ctx)
+      expect(result.attachments).toBeUndefined()
+      expect(result.output).toContain("no vision support")
+    }),
+  )
+
+  it.live("attaches the image when the model has image capability", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      yield* put(path.join(dir, "img.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+
+      const result = yield* exec(dir, { filePath: path.join(dir, "img.png") }, visionCtx)
+      expect(result.output).toBe("Image read successfully")
+      expect(result.attachments?.[0].mime).toBe("image/png")
     }),
   )
 })

@@ -10,12 +10,31 @@ import { Heap } from "@/cli/heap"
 import { AppRuntime } from "@/effect/app-runtime"
 import { Effect } from "effect"
 import { disposeAllInstancesAndEmitGlobalDisposed } from "@/server/global-lifecycle"
+import { Log } from "@opencode-ai/core/util"
+import { Installation } from "@/installation"
 
 Heap.start()
 
-const onUnhandledRejection = (_error: unknown) => {}
+// Worker has its own isolated module registry — Log.init on the main thread
+// has no effect here. Re-initialize so Log.create() loggers write to file
+// instead of stderr when --print-logs is not set.
+await Log.init({
+  print: process.env.OPENCODE_PRINT_LOGS === "1",
+  dev: Installation.isLocal(),
+  level: ((process.env.HORDECODE_LOG_LEVEL ?? process.env.OPENCODE_LOG_LEVEL) as Log.Level) ?? (Installation.isLocal() ? "DEBUG" : "INFO"),
+})
 
-const onUncaughtException = (_error: Error) => {}
+const workerLog = Log.create({ service: "tui-worker" })
+
+const onUnhandledRejection = (error: unknown) => {
+  const message = error instanceof Error ? (error.stack ?? error.message) : String(error)
+  workerLog.error("unhandledRejection", { error: message })
+}
+
+const onUncaughtException = (error: Error) => {
+  const message = error.stack ?? error.message
+  workerLog.error("uncaughtException", { error: message })
+}
 
 process.on("unhandledRejection", onUnhandledRejection)
 process.on("uncaughtException", onUncaughtException)

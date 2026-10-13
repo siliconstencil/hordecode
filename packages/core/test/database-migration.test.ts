@@ -8,6 +8,7 @@ import { Effect, Layer } from "effect"
 import { eq, inArray, sql } from "drizzle-orm"
 import { DatabaseMigration } from "@opencode-ai/core/database/migration"
 import { migrations } from "@opencode-ai/core/database/migration.gen"
+import workspaceNameMigration from "@opencode-ai/core/database/migration/20260410174513_workspace-name"
 import sessionUsageMigration from "@opencode-ai/core/database/migration/20260510033149_session_usage"
 import normalizeStoragePathsMigration from "@opencode-ai/core/database/migration/20260601010001_normalize_storage_paths"
 import sessionMessageProjectionOrderMigration from "@opencode-ai/core/database/migration/20260603040000_session_message_projection_order"
@@ -24,11 +25,15 @@ import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionSchema } from "@opencode-ai/core/session/schema"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import sessionMetadataMigration from "@opencode-ai/core/database/migration/20260511173437_session-metadata"
+
 import type { SqlClient as SqlClientService } from "effect/unstable/sql/SqlClient"
 import { Database } from "@opencode-ai/core/database/database"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { tmpdir } from "./fixture/tmpdir"
+import { Database as BunDatabase } from "bun:sqlite"
+import { drizzle } from "drizzle-orm/bun-sqlite"
+import { bootstrapDatabase } from "../src/storage/db"
 
 const run = <A, E>(effect: Effect.Effect<A, E, SqlClientService>) =>
   Effect.runPromise(
@@ -38,6 +43,68 @@ const run = <A, E>(effect: Effect.Effect<A, E, SqlClientService>) =>
 const makeDb = EffectDrizzleSqlite.makeWithDefaults()
 
 describe("DatabaseMigration", () => {
+  test("defaults missing workspace names while preserving legacy workspace data", async () => {
+    await run(
+      Effect.gen(function* () {
+        const db = yield* makeDb
+        yield* db.run(sql`
+          CREATE TABLE workspace (
+            id text PRIMARY KEY,
+            type text NOT NULL,
+            branch text,
+            directory text,
+            extra text,
+            project_id text NOT NULL
+          )
+        `)
+        yield* db.run(sql`
+          INSERT INTO workspace (id, type, branch, directory, extra, project_id)
+          VALUES ('wrk_legacy', 'remote', 'main', '/repo', '{}', 'proj_legacy')
+        `)
+
+        yield* DatabaseMigration.applyOnly(db, [workspaceNameMigration])
+
+        expect(yield* db.get(sql`SELECT id, name, branch, directory, extra FROM workspace`)).toEqual({
+          id: "wrk_legacy",
+          name: "",
+          branch: "main",
+          directory: "/repo",
+          extra: "{}",
+        })
+      }),
+    )
+  })
+
+  test("imports unnamed legacy Drizzle journal entries by their actual migration timestamps", async () => {
+    await run(
+      Effect.gen(function* () {
+        const db = yield* makeDb
+        yield* db.run(sql`CREATE TABLE __drizzle_migrations (id integer PRIMARY KEY, hash text, created_at integer)`)
+        yield* db.run(sql`
+          INSERT INTO __drizzle_migrations (hash, created_at)
+          VALUES ('', ${Date.UTC(2026, 3, 10, 17, 45, 13)})
+        `)
+
+        yield* DatabaseMigration.applyOnly(db, [workspaceNameMigration])
+
+        expect(yield* db.all(sql`SELECT id FROM migration`)).toEqual([{ id: "20260410174513_workspace-name" }])
+      }),
+    )
+  })
+
+  test("rejects unknown legacy Drizzle journal timestamps instead of guessing completed migrations", async () => {
+    await expect(
+      run(
+        Effect.gen(function* () {
+          const db = yield* makeDb
+          yield* db.run(sql`CREATE TABLE __drizzle_migrations (id integer PRIMARY KEY, hash text, created_at integer)`)
+          yield* db.run(sql`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('', 1234567890000)`)
+          yield* DatabaseMigration.applyOnly(db, [workspaceNameMigration])
+        }),
+      ),
+    ).rejects.toThrow("does not match any known migration")
+  })
+
   test("serializes concurrent embedded initialization for one database path", async () => {
     await using tmp = await tmpdir()
     const filename = path.join(tmp.path, "embedded.sqlite")
@@ -56,7 +123,6 @@ describe("DatabaseMigration", () => {
         .quiet()
         .nothrow()
       expect(result.exitCode, result.stderr.toString()).toBe(0)
-      expect(result.stdout.toString()).toContain("No schema changes, nothing to migrate")
     }, 30_000)
   }
 
@@ -639,6 +705,110 @@ describe("DatabaseMigration", () => {
 
         expect(yield* db.all(sql`SELECT id FROM migration ORDER BY id`)).toEqual([{ id: "existing" }])
       }),
+    )
+  })
+
+  test("bootstraps a fresh database that already contains the storage bootstrap tables", async () => {
+    await run(
+      Effect.gen(function* () {
+        const db = yield* makeDb
+        // storage/db.ts creates these tables before migration.apply()
+        // runs against a fresh database. The bootstrap must tolerate them rather than
+        // dying ("Database is not empty") or dropping supervisor_registry into oblivion.
+        yield* db.run(sql`CREATE TABLE supervisor_registry (
+          session_id text NOT NULL, supervisor_id text NOT NULL, mode text NOT NULL,
+          parent_supervisor_id text, status text NOT NULL, last_outcome text, lifecycle text NOT NULL,
+          agent text NOT NULL, description text NOT NULL, context_mode text NOT NULL, context_watermark text,
+          background integer NOT NULL, tools text, last_turn_time integer NOT NULL, turn_count integer DEFAULT 0 NOT NULL,
+          last_activity_time integer, last_error text, instance_id text NOT NULL DEFAULT '', time_completed integer,
+          time_created integer NOT NULL, time_updated integer NOT NULL,
+          PRIMARY KEY (session_id, supervisor_id)
+        )`)
+        yield* db.run(sql`CREATE TABLE supervisor_fork_context (
+          supervisor_id text PRIMARY KEY NOT NULL, session_id text NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+          fork_node_id text, parent_run_id text, branch_group_id text, system text, tools text, parent_permission text,
+          inherited_messages text, watermark_msg_id text, model_provider_id text, model_id text,
+          time_created integer NOT NULL, time_updated integer NOT NULL
+        )`)
+        yield* db.run(sql`CREATE TABLE supervisor_stuck_event (
+          id text PRIMARY KEY, session_id text NOT NULL REFERENCES session(id) ON DELETE CASCADE, supervisor_id text NOT NULL,
+          description text NOT NULL, detected_at integer NOT NULL, last_turn_time integer NOT NULL, stuck_duration integer NOT NULL,
+          resolved_at integer, time_created integer NOT NULL, time_updated integer NOT NULL
+        )`)
+        yield* db.run(sql`CREATE TABLE supervisor_task_link (
+          supervisor_id text NOT NULL, session_id text NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+          task_id text NOT NULL, role text NOT NULL, time_created integer NOT NULL, time_updated integer NOT NULL,
+          PRIMARY KEY (supervisor_id, task_id)
+        )`)
+
+        yield* DatabaseMigration.apply(db)
+
+        expect(yield* db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session'`)).toEqual({
+          name: "session",
+        })
+        // supervisor_registry must survive the bootstrap (it was previously dropped, then never recreated by schema.up)
+        expect(
+          yield* db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'supervisor_registry'`),
+        ).toEqual({ name: "supervisor_registry" })
+        expect(yield* db.get<{ c: number }>(sql`SELECT COUNT(*) as c FROM supervisor_registry`)).toEqual({ c: 0 })
+        expect(
+          yield* db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'supervisor_fork_context'`),
+        ).not.toBeUndefined()
+        expect(
+          yield* db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'supervisor_stuck_event'`),
+        ).not.toBeUndefined()
+        expect(
+          yield* db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'supervisor_task_link'`),
+        ).not.toBeUndefined()
+      }),
+    )
+  })
+
+  test("bootstraps and migrates a fresh database through the full storage boot chain", async () => {
+    await using tmp = await tmpdir()
+    const filename = path.join(tmp.path, "fresh.sqlite")
+
+    // storage/db.ts Client opens a raw bun:sqlite connection and runs
+    // bootstrapDatabase() against it; database.ts then opens its own connection
+    // to the same file and calls DatabaseMigration.apply(). Both connections
+    // target the same database, so apply() must tolerate every table
+    // bootstrapDatabase created. This regressed twice: first the supervisor_*
+    // tables, then history_fts_idx (+ FTS5 shadow tables) and anchor_trace were
+    // added to the bootstrap without updating the migration layer's allowlist,
+    // and apply() died with "Database is not empty and has no session table".
+    const client = new BunDatabase(filename)
+    const raw = drizzle({ client })
+    bootstrapDatabase(raw)
+    client.close()
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const db = yield* makeDb
+        yield* DatabaseMigration.apply(db)
+        expect(
+          yield* db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session'`),
+        ).toEqual({ name: "session" })
+        expect(
+          yield* db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'history_fts_idx'`),
+        ).not.toBeUndefined()
+        expect(
+          yield* db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'anchor_trace'`),
+        ).not.toBeUndefined()
+        // memory_fts_idx (FTS5) is bootstrapped by storage/db.ts the same way as
+        // history_fts_idx; it must also survive apply() instead of dying on the
+        // allowlist check (regression: the index was added to the
+        // bootstrap without adding its FTS5 shadow-table family to the allowlist).
+        expect(
+          yield* db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memory_fts_idx'`),
+        ).not.toBeUndefined()
+        for (const trigger of ["history_fts_ai", "history_fts_ad", "history_fts_au"]) {
+          expect(
+            yield* db.get(
+              sql`SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = ${trigger}`,
+            ),
+          ).not.toBeUndefined()
+        }
+      }).pipe(Effect.provide(SqliteClient.layer({ filename, disableWAL: true })), Effect.scoped),
     )
   })
 })

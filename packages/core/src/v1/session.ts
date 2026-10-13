@@ -8,6 +8,7 @@ export {
   AgentPart,
   AgentPartInput,
   Assistant,
+  CheckpointPart,
   CompactionPart,
   Event,
   FilePart,

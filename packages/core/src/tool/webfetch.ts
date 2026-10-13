@@ -8,6 +8,8 @@ import TurndownService from "turndown"
 import { makeLocationNode } from "../effect/app-node"
 import { LayerNodePlatform } from "../effect/app-node-platform"
 import { PermissionV2 } from "../permission"
+import { isImageAttachment } from "../util/media"
+import { assertSafeUrl } from "../util/ssrf"
 import { collectBoundedResponseBody } from "./http-body"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
@@ -39,7 +41,9 @@ const Output = Schema.Struct({
   contentType: Schema.String,
   format: Input.fields.format,
   output: Schema.String,
+  imageBase64: Schema.optional(Schema.String),
 })
+type ModelOutput = typeof Output.Type
 
 type Format = (typeof Input.Type)["format"]
 
@@ -97,8 +101,6 @@ const collectBody = (response: HttpClientResponse.HttpClientResponse) =>
   )
 
 const mimeFrom = (contentType: string) => contentType.split(";", 1)[0]?.trim().toLowerCase() ?? ""
-const isImageAttachment = (mime: string) =>
-  mime.startsWith("image/") && mime !== "image/svg+xml" && mime !== "image/vnd.fastbidsheet"
 const isTextualMime = (mime: string) =>
   !mime ||
   mime.startsWith("text/") ||
@@ -127,13 +129,28 @@ const layer = Layer.effectDiscard(
           description,
           input: Input,
           output: Output,
-          toModelOutput: ({ output }) => [{ type: "text", text: output.output }],
+          toModelOutput: ({ output }) => {
+            if (output.imageBase64) {
+              const mime = mimeFrom(output.contentType)
+              return [
+                {
+                  type: "file" as const,
+                  data: output.imageBase64,
+                  mime,
+                  name: new URL(output.url).pathname.split("/").pop() || "image",
+                },
+              ]
+            }
+            return [{ type: "text", text: output.output }]
+          },
           execute: (input, context) =>
             Effect.gen(function* () {
               yield* Effect.try({
                 try: () => assertHttpUrl(new URL(input.url)),
                 catch: (error) => error,
               })
+
+              yield* Effect.promise(() => assertSafeUrl(input.url))
 
               yield* permission.assert({
                 action: name,
@@ -149,11 +166,13 @@ const layer = Layer.effectDiscard(
                 const response = yield* execute(http, input.url, input.format).pipe(
                   Effect.catchIf(isCloudflareChallenge, () => execute(http, input.url, input.format, "opencode")),
                 )
+                const finalUrl = (response as unknown as { url?: string }).url
+                if (finalUrl && finalUrl !== input.url) {
+                  yield* Effect.promise(() => assertSafeUrl(finalUrl))
+                }
                 const contentType = response.headers["content-type"] || ""
                 const mime = mimeFrom(contentType)
-                if (isImageAttachment(mime))
-                  return yield* Effect.fail(new Error(`Unsupported fetched image content type: ${mime}`))
-                if (!isTextualMime(mime))
+                if (!isTextualMime(mime) && !isImageAttachment(mime))
                   return yield* Effect.fail(new Error(`Unsupported fetched file content type: ${mime}`))
                 return { body: yield* collectBody(response), contentType }
               }).pipe(
@@ -163,6 +182,17 @@ const layer = Layer.effectDiscard(
                 }),
               )
               const content = new TextDecoder().decode(body)
+              const mime = mimeFrom(contentType)
+              if (isImageAttachment(mime)) {
+                const imageBase64 = Buffer.from(body).toString("base64")
+                return {
+                  url: input.url,
+                  contentType,
+                  format: input.format,
+                  output: "Image fetched successfully",
+                  imageBase64,
+                }
+              }
               const output = yield* Effect.try({
                 try: () => convert(content, contentType, input.format),
                 catch: (error) => error,

@@ -54,7 +54,9 @@ async function generate() {
 
     await fs.mkdir(full)
     await drizzle(temporary, full, "schema")
-    await Bun.write(schema, await formatTypescript(renderSchema(await generatedSql(full))))
+    if ((await generatedMigrations(full)).length === 1) {
+      await Bun.write(schema, await formatTypescript(renderSchema(await generatedSql(full))))
+    }
     await Bun.write(registry, await formatTypescript(renderRegistry(await typescriptMigrations())))
   } finally {
     await fs.rm(temporary, { recursive: true, force: true })
@@ -78,7 +80,10 @@ async function check() {
 
     await fs.mkdir(full)
     await drizzle(temporary, full, "schema")
-    if ((await Bun.file(schema).text()) !== (await formatTypescript(renderSchema(await generatedSql(full))))) {
+    if (
+      (await generatedMigrations(full)).length === 1 &&
+      (await Bun.file(schema).text()) !== (await formatTypescript(renderSchema(await generatedSql(full))))
+    ) {
       throw new Error("Current database schema is stale. Run `bun script/migration.ts` from packages/core.")
     }
 
@@ -158,8 +163,32 @@ function renderStatements(sql: string) {
     .split("--> statement-breakpoint")
     .map((statement) => statement.trim())
     .filter((statement) => statement.length > 0)
+    .map(addIfNotExists)
     .map(renderRun)
     .join("\n")
+}
+
+// drizzle-kit generate emits `CREATE TABLE` / `CREATE INDEX` without
+// `IF NOT EXISTS` was explicitly added
+// to every schema.gen.ts statement so concurrent CLI test subprocesses
+// sharing one SQLite file (test/preload.ts pins OPENCODE_DB per pid) don't
+// race on "table already exists" / duplicate-column errors during the
+// fresh-DB bootstrap in DatabaseMigration.apply. Without this rewrite,
+// every regen silently strips the defensive and reintroduces the race
+// The "non-idempotent migrations" fix is nullified
+// by its own regen pipeline. `ALTER TABLE` is left alone (uses `IF EXISTS`,
+// not `IF NOT EXISTS`).
+function addIfNotExists(statement: string): string {
+  if (/^CREATE\s+TABLE\s+/i.test(statement)) {
+    return statement.replace(/^CREATE\s+TABLE\s+/i, "CREATE TABLE IF NOT EXISTS ")
+  }
+  if (/^CREATE\s+UNIQUE\s+INDEX\s+/i.test(statement)) {
+    return statement.replace(/^CREATE\s+UNIQUE\s+INDEX\s+/i, "CREATE UNIQUE INDEX IF NOT EXISTS ")
+  }
+  if (/^CREATE\s+INDEX\s+/i.test(statement)) {
+    return statement.replace(/^CREATE\s+INDEX\s+/i, "CREATE INDEX IF NOT EXISTS ")
+  }
+  return statement
 }
 
 function renderRun(statement: string) {

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect } from "bun:test"
 import { Effect, Exit, Layer, Option } from "effect"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { httpClient } from "@opencode-ai/core/effect/app-node-platform"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
@@ -19,8 +20,17 @@ import { provideTmpdirInstance } from "../fixture/fixture"
 import { resetDatabase } from "../fixture/db"
 import { pollWithTimeout, testEffect } from "../lib/effect"
 
-const env = LayerNode.compile(LayerNode.group([CrossSpawnSpawner.node]))
+const env = AppNodeBuilder.build(LayerNode.group([CrossSpawnSpawner.node]))
 const it = testEffect(env)
+
+// Reset layer for the live global Database.Service connection. The test DB is
+// a single shared file per process; the global Database.Service holds one
+// connection for the whole bun process. resetDatabase() truncates that file
+// from a separate connection, but the global connection can keep a stale WAL
+// snapshot of the account tables, so a seeded active account from one test
+// leaks into later tests. Clearing through the live connection itself makes
+// the write immediately visible to it.
+const dbResetLayer = AppNodeBuilder.build(LayerNode.group([AccountRepo.node]))
 
 const json = (req: Parameters<typeof HttpClientResponse.fromWeb>[0], body: unknown, status = 200) =>
   HttpClientResponse.fromWeb(
@@ -35,12 +45,12 @@ const none = HttpClient.make(() => Effect.die("unexpected http call"))
 
 function requestLayer(client: HttpClient.HttpClient) {
   const replacement = [httpClient, Layer.succeed(HttpClient.HttpClient, client)] as const
-  return LayerNode.compile(LayerNode.group([ShareNext.node, AccountRepo.node]), [replacement])
+  return AppNodeBuilder.build(LayerNode.group([ShareNext.node, AccountRepo.node]), [replacement])
 }
 
 function integrationLayer(client: HttpClient.HttpClient) {
   const replacement = [httpClient, Layer.succeed(HttpClient.HttpClient, client)] as const
-  return LayerNode.compile(
+  return AppNodeBuilder.build(
     LayerNode.group([
       ShareNext.node,
       EventV2Bridge.node,
@@ -79,6 +89,11 @@ const seed = (url: string, org?: string) =>
 
 beforeEach(async () => {
   await resetDatabase()
+  await Effect.runPromise(
+    AccountRepo.Service.use((repo) => repo.remove(AccountID.make("account-1"))).pipe(
+      Effect.provide(dbResetLayer),
+    ),
+  )
 })
 
 describe("ShareNext", () => {

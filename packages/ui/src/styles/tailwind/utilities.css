@@ -26,6 +26,13 @@
   mask-image: radial-gradient(circle 5px at calc(100% - 2px) 2px, transparent 5px, black 5.5px);
 }
 
+@utility sticky-section-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: linear-gradient(to bottom, var(--surface-stronger-non-alpha) calc(100% - 24px), transparent);
+}
+
 @utility truncate-start {
   text-overflow: ellipsis;
   overflow: hidden;

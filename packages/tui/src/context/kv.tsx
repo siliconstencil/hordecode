@@ -1,7 +1,7 @@
 import { createSignal, type Setter } from "solid-js"
 import { createStore, unwrap } from "solid-js/store"
 import { createSimpleContext } from "./helper"
-import { Flock } from "@opencode-ai/core/util/flock"
+import { Flock } from "@opencode-ai/shared/util/flock"
 import { Global } from "@opencode-ai/core/global"
 import { readJson, writeJsonAtomic } from "../util/persistence"
 import { useTuiPaths } from "./runtime"

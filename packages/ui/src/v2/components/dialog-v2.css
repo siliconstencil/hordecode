@@ -61,7 +61,7 @@
           min-width: 0;
           user-select: none;
           font-weight: 530;
-          font-size: 13px;
+          font-size: var(--font-size-small);
           line-height: 16px;
           letter-spacing: -0.04px;
           color: var(--v2-text-text-base);
@@ -95,7 +95,7 @@
           flex-grow: 0;
           user-select: none;
           font-weight: 440;
-          font-size: 13px;
+          font-size: var(--font-size-small);
           line-height: 20px;
           letter-spacing: -0.04px;
           color: var(--v2-text-text-muted);

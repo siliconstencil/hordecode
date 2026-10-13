@@ -24,9 +24,13 @@ const archMap = {
 
 const platform = platformMap[os.platform()] ?? os.platform()
 const arch = archMap[os.arch()] ?? os.arch()
-const base = `opencode-${platform}-${arch}`
-const sourceBinary = platform === "windows" ? "opencode.exe" : "opencode"
-const targetBinary = path.join(__dirname, "bin", "opencode.exe")
+const base = `hordecode-${platform}-${arch}`
+const sourceBinary = platform === "windows" ? "hordecode.exe" : "hordecode"
+const legacySourceBinary = platform === "windows" ? "opencode.exe" : "opencode"
+// The published package.json maps both commands to bin/<name>.exe on every platform
+// (upstream postinstall.mjs:29 does the same), so the npm bin links resolve to the real binary.
+const targetBinary = path.join(__dirname, "bin", "horde.exe")
+const hordecodeTargetBinary = path.join(__dirname, "bin", "hordecode.exe")
 
 function supportsAvx2() {
   if (arch !== "x64") return false
@@ -118,16 +122,18 @@ function packageNames() {
 
 function resolveBinary(name) {
   const packageJsonPath = require.resolve(`${name}/package.json`)
-  const binaryPath = path.join(path.dirname(packageJsonPath), "bin", sourceBinary)
-  if (!fs.existsSync(binaryPath)) throw new Error(`Binary not found at ${binaryPath}`)
-  return binaryPath
+  let binaryPath = path.join(path.dirname(packageJsonPath), "bin", sourceBinary)
+  if (fs.existsSync(binaryPath)) return binaryPath
+  binaryPath = path.join(path.dirname(packageJsonPath), "bin", legacySourceBinary)
+  if (fs.existsSync(binaryPath)) return binaryPath
+  throw new Error(`Binary not found at ${binaryPath}`)
 }
 
 function installPackage(name) {
   const version = packageJson.optionalDependencies?.[name]
   if (!version) return
 
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "opencode-install-"))
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "hordecode-install-"))
   try {
     const result = childProcess.spawnSync(
       "npm",
@@ -137,9 +143,24 @@ function installPackage(name) {
     if (result.status !== 0) return
     const packageDir = path.join(temp, "node_modules", name)
     copyBinary(path.join(packageDir, "bin", sourceBinary), targetBinary)
+    copyRuntime(path.join(packageDir, "bin", sourceBinary), targetBinary)
     return true
   } finally {
     fs.rmSync(temp, { recursive: true, force: true })
+  }
+}
+
+// The memory embedding index loads its onnxruntime binding and wasm assets from
+// <exe-dir>/runtime and <exe-dir>/vendor (packages/memory/src/embedding/service.ts). The
+// platform package ships them next to its binary; carry them next to the installed one.
+function copyRuntime(source, target) {
+  const from = path.dirname(source)
+  const to = path.dirname(target)
+  for (const extra of ["runtime", "vendor"]) {
+    const dir = path.join(from, extra)
+    if (!fs.existsSync(dir)) continue
+    fs.rmSync(path.join(to, extra), { recursive: true, force: true })
+    fs.cpSync(dir, path.join(to, extra), { recursive: true })
   }
 }
 
@@ -167,15 +188,26 @@ function verifyBinary() {
 function main() {
   for (const name of packageNames()) {
     try {
-      copyBinary(resolveBinary(name), targetBinary)
+      const src = resolveBinary(name)
+      copyBinary(src, targetBinary)
+      copyRuntime(src, targetBinary)
+      try {
+        copyBinary(src, hordecodeTargetBinary)
+      } catch {}
       if (verifyBinary()) return
     } catch {
-      if (installPackage(name) && verifyBinary()) return
+      if (installPackage(name) && verifyBinary()) {
+        try {
+          const src2 = resolveBinary(name)
+          copyBinary(src2, hordecodeTargetBinary)
+        } catch {}
+        return
+      }
     }
   }
 
   throw new Error(
-    `It seems your package manager failed to install the right opencode CLI package. Try manually installing ${packageNames()
+    `It seems your package manager failed to install the right hordecode CLI package. Try manually installing ${packageNames()
       .map((name) => JSON.stringify(name))
       .join(" or ")}.`,
   )

@@ -508,7 +508,7 @@ Metadata is persisted by plugin id.
 ## Built-in plugins
 
 - `internal:home-tips`
-- `internal:sidebar-context`
+- `internal:sidebar-telemetry` (includes former `internal:sidebar-context` context/tokens/cost display; `internal:sidebar-context` retired)
 - `internal:sidebar-mcp`
 - `internal:sidebar-lsp`
 - `internal:sidebar-todo`
@@ -516,7 +516,7 @@ Metadata is persisted by plugin id.
 - `internal:sidebar-footer`
 - `internal:plugin-manager`
 
-Sidebar content order is currently: context `100`, mcp `200`, lsp `300`, todo `400`, files `500`.
+Sidebar content order is currently: telemetry `100`, mcp `200`, lsp `300`, todo `400`, files `500`.
 
 The plugin manager is exposed as a command with title `Plugins` and value `plugins.list`.
 

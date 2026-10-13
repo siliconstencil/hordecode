@@ -24,9 +24,17 @@ export const directories = Effect.fn("ConfigPaths.directories")(function* (direc
   const afs = yield* FSUtil.Service
   return unique([
     Global.Path.config,
-    ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG
+    ...(!Flag.HORDECODE_DISABLE_PROJECT_CONFIG && !Flag.OPENCODE_DISABLE_PROJECT_CONFIG
       ? yield* afs.up({
           targets: [".opencode"],
+          start: directory,
+          stop: worktree,
+        })
+      : []),
+    // .hordecode dirs come after .opencode in the list, so they merge later and win on conflict.
+    ...(!Flag.HORDECODE_DISABLE_PROJECT_CONFIG && !Flag.OPENCODE_DISABLE_PROJECT_CONFIG
+      ? yield* afs.up({
+          targets: [".hordecode"],
           start: directory,
           stop: worktree,
         })
@@ -36,7 +44,12 @@ export const directories = Effect.fn("ConfigPaths.directories")(function* (direc
       start: Global.Path.home,
       stop: Global.Path.home,
     })),
-    ...(Flag.OPENCODE_CONFIG_DIR ? [Flag.OPENCODE_CONFIG_DIR] : []),
+    ...(yield* afs.up({
+      targets: [".hordecode"],
+      start: Global.Path.home,
+      stop: Global.Path.home,
+    })),
+    ...((Flag.HORDECODE_CONFIG_DIR ?? Flag.OPENCODE_CONFIG_DIR) ? [Flag.HORDECODE_CONFIG_DIR ?? Flag.OPENCODE_CONFIG_DIR!] : []),
   ])
 })
 

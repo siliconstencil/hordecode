@@ -54,10 +54,10 @@ export const Definitions = {
   app_toggle_diffwrap: keybind("none", "Toggle diff wrapping"),
   app_toggle_paste_summary: keybind("none", "Toggle paste summary"),
   app_toggle_session_directory_filter: keybind("none", "Toggle session directory filtering"),
+  permission_mode: keybind("none", "Toggle auto-approve permissions"),
   command_list: keybind("ctrl+p", "List available commands"),
   help_show: keybind("none", "Open help dialog"),
   docs_open: keybind("none", "Open documentation"),
-  diff_open: keybind("none", "Open diff viewer"),
   diff_close: keybind("escape,q", "Close diff viewer"),
   diff_toggle: keybind("enter,space", "Toggle diff viewer item"),
   diff_expand: keybind("right", "Expand diff viewer item"),
@@ -85,7 +85,7 @@ export const Definitions = {
 
   session_export: keybind("<leader>x", "Export session to editor"),
   session_copy: keybind("none", "Copy session transcript"),
-  session_move: keybind("none", "Move session"),
+  sidebar_activity_next: keybind("<leader>v", "Activity panel: next tab"),
   session_new: keybind("<leader>n", "Create a new session"),
   session_list: keybind("<leader>l", "List all sessions"),
   session_timeline: keybind("<leader>g", "Show session timeline"),
@@ -263,10 +263,10 @@ export const CommandMap = {
   app_toggle_diffwrap: "app.toggle.diffwrap",
   app_toggle_paste_summary: "app.toggle.paste_summary",
   app_toggle_session_directory_filter: "app.toggle.session_directory_filter",
+  permission_mode: "permission.mode",
   command_list: "command.palette.show",
   help_show: "help.show",
   docs_open: "docs.open",
-  diff_open: "diff.open",
   diff_close: "diff.close",
   diff_toggle: "diff.toggle",
   diff_expand: "diff.expand",
@@ -292,7 +292,6 @@ export const CommandMap = {
   debug_view: "opencode.debug",
   session_export: "session.export",
   session_copy: "session.copy",
-  session_move: "session.move",
   session_new: "session.new",
   session_list: "session.list",
   session_timeline: "session.timeline",
@@ -406,6 +405,7 @@ export const CommandMap = {
   tips_toggle: "tips.toggle",
   plugin_manager: "plugins.list",
   plugin_install: "plugins.install",
+  sidebar_activity_next: "sidebar.activity.next",
   which_key_toggle: "which-key.toggle",
   which_key_layout_toggle: "which-key.layout.toggle",
   which_key_pending_toggle: "which-key.pending.toggle",
@@ -437,7 +437,9 @@ export type BindingLookupView = {
 }
 
 export function toBindingConfig(keybinds: Keybinds): BindingConfig<Renderable, KeyEvent> {
-  return Object.fromEntries(Object.entries(keybinds)) as BindingConfig<Renderable, KeyEvent>
+  return Object.fromEntries(
+    Object.entries(keybinds).filter(([_, value]) => value !== false && value !== "none"),
+  ) as BindingConfig<Renderable, KeyEvent>
 }
 
 const decodeBindingValue = Schema.decodeUnknownSync(BindingValueSchema)

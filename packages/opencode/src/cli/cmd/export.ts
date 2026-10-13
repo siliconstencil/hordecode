@@ -4,6 +4,7 @@ import { MessageV2 } from "../../session/message-v2"
 import { SessionID } from "../../session/schema"
 import { effectCmd, fail } from "../effect-cmd"
 import { UI } from "../ui"
+import { NotFoundError } from "@/storage/storage"
 import * as prompts from "@clack/prompts"
 import { EOL } from "os"
 import { Effect } from "effect"
@@ -281,12 +282,35 @@ const run = Effect.fn("Cli.export.body")(function* (args: { sessionID?: string; 
   // Match legacy try/catch — catches both typed failures and defects
   // (Session.Service.get throws NotFoundError as a defect, not a typed E).
   return yield* Effect.gen(function* () {
-    const sessionInfo = yield* svc.get(sessionID!)
-    const messages = yield* svc.messages({ sessionID: sessionInfo.id })
+    // Fix: accept a full OR partial session ID. Exact get() first, then
+    // fall back to a bounded listGlobal scan so users can paste a short
+    // suffix without copy-pasting the full ses_<rest> string.
+    const resolved = yield* resolveSessionByPrefix(svc, sessionID!)
+    const messages = yield* svc.messages({ sessionID: resolved.id })
 
-    const exportData = { info: sessionInfo, messages }
+    const exportData = { info: resolved, messages }
 
     process.stdout.write(JSON.stringify(args.sanitize ? sanitize(exportData) : exportData, null, 2))
     process.stdout.write(EOL)
   }).pipe(Effect.catchCause(() => fail(`Session not found: ${sessionID!}`)))
 })
+
+//  shared prefix-aware session ID resolver. Used by `hordecode export` to
+// tolerate truncated session IDs (the partial-ID-error repro). Exact match
+// first (no DB scan needed for full IDs); prefix match falls back to a
+// bounded listGlobal scan and disambiguates by uniqueness. Zero or ambiguous
+// matches surface the typed NotFoundError so the caller can present a
+// user-friendly "Session not found" message via Effect.catchCause.
+export function resolveSessionByPrefix(svc: Session.Interface, sessionID: SessionID) {
+  return Effect.gen(function* () {
+    const exact = yield* svc.get(sessionID).pipe(Effect.option)
+    if (exact._tag === "Some") return exact.value
+
+    const needle = String(sessionID)
+    const matches = yield* svc.listGlobal({ limit: 200 }).pipe(
+      Effect.map((all) => all.filter((s) => String(s.id) === needle || String(s.id).startsWith(needle))),
+    )
+    if (matches.length === 1) return matches[0]!
+    return yield* Effect.fail(new NotFoundError({ message: `Session not found: ${sessionID}` }))
+  })
+}

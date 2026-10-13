@@ -119,7 +119,7 @@ export const McpListCommand = effectCmd({
 
     if (servers.length === 0) {
       prompts.log.warn("No MCP servers configured")
-      prompts.outro("Add servers with: opencode mcp add")
+      prompts.outro("Add servers with: hordecode mcp add")
       return
     }
 
@@ -187,7 +187,7 @@ export const McpAuthCommand = effectCmd({
 
     if (servers.length === 0) {
       prompts.log.warn("No OAuth-capable MCP servers configured")
-      prompts.log.info("Remote MCP servers support OAuth by default. Add a remote server in opencode.json:")
+      prompts.log.info("Remote MCP servers support OAuth by default. Add a remote server in hordecode.json (or opencode.json):")
       prompts.log.info(`
   "mcp": {
     "my-server": {
@@ -392,11 +392,22 @@ export const McpLogoutCommand = effectCmd({
 })
 
 async function resolveConfigPath(baseDir: string, global = false) {
-  // Check for existing config files (prefer .jsonc over .json, check .opencode/ subdirectory too)
-  const candidates = [path.join(baseDir, "opencode.json"), path.join(baseDir, "opencode.jsonc")]
+  // Check for existing config files: hordecode.json(c) first, opencode.json(c) as compat,
+  // then the .hordecode/ and .opencode/ subdirectories.
+  const candidates = [
+    path.join(baseDir, "hordecode.json"),
+    path.join(baseDir, "hordecode.jsonc"),
+    path.join(baseDir, "opencode.json"),
+    path.join(baseDir, "opencode.jsonc"),
+  ]
 
   if (!global) {
-    candidates.push(path.join(baseDir, ".opencode", "opencode.json"), path.join(baseDir, ".opencode", "opencode.jsonc"))
+    candidates.push(
+      path.join(baseDir, ".hordecode", "hordecode.json"),
+      path.join(baseDir, ".hordecode", "hordecode.jsonc"),
+      path.join(baseDir, ".opencode", "opencode.json"),
+      path.join(baseDir, ".opencode", "opencode.jsonc"),
+    )
   }
 
   for (const candidate of candidates) {
@@ -455,6 +466,20 @@ export const McpAddCommand = effectCmd({
     const ctx = maybeCtx
     yield* Effect.promise(async () => {
       const command = args["--"] ?? []
+      // TTY gate: interactive mode requires a real terminal; without --name +
+      // --url/--env/--header/-- the command falls into the @clack/prompts flow
+      // that silently blocks reading STDIN in a non-TTY environment.
+      // Surface a clear error pointing the caller to the non-interactive flags
+      // instead of letting the process appear to hang.
+      if (!args.name && !process.stdin.isTTY) {
+        const die = (message: string): never => {
+          UI.error(message)
+          process.exit(1)
+        }
+        die(
+          "hordecode mcp add in interactive mode requires a TTY. Pass a server name with the required flags (e.g. `hordecode mcp add <name> --url <url>` or `hordecode mcp add <name> -- <command...>`) or run this command in an interactive terminal.",
+        )
+      }
       if (!args.name && (args.url || args.env?.length || args.header?.length || command.length)) {
         throw new Error("A server name is required for non-interactive MCP configuration")
       }
@@ -559,7 +584,7 @@ export const McpAddCommand = effectCmd({
       if (type === "local") {
         const command = await prompts.text({
           message: "Enter command to run",
-          placeholder: "e.g., opencode x @modelcontextprotocol/server-filesystem",
+          placeholder: "e.g., hordecode x @modelcontextprotocol/server-filesystem",
           validate: (x) => (x && x.length > 0 ? undefined : "Required"),
         })
         if (prompts.isCancel(command)) throw new UI.CancelledError()

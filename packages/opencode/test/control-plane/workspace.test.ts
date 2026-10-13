@@ -64,6 +64,9 @@ const testServerLayer = Layer.mergeAll(
   workspaceLayer(true),
 )
 const it = testEffect(testServerLayer)
+const itDisabled = testEffect(
+  Layer.mergeAll(NodeHttpServer.layer(Http.createServer, { host: "127.0.0.1", port: 0 }), workspaceLayer(false)),
+)
 
 type RecordedCreate = {
   info: WorkspaceInfo
@@ -413,6 +416,26 @@ describe("workspace CRUD", () => {
         yield* insertWorkspace(a)
 
         expect(yield* workspace.list(instance.project)).toEqual([a, b])
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "list is disabled by the experimental workspace flag",
+    () =>
+      Effect.gen(function* () {
+        const instance = yield* requireInstance
+        yield* insertWorkspace(workspaceInfo(instance.project.id, "manual"))
+
+        const db = yield* Database.Service
+        const listed = yield* Effect.promise(() =>
+          Effect.runPromise(
+            Workspace.use
+              .list(instance.project)
+              .pipe(Effect.provide(workspaceLayer(false)), Effect.provideService(Database.Service, db)),
+          ),
+        )
+        expect(listed).toEqual([])
       }),
     { git: true },
   )
@@ -1069,7 +1092,7 @@ describe("workspace CRUD", () => {
 })
 
 describe("workspace sync state", () => {
-  it.instance(
+  itDisabled.instance(
     "startWorkspaceSyncing is disabled by the experimental workspace flag",
     () =>
       Effect.gen(function* () {
@@ -1084,8 +1107,8 @@ describe("workspace sync state", () => {
         yield* insertWorkspace(info)
         registerAdapter(instance.project.id, type, localAdapter(path.join(dir, "flag-disabled")).adapter)
 
-        yield* Effect.promise(() => startWorkspaceSyncingWithFlag(instance.project.id, false))
-        yield* Effect.sleep("25 millis")
+        yield* workspace.startWorkspaceSyncing(instance.project.id)
+        yield* Effect.sleep("500 millis")
 
         expect((yield* workspace.status()).find((item) => item.workspaceID === info.id)?.status).toBeUndefined()
       }),

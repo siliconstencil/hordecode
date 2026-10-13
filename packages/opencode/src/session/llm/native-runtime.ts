@@ -86,13 +86,20 @@ export function stream(input: StreamInput): StreamResult {
   // OpenAI's official wire field names, so this is identity, not translation
   // — if a field ever needs to differ between the two surfaces, the
   // translation belongs here, not split across both packages.
+  // meta/muse-spark only supports "auto" for tool_choice -- defense-in-depth
+  // coercion (primary normalization lives in LLM.Service, but this is also a
+  // direct entry point).
+  const effectiveToolChoice =
+    input.model.providerID === "meta" && input.toolChoice && input.toolChoice !== "auto"
+      ? undefined
+      : input.toolChoice
   const tools = nativeTools(input.tools, input)
   const request = LLMNative.request({
     model: input.model,
     apiKey: current.apiKey,
     baseURL: current.baseURL,
     messages: ProviderTransform.message(input.messages, input.model, input.providerOptions ?? {}),
-    toolChoice: input.toolChoice,
+    toolChoice: effectiveToolChoice,
     temperature: input.temperature,
     topP: input.topP,
     topK: input.topK,

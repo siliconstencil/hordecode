@@ -3,13 +3,20 @@ import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { Config } from "@/config/config"
 import { serviceUse } from "@opencode-ai/core/effect/service-use"
 import { Provider } from "@/provider/provider"
+import { Flag } from "@opencode-ai/core/flag/flag"
+import PROMPT_DREAM from "@opencode-ai/agent/prompt/dream.txt"
+import PROMPT_DISTILL from "@opencode-ai/agent/prompt/distill.txt"
+import PROMPT_ORCHESTRATOR from "@opencode-ai/core/session/prompt/orchestrator"
 
 import { generateObject, streamObject, type ModelMessage } from "ai"
 import { Truncate } from "@/tool/truncate"
+import { usesGPTToolset } from "@/tool/gpt"
 import { Auth } from "../auth"
 import { ProviderTransform } from "@/provider/transform"
 
 import PROMPT_GENERATE from "./generate.txt"
+import PROMPT_GENERAL from "./prompt/general.txt"
+import PROMPT_GENERATE_GPT from "./prompt/generate-gpt.txt"
 import PROMPT_COMPACTION from "./prompt/compaction.txt"
 import PROMPT_EXPLORE from "./prompt/explore.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
@@ -42,6 +49,10 @@ export const Info = Schema.Struct({
   temperature: Schema.optional(Schema.Finite),
   color: Schema.optional(Schema.String),
   permission: PermissionV1.Ruleset,
+  // Non-overridable rules re-appended AFTER the user/session permissions during
+  // runtime evaluation (see runtimePermission). Use for agent invariants that
+  // config must not be able to relax — e.g. plan mode's edit/write block.
+  hardPermission: Schema.optional(PermissionV1.Ruleset),
   model: Schema.optional(
     Schema.Struct({
       modelID: ModelV2.ID,
@@ -50,8 +61,13 @@ export const Info = Schema.Struct({
   ),
   variant: Schema.optional(Schema.String),
   prompt: Schema.optional(Schema.String),
+  completionGate: Schema.optional(Schema.Boolean),
   options: Schema.Record(Schema.String, Schema.Unknown),
   steps: Schema.optional(Schema.Finite),
+  // Mode-specific skill pipeline namespace. When set, the session prompt
+  // injection loads skills from this pipeline's bundle (e.g. "harness" loads
+  // harness:*, "research" loads research:*).
+  skillPipeline: Schema.optional(Schema.String),
 }).annotate({ identifier: "Agent" })
 export type Info = DeepMutable<Schema.Schema.Type<typeof Info>>
 
@@ -84,6 +100,14 @@ type State = Omit<Interface, "generate">
 export class Service extends Context.Service<Service, Interface>()("@opencode/Agent") {}
 
 export const use = serviceUse(Service)
+
+// Merge an agent's permission with the user/session ruleset, then re-append the
+// agent's hardPermission so those invariants win over any allow rule a user or
+// session approval could introduce. Every permission-evaluation site routes
+// through this — there is no per-agent name special-casing.
+export function runtimePermission(agent: Info, permission?: PermissionV1.Ruleset): PermissionV1.Ruleset {
+  return Permission.merge(agent.permission ?? [], permission ?? [], agent.hardPermission ?? [])
+}
 
 const layer = Layer.effect(
   Service,
@@ -168,29 +192,75 @@ const layer = Layer.effect(
                 external_directory: {
                   [path.join(Global.Path.data, "plans", "*")]: "allow",
                 },
-                edit: {
-                  "*": "deny",
-                  [path.join(".opencode", "plans", "*.md")]: "allow",
-                  [path.relative(ctx.worktree, path.join(Global.Path.data, path.join("plans", "*.md")))]: "allow",
-                },
               }),
               user,
             ),
+            // Plan mode's one hard invariant: writes to non-plan files are
+            // blocked and user/session config must NOT be able to relax it.
+            // Re-appended after the user merge by runtimePermission so it always
+            // wins. (Every write tool — write/edit/multiedit/apply_patch/
+            // notebook_edit — funnels through ctx.ask({ permission: "edit" }),
+            // so this single rule governs all file writes.) Deliberately scoped
+            // to edit only: bash/change_directory/workflow are left to the
+            // model's own read-only discipline + plan prompt, matching the
+            // project's "trust the model, permission layer is a backstop"
+            // stance. The "*":"deny" carries a non-"*" allow exception, so the
+            // edit tool stays in the schema (no tool-list mutation on mode
+            // switch).
+            hardPermission: Permission.fromConfig({
+              edit: {
+                "*": "deny",
+                [path.join(".hordecode", "plans", "*.md")]: "allow",
+                [path.join(".opencode", "plans", "*.md")]: "allow",
+                [path.relative(ctx.worktree, path.join(Global.Path.data, path.join("plans", "*.md")))]: "allow",
+              },
+            }),
+            mode: "primary",
+            native: true,
+          },
+          harness: {
+            name: "harness",
+            description: "Harness mode. Orchestrates workflows with built-in harness skills.",
+            options: {},
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                question: "allow",
+                skill: { "harness:*": "allow" },
+              }),
+              user,
+            ),
+            skillPipeline: "harness",
+            color: "#a7a3d8",
+            mode: "primary",
+            native: true,
+          },
+          research: {
+            name: "research",
+            description: "Research mode. Orchestrates research workflows with built-in research skills.",
+            options: {},
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                question: "allow",
+                skill: { "research:*": "allow" },
+              }),
+              user,
+            ),
+            skillPipeline: "research",
+            color: "#7fb3d5",
             mode: "primary",
             native: true,
           },
           general: {
             name: "general",
-            description: `General-purpose agent for researching complex questions and executing multi-step tasks. Use this agent to execute multiple units of work in parallel.`,
-            permission: Permission.merge(
-              defaults,
-              Permission.fromConfig({
-                todowrite: "deny",
-              }),
-              user,
-            ),
+            description:
+              "Full-capability general-purpose subagent for autonomous read/write work, including investigation, implementation, debugging, testing, and multi-step delivery. It inherits the parent's available tool surface and can complete a delegated task end to end.",
+            permission: Permission.merge(defaults, user),
             options: {},
             mode: "subagent",
+            prompt: PROMPT_GENERAL,
+            completionGate: true,
             native: true,
           },
           explore: {
@@ -206,6 +276,7 @@ const layer = Layer.effect(
                 webfetch: "allow",
                 websearch: "allow",
                 read: "allow",
+                codesearch: "allow",
                 external_directory: readonlyExternalDirectory,
               }),
               user,
@@ -218,7 +289,7 @@ const layer = Layer.effect(
           },
           compaction: {
             name: "compaction",
-            mode: "primary",
+            mode: "subagent",
             native: true,
             hidden: true,
             prompt: PROMPT_COMPACTION,
@@ -233,7 +304,7 @@ const layer = Layer.effect(
           },
           title: {
             name: "title",
-            mode: "primary",
+            mode: "subagent",
             options: {},
             native: true,
             hidden: true,
@@ -247,9 +318,24 @@ const layer = Layer.effect(
             ),
             prompt: PROMPT_TITLE,
           },
+          max: {
+            name: "max",
+            description: "Max mode (experimental). Runs N parallel candidates and executes the best one.",
+            mode: "primary",
+            native: true,
+            hidden: false,
+            options: {},
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                question: "allow",
+              }),
+              user,
+            ),
+          },
           summary: {
             name: "summary",
-            mode: "primary",
+            mode: "subagent",
             options: {},
             native: true,
             hidden: true,
@@ -262,6 +348,105 @@ const layer = Layer.effect(
             ),
             prompt: PROMPT_SUMMARY,
           },
+          // Personas built inline, not via agent-package factory functions,
+          // because agent-package factories use Permission from @opencode-ai/core/permission
+          // while opencode uses its own local @/permission module. Using the factories
+          // would require opencode to talk to core's Permission module, creating a
+          // dependency that boot-time module resolution cannot satisfy.)
+          dream: {
+            name: "dream",
+            mode: "subagent",
+            options: {},
+            native: true,
+            hidden: true,
+            prompt: PROMPT_DREAM,
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                "*": "deny",
+                read: "allow",
+                write: "allow",
+                edit: "allow",
+                glob: "allow",
+                grep: "allow",
+                memory: "allow",
+                bash: "allow",
+                external_directory: {
+                  [path.join(Global.Path.data, "memory")]: "allow",
+                  [path.join(Global.Path.data, "memory", "*")]: "allow",
+                },
+              }),
+              user,
+            ),
+          },
+          distill: {
+            name: "distill",
+            mode: "subagent",
+            options: {},
+            native: true,
+            hidden: true,
+            prompt: PROMPT_DISTILL,
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                "*": "deny",
+                read: "allow",
+                write: "allow",
+                edit: "allow",
+                glob: "allow",
+                grep: "allow",
+                memory: "allow",
+                bash: "allow",
+                external_directory: {
+                  [path.join(Global.Path.data, "memory")]: "allow",
+                  [path.join(Global.Path.data, "memory", "*")]: "allow",
+                },
+              }),
+              user,
+            ),
+          },
+          "checkpoint-writer": {
+            name: "checkpoint-writer",
+            mode: "subagent",
+            options: {},
+            native: true,
+            hidden: true,
+            // opencode's agent registry is the one that wins at runtime (per the
+            // Core<->opencode DI-tag gate; both share `@opencode/Agent`). core's
+            // twin already registers this entry (packages/agent/src/agent.ts),
+            // but without it here, spawning checkpoint-writer at runtime fails
+            // with `Agent not found: "checkpoint-writer"` (/ live
+            // regression). No `prompt` field — fork captures the parent's full
+            // LLM request prefix into a frozen ForkContext at spawn time
+            // (tryStartCheckpointWriter), so the writer reads from that snapshot
+            // instead of recomputing from this agent's identity. Permission
+            // inherits `defaults` (+ user) only; runtime write authority is
+            // bounded by the supervisor.tools whitelist set in
+            // tryStartCheckpointWriter and the memory-path-guard, so inheriting
+            // `defaults` over-grants nothing in practice.
+            permission: Permission.merge(defaults, user),
+          },
+          ...(Flag.HORDECODE_EXPERIMENTAL_ORCHESTRATOR
+            ? {
+                orchestrator: {
+                  name: "orchestrator",
+                  color: "#7fb3d5",
+                  description:
+                    "Orchestrator mode. A general-purpose coordinator that accomplishes goals by delegating work to child sessions; use the `session` tool to create/switch/list/cancel children running in their own mode and model.",
+                  prompt: PROMPT_ORCHESTRATOR,
+                  options: {},
+                  permission: Permission.merge(
+                    defaults,
+                    Permission.fromConfig({
+                      question: "allow",
+                    }),
+                    user,
+                  ),
+                  mode: "primary",
+                  native: true,
+                },
+              }
+            : {}),
         }
 
         for (const [key, value] of Object.entries(cfg.agent ?? {})) {
@@ -320,6 +505,7 @@ const layer = Layer.effect(
             values(),
             sortBy(
               [(x) => (cfg.default_agent ? x.name === cfg.default_agent : x.name === "build"), "desc"],
+              [(x) => x.name === "orchestrator", "desc"],
               [(x) => x.name, "asc"],
             ),
           )
@@ -377,7 +563,7 @@ const layer = Layer.effect(
           ? Option.getOrUndefined(yield* Effect.serviceOption(OtelTracer.OtelTracer))
           : undefined
 
-        const system = [PROMPT_GENERATE]
+        const system = [PROMPT_GENERATE, ...(usesGPTToolset(resolved.id) ? [PROMPT_GENERATE_GPT] : [])]
         yield* plugin.trigger("experimental.chat.system.transform", { model: resolved }, { system })
         const existing = yield* InstanceState.useEffect(state, (s) => s.list())
 

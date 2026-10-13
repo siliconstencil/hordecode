@@ -12,6 +12,11 @@ type Env = {
   WEB_DOMAIN: string
 }
 
+type StoredData = {
+  key: string
+  content: { id: string; messageID?: string }
+}
+
 export class SyncServer extends DurableObject<Env> {
   // oxlint-disable-next-line no-useless-constructor
   constructor(ctx: DurableObjectState, env: Env) {
@@ -36,9 +41,9 @@ export class SyncServer extends DurableObject<Env> {
     })
   }
 
-  async webSocketMessage(_ws, _message) {}
+  async webSocketMessage(_ws: WebSocket, _message: string | ArrayBuffer) {}
 
-  async webSocketClose(ws, code, _reason, _wasClean) {
+  async webSocketClose(ws: WebSocket, code: number, _reason: string, _wasClean: boolean) {
     ws.close(code, "Durable Object is closing WebSocket")
   }
 
@@ -76,8 +81,10 @@ export class SyncServer extends DurableObject<Env> {
     return secret
   }
 
-  public async getData() {
-    const data = (await this.ctx.storage.list()) as Map<string, any>
+  public async getData(): Promise<StoredData[]> {
+    const secret = await this.getSecret()
+    if (!secret) return []
+    const data = (await this.ctx.storage.list()) as Map<string, StoredData["content"]>
     return Array.from(data.entries())
       .filter(([key, _]) => key.startsWith("session/"))
       .map(([key, content]) => ({ key, content }))
@@ -116,6 +123,10 @@ export class SyncServer extends DurableObject<Env> {
 export default new Hono<{ Bindings: Env }>()
   .get("/", (c) => c.text("Hello, world!"))
   .post("/share_create", async (c) => {
+    const authHeader = c.req.header("authorization")
+    if (!authHeader || authHeader !== `Bearer ${Resource.ADMIN_SECRET.value}`) {
+      return c.text("Unauthorized", 401)
+    }
     const body = await c.req.json<{ sessionID: string }>()
     const sessionID = body.sessionID
     const short = SyncServer.shortName(sessionID)
@@ -176,11 +187,16 @@ export default new Hono<{ Bindings: Env }>()
     const id = c.req.query("id")
     console.log("share_data", id)
     if (!id) return c.text("Error: Share ID is required", { status: 400 })
-    const stub = c.env.SYNC_SERVER.get(c.env.SYNC_SERVER.idFromName(id))
-    const data = await stub.getData()
+    const stub = c.env.SYNC_SERVER.get(c.env.SYNC_SERVER.idFromName(id)) as SyncServer
+    const data: StoredData[] = await stub.getData()
 
-    let info
-    const messages: Record<string, any> = {}
+    let info: StoredData["content"] | undefined
+    interface Message {
+      parts: StoredData["content"][]
+      id: string
+      messageID?: string
+    }
+    const messages: Record<string, Message> = {}
     data.forEach((d) => {
       const [root, type] = d.key.split("/")
       if (root !== "session") return
@@ -192,17 +208,18 @@ export default new Hono<{ Bindings: Env }>()
         messages[d.content.id] = {
           parts: [],
           ...d.content,
-        }
+        } as Message
       }
       if (type === "part") {
-        messages[d.content.messageID].parts.push(d.content)
+        messages[d.content.messageID!].parts.push(d.content)
       }
     })
 
-    return c.json({ info, messages })
+    return c.json<{ info: StoredData["content"] | undefined; messages: Record<string, Message> }>({ info, messages })
   })
   .post("/feishu", async (c) => {
-    const body = (await c.req.json()) as {
+    const rawBody = await c.req.text()
+    let body: {
       challenge?: string
       event?: {
         message?: {
@@ -214,9 +231,32 @@ export default new Hono<{ Bindings: Env }>()
         }
       }
     }
+    try {
+      body = JSON.parse(rawBody)
+    } catch {
+      return c.text("Invalid JSON body", 400)
+    }
+
+    if (body.challenge) return c.json({ challenge: body.challenge })
+
+    const signature = c.req.header("x-lark-signature")
+    const timestamp = c.req.header("x-lark-request-timestamp")
+    const nonce = c.req.header("x-lark-request-nonce")
+    if (!signature || !timestamp || !nonce) return c.text("Missing signature headers", 403)
+
+    const now = Math.floor(Date.now() / 1000)
+    const timestampNumber = Number.parseInt(timestamp, 10)
+    if (!Number.isFinite(timestampNumber) || Math.abs(now - timestampNumber) > 300)
+      return c.text("Timestamp expired", 403)
+
+    const sign = timestamp + nonce + Resource.FEISHU_APP_SECRET.value + rawBody
+    const hashBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sign))
+    const hashedSign = Array.from(new Uint8Array(hashBuffer))
+      .map((item) => item.toString(16).padStart(2, "0"))
+      .join("")
+    if (hashedSign !== signature) return c.text("Invalid signature", 403)
+
     console.log(JSON.stringify(body, null, 2))
-    const challenge = body.challenge
-    if (challenge) return c.json({ challenge })
 
     const content = body.event?.message?.content
     const parsed =
@@ -275,7 +315,7 @@ export default new Hono<{ Bindings: Env }>()
         issuer: GITHUB_ISSUER,
         audience: EXPECTED_AUDIENCE,
       })
-      const sub = payload.sub // e.g. 'repo:my-org/my-repo:ref:refs/heads/main'
+      const sub = payload.sub! // e.g. 'repo:my-org/my-repo:ref:refs/heads/main'
       const parts = sub.split(":")[1].split("/")
       owner = parts[0]
       repo = parts[1]
@@ -323,7 +363,7 @@ export default new Hono<{ Bindings: Env }>()
       // Verify permissions
       const userClient = new Octokit({ auth: token })
       const { data: repoData } = await userClient.repos.get({ owner, repo })
-      if (!repoData.permissions.admin && !repoData.permissions.push && !repoData.permissions.maintain)
+      if (!repoData.permissions?.admin && !repoData.permissions?.push && !repoData.permissions?.maintain)
         throw new Error("User does not have write permissions")
 
       // Get installation token
@@ -373,7 +413,7 @@ export default new Hono<{ Bindings: Env }>()
     const octokit = new Octokit({ auth: appAuth.token })
     let installation
     try {
-      const ret = await octokit.apps.getRepoInstallation({ owner, repo })
+      const ret = await octokit.apps.getRepoInstallation({ owner: owner!, repo: repo! })
       installation = ret.data
     } catch (err) {
       if (err instanceof Error && err.message.includes("Not Found")) {

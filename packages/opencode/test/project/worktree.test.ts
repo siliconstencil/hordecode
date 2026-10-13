@@ -1,6 +1,8 @@
 import { afterEach, describe, expect } from "bun:test"
 import path from "path"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { Location } from "@opencode-ai/core/location"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Cause, Deferred, Effect, Exit, Fiber } from "effect"
 import { GlobalBus, type GlobalEvent } from "../../src/bus/global"
@@ -12,8 +14,9 @@ import { disposeAllInstances, provideInstance, TestInstance } from "../fixture/f
 import { testEffect } from "../lib/effect"
 
 const it = testEffect(
-  LayerNode.compile(LayerNode.group([Worktree.node, FSUtil.node, Git.node]), [
+  AppNodeBuilder.build(LayerNode.group([Worktree.node, FSUtil.node, Git.node]), [
     [InstanceStore.bootstrapNode, InstanceBootstrap.node],
+    [Location.node, Location.boundNode(Location.Ref.make({ directory: process.cwd() as Location.Ref["directory"] }))],
   ]),
 )
 const wintest = process.platform !== "win32" ? it.instance : it.instance.skip

@@ -4,6 +4,9 @@ import { HttpEffect, HttpRouter, HttpServerRequest, HttpServerResponse } from "e
 import { HttpApiError, HttpApiMiddleware } from "effect/unstable/httpapi"
 import { hasPtyConnectTicketURL } from "@/server/shared/pty-ticket"
 import { isPublicUIPath } from "@/server/shared/public-ui"
+import { Log } from "@opencode-ai/core/util"
+
+const log = Log.create({ service: "httpapi.authorization" })
 export {
   Authorization as ServerAuthorization,
   authorizationLayer as serverAuthorizationLayer,
@@ -54,6 +57,21 @@ function validateCredential<A, E, R>(
   })
 }
 
+// Logs once at layer build time (server boot) when the server has no
+// password configured, so an operator who forgot to set HORDECODE_SERVER_PASSWORD
+// (or OPENCODE_SERVER_PASSWORD) is warned that all requests are accepted
+// without auth -- including requests the client sent with --password. (password security).
+// Returns an Effect (not void) so it composes inside `yield*` in `Effect.gen`
+// bodies without an iterator type mismatch.
+const warnIfAuthDisabled = (config: ServerAuth.Info): Effect.Effect<void, never, never> =>
+  ServerAuth.required(config)
+    ? Effect.void
+    : Effect.sync(() =>
+        log.warn(
+          "server has no HORDECODE_SERVER_PASSWORD / OPENCODE_SERVER_PASSWORD configured; all HTTP requests are accepted without auth (client --password flag will be silently ignored)",
+        ),
+      )
+
 function decodeCredential(input: string) {
   return Effect.fromResult(Encoding.decodeBase64String(input)).pipe(
     Effect.match({
@@ -101,6 +119,7 @@ function validateRawCredential<A, E, R>(
 export const authorizationRouterMiddleware = HttpRouter.middleware()(
   Effect.gen(function* () {
     const config = yield* ServerAuth.Config
+    yield* warnIfAuthDisabled(config)
     if (!ServerAuth.required(config)) return (effect) => effect
 
     return (effect) =>
@@ -119,6 +138,7 @@ export const authorizationLayer = Layer.effect(
   Authorization,
   Effect.gen(function* () {
     const config = yield* ServerAuth.Config
+    yield* warnIfAuthDisabled(config)
     if (!ServerAuth.required(config)) return Authorization.of((effect) => effect)
     return Authorization.of((effect) =>
       Effect.gen(function* () {
@@ -135,6 +155,7 @@ export const ptyConnectAuthorizationLayer = Layer.effect(
   PtyConnectAuthorization,
   Effect.gen(function* () {
     const config = yield* ServerAuth.Config
+    yield* warnIfAuthDisabled(config)
     if (!ServerAuth.required(config)) return PtyConnectAuthorization.of((effect) => effect)
     return PtyConnectAuthorization.of((effect) =>
       Effect.gen(function* () {

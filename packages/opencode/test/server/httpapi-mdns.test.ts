@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test"
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { withTimeout } from "../../src/util/timeout"
 import { resetDatabase } from "../fixture/db"
@@ -6,6 +6,12 @@ import { disposeAllInstances } from "../fixture/fixture"
 
 type Event = { kind: "publish"; port: number; name: string } | { kind: "unpublishAll" } | { kind: "destroy" }
 const events: Event[] = []
+
+// Capture the real Bonjour class BEFORE registering the mock so we can restore
+// it via afterAll. Without restore, the fake Bonjour installed by this file
+// would leak to later sibling tests that boot the opencode HttpApi server
+// (same leak class as server-credential-strip.test.ts, established pattern).
+const realBonjour = (await import("bonjour-service")).Bonjour
 
 void mock.module("bonjour-service", () => ({
   Bonjour: class {
@@ -59,7 +65,7 @@ describe("HttpApi Server.listen mDNS", () => {
       const published = events.filter((e) => e.kind === "publish")
       expect(published.length).toBe(1)
       expect(published[0]!.port).toBe(listener.port)
-      expect(published[0]!.name).toBe(`opencode-${listener.port}`)
+      expect(published[0]!.name).toBe(`hordecode-${listener.port}`)
     } finally {
       await withTimeout(listener.stop(true), 10_000, "timed out stopping mdns listener")
     }
@@ -76,4 +82,8 @@ describe("HttpApi Server.listen mDNS", () => {
     await withTimeout(listener.stop(), 10_000, "timed out stopping graceful mdns listener")
     expect(events.some((e) => e.kind === "unpublishAll")).toBe(true)
   })
+})
+
+afterAll(() => {
+  mock.module("bonjour-service", () => ({ Bonjour: realBonjour }))
 })

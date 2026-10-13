@@ -75,6 +75,12 @@ export function FormatError(input: unknown): string | undefined {
     return `Failed to initialize provider "${stringField(providerInit, "providerID")}". Check credentials and configuration.`
   }
 
+  // ProviderNotConfiguredError: { message: string }
+  const providerNotConfigured = configData(input, "ProviderNotConfiguredError")
+  if (providerNotConfigured) {
+    return stringField(providerNotConfigured, "message") ?? ""
+  }
+
   // ConfigJsonError: { path: string, message?: string }
   const configJson = configData(input, "ConfigJsonError")
   if (configJson) {

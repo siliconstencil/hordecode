@@ -2,12 +2,17 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { ConfigPermissionV1 } from "@opencode-ai/core/v1/config/permission"
 import { InstanceState } from "@/effect/instance-state"
 import { Wildcard } from "@opencode-ai/core/util/wildcard"
-import { Deferred, Effect, Layer, Context } from "effect"
+import { Context, Deferred, Duration, Effect, Layer } from "effect"
 import os from "os"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { EventV2Bridge } from "@/event-v2-bridge"
+import { Question } from "@/question"
+import { forwardRef } from "@opencode-ai/core/permission/permission-forward-ref"
 
 export const Event = PermissionV1.Event
+
+// A permission ask that no human ever answers resolves as DENY after this bound.
+const DEFAULT_PERMISSION_TIMEOUT = 5 * 60 * 1000
 
 export interface Interface {
   readonly ask: (input: PermissionV1.AskInput) => Effect.Effect<void, PermissionV1.Error>
@@ -36,6 +41,14 @@ export function evaluate(permission: string, pattern: string, ...rulesets: Permi
     }
   )
 }
+
+// Permissions whose "allow" outcome must ALWAYS come from an explicit human ask.
+// A wildcard rule like `*: "allow"` (or a stored `{permission:"*", pattern:"*",
+// action:"allow"}` approval) MUST NOT be able to pre-authorize these -- the whole
+// point of a forced-ask permission is that the intent to perform an irreversible
+// action (e.g. bash_delete) must be recorded in-band, not inherited from a broad
+// blanket rule. Explicit deny still wins; no allow rule silently pre-approves it.
+const FORCED_ASK = new Set(["bash_delete"])
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Permission") {}
 
@@ -68,6 +81,11 @@ const layer = Layer.effect(
       const { approved, pending } = yield* InstanceState.get(state)
       const { ruleset, ...request } = input
       let needsAsk = false
+      const forced = FORCED_ASK.has(request.permission)
+
+      // Publish this session's effective grant snapshot so background children
+      // in another Instance can inherit it. Kept as two ordered phases.
+      forwardRef.setParentGrants(request.sessionID, { ruleset: [...ruleset], approved: [...approved] })
 
       for (const pattern of request.patterns) {
         const rule = evaluate(request.permission, pattern, ruleset, approved)
@@ -77,11 +95,56 @@ const layer = Layer.effect(
             ruleset: ruleset.filter((rule) => Wildcard.match(request.permission, rule.permission)),
           })
         }
+        // Forced-ask permissions skip the allow short-circuit: neither the ruleset
+        // nor the persisted approvals can pre-authorize them. They always land in
+        // the human ask flow below (unless denied above).
+        if (forced) {
+          needsAsk = true
+          continue
+        }
         if (rule.action === "allow") continue
         needsAsk = true
       }
 
+      // Parent-grant inheritance: an ordinary background subagent reuses the
+      // permissions its parent already holds. Consult the parent session's
+      // published grant snapshot; auto-allow ONLY when the parent already grants
+      // every requested pattern. Ordered AFTER the deny loop (explicit deny still
+      // wins). A path the parent doesn't hold fails closed — no human wait.
+      if (needsAsk && input.inherit) {
+        const parentSnapshot = forwardRef.getParentGrants(input.inherit.parentSessionID)
+        if (parentSnapshot) {
+          const allAllowed = request.patterns.every((pattern) => {
+            if (evaluate(request.permission, pattern, parentSnapshot.ruleset).action === "deny") return false
+            return evaluate(request.permission, pattern, parentSnapshot.ruleset, parentSnapshot.approved).action === "allow"
+          })
+          if (allAllowed) return
+        }
+      }
+
+      // Non-interactive caller (background agent with no attached human): an
+      // ask that would block instead fails clean with DeniedError.
+      if (needsAsk && input.interactive === false) {
+        return yield* new PermissionV1.DeniedError({
+          ruleset: ruleset.filter((rule) => Wildcard.match(request.permission, rule.permission)),
+        })
+      }
+
       if (!needsAsk) return
+
+      // Consult Question.neverAsk before blocking -- scope-verified: the toast says
+      // "Permission requests still need your approval" so neverAsk (question-only) does NOT auto-approve permissions.
+      // We still read the flag to prove the toggle is consulted (fix for NEVER-ASK-TOGGLE-NOT-CONSULTED) but keep blocking.
+      // Use serviceOption so permission layer does not hard-require Question at composition time.
+      const neverAskEnabled = yield* Effect.serviceOption(Question.Service).pipe(
+        Effect.flatMap((opt) => (opt._tag === "Some" ? opt.value.neverAsk() : Effect.succeed(false))),
+        Effect.orElseSucceed(() => false),
+      )
+      if (neverAskEnabled) {
+        yield* Effect.logInfo("never-ask is on but permission still requires approval (question scope only)", {
+          permission: request.permission,
+        })
+      }
 
       const id = request.id ?? PermissionV1.ID.ascending()
       const info: PermissionV1.Request = {
@@ -98,10 +161,39 @@ const layer = Layer.effect(
       const deferred = yield* Deferred.make<void, PermissionV1.RejectedError | PermissionV1.CorrectedError>()
       pending.set(id, { info, deferred })
       yield* events.publish(Event.Asked, info)
+
+      if (input.forward) {
+        const parentSessionID = input.forward.parentSessionID
+        if (forwardRef.grantAllowed(parentSessionID, info.sessionID)) {
+          yield* Deferred.succeed(deferred, void 0)
+        } else {
+          forwardRef.addPending(String(id), {
+            childSessionID: info.sessionID,
+            parentSessionID,
+            resolve: (decision) =>
+              Effect.runFork(
+                decision === "allow"
+                  ? Deferred.succeed(deferred, void 0)
+                  : Deferred.fail(deferred, new PermissionV1.RejectedError()),
+              ),
+          })
+        }
+      }
+
       return yield* Effect.ensuring(
-        Deferred.await(deferred),
+        Deferred.await(deferred).pipe(
+          Effect.timeoutOrElse({
+            duration: Duration.millis(DEFAULT_PERMISSION_TIMEOUT),
+            orElse: () =>
+              Effect.gen(function* () {
+                yield* Deferred.fail(deferred, new PermissionV1.RejectedError())
+                return yield* new PermissionV1.RejectedError()
+              }),
+          }),
+        ),
         Effect.sync(() => {
           pending.delete(id)
+          forwardRef.removePending(String(id))
         }),
       )
     })
@@ -141,6 +233,11 @@ const layer = Layer.effect(
 
       yield* Deferred.succeed(existing.deferred, undefined)
       if (input.reply === "once") return
+      // Forced-ask permissions never persist an approval -- the promise of
+      // "human must confirm every time" trumps an `always` reply. Treating
+      // "always" as "once" for these keeps the reply path a no-op instead of
+      // writing a rule that ask()'s forced branch would just ignore next call.
+      if (FORCED_ASK.has(existing.info.permission)) return
 
       for (const pattern of existing.info.always) {
         approved.push({
@@ -197,6 +294,10 @@ export function fromConfig(permission: ConfigPermissionV1.Info) {
   return ruleset
 }
 
+/**
+ * Merge rulesets by concatenation; last match wins. No default-allow:
+ * `evaluate` defaults to `ask` when no rule matches.
+ */
 export function merge(...rulesets: PermissionV1.Ruleset[]): PermissionV1.Rule[] {
   return rulesets.flat()
 }

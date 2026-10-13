@@ -6,7 +6,7 @@
 
   [data-slot="diff-changes-additions"],
   [data-slot="diff-changes-deletions"] {
-    font-size: 11px;
+    font-size: var(--font-size-xx-small);
     font-style: normal;
     font-weight: 440;
     line-height: 1;

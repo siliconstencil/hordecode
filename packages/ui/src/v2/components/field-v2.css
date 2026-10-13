@@ -19,7 +19,7 @@
   border: 0;
   font-style: normal;
   font-weight: 530;
-  font-size: 13px;
+  font-size: var(--font-size-small);
   line-height: 1;
   letter-spacing: -0.04px;
   color: var(--v2-text-text-base);
@@ -77,7 +77,7 @@
   min-height: 11px;
   font-style: normal;
   font-weight: 440;
-  font-size: 11px;
+  font-size: var(--font-size-xx-small);
   line-height: 1;
   letter-spacing: 0.05px;
   color: var(--v2-text-text-muted);

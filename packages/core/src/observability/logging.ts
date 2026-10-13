@@ -54,7 +54,7 @@ export function fileLogger(file = path.join(Global.Path.log, "opencode.log"), id
 const stderrLogger = Logger.make((options) => process.stderr.write(formatter().log(options) + "\n"))
 
 export function minimumLogLevel() {
-  const value = process.env.OPENCODE_LOG_LEVEL?.toUpperCase()
+  const value = (process.env.HORDECODE_LOG_LEVEL ?? process.env.OPENCODE_LOG_LEVEL)?.toUpperCase()
   const levels = {
     DEBUG: "Debug",
     INFO: "Info",

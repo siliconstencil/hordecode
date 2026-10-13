@@ -21,7 +21,11 @@ const legacySources = [
   { pattern: "{agent,agents}/**/*.md", primary: false },
   { pattern: "{mode,modes}/*.md", primary: true },
 ] as const
-const decodeAgent = Schema.decodeUnknownOption(ConfigAgent.Info)
+const decodeAgent = (input: unknown, _options?: unknown) => {
+  const result = ConfigAgent.Info.safeParse(input)
+  if (result.success) return Option.some(result.data)
+  return Option.none()
+}
 const decodeLegacyAgent = Schema.decodeUnknownOption(ConfigAgentV1.Info)
 const decodeConfig = Schema.decodeUnknownOption(Config.Info)
 type PathAction =

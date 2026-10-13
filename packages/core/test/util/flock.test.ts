@@ -3,7 +3,7 @@ import fs from "fs/promises"
 import { spawn } from "child_process"
 import path from "path"
 import os from "os"
-import { Flock } from "@opencode-ai/core/util/flock"
+import { Flock } from "@opencode-ai/shared/util/flock"
 import { Hash } from "@opencode-ai/core/util/hash"
 
 type Msg = {

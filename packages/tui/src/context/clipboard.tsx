@@ -16,3 +16,26 @@ export function ClipboardProvider(props: { value?: ClipboardService; children: J
 export function useClipboard() {
   return useContext(ClipboardContext)
 }
+
+export function ClipboardCopy(): { copy: (text: string) => Promise<void> } {
+  const clip = useClipboard()
+  return {
+    copy: async (text: string) => {
+      await clip.write?.(text)
+      await clip.read?.()
+    },
+  }
+}
+
+export function ClipboardCopyComponent(props: { value: string; children?: JSX.Element }) {
+  const clip = useClipboard()
+  return (
+    <span
+      // @ts-expect-error span element from opentui/solid may not include onClick in its props type
+      onClick={() => clip.write?.(props.value)}
+      style={{ cursor: "pointer", textDecoration: "underline" }}
+    >
+      {props.children ?? props.value}
+    </span>
+  )
+}

@@ -63,6 +63,32 @@ function unquoteGitPath(input: string) {
   return Buffer.from(bytes).toString()
 }
 
+// Shared by summarize()'s live push and diff()'s REST no-messageID branch --
+// both must agree on what "the session's diffs" means, or the TUI's
+// session.diff event handler (which replaces its whole panel state per
+// event, not merges) will wipe out earlier turns' diffs on any later turn
+// that touches no files.
+function aggregateDiffs(all: SessionV1.WithParts[]): Snapshot.FileDiff[] {
+  const allDiffs: Snapshot.FileDiff[] = []
+  for (const m of all) {
+    if (m.info.role !== "user") continue
+    if (!m.info.summary) continue
+    allDiffs.push(...m.info.summary.diffs)
+  }
+  const seen = new Set<string>()
+  const deduped = allDiffs.filter((item) => {
+    if (!item.file || seen.has(item.file)) return false
+    seen.add(item.file)
+    return true
+  })
+  return deduped.map((item) => {
+    if (item.file === undefined) return item
+    const file = unquoteGitPath(item.file)
+    if (file === item.file) return item
+    return { ...item, file }
+  })
+}
+
 export interface Interface {
   readonly summarize: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<void>
   readonly diff: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Snapshot.FileDiff[]>
@@ -103,15 +129,6 @@ const layer = Layer.effect(
       sessionID: SessionID
       messageID: MessageID
     }) {
-      yield* sessions.setSummary({
-        sessionID: input.sessionID,
-        summary: {
-          additions: 0,
-          deletions: 0,
-          files: 0,
-        },
-      })
-      yield* events.publish(Session.Event.Diff, { sessionID: input.sessionID, diff: [] })
       if ((yield* config.get()).snapshot === false) return
       const all = yield* sessions.messages({ sessionID: input.sessionID }).pipe(Effect.orDie)
       if (!all.length) return
@@ -124,13 +141,22 @@ const layer = Layer.effect(
       const msgDiffs = yield* computeDiff({ messages })
       target.info.summary = { ...target.info.summary, diffs: msgDiffs }
       yield* sessions.updateMessage(target.info)
+      const aggregate = aggregateDiffs(all)
+      yield* events.publish(Session.Event.Diff, { sessionID: input.sessionID, diff: aggregate })
+      yield* sessions.setSummary({
+        sessionID: input.sessionID,
+        summary: {
+          additions: aggregate.reduce((sum, x) => sum + x.additions, 0),
+          deletions: aggregate.reduce((sum, x) => sum + x.deletions, 0),
+          files: aggregate.length,
+        },
+      })
     })
 
     const diff = Effect.fn("SessionSummary.diff")(function* (input: { sessionID: SessionID; messageID?: MessageID }) {
-      if (!input.messageID) return []
-      const message = (yield* sessions.messages({ sessionID: input.sessionID }).pipe(Effect.orDie)).find(
-        (item) => item.info.id === input.messageID,
-      )
+      const all = yield* sessions.messages({ sessionID: input.sessionID }).pipe(Effect.orDie)
+      if (!input.messageID) return aggregateDiffs(all)
+      const message = all.find((item) => item.info.id === input.messageID)
       if (!message || message.info.role !== "user") return []
       const diffs = message.info.summary?.diffs ?? []
       return diffs.map((item) => {

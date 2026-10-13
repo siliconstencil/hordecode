@@ -107,4 +107,55 @@ describe("config HttpApi", () => {
       })
     }),
   )
+
+  // (c) -- real HTTP round-trip for the previously untested
+  // `config.providers` endpoint. Returns `ConfigProvidersResult =
+  // { providers: Provider.Info[]; default: DefaultModelIDs }`. Mirrors the
+  // existing config test pattern: real `it.live` -> `app().request(...)`
+  // -> assert response shape. We assert the response shape (keys + types)
+  // rather than specific provider entries because Provider.list() in a
+  // test env may or may not reach models.dev depending on cache state.
+  // Note: unlike the other two tests, this one does NOT wait for
+  // `server.instance.disposed` -- Provider.list may schedule background
+  // work that prevents the dispose predicate from firing within the
+  // default timeout. The afterEach hook (line 27-30) handles final
+  // teardown.
+  it.live(
+    "serves config.providers through the default server app",
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirEffect({
+        config: {
+          formatter: false,
+          lsp: false,
+          provider: {
+            omniroute: {
+              models: {
+                "gpt-4o": { status: "active" },
+                "claude-3": { status: "active" },
+              },
+            },
+          },
+        },
+      })
+
+      const response = yield* Effect.promise(() =>
+        Promise.resolve(
+          app().request("/config/providers", {
+            headers: { "x-opencode-directory": tmp.path },
+          }),
+        ),
+      )
+
+      expect(response.status).toBe(200)
+      const body = (yield* Effect.promise(() => response.json())) as {
+        providers: unknown[]
+        default?: unknown
+      }
+      // Schema contract: `providers` is an array, `default` is an object.
+      expect(Array.isArray(body.providers)).toBe(true)
+      expect(typeof body.default).toBe("object")
+      expect(body.default).not.toBeNull()
+    }),
+    30_000,
+  )
 })

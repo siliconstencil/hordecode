@@ -5,7 +5,7 @@ import { Context, Effect, Layer, Schema } from "effect"
 import { Database } from "../database/database"
 import { makeGlobalNode } from "../effect/app-node"
 import { ProjectV2 } from "../project"
-import { PermissionTable } from "./sql"
+import { PermissionSavedTable } from "../session/permission.sql"
 import { PermissionSaved } from "@opencode-ai/schema/permission-saved"
 
 export const ID = PermissionSaved.ID
@@ -42,19 +42,24 @@ const layer = Layer.effect(
     const list = Effect.fn("PermissionSaved.list")(function* (input?: ListInput) {
       const rows = yield* db
         .select()
-        .from(PermissionTable)
-        .where(input?.projectID ? eq(PermissionTable.project_id, input.projectID) : undefined)
+        .from(PermissionSavedTable)
+        .where(input?.projectID ? eq(PermissionSavedTable.project_id, input.projectID) : undefined)
         .all()
         .pipe(Effect.orDie)
       return rows.map(
-        (row): Info => ({ id: row.id, projectID: row.project_id, action: row.action, resource: row.resource }),
+        (row): Info => ({
+          id: row.id as PermissionSaved.ID,
+          projectID: row.project_id as ProjectV2.ID,
+          action: row.action,
+          resource: row.resource,
+        }),
       )
     })
 
     const add = Effect.fn("PermissionSaved.add")(function* (input: AddInput) {
       if (!input.resources.length) return
       yield* db
-        .insert(PermissionTable)
+        .insert(PermissionSavedTable)
         .values(
           input.resources.map((resource) => ({
             id: ID.create(),
@@ -69,7 +74,7 @@ const layer = Layer.effect(
     })
 
     const remove = Effect.fn("PermissionSaved.remove")(function* (id: ID) {
-      yield* db.delete(PermissionTable).where(eq(PermissionTable.id, id)).run().pipe(Effect.orDie)
+      yield* db.delete(PermissionSavedTable).where(eq(PermissionSavedTable.id, id)).run().pipe(Effect.orDie)
     })
 
     return Service.of({ list, add, remove })

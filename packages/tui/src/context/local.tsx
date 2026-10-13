@@ -1,6 +1,6 @@
 import { createStore } from "solid-js/store"
 import { createSimpleContext } from "./helper"
-import { batch, createEffect, createMemo } from "solid-js"
+import { batch, createEffect, createMemo, createSignal } from "solid-js"
 import { useSync } from "./sync"
 import { useEvent } from "./event"
 import path from "path"
@@ -12,7 +12,6 @@ import { readJson, writeJsonAtomic } from "../util/persistence"
 import { useTheme } from "./theme"
 import { useToast } from "../ui/toast"
 import { useRoute } from "./route"
-import { usePermission } from "./permission"
 
 export type LocalTheme = {
   secondary: RGBA
@@ -58,8 +57,6 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const route = useRoute()
     const paths = useTuiPaths()
     const args = useArgs()
-    const event = useEvent()
-    const permission = usePermission()
 
     function isModelValid(model: { providerID: string; modelID: string }) {
       const provider = sync.data.provider.find((item) => item.id === model.providerID)
@@ -75,7 +72,15 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     }
 
     function createAgent() {
-      const agents = createMemo(() => sync.data.agent.filter((agent) => agent.mode !== "subagent" && !agent.hidden))
+      const agents = createMemo(() => {
+        const ALLOWED = new Set(["build", "plan", "harness", "max", "research"])
+        const ORDER = ["build", "plan", "harness", "research", "max"] as const
+        const orderIdx = new Map<string, number>(ORDER.map((n, i) => [n, i]))
+        return sync.data.agent
+          .filter((agent) => agent.mode !== "subagent" && !agent.hidden && ALLOWED.has(agent.name))
+          .slice()
+          .sort((a, b) => (orderIdx.get(a.name) ?? 99) - (orderIdx.get(b.name) ?? 99))
+      })
       const visibleAgents = createMemo(() => sync.data.agent.filter((agent) => !agent.hidden))
       const [agentStore, setAgentStore] = createStore({
         current: undefined as string | undefined,
@@ -449,6 +454,8 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           if (state.pending) save()
         })
 
+      const event = useEvent()
+
       const slots = createMemo(() => {
         const existing = new Set(sync.data.session.filter((x) => x.parentID === undefined).map((x) => x.id))
         return sessionStore.pinned.filter((id) => existing.has(id)).slice(0, 9)
@@ -530,12 +537,29 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       })
     })
 
+    function createNeverAsk() {
+      const [enabled, setEnabled] = createSignal(false)
+      return {
+        current: enabled,
+        set(value: boolean) {
+          setEnabled(value)
+        },
+        toggle() {
+          const next = !enabled()
+          setEnabled(next)
+          return next
+        },
+      }
+    }
+
+    const neverAsk = createNeverAsk()
+
     const result = {
       model,
       agent,
       mcp,
       session,
-      permission,
+      neverAsk,
     }
     return result
   },

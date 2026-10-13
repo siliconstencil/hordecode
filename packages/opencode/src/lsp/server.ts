@@ -13,6 +13,7 @@ import { Module } from "@opencode-ai/core/util/module"
 import { spawn } from "./launch"
 import { Npm } from "@opencode-ai/core/npm"
 import type { RuntimeFlags } from "@/effect/runtime-flags"
+import { withoutCredentials } from "@opencode-ai/core/util/credential-env"
 
 const pathExists = async (p: string) =>
   fs
@@ -127,7 +128,7 @@ export const Typescript: Info = {
     const proc = spawn(bin, ["--stdio"], {
       cwd: root,
       env: {
-        ...process.env,
+        ...withoutCredentials(process.env),
       },
     })
     return {
@@ -158,7 +159,7 @@ export const Vue: Info = {
     const proc = spawn(binary, args, {
       cwd: root,
       env: {
-        ...process.env,
+        ...withoutCredentials(process.env),
       },
     })
     return {
@@ -211,7 +212,7 @@ export const ESLint: Info = {
     const proc = spawn("node", [serverPath, "--stdio"], {
       cwd: root,
       env: {
-        ...process.env,
+        ...withoutCredentials(process.env),
       },
     })
 
@@ -345,7 +346,7 @@ export const Biome: Info = {
     const proc = spawn(bin, args, {
       cwd: root,
       env: {
-        ...process.env,
+        ...withoutCredentials(process.env),
       },
     })
 
@@ -370,7 +371,7 @@ export const Gopls: Info = {
       if (flags.disableLspDownload) return
 
       const proc = Process.spawn(["go", "install", "golang.org/x/tools/gopls@latest"], {
-        env: { ...process.env, GOBIN: Global.Path.bin },
+        env: { ...withoutCredentials(process.env), GOBIN: Global.Path.bin },
         stdout: "pipe",
         stderr: "pipe",
         stdin: "pipe",
@@ -516,7 +517,7 @@ export const Pyright: Info = {
     const proc = spawn(binary, args, {
       cwd: root,
       env: {
-        ...process.env,
+        ...withoutCredentials(process.env),
       },
     })
     return {
@@ -567,7 +568,7 @@ export const ElixirLS: Info = {
         })
 
         const cwd = path.join(Global.Path.bin, "elixir-ls-master")
-        const env = { MIX_ENV: "prod", ...process.env }
+        const env = { MIX_ENV: "prod", ...withoutCredentials(process.env) }
         await Process.run(["mix", "deps.get"], { cwd, env })
         await Process.run(["mix", "compile"], { cwd, env })
         await Process.run(["mix", "elixir_ls.release2", "-o", "release"], { cwd, env })
@@ -1083,7 +1084,7 @@ export const Svelte: Info = {
     const proc = spawn(binary, args, {
       cwd: root,
       env: {
-        ...process.env,
+        ...withoutCredentials(process.env),
       },
     })
     return {
@@ -1116,7 +1117,7 @@ export const Astro: Info = {
     const proc = spawn(binary, args, {
       cwd: root,
       env: {
-        ...process.env,
+        ...withoutCredentials(process.env),
       },
     })
     return {
@@ -1375,7 +1376,7 @@ export const YamlLS: Info = {
     const proc = spawn(binary, args, {
       cwd: root,
       env: {
-        ...process.env,
+        ...withoutCredentials(process.env),
       },
     })
     return {
@@ -1529,7 +1530,7 @@ export const PHPIntelephense: Info = {
     const proc = spawn(binary, args, {
       cwd: root,
       env: {
-        ...process.env,
+        ...withoutCredentials(process.env),
       },
     })
     return {
@@ -1610,7 +1611,7 @@ export const BashLS: Info = {
     const proc = spawn(binary, args, {
       cwd: root,
       env: {
-        ...process.env,
+        ...withoutCredentials(process.env),
       },
     })
     return {
@@ -1788,7 +1789,7 @@ export const DockerfileLS: Info = {
     const proc = spawn(binary, args, {
       cwd: root,
       env: {
-        ...process.env,
+        ...withoutCredentials(process.env),
       },
     })
     return {
@@ -1857,7 +1858,7 @@ export const Nixd: Info = {
       process: spawn(nixd, [], {
         cwd: root,
         env: {
-          ...process.env,
+          ...withoutCredentials(process.env),
         },
       }),
     }

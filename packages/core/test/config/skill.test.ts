@@ -7,9 +7,12 @@ import { Global } from "@opencode-ai/core/global"
 import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SkillV2 } from "@opencode-ai/core/skill"
+import type { SkillV2Source } from "@opencode-ai/sdk/v2/types"
 import { location } from "../fixture/location"
 import { testEffect } from "../lib/effect"
 import { host } from "../plugin/host"
+
+type SkillDraft = { source(source: SkillV2Source): void; list(): readonly SkillV2Source[] }
 
 const it = testEffect(Layer.empty)
 const decode = Schema.decodeUnknownSync(Config.Info)
@@ -18,8 +21,8 @@ describe("ConfigSkillPlugin.Plugin", () => {
   it.effect("registers configured skill directories and URLs", () =>
     Effect.gen(function* () {
       const directory = AbsolutePath.make("/repo/packages/app")
-      const sources: SkillV2.Source[] = []
-      const transform = Effect.fnUntraced(function* (update: (draft: SkillV2.Draft) => void | Effect.Effect<void>) {
+      const sources: SkillV2Source[] = []
+      const transform = Effect.fnUntraced(function* (update: (draft: SkillDraft) => void | Effect.Effect<void>) {
         const result = update({
           source: (source) => {
             sources.push(source)

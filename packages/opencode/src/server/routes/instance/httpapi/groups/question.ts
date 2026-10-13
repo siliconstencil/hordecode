@@ -54,6 +54,30 @@ export const QuestionApi = HttpApi.make("question")
             description: "Reject a question request from the AI assistant.",
           }),
         ),
+        HttpApiEndpoint.get("neverAsk", `${root}/never-ask`, {
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Boolean, "Current never-ask state"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "question.neverAsk",
+            summary: "Get never-ask state",
+            description: "Get current never-ask state.",
+          }),
+        ),
+        HttpApiEndpoint.post("setNeverAsk", `${root}/never-ask`, {
+          query: WorkspaceRoutingQuery,
+          payload: Schema.Struct({
+            enabled: Schema.Boolean,
+          }),
+          success: described(Schema.Boolean, "Updated never-ask state"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "question.setNeverAsk",
+            summary: "Set never-ask state",
+            description:
+              "Enable or disable never-ask: the question tool stays visible but returns a [Never-Ask] directive so the model resolves decisions itself.",
+          }),
+        ),
       )
       .annotateMerge(
         OpenApi.annotations({

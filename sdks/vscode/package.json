@@ -2,7 +2,8 @@
   "name": "opencode",
   "displayName": "opencode",
   "description": "opencode for VS Code",
-  "version": "1.17.18",
+  "version": "0.1.0",
+  "hordecodeBase": "1.18.34",
   "publisher": "sst-dev",
   "repository": {
     "type": "git",

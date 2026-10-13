@@ -147,6 +147,7 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
                 prompt: ctx.payload.prompt,
                 delivery: ctx.payload.delivery,
                 resume: ctx.payload.resume,
+                steps: ctx.payload.steps,
               })
               .pipe(
                 Effect.catchTag("Session.NotFoundError", (error) =>

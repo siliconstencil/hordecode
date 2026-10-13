@@ -557,7 +557,7 @@ export function AppInterface(props: {
             <Show when={useSettings().general.newLayoutDesigns().toString()} keyed>
               <Dynamic
                 component={props.router ?? Router}
-                root={(routerProps) => (
+                root={(routerProps: { children?: JSX.Element }) => (
                   <TabsProvider>
                     <NotificationProvider>
                       <ServerShell>

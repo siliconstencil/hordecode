@@ -6,6 +6,7 @@ import * as TestClock from "effect/testing/TestClock"
 import * as TestConsole from "effect/testing/TestConsole"
 import { memoMap } from "@opencode-ai/core/effect/memo-map"
 import type { Config } from "@/config/config"
+import { Database } from "@opencode-ai/core/database/database"
 import { TestInstance, withTmpdirInstance } from "../fixture/fixture"
 import { InstanceStore } from "@/project/instance-store"
 
@@ -128,11 +129,19 @@ const make = <R, E>(testLayer: Layer.Layer<R, E>, liveLayer: Layer.Layer<R, E>, 
   return { effect, live, instance }
 }
 
+// `Database` is a global node consumed by background fibers (child-process
+// exit handlers, the scheduler) that run outside the per-test fiber context
+// and resolve it from the process-wide memoMap. Tests that don't transitively
+// require `Database.node` in their own layer never build it into that shared
+// runtime, so provide it in the shared test env — every test merges this via
+// `testEffect`, which seeds the global memoMap for all global nodes.
+const dbLayer = Database.layerFromPath(process.env.HORDECODE_DB ?? process.env.OPENCODE_DB ?? ":memory:")
+
 // Test environment with TestClock and TestConsole
-const testEnv = Layer.mergeAll(TestConsole.layer, TestClock.layer())
+const testEnv = Layer.mergeAll(TestConsole.layer, TestClock.layer(), dbLayer)
 
 // Live environment - uses real clock, but keeps TestConsole for output capture
-const liveEnv = TestConsole.layer
+const liveEnv = Layer.mergeAll(TestConsole.layer, dbLayer)
 
 export const it = make<never, never>(testEnv, liveEnv)
 

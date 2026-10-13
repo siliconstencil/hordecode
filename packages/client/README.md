@@ -20,8 +20,8 @@ import { AbsolutePath, Location, OpenCode, Prompt } from "@opencode-ai/client/ef
 
 const client = yield * OpenCode.make({ baseUrl: "https://opencode.example" })
 yield *
-  client.sessions.create({
+  client.session.create({
     location: Location.Ref.make({ directory: AbsolutePath.make("/workspace") }),
   })
-yield * client.sessions.prompt({ sessionID, prompt: Prompt.make({ text: "Hello" }) })
+yield * client.session.prompt({ sessionID, prompt: Prompt.make({ text: "Hello" }) })
 ```

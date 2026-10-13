@@ -17,4 +17,8 @@ if (process.versions.bun !== expectedBunVersion) {
   console.warn(`Warning: Bun version ${process.versions.bun} differs from expected ${expectedBunVersion}`);
 }
 '
-bun typecheck
+# Root typecheck is intentionally a stub; typecheck per package instead.
+for pkg in inbox core opencode supervisor; do
+  echo "pre-push: typecheck packages/$pkg"
+  (cd "packages/$pkg" && bun run typecheck)
+done

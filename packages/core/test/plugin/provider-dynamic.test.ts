@@ -1,6 +1,6 @@
 import { Npm } from "@opencode-ai/core/npm"
 import { describe, expect } from "bun:test"
-import { Cause, Effect, Layer } from "effect"
+import { Cause, Effect, Layer, Option } from "effect"
 import fs from "fs/promises"
 import os from "os"
 import path from "path"
@@ -22,9 +22,13 @@ const itWithAISDK = testEffect(Layer.mergeAll(PluginTestLayer, AppNodeBuilder.bu
 
 function npmEntrypoint(entrypoint?: string) {
   return Npm.Service.of({
-    add: () => Effect.succeed({ directory: "", entrypoint }),
+    add: () => {
+      const ep = entrypoint != null ? Option.some(entrypoint) : Option.none<string>()
+      return Effect.succeed({ directory: "", entrypoint: ep })
+    },
     install: () => Effect.void,
-    which: () => Effect.succeed(undefined),
+    which: () => Effect.succeed(Option.none()),
+    outdated: () => Effect.succeed(false),
   })
 }
 

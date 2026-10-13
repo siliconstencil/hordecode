@@ -132,6 +132,13 @@ export type ToolTaskSnapshot = {
   tail: string
 }
 
+export type ToolSupervisorSnapshot = {
+  kind: "supervisor"
+  title: string
+  rows: string[]
+  tail: string
+}
+
 export type ToolTodoSnapshot = {
   kind: "todo"
   items: Array<{
@@ -154,6 +161,7 @@ export type ToolSnapshot =
   | ToolCodeSnapshot
   | ToolDiffSnapshot
   | ToolTaskSnapshot
+  | ToolSupervisorSnapshot
   | ToolTodoSnapshot
   | ToolQuestionSnapshot
 

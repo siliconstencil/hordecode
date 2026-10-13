@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@opencode-ai/memory",
+  "version": "0.1.0",
+  "hordecodeBase": "1.18.34",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "@typescript/native-preview": "catalog:"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "4.2.0",
+    "@opencode-ai/core": "workspace:*",
+    "drizzle-orm": "catalog:",
+    "effect": "catalog:",
+    "onnxruntime-node": "1.24.3"
+  }
+}

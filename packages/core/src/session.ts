@@ -13,14 +13,14 @@ import { Prompt } from "./session/prompt"
 import { PromptInput } from "@opencode-ai/schema/prompt-input"
 import { EventV2 } from "./event"
 import { Database } from "./database/database"
-import { SessionProjector } from "./session/projector"
+import { SessionAlreadyProjected } from "./session/projector-error"
 import { SessionMessageTable, SessionTable } from "./session/sql"
 import { SessionSchema } from "./session/schema"
 import { AbsolutePath, PositiveInt, RelativePath } from "./schema"
 import { AgentV2 } from "./agent"
 import { SessionV1 } from "./v1/session"
 import { InstallationVersion } from "./installation/version"
-import { Slug } from "./util/slug"
+import { Slug } from "@opencode-ai/shared/util/slug"
 import { ProjectTable } from "./project/sql"
 import path from "path"
 import { fromRow } from "./session/info"
@@ -150,6 +150,7 @@ export interface Interface {
     prompt: PromptInput.Prompt
     delivery?: SessionInput.Delivery
     resume?: boolean
+    steps?: number
   }) => Effect.Effect<SessionInput.Admitted, NotFoundError | PromptConflictError>
   readonly shell: (input: {
     id?: EventV2.ID
@@ -243,7 +244,7 @@ const layer = Layer.effect(
           .pipe(
             Effect.as({ type: "created" } as const),
             Effect.catchDefect((defect) => {
-              if (!(defect instanceof SessionProjector.SessionAlreadyProjected)) {
+              if (!(defect instanceof SessionAlreadyProjected)) {
                 return Effect.die(defect)
               }
               // Concurrent creation lost the projection race. The existing Session identity wins.
@@ -379,7 +380,7 @@ const layer = Layer.effect(
             )
             if (!SessionInput.equivalent(admitted, expected))
               return yield* new PromptConflictError({ sessionID: input.sessionID, messageID })
-            if (input.resume !== false) yield* execution.wake(admitted.sessionID)
+            if (input.resume !== false) yield* execution.wake(admitted.sessionID, input.steps)
             return admitted
           }),
         ),
@@ -481,6 +482,5 @@ export const node = makeGlobalNode({
     SessionExecution.node,
     SessionStore.node,
     LocationServiceMap.node,
-    SessionProjector.node,
   ],
 })

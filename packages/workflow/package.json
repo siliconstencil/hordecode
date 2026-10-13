@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@opencode-ai/workflow",
+  "version": "0.1.0",
+  "hordecodeBase": "1.18.34",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "@typescript/native-preview": "catalog:"
+  },
+  "dependencies": {
+    "@opencode-ai/supervisor": "workspace:*",
+    "@opencode-ai/bus": "workspace:*",
+    "@opencode-ai/core": "workspace:*",
+    "@opencode-ai/global": "workspace:*",
+    "@opencode-ai/inbox": "workspace:*",
+    "@opencode-ai/project": "workspace:*",
+    "@opencode-ai/worktree": "workspace:*",
+    "@jitl/quickjs-singlefile-mjs-release-sync": "latest",
+    "drizzle-orm": "catalog:",
+    "effect": "catalog:",
+    "quickjs-emscripten-core": "latest",
+    "zod": "catalog:"
+  }
+}

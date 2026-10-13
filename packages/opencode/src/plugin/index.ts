@@ -6,6 +6,8 @@ import type {
   PluginModule,
   WorkspaceAdapter as PluginWorkspaceAdapter,
 } from "@opencode-ai/plugin"
+import type { HookEntry } from "@opencode-ai/core/plugin"
+import { PluginV2 } from "@opencode-ai/core/plugin"
 import { Config } from "@/config/config"
 import { createOpencodeClient } from "@opencode-ai/sdk"
 import { ServerAuth } from "@/server/auth"
@@ -13,13 +15,17 @@ import { CodexAuthPlugin } from "./openai/codex"
 import { Session } from "@/session/session"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { CopilotAuthPlugin } from "./github-copilot/copilot"
+import { ModalPlugin } from "./modal/modal"
 import { gitlabAuthPlugin as GitlabAuthPlugin } from "opencode-gitlab-auth"
 import { PoeAuthPlugin } from "opencode-poe-auth"
 import { CloudflareAIGatewayAuthPlugin, CloudflareWorkersAuthPlugin } from "./cloudflare"
 import { AzureAuthPlugin } from "./azure"
 import { DigitalOceanAuthPlugin } from "./digitalocean"
 import { XaiAuthPlugin } from "./xai"
+import { CerebrasPlugin } from "./cerebras"
 import { SnowflakeCortexAuthPlugin } from "./snowflake-cortex"
+import { CheckpointSplitoverPlugin } from "./checkpoint-splitover"
+import { SubagentProgressCheckerPlugin } from "./subagent-progress-checker"
 import { Effect, Layer, Context } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
@@ -31,9 +37,13 @@ import type { WorkspaceAdapter } from "@/control-plane/types"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { InstallationChannel } from "@opencode-ai/core/installation/version"
+import { Glob } from "@opencode-ai/core/util/glob"
+import path from "path"
+import { pathToFileURL } from "url"
 
 type State = {
   hooks: Hooks[]
+  pluginNames: string[]
 }
 
 // Hook names that follow the (input, output) => Promise<void> trigger pattern
@@ -53,6 +63,7 @@ export interface Interface {
   ) => Effect.Effect<Output>
   readonly list: () => Effect.Effect<Hooks[]>
   readonly init: () => Effect.Effect<void>
+  readonly reloadFileHooks: () => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Plugin") {}
@@ -70,6 +81,7 @@ function internalPlugins(flags: RuntimeFlags.Info): PluginInstance[] {
         experimentalWebSockets: experimentalWebSocketsEnabled({ enabled: flags.experimentalWebSockets }),
       }),
     CopilotAuthPlugin,
+    ModalPlugin,
     GitlabAuthPlugin,
     PoeAuthPlugin,
     CloudflareWorkersAuthPlugin,
@@ -78,6 +90,9 @@ function internalPlugins(flags: RuntimeFlags.Info): PluginInstance[] {
     DigitalOceanAuthPlugin,
     SnowflakeCortexAuthPlugin,
     XaiAuthPlugin,
+    CerebrasPlugin,
+    CheckpointSplitoverPlugin,
+    SubagentProgressCheckerPlugin,
   ]
 }
 
@@ -107,17 +122,28 @@ function getLegacyPlugins(mod: Record<string, unknown>) {
   return result
 }
 
-async function applyPlugin(load: PluginLoader.Loaded, input: PluginInput, hooks: Hooks[]) {
+async function applyPlugin(
+  load: PluginLoader.Loaded,
+  input: PluginInput,
+): Promise<{ hook: Hooks; pluginName: string } | undefined> {
   const plugin = readV1Plugin(load.mod, load.spec, "server", "detect")
   if (plugin) {
     await resolvePluginId(load.source, load.spec, load.target, readPluginId(plugin.id, load.spec), load.pkg)
-    hooks.push(await (plugin as PluginModule).server(input, load.options))
-    return
+    const pluginName = readPluginId(plugin.id, load.spec) ?? load.pkg?.pkg ?? load.spec
+    const hook = await (plugin as PluginModule).server(input, load.options)
+    return { hook, pluginName }
   }
 
   for (const server of getLegacyPlugins(load.mod)) {
-    hooks.push(await server(input, load.options))
+    const fnName = (server as { name?: string }).name
+    const pluginName = fnName && fnName !== "default" && fnName !== ""
+      ? fnName
+      : (load.pkg?.pkg ?? load.spec)
+    const hook = await server(input, load.options)
+    return { hook, pluginName }
   }
+
+  return undefined
 }
 
 const layer = Layer.effect(
@@ -126,10 +152,12 @@ const layer = Layer.effect(
     const events = yield* EventV2Bridge.Service
     const config = yield* Config.Service
     const flags = yield* RuntimeFlags.Service
+    const pluginV2 = yield* PluginV2.Service
 
     const state = yield* InstanceState.make<State>(
       Effect.fn("Plugin.state")(function* (ctx) {
         const hooks: Hooks[] = []
+        const pluginNames: string[] = []
         const bridge = yield* EffectBridge.make()
 
         function publishPluginError(message: string) {
@@ -171,7 +199,16 @@ const layer = Layer.effect(
             Effect.tapError((error) => Effect.logError("failed to load internal plugin", { name: plugin.name, error })),
             Effect.option,
           )
-          if (init._tag === "Some") hooks.push(init.value)
+          if (init._tag === "Some") {
+            hooks.push(init.value)
+            pluginNames.push(plugin.name)
+            const entry: HookEntry = {
+              hook: init.value,
+              pluginName: plugin.name,
+              hookIDFor: (event) => `${plugin.name}#${event}`,
+            }
+            yield* pluginV2.registerHooks(entry)
+          }
         }
 
         const plugins = flags.pure ? [] : (cfg.plugin_origins ?? [])
@@ -217,29 +254,34 @@ const layer = Layer.effect(
 
           // Keep plugin execution sequential so hook registration and execution
           // order remains deterministic across plugin runs.
-          yield* Effect.tryPromise({
-            try: () => applyPlugin(load, input, hooks),
+          const result = yield* Effect.tryPromise({
+            try: () => applyPlugin(load, input),
             catch: (err) => {
               const message = errorMessage(err)
               return message
             },
           }).pipe(
             Effect.tapError((error) => Effect.logError("failed to load plugin", { path: load.spec, error })),
-            Effect.catch(() => {
-              // TODO: make proper events for this
-              // events.publish(Session.Event.Error, {
-              //   error: new NamedError.Unknown({
-              //     message: `Failed to load plugin ${load.spec}: ${message}`,
-              //   }).toObject(),
-              // })
-              return Effect.void
-            }),
+            Effect.catch(() => Effect.succeed(undefined)),
+            Effect.map((r) => (typeof r === "string" ? undefined : r)),
           )
+
+          if (result) {
+            hooks.push(result.hook)
+            pluginNames.push(result.pluginName)
+            const entry: HookEntry = {
+              hook: result.hook,
+              pluginName: result.pluginName,
+              hookIDFor: (event: string) => `${result.pluginName}#${event}`,
+            }
+            yield* pluginV2.registerHooks(entry)
+          }
         }
 
         // Notify plugins of current config
         for (const hook of hooks) {
           yield* Effect.tryPromise({
+            //  upstream-parity bridge - v0.1.11 packages/opencode/src/plugin/index.ts:407 keeps (hook as any).config.
             try: () => Promise.resolve((hook as any).config?.(cfg)),
             catch: errorMessage,
           }).pipe(
@@ -252,11 +294,20 @@ const layer = Layer.effect(
           if (event.location?.directory !== ctx.directory) return Effect.void
           return Effect.sync(() => {
             for (const hook of hooks) {
+              //  upstream-parity bridge - v0.1.11 packages/opencode/src/plugin/index.ts:419 keeps the event payload as any.
               void hook["event"]?.({ event: { id: event.id, type: event.type, properties: event.data } as any })
             }
           })
         })
         yield* Effect.addFinalizer(() => unsubscribe)
+
+        yield* Effect.addFinalizer(() =>
+          Effect.forEach(
+            pluginNames,
+            (name) => pluginV2.clearHooks(name),
+            { discard: true },
+          ),
+        )
 
         yield* Effect.addFinalizer(() =>
           Effect.forEach(
@@ -273,9 +324,42 @@ const layer = Layer.effect(
           ),
         )
 
+        return { hooks, pluginNames }
+      }),
+    )
+
+    // File hooks: load local hook scripts from {hook,hooks}/*.{js,ts}
+    const fileHookState = yield* InstanceState.make<{ hooks: Hooks[] }>(
+      Effect.fn("Plugin.fileHooks")(function* () {
+        const hooks: Hooks[] = []
+        const dirs = yield* config.directories()
+
+        for (const dir of dirs) {
+          const matches = Glob.scanSync("{hook,hooks}/*.{js,ts}", { cwd: dir, absolute: true, dot: true, symlink: true })
+          for (const match of matches) {
+            const mod = yield* Effect.tryPromise({
+              try: () => import(`${pathToFileURL(match).href}?v=${Date.now()}`),
+              catch: (err) => err,
+            }).pipe(
+              Effect.tapError((err) => Effect.logError("failed to load file hook", { path: match, error: errorMessage(err) })),
+              Effect.catch(() => Effect.succeed(undefined)),
+            )
+            if (!mod) continue
+            const hookObj: Hooks = mod.default ?? mod
+            if (hookObj && typeof hookObj === "object") {
+              hooks.push(hookObj)
+              yield* Effect.logDebug("loaded file hook", { path: match, name: path.basename(match, path.extname(match)) })
+            }
+          }
+        }
+
         return { hooks }
       }),
     )
+
+    const HOOK_TIMEOUT_MS = 5000
+    const CIRCUIT_BREAKER_THRESHOLD = 3
+    const hookFailures = new Map<string, number>()
 
     const trigger = Effect.fn("Plugin.trigger")(function* <
       Name extends TriggerName,
@@ -284,10 +368,82 @@ const layer = Layer.effect(
     >(name: Name, input: Input, output: Output) {
       if (!name) return output
       const s = yield* InstanceState.get(state)
-      for (const hook of s.hooks) {
-        const fn = hook[name] as any
+      for (let idx = 0; idx < s.hooks.length; idx++) {
+        const hook = s.hooks[idx]
+        const fn = hook[name] as ((input: Input, output: Output) => Promise<void>) | undefined
         if (!fn) continue
-        yield* Effect.promise(async () => fn(input, output))
+        const hookID = `plugin#${String(name)}#${idx}`
+        if ((hookFailures.get(hookID) ?? 0) >= CIRCUIT_BREAKER_THRESHOLD) {
+          yield* Effect.logWarning("hook circuit-breaker open, skipping", { hook: hookID })
+          continue
+        }
+        const snapshot = structuredClone(output)
+        const failed = yield* Effect.tryPromise({
+          try: async () => {
+            await Promise.race([
+              Promise.resolve(fn(input, output)),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error(`hook timed out after ${HOOK_TIMEOUT_MS}ms`)), HOOK_TIMEOUT_MS),
+              ),
+            ])
+          },
+          catch: (err) => err,
+        }).pipe(
+          Effect.map(() => false),
+          Effect.catch((err) => {
+            //  upstream-parity bridge - v0.1.11 packages/opencode/src/plugin/index.ts:698 keeps Object.assign(output as any, snapshot).
+            Object.assign(output as any, snapshot)
+            const count = (hookFailures.get(hookID) ?? 0) + 1
+            hookFailures.set(hookID, count)
+            return Effect.logError("file hook failed, output rolled back", {
+              hook: hookID,
+              event: String(name),
+              error: errorMessage(err),
+              consecutiveFailures: count,
+              circuitOpen: count >= CIRCUIT_BREAKER_THRESHOLD,
+            }).pipe(Effect.as(true))
+          }),
+        )
+        if (!failed) hookFailures.delete(hookID)
+      }
+      const fh = yield* InstanceState.get(fileHookState)
+      for (let idx = 0; idx < fh.hooks.length; idx++) {
+        const hook = fh.hooks[idx]
+        const fn = hook[name] as ((input: Input, output: Output) => Promise<void>) | undefined
+        if (!fn) continue
+        const hookID = `file#${String(name)}#${idx}`
+        if ((hookFailures.get(hookID) ?? 0) >= CIRCUIT_BREAKER_THRESHOLD) {
+          yield* Effect.logWarning("hook circuit-breaker open, skipping", { hook: hookID })
+          continue
+        }
+        const snapshot = structuredClone(output)
+        const failed = yield* Effect.tryPromise({
+          try: async () => {
+            await Promise.race([
+              Promise.resolve(fn(input, output)),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error(`hook timed out after ${HOOK_TIMEOUT_MS}ms`)), HOOK_TIMEOUT_MS),
+              ),
+            ])
+          },
+          catch: (err) => err,
+        }).pipe(
+          Effect.map(() => false),
+          Effect.catch((err) => {
+            //  upstream-parity bridge - v0.1.11 packages/opencode/src/plugin/index.ts:698 keeps Object.assign(output as any, snapshot).
+            Object.assign(output as any, snapshot)
+            const count = (hookFailures.get(hookID) ?? 0) + 1
+            hookFailures.set(hookID, count)
+            return Effect.logError("file hook failed, output rolled back", {
+              hook: hookID,
+              event: String(name),
+              error: errorMessage(err),
+              consecutiveFailures: count,
+              circuitOpen: count >= CIRCUIT_BREAKER_THRESHOLD,
+            }).pipe(Effect.as(true))
+          }),
+        )
+        if (!failed) hookFailures.delete(hookID)
       }
       return output
     })
@@ -299,16 +455,23 @@ const layer = Layer.effect(
 
     const init = Effect.fn("Plugin.init")(function* () {
       yield* InstanceState.get(state)
+      yield* InstanceState.get(fileHookState)
     })
 
-    return Service.of({ trigger, list, init })
+    const reloadFileHooks: Interface["reloadFileHooks"] = Effect.fn("Plugin.reloadFileHooks")(function* () {
+      yield* InstanceState.invalidate(fileHookState)
+    })
+
+    return Service.of({ trigger, list, init, reloadFileHooks })
   }),
 )
+
+export const defaultLayer = layer
 
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
-  deps: [EventV2Bridge.node, Config.node, RuntimeFlags.node],
+  deps: [EventV2Bridge.node, Config.node, RuntimeFlags.node, PluginV2.node],
 })
 
 export * as Plugin from "."

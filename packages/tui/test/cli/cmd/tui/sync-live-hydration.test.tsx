@@ -33,6 +33,29 @@ function global(payload: GlobalEvent["payload"]): GlobalEvent {
   return { directory: "/tmp/other", project: "proj_test", payload }
 }
 
+test("live messages use creation time with an ID tie-break", async () => {
+  await using tmp = await tmpdir()
+  await Bun.write(`${tmp.path}/kv.json`, "{}")
+  const { app, emit, sync } = await mount(undefined, tmp.path)
+  const messages = [
+    { ...assistant, id: "msg_a", time: { created: 30, completed: 31 } },
+    { ...assistant, id: "msg_z", time: { created: 10, completed: 11 } },
+    { ...assistant, id: "msg_m", time: { created: 20, completed: 21 } },
+    { ...assistant, id: "msg_b", time: { created: 20, completed: 21 } },
+  ]
+
+  try {
+    for (const info of messages) {
+      emit(global({ id: `evt_${info.id}`, type: "message.updated", properties: { sessionID, info } }))
+    }
+    await wait(() => sync.data.message[sessionID]?.main?.length === messages.length)
+
+    expect(sync.data.message[sessionID].main.map((message) => message.id)).toEqual(["msg_z", "msg_b", "msg_m", "msg_a"])
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
 test("stale session hydration does not overwrite live message parts", async () => {
   await using tmp = await tmpdir()
   await Bun.write(`${tmp.path}/kv.json`, "{}")
@@ -200,7 +223,7 @@ test("live messages merged during hydration retain the 100 message window", asyn
     await wait(() => requested)
     const live = { ...assistant, id: "msg_z_live" }
     emit(global({ id: "evt_live", type: "message.updated", properties: { sessionID, info: live } }))
-    await wait(() => sync.data.message[sessionID]?.some((message) => message.id === live.id) ?? false)
+    await wait(() => sync.data.message[sessionID]?.["main"]?.some((message) => message.id === live.id) ?? false)
     resolveMessages(
       json(
         Array.from({ length: 100 }, (_, index) => {
@@ -214,9 +237,9 @@ test("live messages merged during hydration retain the 100 message window", asyn
     )
     await hydrate
 
-    expect(sync.data.message[sessionID]).toHaveLength(100)
-    expect(sync.data.message[sessionID].at(-1)?.id).toBe(live.id)
-    expect(sync.data.message[sessionID].some((message) => message.id === "msg_000")).toBe(false)
+    expect(sync.data.message[sessionID]?.["main"]).toHaveLength(100)
+    expect(sync.data.message[sessionID]?.["main"]?.at(-1)?.id).toBe(live.id)
+    expect(sync.data.message[sessionID]?.["main"]?.some((message) => message.id === "msg_000")).toBe(false)
     expect(sync.data.part.msg_000).toBeUndefined()
   } finally {
     app.renderer.destroy()
@@ -244,17 +267,17 @@ test("a message removed during hydration does not regain stale parts", async () 
 
   try {
     emit(global({ id: "evt_message", type: "message.updated", properties: { sessionID, info: assistant } }))
-    await wait(() => sync.data.message[sessionID]?.length === 1)
+    await wait(() => Object.values(sync.data.message[sessionID] ?? {}).flat().length === 1)
     const hydrate = sync.session.sync(sessionID)
     await wait(() => requested)
     emit(global({ id: "evt_removed", type: "message.removed", properties: { sessionID, messageID } }))
-    await wait(() => sync.data.message[sessionID]?.length === 0)
+    await wait(() => Object.values(sync.data.message[sessionID] ?? {}).flat().length === 0)
     resolveMessages(
       json([{ info: assistant, parts: [{ id: partID, sessionID, messageID, type: "text", text: "stale" }] }]),
     )
     await hydrate
 
-    expect(sync.data.message[sessionID]).toEqual([])
+    expect(Object.values(sync.data.message[sessionID] ?? {}).flat()).toEqual([])
     expect(sync.data.part[messageID]).toBeUndefined()
   } finally {
     app.renderer.destroy()

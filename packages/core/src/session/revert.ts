@@ -1,7 +1,11 @@
 export * as SessionRevert from "./revert"
 
 import { and, asc, eq, gt } from "drizzle-orm"
-import { DateTime, Effect, Schema } from "effect"
+import { Context, DateTime, Effect, Schema } from "effect"
+
+// Service class for session revert. Interface will be refined when
+// SessionRevert is fully ported.
+export class Service extends Context.Service<Service, any>()("@opencode/SessionRevert") {}
 import { Database } from "../database/database"
 import { EventV2 } from "../event"
 import { RelativePath } from "../schema"

@@ -137,6 +137,10 @@ export function RunEntryContent(props: {
     const next = structured()
     return next?.kind === "task" ? next : undefined
   })
+  const supervisor_snapshot = createMemo(() => {
+    const next = structured()
+    return next?.kind === "supervisor" ? next : undefined
+  })
   const todo_snapshot = createMemo(() => {
     const next = structured()
     return next?.kind === "todo" ? next : undefined
@@ -237,6 +241,25 @@ export function RunEntryContent(props: {
             {task_snapshot()!.tail ? (
               <text width="100%" wrapMode="word" fg={theme().block.muted}>
                 {task_snapshot()!.tail}
+              </text>
+            ) : null}
+          </box>
+        </box>
+      </Match>
+      <Match when={supervisor_snapshot()}>
+        <box width="100%" flexDirection="column" gap={1}>
+          <text width="100%" wrapMode="word" fg={theme().block.muted}>
+            {supervisor_snapshot()!.title}
+          </text>
+          <box width="100%" flexDirection="column" gap={0} paddingLeft={1}>
+            {supervisor_snapshot()!.rows.map((row) => (
+              <text width="100%" wrapMode="word" fg={theme().block.text}>
+                {row}
+              </text>
+            ))}
+            {supervisor_snapshot()!.tail ? (
+              <text width="100%" wrapMode="word" fg={theme().block.muted}>
+                {supervisor_snapshot()!.tail}
               </text>
             ) : null}
           </box>

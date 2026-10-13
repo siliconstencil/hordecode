@@ -10,10 +10,10 @@ import {
 } from "@opentui/core"
 import type { CommandContext } from "@opentui/keymap"
 import { createEffect, createMemo, onMount, createSignal, onCleanup, on, Show, Switch, Match } from "solid-js"
-import { registerOpencodeSpinner } from "../register-spinner"
 import path from "path"
 import { fileURLToPath } from "url"
 import { useLocal } from "../../context/local"
+import { usePermission } from "../../context/permission"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { tint, useTheme } from "../../context/theme"
 import { EmptyBorder, SplitBorder } from "../../ui/border"
@@ -38,7 +38,9 @@ import { DialogStash } from "../dialog-stash"
 import { type AutocompleteRef, Autocomplete } from "./autocomplete"
 import { useRenderer, useTerminalDimensions, type JSX } from "@opentui/solid"
 import type { AssistantMessage, FilePart, UserMessage } from "@opencode-ai/sdk/v2"
+import { contextUsage, pressureColor } from "../../util/context-usage"
 import { Locale } from "../../util/locale"
+import { clampStatusMessage } from "./footer"
 import { errorMessage } from "../../util/error"
 import { formatDuration } from "../../util/format"
 import { createColors, createFrames } from "../../ui/spinner"
@@ -51,13 +53,13 @@ import { createFadeIn } from "../../util/signal"
 import { DialogSkill } from "../dialog-skill"
 import { DialogWorkspaceUnavailable } from "../dialog-workspace-unavailable"
 import { useArgs } from "../../context/args"
+import { DialogAgreement, FREE_AGREEMENT_KEY, FREE_MODEL_IDS } from "../dialog-agreement"
 import { OPENCODE_BASE_MODE, useBindings, useCommandShortcut, useLeaderActive, useOpencodeKeymap } from "../../keymap"
 import { useTuiConfig } from "../../config"
+import { useLocation } from "../../context/location"
 import { usePromptWorkspace } from "./workspace"
 import { usePromptMove } from "./move"
 import { readLocalAttachment } from "./local-attachment"
-
-registerOpencodeSpinner()
 
 export type PromptProps = {
   sessionID?: string
@@ -146,8 +148,10 @@ export function Prompt(props: PromptProps) {
 
   const leader = useLeaderActive()
   const local = useLocal()
+  const permission = usePermission()
   const args = useArgs()
   const paths = useTuiPaths()
+  const location = useLocation()
   const terminalEnvironment = useTuiTerminalEnvironment()
   const clipboard = useClipboard()
   const sdk = useSDK()
@@ -159,6 +163,9 @@ export function Prompt(props: PromptProps) {
   const dialog = useDialog()
   const toast = useToast()
   const status = createMemo(() => sync.data.session_status?.[props.sessionID ?? ""] ?? { type: "idle" })
+  const lspCount = createMemo(() => Object.keys(sync.data.lsp ?? {}).length)
+  const mcpCount = createMemo(() => Object.values(sync.data.mcp ?? {}).filter((x: { status?: string }) => x.status === "connected").length)
+  const mcpHasError = createMemo(() => Object.values(sync.data.mcp ?? {}).some((x: { status?: string }) => x.status === "failed"))
   const history = usePromptHistory()
   const stash = usePromptStash()
   const keymap = useOpencodeKeymap()
@@ -209,6 +216,7 @@ export function Prompt(props: PromptProps) {
   const move = usePromptMove({ projectID: project.project, sessionID: () => props.sessionID })
   const [cursorVersion, setCursorVersion] = createSignal(0)
   const currentProviderLabel = createMemo(() => local.model.parsed().provider)
+
   const hasRightContent = createMemo(() => Boolean(props.right))
 
   function promptModelWarning() {
@@ -249,11 +257,12 @@ export function Prompt(props: PromptProps) {
     if (!input || input.isDestroyed) return
     if (props.disabled) input.cursorColor = theme.backgroundElement
     if (!props.disabled) input.cursorColor = theme.text
+    if (tuiConfig.cursor) input.cursorStyle = tuiConfig.cursor
   })
 
   const lastUserMessage = createMemo(() => {
     if (!props.sessionID) return undefined
-    const messages = sync.data.message[props.sessionID]
+    const messages = Object.values(sync.data.message[props.sessionID] ?? {}).flat() // bucketed
     if (!messages) return undefined
     return messages.findLast((m): m is UserMessage => m.role === "user")
   })
@@ -261,21 +270,32 @@ export function Prompt(props: PromptProps) {
   const usage = createMemo(() => {
     if (!props.sessionID) return
     const session = sync.session.get(props.sessionID)
-    const msg = sync.data.message[props.sessionID] ?? []
+    const msg = sync.data.message[props.sessionID]?.["main"] ?? []
     const last = msg.findLast((item): item is AssistantMessage => item.role === "assistant" && item.tokens.output > 0)
     if (!last) return
-
-    const tokens =
-      last.tokens.input + last.tokens.output + last.tokens.reasoning + last.tokens.cache.read + last.tokens.cache.write
-    if (tokens <= 0) return
-
     const model = sync.data.provider.find((item) => item.id === last.providerID)?.models[last.modelID]
-    const pct = model?.limit.context ? `${Math.round((tokens / model.limit.context) * 100)}%` : undefined
+    if (!model) return
+    const ctx = contextUsage({ tokens: last.tokens, model, config: sync.data.config })
     const cost = session?.cost ?? 0
     return {
-      context: pct ? `${Locale.number(tokens)} (${pct})` : Locale.number(tokens),
-      cost: cost > 0 ? money.format(cost) : undefined,
+      context: ctx.percent !== null
+        ? `${Locale.number(ctx.tokens)} / ${Locale.number(ctx.limit)} (${ctx.percent}%)`
+        : Locale.number(ctx.tokens),
+      cost: money.format(cost),
+      percent: ctx.percent,
+      pressure: ctx.pressure,
     }
+  })
+
+  const contextPercent = createMemo(() => usage()?.percent ?? null)
+
+  // Context-usage color for the invader spinner's trailing dust: warm (danger,
+  // uncompressed) as usage climbs, cool (safe) while it stays low. Driven by the
+  // same 4-level compaction pressure (50/70/85%) as the sidebar — one source of truth.
+  const contextColor = createMemo(() => {
+    const u = usage()
+    if (!u || u.percent === null) return theme.textMuted
+    return pressureColor(theme, u.pressure)
   })
 
   const [store, setStore] = createStore<{
@@ -534,7 +554,7 @@ export function Prompt(props: PromptProps) {
         desc: "Change the workspace for the session",
         name: "workspace.set",
         category: "Session",
-        enabled: Flag.OPENCODE_EXPERIMENTAL_WORKSPACES,
+        enabled: Flag.HORDECODE_EXPERIMENTAL_WORKSPACES,
         slashName: "warp",
         run: () => {
           workspace.open()
@@ -569,7 +589,6 @@ export function Prompt(props: PromptProps) {
       "prompt.stash",
       "prompt.stash.pop",
       "prompt.stash.list",
-      "prompt.skills",
       "session.interrupt",
       "workspace.set",
       "session.move",
@@ -925,7 +944,9 @@ export function Prompt(props: PromptProps) {
   })
 
   let submitting = false
+  let submitLock = false
   async function submit() {
+    if (submitLock) return false
     // Prevent overlapping invocations (e.g. a double-pressed Enter, or the
     // input's native onSubmit racing another dispatch). Without this guard,
     // a second call slips past the empty-input check before the first call
@@ -965,6 +986,23 @@ export function Prompt(props: PromptProps) {
     const selectedModel = local.model.current()
     if (!selectedModel) {
       void promptModelWarning()
+      return false
+    }
+
+    // Free models require a one-time acknowledgment of the terms and privacy
+    // policy. Gate submission until the user accepts; the flag is stored in KV.
+    const isFreeModel = FREE_MODEL_IDS.has(selectedModel.modelID)
+    if (isFreeModel && !kv.get(FREE_AGREEMENT_KEY)) {
+      submitLock = true
+      DialogAgreement.show(dialog, {
+        onConfirm: () => {
+          kv.set(FREE_AGREEMENT_KEY, true)
+          void submit()
+        },
+        onClose: () => {
+          submitLock = false
+        },
+      })
       return false
     }
 
@@ -1067,7 +1105,7 @@ export function Prompt(props: PromptProps) {
       setStore("mode", "normal")
     } else if (
       inputText.startsWith("/") &&
-      sync.data.command.some((x) => x.name === inputText.split("\n")[0].split(" ")[0].slice(1))
+      inputText.split("\n")[0].split(" ")[0].slice(1).length > 0
     ) {
       move.startSubmit()
       // Parse command from first line, preserve multi-line content in arguments
@@ -1310,37 +1348,37 @@ export function Prompt(props: PromptProps) {
     if (store.mode === "shell") {
       if (!shell().length) return undefined
       const example = shell()[store.placeholder % shell().length]
-      return `Run a command... "${example}"`
+      return `Run a command… "${example}"`
     }
     if (!list().length) return undefined
-    return `Ask anything... "${list()[store.placeholder % list().length]}"`
+    return `Ask anything… "${list()[store.placeholder % list().length]}"`
   })
 
   const spinnerDef = createMemo(() => {
-    const agent =
-      status().type !== "idle"
-        ? (local.agent.list().find((a) => a.name === lastUserMessage()?.agent) ?? local.agent.current())
-        : local.agent.current()
-    const color = agent ? local.agent.color(agent.name) : theme.border
+    const color = contextColor()
     return {
       frames: createFrames({
         color,
-        style: "blocks",
+        style: "plane",
+        width: 8,
         inactiveFactor: 0.6,
-        // enableFading: false,
         minAlpha: 0.3,
       }),
       color: createColors({
         color,
-        style: "blocks",
+        style: "plane",
+        width: 8,
         inactiveFactor: 0.6,
-        // enableFading: false,
         minAlpha: 0.3,
       }),
     }
   })
   const maxHeight = createMemo(() => tuiConfig.prompt?.max_height ?? Math.max(6, Math.floor(dimensions().height / 3)))
   const moveLabelWidth = createMemo(() => Math.max(12, Math.min(44, dimensions().width - 48)))
+  // The footer hint row (switch mode, settings, attach file, subagent,
+  // commands) needs about 120 columns next to the usage and LSP/MCP counters;
+  // narrower terminals show the counters only instead of clipped hints.
+  const hintsVisible = createMemo(() => dimensions().width >= 120)
 
   return (
     <>
@@ -1379,11 +1417,12 @@ export function Prompt(props: PromptProps) {
                 setCursorVersion((value) => value + 1)
               }}
               onCursorChange={() => setCursorVersion((value) => value + 1)}
-              onKeyDown={(e: { preventDefault(): void }) => {
+              onKeyDown={(e) => {
                 if (props.disabled) {
                   e.preventDefault()
                   return
                 }
+                auto()?.onKeyDown(e)
               }}
               onSubmit={() => {
                 // IME: double-defer so the last composed character (e.g. Korean
@@ -1429,11 +1468,13 @@ export function Prompt(props: PromptProps) {
                   // setTimeout is a workaround and needs to be addressed properly
                   if (!input || input.isDestroyed) return
                   input.cursorColor = theme.text
+                  if (tuiConfig.cursor) input.cursorStyle = tuiConfig.cursor
                 }, 0)
               }}
               onMouseDown={(r: MouseEvent) => r.target?.focus()}
               focusedBackgroundColor={theme.backgroundElement}
               cursorColor={props.disabled ? theme.backgroundElement : theme.text}
+              cursorStyle={tuiConfig.cursor}
               syntaxStyle={syntax()}
             />
             <box flexDirection="row" flexShrink={0} paddingTop={1} gap={1} justifyContent="space-between">
@@ -1444,8 +1485,8 @@ export function Prompt(props: PromptProps) {
                       <text fg={fadeColor(highlight(), agentMetaAlpha())}>
                         {store.mode === "shell" ? "Shell" : Locale.titlecase(agent().name)}
                       </text>
-                      <Show when={store.mode === "normal" && local.permission.mode === "auto"}>
-                        <text fg={fadeColor(theme.textMuted, agentMetaAlpha())}>auto</text>
+                      <Show when={store.mode === "normal" && permission.mode === "auto"}>
+                        <text fg={fadeColor(theme.error, agentMetaAlpha())}>auto</text>
                       </Show>
                       <Show when={store.mode === "normal"}>
                         <box flexDirection="row" gap={1}>
@@ -1462,6 +1503,14 @@ export function Prompt(props: PromptProps) {
                             <text>
                               <span style={{ fg: fadeColor(theme.warning, variantMetaAlpha()), bold: true }}>
                                 {local.model.variant.current()}
+                              </span>
+                            </text>
+                          </Show>
+                          <Show when={local.neverAsk.current()}>
+                            <text>
+                              <span style={{ fg: fadeColor(theme.error, modelMetaAlpha()), bold: true }}>
+                                {" "}
+                                «never-ask»
                               </span>
                             </text>
                           </Show>
@@ -1520,6 +1569,19 @@ export function Prompt(props: PromptProps) {
                       <spinner color={spinnerDef().color} frames={spinnerDef().frames} interval={40} />
                     </Show>
                   </box>
+                  {(() => {
+                    const busyMessage = createMemo(() => {
+                      const s = status()
+                      return s.type === "busy" ? clampStatusMessage((s as { message?: string }).message) : undefined
+                    })
+                    return (
+                      <Show when={busyMessage()}>
+                        <text fg={theme.textMuted} wrapMode="none" flexShrink={1}>
+                          {busyMessage()}
+                        </text>
+                      </Show>
+                    )
+                  })()}
                   <box flexDirection="row" gap={1} flexShrink={0}>
                     {(() => {
                       const retry = createMemo(() => {
@@ -1532,7 +1594,7 @@ export function Prompt(props: PromptProps) {
                         if (!r) return
                         if (r.message.includes("exceeded your current quota") && r.message.includes("gemini"))
                           return "gemini is way too hot right now"
-                        if (r.message.length > 80) return r.message.slice(0, 80) + "..."
+                        if (r.message.length > 80) return r.message.slice(0, 80) + "…"
                         return r.message
                       })
                       const isTruncated = createMemo(() => {
@@ -1637,34 +1699,88 @@ export function Prompt(props: PromptProps) {
                 <text fg={theme.accent}>(new working copy)</text>
               </box>
             </Match>
-            <Match when={true}>{props.hint ?? <text />}</Match>
+            <Match when={props.hint !== undefined}>
+              {props.hint}
+            </Match>
           </Switch>
           <Show when={status().type !== "retry"}>
-            <box gap={2} flexDirection="row">
+            <box gap={2} flexDirection="row" justifyContent="flex-start" flexGrow={1} flexShrink={1} minWidth={0}>
               <Show when={editorContextLabelState() !== "none" ? editorFileLabelDisplay() : undefined}>
                 {(file) => (
-                  <text fg={editorContextLabelState() === "pending" ? theme.secondary : theme.textMuted}>{file()}</text>
+                  <text fg={editorContextLabelState() === "pending" ? theme.secondary : theme.textMuted} wrapMode="none" flexShrink={0}>
+                    {file()}
+                  </text>
                 )}
               </Show>
               <Switch>
                 <Match when={store.mode === "normal"}>
-                  <Switch>
-                    <Match when={usage()}>
-                      {(item) => (
-                        <text fg={theme.textMuted} wrapMode="none">
-                          {[item().context, item().cost].filter(Boolean).join(" · ")}
+                  <box gap={2} flexDirection="row" justifyContent="space-between" flexGrow={1}>
+                    <box gap={2} flexDirection="row">
+                      <Show when={usage()}>
+                        {(item) => (
+                          <text fg={theme.textMuted} flexShrink={0}>
+                            {[item().context, item().cost].filter(Boolean).join(" · ")}
+                          </text>
+                        )}
+                      </Show>
+                      <Show when={store.prompt.input === "" && hintsVisible()}>
+                        <box gap={2} flexDirection="row">
+                          <text fg={theme.text} wrapMode="none">
+                            {agentShortcut()} <span style={{ fg: theme.textMuted }}>switch mode</span>
+                          </text>
+                          <text fg={theme.text} wrapMode="none">
+                            {paletteShortcut()} <span style={{ fg: theme.textMuted }}>settings</span>
+                          </text>
+                        </box>
+                      </Show>
+                    </box>
+                    <box gap={2} flexDirection="row">
+                      <Show
+                        when={status().type === "idle" && store.prompt.input === "" && hintsVisible()}
+                        fallback={
+                          <Show when={status().type !== "idle" && hintsVisible()}>
+                            <box gap={2} flexDirection="row">
+                              <text fg={fadeColor(theme.text, 0)} wrapMode="none">
+                                @ <span style={{ fg: fadeColor(theme.textMuted, 0) }}>attach file</span>
+                              </text>
+                              <text fg={fadeColor(theme.text, 0)} wrapMode="none">
+                                $ <span style={{ fg: fadeColor(theme.textMuted, 0) }}>subagent</span>
+                              </text>
+                              <text fg={fadeColor(theme.text, 0)} wrapMode="none">
+                                / <span style={{ fg: fadeColor(theme.textMuted, 0) }}>commands</span>
+                              </text>
+                            </box>
+                          </Show>
+                        }
+                      >
+                        <box gap={2} flexDirection="row">
+                          <text fg={theme.text} wrapMode="none">
+                            @ <span style={{ fg: theme.textMuted }}>attach file</span>
+                          </text>
+                          <text fg={theme.text} wrapMode="none">
+                            $ <span style={{ fg: theme.textMuted }}>subagent</span>
+                          </text>
+                          <text fg={theme.text} wrapMode="none">
+                            / <span style={{ fg: theme.textMuted }}>commands</span>
+                          </text>
+                        </box>
+                      </Show>
+                      {/* LSP/MCP counter pair: session view only. The welcome
+                          route has no session, so the pair is suppressed
+                          there to keep the hint row unclipped on the
+                          narrow welcome box (maxWidth=75 from
+                          routes/home.tsx:34-38). props.sessionID is
+                          undefined on home, defined on session view. */}
+                      <Show when={props.sessionID !== undefined}>
+                        <text fg={theme.text} wrapMode="none" flexShrink={0}>
+                          {lspCount()} LSP
                         </text>
-                      )}
-                    </Match>
-                    <Match when={true}>
-                      <text fg={theme.text}>
-                        {agentShortcut()} <span style={{ fg: theme.textMuted }}>agents</span>
-                      </text>
-                    </Match>
-                  </Switch>
-                  <text fg={theme.text}>
-                    {paletteShortcut()} <span style={{ fg: theme.textMuted }}>commands</span>
-                  </text>
+                        <text fg={theme.text} wrapMode="none" flexShrink={0}>
+                          {mcpCount()} MCP
+                        </text>
+                      </Show>
+                    </box>
+                  </box>
                 </Match>
                 <Match when={store.mode === "shell"}>
                   <text fg={theme.text}>

@@ -1,6 +1,6 @@
 import { APICallError } from "ai"
 import { STATUS_CODES } from "http"
-import { iife } from "@/util/iife"
+import { iife } from "@opencode-ai/core/util/iife"
 import type { ProviderV2 } from "@opencode-ai/core/provider"
 import { isContextOverflow } from "@opencode-ai/llm"
 
@@ -143,6 +143,13 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
         isRetryable: true,
         responseBody,
       }
+  }
+
+  return {
+    type: "api_error",
+    message: typeof body?.error?.message === "string" ? body.error.message : "Server error.",
+    isRetryable: true,
+    responseBody,
   }
 }
 

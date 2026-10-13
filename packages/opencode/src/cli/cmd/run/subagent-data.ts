@@ -331,7 +331,7 @@ function taskSessionID(part: ToolPart) {
 }
 
 function syncTaskTab(data: SubagentData, part: ToolPart, children?: Set<string>) {
-  if (part.tool !== "task") {
+  if (part.tool !== "supervisor" && part.tool !== "task") {
     return false
   }
 

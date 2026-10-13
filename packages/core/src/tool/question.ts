@@ -35,6 +35,17 @@ export const toModelOutput = (
   questions: ReadonlyArray<QuestionV2.Prompt>,
   answers: ReadonlyArray<QuestionV2.Answer>,
 ) => {
+  if (answers[0]?.[0] === "[Never-Ask] The model will decide autonomously") {
+    return (
+      "[Never-Ask] No user is available to answer (never-ask mode is on). " +
+      "Re-evaluate the options you just proposed for unattended/headless execution -- " +
+      "prefer text-only, non-interactive, minimal-scope paths and avoid anything that needs a GUI or the user to be present. " +
+      "Pick the best option yourself and continue. " +
+      "IMPORTANT: You MUST explicitly state which option you chose and why in your response text (not just in thinking) -- " +
+      "the user will review the conversation history later and needs to see what you decided without expanding thinking blocks. " +
+      "This applies only to this question; never-ask may be turned off later, so keep using the question tool at future decision points (the user may have returned)."
+    )
+  }
   const formatted = questions
     .map(
       (question, index) =>
@@ -60,27 +71,25 @@ const layer = Layer.effectDiscard(
             { type: "text", text: toModelOutput(input.questions, output.answers) },
           ],
           execute: (input, context) =>
-            permission
-              .assert({
-                action: "question",
-                resources: ["*"],
-                sessionID: context.sessionID,
-                agent: context.agent,
-                source: { type: "tool", messageID: context.assistantMessageID, callID: context.toolCallID },
-              })
-              .pipe(
-                Effect.mapError(() => new ToolFailure({ message: "Permission denied: question" })),
-                Effect.andThen(
-                  question
-                    .ask({
-                      sessionID: context.sessionID,
-                      questions: input.questions,
-                      tool: { messageID: context.assistantMessageID, callID: context.toolCallID },
-                    })
-                    .pipe(Effect.orDie),
-                ),
-                Effect.map((answers) => ({ answers })),
-              ),
+            (Effect.gen(function* () {
+              yield* permission
+                .assert({
+                  action: "question",
+                  resources: ["*"],
+                  sessionID: context.sessionID,
+                  agent: context.agent,
+                  source: { type: "tool", messageID: context.assistantMessageID, callID: context.toolCallID },
+                })
+                .pipe(Effect.mapError(() => new ToolFailure({ message: "Permission denied: question" })))
+              const answers = yield* question
+                .ask({
+                  sessionID: context.sessionID,
+                  questions: input.questions,
+                  tool: { messageID: context.assistantMessageID, callID: context.toolCallID },
+                })
+                .pipe(Effect.orDie)
+              return { answers }
+            }) as Effect.Effect<Output, ToolFailure>),
         }),
       })
       .pipe(Effect.orDie)

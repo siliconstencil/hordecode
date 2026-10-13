@@ -14,6 +14,7 @@ import { writeHeapSnapshot } from "v8"
 import { ServerAuth } from "@/server/auth"
 import { validateSession } from "../tui/validate-session"
 import { win32InstallCtrlCGuard } from "@opencode-ai/tui/terminal-win32"
+import { checkTrust, markTrusted, type TrustLevel } from "@opencode-ai/project/workspace-trust"
 
 declare global {
   const OPENCODE_WORKER_PATH: string
@@ -31,6 +32,11 @@ function createWorkerFetch(client: RpcClient): typeof fetch {
       headers: Object.fromEntries(request.headers.entries()),
       body,
     })
+    if (!result || typeof result.body !== "string" || typeof result.status !== "number") {
+      throw new Error(
+        `WorkerFetchError: invalid RPC result for ${request.method} ${new URL(request.url).pathname} -- ${result === undefined ? "undefined (worker rejected)" : JSON.stringify(result).slice(0, 200)}`,
+      )
+    }
     return new Response(result.body, {
       status: result.status,
       headers: result.headers,
@@ -69,14 +75,114 @@ export function resolveThreadDirectory(project?: string, envPWD = process.env.PW
   return Filesystem.resolve(cwd)
 }
 
+// Verbatim copy of the trust.* keys from packages/tui/src/i18n/en.ts. The CLI
+// surface does not have an i18n module; reusing the existing English source
+// keeps UX/ordering identical to the upstream TUI thread flow without adding
+// new i18n keys or wiring a CLI i18n helper.
+const TRUST_PROMPT_TEXT = {
+  title: "Accessing workspace:",
+  safetyCheck:
+    "Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source project, or work from your team). If not, take a moment to review what's in this folder first.",
+  capabilities: "Hordecode will be able to read, edit, and execute files here.",
+  pluginWarn:
+    "If malicious plugins exist in this directory, they can execute arbitrary code, read, modify, or exfiltrate your files.",
+  optionYes: "Yes, I trust this folder",
+  optionNo: "No, exit",
+  dangerousTitleHome: "WARNING: You are about to open your HOME DIRECTORY.",
+  dangerousTitleRoot: "WARNING: You are about to open the FILESYSTEM ROOT.",
+  dangerousBodyHome:
+    "The model will have access to ALL your personal files — SSH keys, credentials, browser profiles, and everything else under your home folder.",
+  dangerousBodyRoot:
+    "The model will have access to the ENTIRE filesystem — system files, all user data, credentials, and everything on this machine.",
+  dangerousAdviceHome: "Unless you have a very specific reason, DO NOT trust your entire home directory.",
+  dangerousAdviceRoot: "Unless you have a very specific reason, DO NOT trust the filesystem root.",
+  dangerousOptionYes: "I understand the risks, trust for this session",
+  dangerousOptionNo: "Exit (recommended)",
+} as const
+
+export type WorkspaceTrustPromptResult = boolean
+
+export async function promptWorkspaceTrust(
+  directory: string,
+  level: Exclude<TrustLevel, "trusted">,
+): Promise<WorkspaceTrustPromptResult> {
+  const prompts = await import("@clack/prompts")
+  const { EOL } = await import("os")
+
+  if (level === "dangerous") {
+    const isRoot = path.parse(directory).root === directory
+    const title = isRoot ? TRUST_PROMPT_TEXT.dangerousTitleRoot : TRUST_PROMPT_TEXT.dangerousTitleHome
+    const body = isRoot ? TRUST_PROMPT_TEXT.dangerousBodyRoot : TRUST_PROMPT_TEXT.dangerousBodyHome
+    const advice = isRoot ? TRUST_PROMPT_TEXT.dangerousAdviceRoot : TRUST_PROMPT_TEXT.dangerousAdviceHome
+    prompts.log.warning(
+      [
+        UI.Style.TEXT_WARNING_BOLD + title + UI.Style.TEXT_NORMAL,
+        "",
+        directory,
+        "",
+        body,
+        "",
+        UI.Style.TEXT_DANGER + TRUST_PROMPT_TEXT.pluginWarn + UI.Style.TEXT_NORMAL,
+        "",
+        advice,
+      ].join(EOL),
+    )
+    const result = await prompts.select({
+      message: "",
+      options: [
+        { label: TRUST_PROMPT_TEXT.dangerousOptionNo, value: false },
+        { label: TRUST_PROMPT_TEXT.dangerousOptionYes, value: true },
+      ],
+    })
+    if (prompts.isCancel(result)) return false
+    return result
+  }
+
+  prompts.log.info(
+    [
+      UI.Style.TEXT_HIGHLIGHT_BOLD + TRUST_PROMPT_TEXT.title + UI.Style.TEXT_NORMAL,
+      "",
+      directory,
+      "",
+      TRUST_PROMPT_TEXT.safetyCheck,
+      "",
+      TRUST_PROMPT_TEXT.capabilities,
+      "",
+      UI.Style.TEXT_DANGER + TRUST_PROMPT_TEXT.pluginWarn + UI.Style.TEXT_NORMAL,
+    ].join(EOL),
+  )
+  const result = await prompts.select({
+    message: "",
+    options: [
+      { label: TRUST_PROMPT_TEXT.optionYes, value: true },
+      { label: TRUST_PROMPT_TEXT.optionNo, value: false },
+    ],
+  })
+  if (prompts.isCancel(result)) return false
+  return result
+}
+
+export async function ensureWorkspaceTrusted(
+  directory: string,
+  skipPrompt: boolean,
+): Promise<boolean> {
+  if (skipPrompt) return true
+  const level = await checkTrust(directory)
+  if (level === "trusted") return true
+  const accepted = await promptWorkspaceTrust(directory, level)
+  if (!accepted) return false
+  if (level === "untrusted") await markTrusted(directory)
+  return true
+}
+
 export const TuiThreadCommand = cmd({
-  command: "$0 [project]",
-  describe: "start opencode tui",
+  command: ["$0 [project]", "tui [project]"],
+  describe: "start hordecode tui",
   builder: (yargs) =>
     withNetworkOptions(yargs)
       .positional("project", {
         type: "string",
-        describe: "path to start opencode in",
+        describe: "path to start hordecode in",
       })
       .option("model", {
         type: "string",
@@ -140,6 +246,11 @@ export const TuiThreadCommand = cmd({
       .option("demo", {
         type: "boolean",
         hidden: true,
+      })
+      .option("trust", {
+        type: "boolean",
+        describe: "skip workspace trust prompt and trust the directory",
+        default: false,
       }),
   handler: async (args) => {
     if (args.replay === true) {
@@ -207,7 +318,14 @@ export const TuiThreadCommand = cmd({
       }
       const cwd = Filesystem.resolve(process.cwd())
 
-      const worker = new Worker(file)
+      const gateAccepted = await ensureWorkspaceTrusted(cwd, args.trust)
+      if (!gateAccepted) return
+
+      const worker = new Worker(file, {
+        env: Object.fromEntries(
+          Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+        ),
+      })
       const client = Rpc.client<typeof rpc>(worker)
       const reload = () => {
         client.call("reload", undefined).catch(() => {})
@@ -299,7 +417,6 @@ export const TuiThreadCommand = cmd({
         unguard?.()
       } catch {}
     }
-    process.exit(0)
+    process.exit()
   },
 })
-// scratch

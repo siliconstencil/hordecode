@@ -111,6 +111,10 @@ if (macX64 || macArm64) {
 }
 
 // Upload to release
+if (process.env.HORDECODE_RELEASE_CONFIRMED !== "1") {
+  console.error("Blocked: set HORDECODE_RELEASE_CONFIRMED=1 to upload latest.yml files to a release (local-only policy).")
+  process.exit(1)
+}
 const tag = `v${version}`
 const tmp = process.env.RUNNER_TEMP ?? "/tmp"
 

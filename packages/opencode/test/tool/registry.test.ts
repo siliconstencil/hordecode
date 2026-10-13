@@ -1,9 +1,13 @@
 import { afterEach, describe, expect } from "bun:test"
 import path from "path"
+import os from "os"
 import fs from "fs/promises"
 import { fileURLToPath, pathToFileURL } from "url"
-import { Effect, Layer, Result, Schema } from "effect"
+import { Context, Effect, Layer, Result, Schema, Scope } from "effect"
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { memoMap } from "@opencode-ai/core/effect/memo-map"
+import { Database } from "@opencode-ai/core/database/database"
 import { ToolRegistry } from "@/tool/registry"
 import { Tool } from "@/tool/tool"
 import { disposeAllInstances, TestInstance } from "../fixture/fixture"
@@ -21,6 +25,8 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { MCP } from "@/mcp"
 import type { Tool as MCPToolDef } from "@modelcontextprotocol/sdk/types.js"
+import { InstanceStore } from "@/project/instance-store"
+import { InstanceBootstrap } from "@/project/bootstrap"
 
 const configLayer = TestConfig.layer({
   directories: () => InstanceState.directory.pipe(Effect.map((dir) => [path.join(dir, ".opencode")])),
@@ -47,20 +53,58 @@ const brokenPluginLayer = Layer.succeed(
           },
         },
       ]),
+    reloadFileHooks: () => Effect.void,
   }),
 )
+
+// The ToolRegistry layer body forks a fiber while constructing tools, and that
+// fiber reads Database.Service from its captured context. A lazily-built
+// (async) Database layer does not materialize in that forked context, so the
+// registry tests fail with "Service not found: Database". Build the real
+// database once up front and hand it to the graph as a synchronous succeed
+// layer instead.
+//
+// `layerFromPath`'s requirement is typed `unknown` (the `#sqlite` layer it
+// provides over is only parameterized by `{ filename }`, already bound inside
+// `layerFromPath`, but `Layer.provide` cannot narrow an `unknown` requirement
+// at the type level). That would widen the generator's environment and fail
+// `Effect.runPromise`, so cast the layer to `never` once here — the database
+// is guaranteed to materialize because `buildWithMemoMap` is the same path the
+// production `node` uses.
+async function buildDatabaseLayer(filename: string): Promise<Layer.Layer<Database.Service, never, never>> {
+  const layer = Database.layerFromPath(filename) as Layer.Layer<Database.Service, never, never>
+  const database = await Effect.runPromise(
+    Effect.gen(function* () {
+      const databaseScope = yield* Scope.make()
+      const context = yield* Layer.buildWithMemoMap(layer, memoMap, databaseScope)
+      return yield* Database.Service.pipe(Effect.provide(context))
+    }),
+  )
+  return Layer.succeed(Database.Service, database)
+}
+// Use the same database file as the rest of the test environment: preload.ts
+// sets OPENCODE_DB and HORDECODE_DB to the same path, so migrations applied here
+// (including the inbox table) are visible to the storage/ALS layer too. A
+// private mkdtemp file would leave the ALS path unmigrated.
+const databasePath = process.env.OPENCODE_DB ?? path.join(await fs.mkdtemp(path.join(os.tmpdir(), "opencode-registry-")), "test.db")
+const databaseLayer = await buildDatabaseLayer(databasePath)
+
+const noopBootstrap = Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void }))
 
 const root = LayerNode.group([ToolRegistry.node, Agent.node])
 const replacements = [
   [Config.node, configLayer],
   [RuntimeFlags.node, RuntimeFlags.layer()],
+  [Database.node, databaseLayer],
+  [InstanceStore.bootstrapNode, noopBootstrap],
 ] as const
 
-const it = testEffect(LayerNode.compile(root, replacements))
+const it = testEffect(AppNodeBuilder.build(root, replacements))
 const withCodeMode = testEffect(
-  LayerNode.compile(root, [
+  AppNodeBuilder.build(root, [
     [Config.node, configLayer],
     [RuntimeFlags.node, RuntimeFlags.layer({ experimentalCodeMode: true })],
+    [InstanceStore.bootstrapNode, noopBootstrap],
     [
       MCP.node,
       Layer.mock(MCP.Service, {
@@ -81,9 +125,10 @@ const withCodeMode = testEffect(
   ]),
 )
 const withEmptyCodeMode = testEffect(
-  LayerNode.compile(root, [
+  AppNodeBuilder.build(root, [
     [Config.node, configLayer],
     [RuntimeFlags.node, RuntimeFlags.layer({ experimentalCodeMode: true })],
+    [InstanceStore.bootstrapNode, noopBootstrap],
     [
       MCP.node,
       Layer.mock(MCP.Service, {
@@ -93,7 +138,7 @@ const withEmptyCodeMode = testEffect(
     ],
   ]),
 )
-const withBrokenPlugin = testEffect(LayerNode.compile(root, [...replacements, [Plugin.node, brokenPluginLayer]]))
+const withBrokenPlugin = testEffect(AppNodeBuilder.build(root, [...replacements, [Plugin.node, brokenPluginLayer]]))
 
 afterEach(async () => {
   await disposeAllInstances()
@@ -115,6 +160,15 @@ describe("tool.registry", () => {
       const ids = yield* registry.ids()
 
       expect(ids).not.toContain("execute")
+    }),
+  )
+
+  it.instance("registers mcp_tool_search (A2: was unwired)", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const ids = yield* registry.ids()
+
+      expect(ids).toContain("mcp_tool_search")
     }),
   )
 

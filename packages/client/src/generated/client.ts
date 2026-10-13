@@ -4,39 +4,39 @@ import type {
   LocationGetOutput,
   AgentsListInput,
   AgentsListOutput,
-  SessionsListInput,
-  SessionsListOutput,
-  SessionsCreateInput,
-  SessionsCreateOutput,
-  SessionsActiveOutput,
-  SessionsGetInput,
-  SessionsGetOutput,
-  SessionsSwitchAgentInput,
-  SessionsSwitchAgentOutput,
-  SessionsSwitchModelInput,
-  SessionsSwitchModelOutput,
-  SessionsPromptInput,
-  SessionsPromptOutput,
-  SessionsCompactInput,
-  SessionsCompactOutput,
-  SessionsWaitInput,
-  SessionsWaitOutput,
-  SessionsStageInput,
-  SessionsStageOutput,
-  SessionsClearInput,
-  SessionsClearOutput,
-  SessionsCommitInput,
-  SessionsCommitOutput,
-  SessionsContextInput,
-  SessionsContextOutput,
-  SessionsHistoryInput,
-  SessionsHistoryOutput,
-  SessionsEventsInput,
-  SessionsEventsOutput,
-  SessionsInterruptInput,
-  SessionsInterruptOutput,
-  SessionsMessageInput,
-  SessionsMessageOutput,
+  SessionListInput,
+  SessionListOutput,
+  SessionCreateInput,
+  SessionCreateOutput,
+  SessionActiveOutput,
+  SessionGetInput,
+  SessionGetOutput,
+  SessionSwitchAgentInput,
+  SessionSwitchAgentOutput,
+  SessionSwitchModelInput,
+  SessionSwitchModelOutput,
+  SessionPromptInput,
+  SessionPromptOutput,
+  SessionCompactInput,
+  SessionCompactOutput,
+  SessionWaitInput,
+  SessionWaitOutput,
+  SessionStageInput,
+  SessionStageOutput,
+  SessionClearInput,
+  SessionClearOutput,
+  SessionCommitInput,
+  SessionCommitOutput,
+  SessionContextInput,
+  SessionContextOutput,
+  SessionHistoryInput,
+  SessionHistoryOutput,
+  SessionEventsInput,
+  SessionEventsOutput,
+  SessionInterruptInput,
+  SessionInterruptOutput,
+  SessionMessageInput,
+  SessionMessageOutput,
   MessagesListInput,
   MessagesListOutput,
   ModelsListInput,
@@ -282,9 +282,9 @@ export function make(options: ClientOptions) {
           requestOptions,
         ),
     },
-    sessions: {
-      list: (input?: SessionsListInput, requestOptions?: RequestOptions) =>
-        request<SessionsListOutput>(
+    session: {
+      list: (input?: SessionListInput, requestOptions?: RequestOptions) =>
+        request<SessionListOutput>(
           {
             method: "GET",
             path: `/api/session`,
@@ -304,8 +304,8 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ),
-      create: (input?: SessionsCreateInput, requestOptions?: RequestOptions) =>
-        request<{ readonly data: SessionsCreateOutput }>(
+      create: (input?: SessionCreateInput, requestOptions?: RequestOptions) =>
+        request<{ readonly data: SessionCreateOutput }>(
           {
             method: "POST",
             path: `/api/session`,
@@ -322,7 +322,7 @@ export function make(options: ClientOptions) {
           requestOptions,
         ).then((value) => value.data),
       active: (requestOptions?: RequestOptions) =>
-        request<{ readonly data: SessionsActiveOutput }>(
+        request<{ readonly data: SessionActiveOutput }>(
           {
             method: "GET",
             path: `/api/session/active`,
@@ -332,8 +332,8 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ).then((value) => value.data),
-      get: (input: SessionsGetInput, requestOptions?: RequestOptions) =>
-        request<{ readonly data: SessionsGetOutput }>(
+      get: (input: SessionGetInput, requestOptions?: RequestOptions) =>
+        request<{ readonly data: SessionGetOutput }>(
           {
             method: "GET",
             path: `/api/session/${encodeURIComponent(input.sessionID)}`,
@@ -343,8 +343,8 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ).then((value) => value.data),
-      switchAgent: (input: SessionsSwitchAgentInput, requestOptions?: RequestOptions) =>
-        request<SessionsSwitchAgentOutput>(
+      switchAgent: (input: SessionSwitchAgentInput, requestOptions?: RequestOptions) =>
+        request<SessionSwitchAgentOutput>(
           {
             method: "POST",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/agent`,
@@ -355,8 +355,8 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ),
-      switchModel: (input: SessionsSwitchModelInput, requestOptions?: RequestOptions) =>
-        request<SessionsSwitchModelOutput>(
+      switchModel: (input: SessionSwitchModelInput, requestOptions?: RequestOptions) =>
+        request<SessionSwitchModelOutput>(
           {
             method: "POST",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/model`,
@@ -367,20 +367,26 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ),
-      prompt: (input: SessionsPromptInput, requestOptions?: RequestOptions) =>
-        request<{ readonly data: SessionsPromptOutput }>(
+      prompt: (input: SessionPromptInput, requestOptions?: RequestOptions) =>
+        request<{ readonly data: SessionPromptOutput }>(
           {
             method: "POST",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/prompt`,
-            body: { id: input["id"], prompt: input["prompt"], delivery: input["delivery"], resume: input["resume"] },
+            body: {
+              id: input["id"],
+              prompt: input["prompt"],
+              delivery: input["delivery"],
+              resume: input["resume"],
+              steps: input["steps"],
+            },
             successStatus: 200,
             declaredStatuses: [409, 404, 400, 401],
             empty: false,
           },
           requestOptions,
         ).then((value) => value.data),
-      compact: (input: SessionsCompactInput, requestOptions?: RequestOptions) =>
-        request<SessionsCompactOutput>(
+      compact: (input: SessionCompactInput, requestOptions?: RequestOptions) =>
+        request<SessionCompactOutput>(
           {
             method: "POST",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/compact`,
@@ -390,8 +396,8 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ),
-      wait: (input: SessionsWaitInput, requestOptions?: RequestOptions) =>
-        request<SessionsWaitOutput>(
+      wait: (input: SessionWaitInput, requestOptions?: RequestOptions) =>
+        request<SessionWaitOutput>(
           {
             method: "POST",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/wait`,
@@ -401,8 +407,8 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ),
-      stage: (input: SessionsStageInput, requestOptions?: RequestOptions) =>
-        request<{ readonly data: SessionsStageOutput }>(
+      stage: (input: SessionStageInput, requestOptions?: RequestOptions) =>
+        request<{ readonly data: SessionStageOutput }>(
           {
             method: "POST",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/revert/stage`,
@@ -413,8 +419,8 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ).then((value) => value.data),
-      clear: (input: SessionsClearInput, requestOptions?: RequestOptions) =>
-        request<SessionsClearOutput>(
+      clear: (input: SessionClearInput, requestOptions?: RequestOptions) =>
+        request<SessionClearOutput>(
           {
             method: "POST",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/revert/clear`,
@@ -424,8 +430,8 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ),
-      commit: (input: SessionsCommitInput, requestOptions?: RequestOptions) =>
-        request<SessionsCommitOutput>(
+      commit: (input: SessionCommitInput, requestOptions?: RequestOptions) =>
+        request<SessionCommitOutput>(
           {
             method: "POST",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/revert/commit`,
@@ -435,8 +441,8 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ),
-      context: (input: SessionsContextInput, requestOptions?: RequestOptions) =>
-        request<{ readonly data: SessionsContextOutput }>(
+      context: (input: SessionContextInput, requestOptions?: RequestOptions) =>
+        request<{ readonly data: SessionContextOutput }>(
           {
             method: "GET",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/context`,
@@ -446,8 +452,8 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ).then((value) => value.data),
-      history: (input: SessionsHistoryInput, requestOptions?: RequestOptions) =>
-        request<SessionsHistoryOutput>(
+      history: (input: SessionHistoryInput, requestOptions?: RequestOptions) =>
+        request<SessionHistoryOutput>(
           {
             method: "GET",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/history`,
@@ -458,8 +464,8 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ),
-      events: (input: SessionsEventsInput, requestOptions?: RequestOptions): AsyncIterable<SessionsEventsOutput> =>
-        sse<SessionsEventsOutput>(
+      events: (input: SessionEventsInput, requestOptions?: RequestOptions): AsyncIterable<SessionEventsOutput> =>
+        sse<SessionEventsOutput>(
           {
             method: "GET",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/event`,
@@ -470,8 +476,8 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ),
-      interrupt: (input: SessionsInterruptInput, requestOptions?: RequestOptions) =>
-        request<SessionsInterruptOutput>(
+      interrupt: (input: SessionInterruptInput, requestOptions?: RequestOptions) =>
+        request<SessionInterruptOutput>(
           {
             method: "POST",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/interrupt`,
@@ -481,8 +487,8 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ),
-      message: (input: SessionsMessageInput, requestOptions?: RequestOptions) =>
-        request<{ readonly data: SessionsMessageOutput }>(
+      message: (input: SessionMessageInput, requestOptions?: RequestOptions) =>
+        request<{ readonly data: SessionMessageOutput }>(
           {
             method: "GET",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/message/${encodeURIComponent(input.messageID)}`,
@@ -499,7 +505,12 @@ export function make(options: ClientOptions) {
           {
             method: "GET",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/message`,
-            query: { limit: input["limit"], order: input["order"], cursor: input["cursor"] },
+            query: {
+              limit: input["limit"],
+              order: input["order"],
+              cursor: input["cursor"],
+              agent_id: input["agent_id"],
+            },
             successStatus: 200,
             declaredStatuses: [400, 404, 500, 401],
             empty: false,

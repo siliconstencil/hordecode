@@ -66,7 +66,7 @@ const layer = Layer.effect(
             }),
           )
           return checks
-            .filter((x): x is { item: Formatter.Info; cmd: string[] } => x.cmd !== false)
+            .filter((x): x is { item: Formatter.Info; cmd: string[] } => x.cmd !== false && Array.isArray(x.cmd) && x.cmd.every((c) => typeof c === "string"))
             .map((x) => ({ item: x.item, cmd: x.cmd }))
         }
 
@@ -79,6 +79,10 @@ const layer = Layer.effect(
 
             for (const { item, cmd } of formatters) {
               yield* Effect.logInfo("running", { command: cmd })
+              if (!cmd.every((x) => typeof x === "string")) {
+                yield* Effect.logWarning("formatter returned non-string cmd element", { formatter: item.name, cmd })
+                continue
+              }
               const replaced = cmd.map((x) => x.replace("$FILE", filepath))
               const dir = yield* InstanceState.directory
               const result = yield* appProcess

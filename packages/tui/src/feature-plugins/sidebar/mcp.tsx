@@ -21,57 +21,66 @@ function View(props: { api: TuiPluginApi }) {
     if (status === "connected") return theme().success
     if (status === "failed") return theme().error
     if (status === "disabled") return theme().textMuted
+    if (status === "pending") return theme().warning
     if (status === "needs_auth") return theme().warning
     if (status === "needs_client_registration") return theme().error
     return theme().textMuted
   }
 
+  const renderItem = (item: { name: string; status: string; error?: string }) => (
+    <box flexDirection="row" gap={1}>
+      <text
+        flexShrink={0}
+        style={{
+          fg: dot(item.status),
+        }}
+      >
+        •
+      </text>
+      <text fg={theme().text} wrapMode="word">
+        {item.name}{" "}
+        <span style={{ fg: theme().textMuted }}>
+          <Switch fallback={item.status}>
+            <Match when={item.status === "connected"}>Connected</Match>
+            <Match when={item.status === "failed"}>
+              <i>{item.error}</i>
+            </Match>
+            <Match when={item.status === "disabled"}>Disabled</Match>
+            <Match when={(item.status as string) === "pending"}>
+              <span style={{ fg: theme().warning }}>Pending approval</span>
+            </Match>
+            <Match when={item.status === "needs_auth"}>Needs auth</Match>
+            <Match when={item.status === "needs_client_registration"}>Needs client ID</Match>
+          </Switch>
+        </span>
+      </text>
+    </box>
+  )
+
   return (
     <Show when={list().length > 0}>
-      <box>
+      <box flexShrink={0} gap={0}>
         <box flexDirection="row" gap={1} onMouseDown={() => list().length > 2 && setOpen((x) => !x)}>
-          <Show when={list().length > 2}>
-            <text fg={theme().text}>{open() ? "▼" : "▶"}</text>
-          </Show>
           <text fg={theme().text}>
-            <b>MCP</b>
-            <Show when={!open()}>
+            <b>
+              {list().length > 2 ? (open() ? "▼ " : "▶ ") : ""}
+              MCP
+            </b>
+            <Show when={!open() && list().length > 2}>
               <span style={{ fg: theme().textMuted }}>
                 {" "}
-                ({on()} active{bad() > 0 ? `, ${bad()} error${bad() > 1 ? "s" : ""}` : ""})
+                ({on()}/{list().length} active{bad() > 0 ? `, ${bad()} err` : ""})
               </span>
             </Show>
           </text>
+          <Show when={open() && list().length > 2}>
+            <text fg={theme().textMuted}>
+              {on()}/{list().length} active{bad() > 0 ? `, ${bad()} err` : ""}
+            </text>
+          </Show>
         </box>
         <Show when={list().length <= 2 || open()}>
-          <For each={list()}>
-            {(item) => (
-              <box flexDirection="row" gap={1}>
-                <text
-                  flexShrink={0}
-                  style={{
-                    fg: dot(item.status),
-                  }}
-                >
-                  •
-                </text>
-                <text fg={theme().text} wrapMode="word">
-                  {item.name}{" "}
-                  <span style={{ fg: theme().textMuted }}>
-                    <Switch fallback={item.status}>
-                      <Match when={item.status === "connected"}>Connected</Match>
-                      <Match when={item.status === "failed"}>
-                        <i>{item.error}</i>
-                      </Match>
-                      <Match when={item.status === "disabled"}>Disabled</Match>
-                      <Match when={item.status === "needs_auth"}>Needs auth</Match>
-                      <Match when={item.status === "needs_client_registration"}>Needs client ID</Match>
-                    </Switch>
-                  </span>
-                </text>
-              </box>
-            )}
-          </For>
+          <For each={list()}>{(item) => renderItem(item)}</For>
         </Show>
       </box>
     </Show>

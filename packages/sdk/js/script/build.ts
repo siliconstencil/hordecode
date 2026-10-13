@@ -39,7 +39,13 @@ if (schemas) {
   }
   visit({ ...document, components: { ...document.components, schemas: undefined } })
   for (const name of Object.keys(schemas)) {
-    if (/^SessionNext\w+1$/.test(name) && !reachable.has(name)) delete schemas[name]
+    // Strip dead shadow exports that the Effect OpenAPI generator emits with
+    // a `1` suffix when the same shape appears under two different namespaces.
+    // The reachable set above (lines 22-40) walks every $ref transitively, so
+    // an entry that survives the visit is by definition unreachable. Without
+    // this strip, downstream TypeScript types end up declared but never
+    // referenced, producing noisy diffs and unused-export lints.
+    if (/^(SessionNext\w+1|CheckpointPart1)$/.test(name) && !reachable.has(name)) delete schemas[name]
   }
   await Bun.write("./openapi.json", JSON.stringify(document))
 }

@@ -3,6 +3,8 @@ import { Share } from "../../src/core/share"
 import { Storage } from "../../src/core/storage"
 import { Identifier } from "@opencode-ai/core/util/identifier"
 
+process.env.HORDECODE_STORAGE_ADAPTER = "memory"
+
 describe.concurrent("core.share", () => {
   test("should create a share", async () => {
     const sessionID = Identifier.descending()

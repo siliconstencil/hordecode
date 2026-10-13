@@ -35,7 +35,9 @@ export function formatTranscript(
   transcript += `**Updated:** ${new Date(session.time.updated).toLocaleString()}\n\n`
   transcript += `---\n\n`
 
-  for (const msg of messages) {
+  for (const msg of messages.toSorted(
+    (a, b) => a.info.time.created - b.info.time.created || a.info.id.localeCompare(b.info.id),
+  )) {
     transcript += formatMessage(msg.info, msg.parts, options, providers)
     transcript += `---\n\n`
   }
@@ -84,6 +86,17 @@ export function formatAssistantHeader(
 export function formatPart(part: Part, options: TranscriptOptions): string {
   if (part.type === "text" && !part.synthetic) {
     return `${part.text}\n\n`
+  }
+
+  // Cron-fired synthetic prompts: surface in the exported markdown as a
+  // distinct line so downstream readers see fire history. Use the canonical
+  // `metadata.origin.firedAt` ISO timestamp; never parse the prefix.
+  if (part.type === "text" && part.synthetic) {
+    const origin = (part.metadata as { origin?: { kind?: string; firedAt?: string } } | undefined)?.origin
+    if (origin?.kind === "cron" && origin.firedAt) {
+      const body = part.text.replace(/^\[cron fire @ [^\]]+\]\s*/, "")
+      return `_🕒 cron fire @ ${origin.firedAt} — ${body}_\n\n`
+    }
   }
 
   if (part.type === "reasoning") {

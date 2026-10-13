@@ -1,4 +1,4 @@
-import type { TuiDialogSelectOption, TuiPluginApi, TuiSlotProps } from "@opencode-ai/plugin/tui"
+import type { TuiDialogSelectOption, TuiPluginApi, TuiSidebarGoalSync, TuiSidebarTaskItem, TuiSlotProps } from "@opencode-ai/plugin/tui"
 import type { TuiConfig } from "../config"
 import type { useEvent } from "../context/event"
 import type { useRoute } from "../context/route"
@@ -97,6 +97,15 @@ function mapOptionCb<Value>(cb?: (item: TuiDialogSelectOption<Value>) => void) {
 
 function stateApi(sync: ReturnType<typeof useSync>): TuiPluginApi["state"] {
   return {
+    cron() {
+      return sync.data.cron ?? []
+    },
+    supervisor() {
+      return Object.values(sync.data.supervisor)
+        .flat()
+        .map((item) => (item.status === "stuck" ? { ...item, status: "unknown" as const } : item))
+        .toSorted((a, b) => b.time_created - a.time_created) as ReturnType<TuiPluginApi["state"]["supervisor"]>
+    },
     get ready() {
       return sync.ready
     },
@@ -113,7 +122,6 @@ function stateApi(sync: ReturnType<typeof useSync>): TuiPluginApi["state"] {
       if (!sync.data.vcs) return
       return {
         branch: sync.data.vcs.branch,
-        default_branch: sync.data.vcs.default_branch,
       }
     },
     session: {
@@ -124,15 +132,17 @@ function stateApi(sync: ReturnType<typeof useSync>): TuiPluginApi["state"] {
         return sync.session.get(sessionID)
       },
       diff(sessionID) {
-        return (sync.data.session_diff[sessionID] ?? []).flatMap((item) =>
-          item.file === undefined ? [] : [{ ...item, file: item.file }],
-        )
+        return (sync.data.session_diff[sessionID] ?? []).map((item) => ({
+          file: item.file ?? "",
+          additions: item.additions,
+          deletions: item.deletions,
+        }))
       },
       todo(sessionID) {
         return sync.data.todo[sessionID] ?? []
       },
       messages(sessionID) {
-        return sync.data.message[sessionID] ?? []
+        return Object.values(sync.data.message[sessionID] ?? {}).flat()
       },
       status(sessionID) {
         return sync.data.session_status[sessionID]
@@ -143,6 +153,18 @@ function stateApi(sync: ReturnType<typeof useSync>): TuiPluginApi["state"] {
       question(sessionID) {
         return sync.data.question[sessionID] ?? []
       },
+      goal(sessionID) {
+        return sync.data.session_goal[sessionID]
+      },
+      task(sessionID) {
+        return (sync.data.task[sessionID] ?? []) as ReadonlyArray<TuiSidebarTaskItem>
+      },
+      instructions(sessionID) {
+        return sync.data.instructions
+      },
+    },
+    instructions() {
+      return sync.data.instructions ?? []
     },
     part(messageID) {
       return sync.data.part[messageID] ?? []

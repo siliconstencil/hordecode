@@ -7,6 +7,10 @@ import { SessionID } from "../../session/schema"
 import { UI } from "../ui"
 import { Locale } from "@/util/locale"
 import { Flag } from "@opencode-ai/core/flag/flag"
+import { ClaudeImport } from "@opencode-ai/core/session/claude-import"
+import { CodexImport } from "@opencode-ai/core/session/codex-import"
+import { OpencodeImport } from "@opencode-ai/core/session/opencode-import"
+import { ExternalImport } from "@opencode-ai/core/session/external-import"
 import { Filesystem } from "@/util/filesystem"
 import { Process } from "@/util/process"
 import { NotFoundError } from "@/storage/storage"
@@ -44,7 +48,15 @@ function pagerCmd(): string[] {
 export const SessionCommand = cmd({
   command: "session",
   describe: "manage sessions",
-  builder: (yargs: Argv) => yargs.command(SessionListCommand).command(SessionDeleteCommand).demandCommand(),
+  builder: (yargs: Argv) =>
+    yargs
+      .command(SessionListCommand)
+      .command(SessionDeleteCommand)
+      .command(SessionImportClaudeCommand)
+      .command(SessionImportCodexCommand)
+      .command(SessionImportOpencodeCommand)
+      .command(SessionImportAllCommand)
+      .demandCommand(),
   async handler() {},
 })
 
@@ -65,6 +77,96 @@ export const SessionDeleteCommand = effectCmd({
       .pipe(Effect.catchIf(NotFoundError.isInstance, () => fail(`Session not found: ${args.sessionID}`)))
     UI.println(UI.Style.TEXT_SUCCESS_BOLD + `Session ${args.sessionID} deleted` + UI.Style.TEXT_NORMAL)
   }),
+})
+
+export const SessionImportClaudeCommand = cmd({
+  command: "import-claude",
+  describe: "import Claude Code sessions (~/.claude/projects) into hordecode",
+  builder: (yargs) =>
+    yargs.option("force", {
+      describe: "re-sync every session, ignoring the mtime cache",
+      type: "boolean",
+      default: false,
+    }),
+  handler: async (args) => {
+    const stats = await ClaudeImport.run({ force: args.force })
+    UI.println(
+      `Claude import: scanned ${stats.scanned}, imported ${stats.imported}, resynced ${stats.resynced}, skipped ${stats.skipped}` +
+        (stats.errors.length ? `, errors ${stats.errors.length}` : ""),
+    )
+    for (const err of stats.errors) UI.error(err)
+  },
+})
+
+export const SessionImportCodexCommand = cmd({
+  command: "import-codex",
+  describe: "import Codex CLI sessions (~/.codex/sessions) into hordecode",
+  builder: (yargs) =>
+    yargs.option("force", {
+      describe: "re-sync every session, ignoring the mtime cache",
+      type: "boolean",
+      default: false,
+    }),
+  handler: async (args) => {
+    const stats = await CodexImport.run({ force: args.force })
+    UI.println(
+      `Codex import: scanned ${stats.scanned}, imported ${stats.imported}, resynced ${stats.resynced}, skipped ${stats.skipped}` +
+        (stats.errors.length ? `, errors ${stats.errors.length}` : ""),
+    )
+    for (const err of stats.errors) UI.error(err)
+  },
+})
+
+export const SessionImportOpencodeCommand = cmd({
+  command: "import-opencode",
+  describe: "import opencode sessions into hordecode",
+  builder: (yargs) =>
+    yargs.option("force", {
+      describe: "re-sync every session, ignoring the mtime cache",
+      type: "boolean",
+      default: false,
+    }),
+  handler: async (args) => {
+    const stats = await OpencodeImport.run({ force: args.force })
+    UI.println(
+      `opencode import: scanned ${stats.scanned}, imported ${stats.imported}, resynced ${stats.resynced}, skipped ${stats.skipped}` +
+        (stats.errors.length ? `, errors ${stats.errors.length}` : ""),
+    )
+    for (const err of stats.errors) UI.error(err)
+  },
+})
+
+export const SessionImportAllCommand = cmd({
+  command: "import",
+  describe: "import sessions from external sources (Claude Code, Codex, opencode)",
+  builder: (yargs) =>
+    yargs
+      .option("source", {
+        alias: "s",
+        describe: "limit to one or more sources (cc, codex, opencode); repeat the flag for multiple",
+        type: "string",
+        choices: ["cc", "codex", "opencode"],
+        array: true,
+      })
+      .option("force", {
+        describe: "re-sync every session, ignoring the mtime cache",
+        type: "boolean",
+        default: false,
+      }),
+  handler: async (args) => {
+    const sources = (Array.isArray(args.source) ? args.source : args.source ? [args.source] : undefined) as
+      | Array<"cc" | "codex" | "opencode">
+      | undefined
+    const result = await ExternalImport.runAll({ sources, force: args.force })
+    for (const source of ["cc", "codex", "opencode"] as const) {
+      const stats = result[source]
+      UI.println(
+        `${source} import: scanned ${stats.scanned}, imported ${stats.imported}, resynced ${stats.resynced}, skipped ${stats.skipped}` +
+          (stats.errors.length ? `, errors ${stats.errors.length}` : ""),
+      )
+      for (const err of stats.errors) UI.error(err)
+    }
+  },
 })
 
 export const SessionListCommand = effectCmd({

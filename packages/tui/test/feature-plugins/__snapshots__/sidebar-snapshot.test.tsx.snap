@@ -1,0 +1,173 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`TUI sidebar golden snapshot full sidebar with tasks visible, todo hidden 1`] = `
+"Telemetry                        2 turns
+Context                   54.5K/128K 42%
+Tokens         35.0K in 5.5K out 800 rsn
+Cache                27.1% (13.0K/48.0K)
+Tools      13 · 12 ok · 1 err · 1.4/turn
+Speed                    42.3 t/s · 2.7s
+Usage            $0.04 spent · 54.5K tkn
+
+Directory
+~/projects/hordecode:dev
+
+Instructions                     2 files
+• AGENTS.md
+• CLAUDE.md
+
+MCP                    2/3 active, 1 err
+• filesystem Connected
+• memory Connected
+• github Auth expired
+
+Subagents               1 active, 1 done
+v explore -- Find plugins
+• general -- Diff code
+
+LSP                             1 active
+• typescript /home/user/projects/
+  hordecode
+
+Tasks
+[ ] T1 Sidebar snapshot test
+[ ] T2 Identity scan
+  [⏸] T2.1 Blocked subtask
+
+Modified Files                   2 files
+sidebar/task.tsx                  +12 -3
+sidebar/telemetry.tsx                +45
+
+
+
+• Hordecode 0.4.0"
+`;
+
+exports[`TUI sidebar golden snapshot sidebar with done tasks and RECENT_DONE_LIMIT=3 1`] = `
+"Telemetry                        2 turns █
+Context                   54.5K/128K 42% █
+Tokens         35.0K in 5.5K out 800 rsn █
+Cache                27.1% (13.0K/48.0K) █
+Tools      13 · 12 ok · 1 err · 1.4/turn █
+Speed                    42.3 t/s · 2.7s █
+Usage            $0.04 spent · 54.5K tkn █
+                                         █
+Directory                                █
+~/projects/hordecode:dev                 █
+                                         █
+Instructions                     2 files █
+• AGENTS.md                              █
+• CLAUDE.md                              █
+                                         █
+MCP                    2/3 active, 1 err █
+• filesystem Connected                   █
+• memory Connected                       █
+• github Auth expired                    █
+                                         █
+Subagents               1 active, 1 done █
+v explore -- Find plugins                █
+• general -- Diff code                   ▀
+
+LSP                             1 active
+• typescript /home/user/projects/
+  hordecode
+
+Tasks
+[ ] T1 Sidebar snapshot test
+[ ] T2 Identity scan
+  [⏸] T2.1 Blocked subtask
+[✓] T3 Done task A
+[✓] T4 Done task B
+[✓] T5 Done task C
+▸ 1 more done
+
+Modified Files                   2 files
+
+• Hordecode 0.4.0"
+`;
+
+exports[`TUI sidebar golden snapshot todo appears only when tasks are empty (deliberate Hordecode behavior) 1`] = `
+"Telemetry                        2 turns █
+Context                   54.5K/128K 42% █
+Tokens         35.0K in 5.5K out 800 rsn █
+Cache                27.1% (13.0K/48.0K) █
+Tools      13 · 12 ok · 1 err · 1.4/turn █
+Speed                    42.3 t/s · 2.7s █
+Usage            $0.04 spent · 54.5K tkn █
+                                         █
+Directory                                █
+~/projects/hordecode:dev                 █
+                                         █
+Instructions                     2 files █
+• AGENTS.md                              █
+• CLAUDE.md                              █
+                                         █
+MCP                    2/3 active, 1 err █
+• filesystem Connected                   █
+• memory Connected                       █
+• github Auth expired                    █
+                                         █
+Subagents               1 active, 1 done █
+v explore -- Find plugins
+• general -- Diff code
+
+LSP                             1 active
+• typescript /home/user/projects/
+  hordecode
+
+Tasks
+[ ] T1 Sidebar snapshot test
+[ ] T2 Identity scan
+  [⏸] T2.1 Blocked subtask
+
+Todo
+[ ] Write sidebar test
+[ ] Add identity scan
+[✓] Read upstream diffs
+[ ] Commit both tasks
+
+• Hordecode 0.4.0"
+`;
+
+exports[`TUI sidebar golden snapshot removing telemetry panel breaks the snapshot (golden test regression) 1`] = `
+"Directory
+~/projects/hordecode:dev
+
+Instructions                     2 files
+• AGENTS.md
+• CLAUDE.md
+
+MCP                    2/3 active, 1 err
+• filesystem Connected
+• memory Connected
+• github Auth expired
+
+Subagents               1 active, 1 done
+v explore -- Find plugins
+• general -- Diff code
+
+LSP                             1 active
+• typescript /home/user/projects/
+  hordecode
+
+Tasks
+[ ] T1 Sidebar snapshot test
+[ ] T2 Identity scan
+  [⏸] T2.1 Blocked subtask
+
+Modified Files                   2 files
+sidebar/task.tsx                  +12 -3
+sidebar/telemetry.tsx                +45
+
+
+
+
+
+
+
+
+
+
+
+• Hordecode 0.4.0"
+`;

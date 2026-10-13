@@ -256,6 +256,7 @@ const layer = Layer.effect(
   }),
 )
 
-export const node = makeGlobalNode({ service: Service, layer: layer, deps: [CrossSpawnSpawner.node] })
+// Thunk to break module-init TDZ.
+export const node = makeGlobalNode({ service: Service, layer: layer, deps: () => [CrossSpawnSpawner.node] })
 
 export * as AppProcess from "./process"

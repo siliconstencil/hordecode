@@ -14,7 +14,7 @@ export function DialogMessage(props: {
 }) {
   const sync = useSync()
   const sdk = useSDK()
-  const message = createMemo(() => sync.data.message[props.sessionID]?.find((x) => x.id === props.messageID))
+  const message = createMemo(() => Object.values(sync.data.message[props.sessionID] ?? {}).flat().find((x) => x.id === props.messageID))
   const route = useRoute()
   const clipboard = useClipboard()
 

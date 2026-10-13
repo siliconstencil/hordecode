@@ -190,6 +190,39 @@ describe("mcp HttpApi", () => {
   )
 
   it.instance(
+    "serves authCallback for an MCP server with no pending OAuth flow",
+    () =>
+      Effect.gen(function* () {
+        const tmp = yield* TestInstance
+        const handler = HttpApiApp.webHandler()
+        const response = yield* request(handler, McpPaths.authCallback, tmp.directory, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ code: "any-code" }),
+        })
+
+        // finishAuth's "No pending OAuth flow" surfaces as 500 (the
+        // framework maps the throw to a defect). Pinned as a 4xx-or-5xx
+        // contract; the specific status depends on whether the error is
+        // caught by the schemaErrorLayer or surfaces as an unhandled
+        // defect. Production behaviour is exercised by the
+        // httpapi-error-middleware.test.ts suite.
+        expect(response.status).toBeGreaterThanOrEqual(400)
+      }),
+    {
+      config: {
+        mcp: {
+          demo: {
+            type: "local",
+            command: ["echo", "demo"],
+            enabled: false,
+          },
+        },
+      },
+    },
+  )
+
+  it.instance(
     "returns typed not found errors for missing MCP servers",
     () =>
       Effect.gen(function* () {

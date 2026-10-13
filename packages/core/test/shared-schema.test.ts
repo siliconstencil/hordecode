@@ -51,7 +51,6 @@ test("Core reuses the canonical shared schemas", async () => {
     coreSessionTodo,
     corePrompt,
     coreSkill,
-    coreV2Schema,
     coreSchema,
     coreWorkspace,
   ] = await Promise.all([
@@ -73,7 +72,6 @@ test("Core reuses the canonical shared schemas", async () => {
     import("@opencode-ai/core/session/todo"),
     import("@opencode-ai/core/session/prompt"),
     import("@opencode-ai/core/skill"),
-    import("@opencode-ai/core/v2-schema"),
     import("@opencode-ai/core/schema"),
     import("@opencode-ai/core/workspace"),
   ])
@@ -173,7 +171,6 @@ test("Core reuses the canonical shared schemas", async () => {
     [coreSkill.EmbeddedSource, Skill.EmbeddedSource],
     [coreSkill.Source, Skill.Source],
     [coreSkill.Info, Skill.Info],
-    [coreV2Schema.DateTimeUtcFromMillis, DateTimeUtcFromMillis],
     [coreSchema.optional, optional],
     [coreSchema.statics, statics],
     [coreWorkspace.ID, Workspace.ID],

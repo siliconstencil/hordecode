@@ -8,7 +8,7 @@ test("exposes every standard HTTP API group", () => {
     "health",
     "location",
     "agents",
-    "sessions",
+    "session",
     "messages",
     "models",
     "providers",
@@ -38,7 +38,7 @@ test("exposes every standard HTTP API group", () => {
   expect(Object.keys(client.ptys)).toEqual(["list", "create", "get", "update", "remove"])
 })
 
-test("sessions.get returns the wire projection", async () => {
+test("session.get returns the wire projection", async () => {
   const client = OpenCode.make({
     baseUrl: "http://localhost:3000",
     fetch: async (input) => {
@@ -49,7 +49,7 @@ test("sessions.get returns the wire projection", async () => {
     },
   })
 
-  const result = await client.sessions.get({ sessionID: "ses_test" })
+  const result = await client.session.get({ sessionID: "ses_test" })
 
   expect(result.time.created).toBe(1_717_171_717_000)
 })
@@ -112,31 +112,31 @@ test("session methods use the public HTTP contract", async () => {
     },
   })
 
-  const page = await client.sessions.list({ limit: 10, order: "desc" })
-  const active = await client.sessions.active()
-  const created = await client.sessions.create({ location: { directory: "/tmp/project" } })
-  await client.sessions.switchAgent({ sessionID: "ses_test", agent: "build" })
-  await client.sessions.switchModel({
+  const page = await client.session.list({ limit: 10, order: "desc" })
+  const active = await client.session.active()
+  const created = await client.session.create({ location: { directory: "/tmp/project" } })
+  await client.session.switchAgent({ sessionID: "ses_test", agent: "build" })
+  await client.session.switchModel({
     sessionID: "ses_test",
     model: { id: "claude", providerID: "anthropic" },
   })
-  const admitted = await client.sessions.prompt({
+  const admitted = await client.session.prompt({
     sessionID: "ses_test",
     prompt: { text: "Hello" },
     resume: false,
   })
-  await client.sessions.compact({ sessionID: "ses_test" })
-  await client.sessions.wait({ sessionID: "ses_test" })
-  const context = await client.sessions.context({ sessionID: "ses_test" })
-  const history = await client.sessions.history({ sessionID: "ses_test", after: 0, limit: 1 })
+  await client.session.compact({ sessionID: "ses_test" })
+  await client.session.wait({ sessionID: "ses_test" })
+  const context = await client.session.context({ sessionID: "ses_test" })
+  const history = await client.session.history({ sessionID: "ses_test", after: 0, limit: 1 })
   const historyAfter = history.data.at(-1)?.durable?.seq
   const historyNext = history.hasMore
-    ? await client.sessions.history({ sessionID: "ses_test", after: historyAfter, limit: 2 })
+    ? await client.session.history({ sessionID: "ses_test", after: historyAfter, limit: 2 })
     : undefined
   const events = []
-  for await (const event of client.sessions.events({ sessionID: "ses_test", after: 0 })) events.push(event)
-  await client.sessions.interrupt({ sessionID: "ses_test" })
-  const message = await client.sessions.message({ sessionID: "ses_test", messageID: "msg_model" })
+  for await (const event of client.session.events({ sessionID: "ses_test", after: 0 })) events.push(event)
+  await client.session.interrupt({ sessionID: "ses_test" })
+  const message = await client.session.message({ sessionID: "ses_test", messageID: "msg_model" })
 
   expect(page.cursor.next).toBe("next")
   expect(active).toEqual({ ses_test: { type: "running" } })
@@ -179,14 +179,14 @@ test("middleware errors remain declared client errors", async () => {
   })
 
   try {
-    await client.sessions.create({})
+    await client.session.create({})
     throw new Error("Expected request to fail")
   } catch (error) {
     expect(isUnauthorizedError(error)).toBe(true)
   }
 })
 
-test("sessions.history decodes SessionNotFoundError", async () => {
+test("session.history decodes SessionNotFoundError", async () => {
   const client = OpenCode.make({
     baseUrl: "http://localhost:3000",
     fetch: async () =>
@@ -197,7 +197,7 @@ test("sessions.history decodes SessionNotFoundError", async () => {
   })
 
   try {
-    await client.sessions.history({ sessionID: "ses_missing" })
+    await client.session.history({ sessionID: "ses_missing" })
     throw new Error("Expected request to fail")
   } catch (error) {
     expect(isSessionNotFoundError(error)).toBe(true)

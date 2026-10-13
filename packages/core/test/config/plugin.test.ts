@@ -1,6 +1,6 @@
 import path from "path"
 import { describe, expect } from "bun:test"
-import { Effect, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { Config } from "@opencode-ai/core/config"
 import { ConfigExternalPlugin } from "@opencode-ai/core/config/plugin/external"
@@ -162,11 +162,12 @@ describe("ConfigExternalPlugin", () => {
             installed = spec
             return {
               directory: import.meta.dir,
-              entrypoint: path.join(import.meta.dir, "../plugin/fixtures/config-promise-plugin.ts"),
+              entrypoint: Option.some(path.join(import.meta.dir, "../plugin/fixtures/config-promise-plugin.ts")),
             }
           }),
         install: () => Effect.void,
-        which: () => Effect.succeed(undefined),
+        which: () => Effect.succeed(Option.none()),
+        outdated: () => Effect.succeed(false),
       })
 
       yield* ConfigExternalPlugin.Plugin.effect(host).pipe(

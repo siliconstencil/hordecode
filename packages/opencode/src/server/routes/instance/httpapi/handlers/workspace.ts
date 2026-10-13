@@ -31,20 +31,18 @@ export const workspaceHandlers = HttpApiBuilder.group(InstanceHttpApi, "workspac
           projectID: instance.project.id,
         })
         .pipe(
-          Effect.catchCause((cause) => {
-            // Plugin throws surface as defects (because EffectBridge.fromPromise uses Effect.promise),
-            // bypassing Effect.mapError. Walk the cause to surface the real error to the client.
-            const die = cause.reasons.find(Cause.isDieReason)
-            const fail = cause.reasons.find(Cause.isFailReason)
-            const reason: unknown = die?.defect ?? fail?.error
-            const message = reason instanceof Error ? reason.message : "Workspace creation failed"
-            return Effect.fail(
-              new ApiWorkspaceCreateError({
+          Effect.catchCause((cause) =>
+            Effect.gen(function* () {
+              // Plugin throws surface as defects (because EffectBridge.fromPromise uses Effect.promise),
+              // bypassing Effect.mapError. Walk the cause for the log; never surface raw internals to the client.
+              const ref = `err_${crypto.randomUUID().slice(0, 8)}`
+              yield* Effect.logError("workspace create failed", { ref, cause: Cause.pretty(cause) })
+              return yield* new ApiWorkspaceCreateError({
                 name: "WorkspaceCreateError",
-                data: { message },
-              }),
-            )
-          }),
+                data: { message: `Unexpected server error. Check server logs for details. (ref: ${ref})` },
+              })
+            }),
+          ),
         )
     })
 
@@ -64,7 +62,7 @@ export const workspaceHandlers = HttpApiBuilder.group(InstanceHttpApi, "workspac
     const warp = Effect.fn("WorkspaceHttpApi.warp")(function* (ctx: { payload: typeof WarpPayload.Type }) {
       yield* workspace
         .sessionWarp({
-          workspaceID: ctx.payload.id,
+          workspaceID: ctx.payload.id ?? null,
           sessionID: ctx.payload.sessionID,
           copyChanges: ctx.payload.copyChanges,
         })

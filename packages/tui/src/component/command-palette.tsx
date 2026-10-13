@@ -9,6 +9,18 @@ import {
   useOpencodeKeymap,
 } from "../keymap"
 import { useTuiConfig } from "../config"
+import { useLanguage } from "../context/language"
+import { dict as enDict } from "../i18n/en"
+
+const CATEGORY_KEYS: Record<string, string> = {
+  session: "tui.command.category.session",
+  agent: "tui.command.category.agent",
+  provider: "tui.command.category.provider",
+  system: "tui.command.category.system",
+  prompt: "tui.command.category.prompt",
+  internal: "tui.command.category.internal",
+  external: "tui.command.category.external",
+}
 
 type PaletteCommandEntry = ReturnType<OpenTuiKeymap["getCommandEntries"]>[number]
 
@@ -26,13 +38,17 @@ function isSuggestedPaletteCommand(entry: PaletteCommandEntry) {
 export function CommandPaletteDialog() {
   const config = useTuiConfig()
   const keymap = useOpencodeKeymap()
+  const lang = useLanguage()
+  // t() returns the key itself for missing keys, so only call it when the
+  // key exists in the en dictionary (the superset all locales mirror).
+  const tKey = <T,>(key: string, fallback: T): string | T => (key in enDict ? lang.t(key) : fallback)
   const entries = useKeymapSelector((keymap: OpenTuiKeymap) => {
     const query = {
       namespace: "palette",
     }
     const reachable = keymap.getCommandEntries({
       ...query,
-      visibility: "reachable",
+      visibility: "registered",
       filter: isVisiblePaletteCommand,
     })
     const registeredBindings = keymap.getCommandBindings({
@@ -46,18 +62,31 @@ export function CommandPaletteDialog() {
     }))
   })
   const options = createMemo(() =>
-    entries().map((entry) => ({
-      title: typeof entry.command.title === "string" ? entry.command.title : entry.command.name,
-      description: typeof entry.command.desc === "string" ? entry.command.desc : undefined,
-      category: typeof entry.command.category === "string" ? entry.command.category : undefined,
-      footer: formatKeyBindings(entry.bindings, config),
-      value: entry.command.name,
-      suggested: isSuggestedPaletteCommand(entry),
-      onSelect: (dialog: DialogContext) => {
-        dialog.clear()
-        keymap.dispatchCommand(entry.command.name)
-      },
-    })),
+    entries().map((entry) => {
+      const name = entry.command.name
+      const category = typeof entry.command.category === "string" ? entry.command.category : undefined
+      return {
+        title: tKey(
+          `tui.command.${name}.title`,
+          typeof entry.command.title === "string" ? entry.command.title : name,
+        ),
+        description: tKey(
+          `tui.command.${name}.description`,
+          typeof entry.command.desc === "string" ? entry.command.desc : undefined,
+        ),
+        category:
+          category === undefined
+            ? undefined
+            : tKey(CATEGORY_KEYS[category.toLowerCase()] ?? `tui.command.category.${category}`, category),
+        footer: formatKeyBindings(entry.bindings, config),
+        value: name,
+        suggested: isSuggestedPaletteCommand(entry),
+        onSelect: (dialog: DialogContext) => {
+          dialog.clear()
+          keymap.dispatchCommand(name)
+        },
+      }
+    }),
   )
 
   let ref: DialogSelectRef<string>
@@ -69,11 +98,11 @@ export function CommandPaletteDialog() {
         .map((option) => ({
           ...option,
           value: `suggested:${option.value}`,
-          category: "Suggested",
+          category: lang.t("tui.command.palette.suggested"),
         })),
       ...options(),
     ]
   }
 
-  return <DialogSelect ref={(value) => (ref = value)} title="Commands" options={list()} />
+  return <DialogSelect ref={(value) => (ref = value)} title={lang.t("tui.command.palette.title")} options={list()} />
 }

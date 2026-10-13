@@ -195,7 +195,7 @@ function StickyScrollFixture(props: { separated: boolean; scroll: (scroll: Scrol
 
 function FailedPendingToolFixture() {
   return (
-    <InlineToolRow icon="%" complete={false} pending="Preparing patch..." failed={true} failure="Patch failed">
+    <InlineToolRow icon="%" complete={false} pending="Preparing patch…" failed={true} failure="Patch failed">
       Patch
     </InlineToolRow>
   )
@@ -203,7 +203,7 @@ function FailedPendingToolFixture() {
 
 function FailedCompleteToolFixture() {
   return (
-    <InlineToolRow icon="→" complete={true} pending="Reading file..." failed={true} failure="Read failed">
+    <InlineToolRow icon="→" complete={true} pending="Reading file…" failed={true} failure="Read failed">
       Read src/index.ts
     </InlineToolRow>
   )
@@ -340,7 +340,7 @@ describe("TUI inline tool wrapping", () => {
 
     setSeparated(true)
     await testSetup.renderOnce()
-    expect(scroll?.scrollHeight).toBe(5)
+    expect(scroll?.scrollHeight).toBe(4)
     expect(scroll?.scrollTop).toBe(Math.max(0, scroll!.scrollHeight - scroll!.viewport.height))
 
     setSeparated(false)

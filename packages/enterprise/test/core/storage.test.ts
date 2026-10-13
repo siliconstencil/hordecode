@@ -1,6 +1,8 @@
 import { describe, expect, test, afterAll } from "bun:test"
 import { Storage } from "../../src/core/storage"
 
+process.env.HORDECODE_STORAGE_ADAPTER = "memory"
+
 describe("core.storage", () => {
   test("should list files with after and before range", async () => {
     await Storage.write(["test", "users", "user1"], { name: "user1" })

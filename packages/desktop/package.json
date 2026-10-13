@@ -1,16 +1,17 @@
 {
   "name": "@opencode-ai/desktop",
   "private": true,
-  "version": "1.17.18",
+  "version": "0.1.0",
+  "hordecodeBase": "1.17.18",
   "type": "module",
   "license": "MIT",
-  "homepage": "https://opencode.ai",
+  "homepage": "https://github.com/siliconstencil/hordecode",
   "author": {
-    "name": "OpenCode",
+    "name": "Hordecode",
     "email": "hello@opencode.ai"
   },
   "scripts": {
-    "typecheck": "tsgo -b",
+    "typecheck": "tsc -b",
     "predev": "bun ./scripts/predev.ts",
     "dev": "electron-vite dev",
     "prebuild": "bun ./scripts/prebuild.ts",

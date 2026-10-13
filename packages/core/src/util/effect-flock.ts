@@ -94,7 +94,7 @@ export namespace EffectFlock {
 
   const isPathGone = (e: PlatformError) => e.reason._tag === "NotFound" || e.reason._tag === "Unknown"
 
-  const layer: Layer.Layer<Service, never, Global.Service | FSUtil.Service> = Layer.effect(
+  export const layer: Layer.Layer<Service, never, Global.Service | FSUtil.Service> = Layer.effect(
     Service,
     Effect.gen(function* () {
       const global = yield* Global.Service
@@ -280,5 +280,6 @@ export namespace EffectFlock {
     }),
   )
 
-  export const node = makeGlobalNode({ service: Service, layer: layer, deps: [Global.node, FSUtil.node] })
+  // Thunk to break module-init TDZ.
+  export const node = makeGlobalNode({ service: Service, layer: layer, deps: () => [Global.node, FSUtil.node] })
 }

@@ -6,8 +6,17 @@ import fs from "fs/promises"
 import { setTimeout as sleep } from "node:timers/promises"
 import { afterAll } from "bun:test"
 
-// Set XDG env vars FIRST, before any src/ imports
+// Set XDG env vars FIRST, before any src/ imports - must be synchronous before any await
+// so that concurrent test file imports (which may start before this top-level await settles) see correct env.
+// dir is deterministic from pid, so we can set env before mkdir.
 const dir = path.join(os.tmpdir(), "opencode-test-data-" + process.pid)
+process.env["XDG_DATA_HOME"] = path.join(dir, "share")
+process.env["XDG_CACHE_HOME"] = path.join(dir, "cache")
+process.env["XDG_CONFIG_HOME"] = path.join(dir, "config")
+process.env["XDG_STATE_HOME"] = path.join(dir, "state")
+const _testDbPathEarly = path.join(dir, "test.db")
+process.env["OPENCODE_DB"] = _testDbPathEarly
+process.env["HORDECODE_DB"] = _testDbPathEarly
 await fs.mkdir(dir, { recursive: true })
 afterAll(async () => {
   const { AppRuntime } = await import("../src/effect/app-runtime")
@@ -83,8 +92,13 @@ delete process.env["OTEL_EXPORTER_OTLP_ENDPOINT"]
 delete process.env["OTEL_EXPORTER_OTLP_HEADERS"]
 delete process.env["OTEL_RESOURCE_ATTRIBUTES"]
 
-// Use in-memory sqlite
-process.env["OPENCODE_DB"] = ":memory:"
+// Route both DB worlds to the SAME test file: the Effect Database layer (OPENCODE_DB)
+// applies migrations (incl. inbox) there, and the storage layer (HORDECODE_DB) must
+// see those tables. ":memory:" alone would split them -- storage/db.ts reads HORDECODE_DB,
+// not OPENCODE_DB, so it would fall back to a real file without the inbox table.
+const testDbPath = path.join(dir, "test.db")
+process.env["OPENCODE_DB"] = testDbPath
+process.env["HORDECODE_DB"] = testDbPath
 
 // Now safe to import from src/
 const { initProjectors } = await import("../src/server/projectors")

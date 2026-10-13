@@ -4,9 +4,11 @@ import * as Tool from "./tool"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Watcher } from "@opencode-ai/core/filesystem/watcher"
 import { InstanceState } from "@/effect/instance-state"
+import { SessionCwd } from "@opencode-ai/core/tool/session-cwd"
 import { Patch } from "../patch"
 import { createTwoFilesPatch, diffLines } from "diff"
-import { assertExternalDirectoryEffect } from "./external-directory"
+import { assertWriteAllowed } from "./external-directory"
+import { Global } from "@opencode-ai/core/global"
 import { trimDiff } from "./edit"
 import { LSP } from "@/lsp/lsp"
 import { FSUtil } from "@opencode-ai/core/fs-util"
@@ -70,8 +72,9 @@ export const ApplyPatchTool = Tool.define(
       let totalDiff = ""
 
       for (const hunk of hunks) {
-        const filePath = path.resolve(instance.directory, hunk.path)
-        yield* assertExternalDirectoryEffect(ctx, filePath)
+        // Session cwd (change_directory) anchors relative paths; MiMo Code 0.1.11 tool/apply_patch.ts:69.
+        const filePath = path.resolve(SessionCwd.get(ctx.sessionID, instance.directory), hunk.path)
+        yield* assertWriteAllowed(ctx, filePath)
 
         switch (hunk.type) {
           case "add": {
@@ -139,8 +142,10 @@ export const ApplyPatchTool = Tool.define(
               if (change.removed) deletions += change.count || 0
             }
 
-            const movePath = hunk.move_path ? path.resolve(instance.directory, hunk.move_path) : undefined
-            yield* assertExternalDirectoryEffect(ctx, movePath)
+            const movePath = hunk.move_path
+              ? path.resolve(SessionCwd.get(ctx.sessionID, instance.directory), hunk.move_path)
+              : undefined
+            yield* assertWriteAllowed(ctx, movePath)
 
             fileChanges.push({
               filePath,
@@ -198,21 +203,34 @@ export const ApplyPatchTool = Tool.define(
         patch: change.diff,
         additions: change.additions,
         deletions: change.deletions,
-        movePath: change.movePath,
+        ...(change.movePath ? { movePath: change.movePath } : {}),
       }))
 
       // Check permissions if needed
-      const relativePaths = fileChanges.map((c) => path.relative(instance.worktree, c.filePath).replaceAll("\\", "/"))
-      yield* ctx.ask({
-        permission: "edit",
-        patterns: relativePaths,
-        always: ["*"],
-        metadata: {
-          filepath: relativePaths.join(", "),
-          diff: totalDiff,
-          files,
-        },
-      })
+      // NOTE: permissionChanges already excludes memory-tree paths (filtered
+      // below), so this ask never fires for memory writes — the
+      // askEditUnlessMemory deferral used by write.ts/edit.ts is structurally
+      // already satisfied here. Left as a direct ctx.ask.
+      const permissionChanges = fileChanges.filter(
+        (change) => !FSUtil.contains(path.join(Global.Path.data, "memory"), change.movePath ?? change.filePath),
+      )
+      if (permissionChanges.length > 0) {
+        const relativePaths = permissionChanges.map((c) =>
+          path.relative(instance.worktree, c.filePath).replaceAll("\\", "/"),
+        )
+        yield* ctx.ask({
+          permission: "edit",
+          patterns: relativePaths,
+          always: ["*"],
+          metadata: {
+            filepath: relativePaths.join(", "),
+            diff: permissionChanges.map((change) => change.diff).join("\n") + "\n",
+            files: files.filter(
+              (file) => !FSUtil.contains(path.join(Global.Path.data, "memory"), file.movePath ?? file.filePath),
+            ),
+          },
+        })
+      }
 
       // Apply the changes
       const updates: Array<{ file: string; event: "add" | "change" | "unlink" }> = []

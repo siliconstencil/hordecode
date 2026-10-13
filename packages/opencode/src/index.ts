@@ -9,6 +9,8 @@ import { UpgradeCommand } from "./cli/cmd/upgrade"
 import { UninstallCommand } from "./cli/cmd/uninstall"
 import { ModelsCommand } from "./cli/cmd/models"
 import { UI } from "./cli/ui"
+import { Log } from "@opencode-ai/core/util"
+import { Installation } from "./installation"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { FormatError } from "./cli/error"
 import { ServeCommand } from "./cli/cmd/serve"
@@ -29,12 +31,14 @@ import { DbCommand } from "./cli/cmd/db"
 import { errorMessage } from "./util/error"
 import { PluginCommand } from "./cli/cmd/plug"
 import { Heap } from "./cli/heap"
+import path from "path"
 
 const args = hideBin(process.argv)
+const scriptName = path.basename(process.argv0 || "horde")
 
 function show(out: string) {
   const text = out.trimStart()
-  if (!text.startsWith("opencode ")) {
+  if (!text.startsWith(scriptName + " ")) {
     process.stderr.write(UI.logo() + EOL + EOL)
     process.stderr.write(text + EOL)
     return
@@ -44,7 +48,7 @@ function show(out: string) {
 
 const cli = yargs(args)
   .parserConfiguration({ "populate--": true })
-  .scriptName("opencode")
+  .scriptName(scriptName)
   .wrap(100)
   .help("help", "show help")
   .alias("help", "h")
@@ -65,11 +69,23 @@ const cli = yargs(args)
   })
   .middleware(async (opts) => {
     if (opts.printLogs) process.env.OPENCODE_PRINT_LOGS = "1"
-    if (opts.logLevel) process.env.OPENCODE_LOG_LEVEL = opts.logLevel
+    if (opts.logLevel) {
+      process.env.HORDECODE_LOG_LEVEL = opts.logLevel
+      process.env.OPENCODE_LOG_LEVEL = opts.logLevel
+    }
     if (opts.pure) {
       process.env.OPENCODE_PURE = "1"
     }
 
+    await Log.init({
+      print: opts.printLogs ?? false,
+      dev: Installation.isLocal(),
+      level: (() => {
+        if (opts.logLevel) return opts.logLevel as Log.Level
+        if (Installation.isLocal()) return "DEBUG"
+        return "INFO"
+      })(),
+    })
     Heap.start()
 
     process.env.AGENT = "1"

@@ -1,14 +1,16 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { httpClient } from "@opencode-ai/core/effect/app-node-platform"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
-import { PlanExitTool } from "./plan"
+import { PlanExitTool, PlanEnterTool } from "./plan"
 import { Session } from "@/session/session"
 import { QuestionTool } from "./question"
 import { ShellTool } from "./shell"
+import { Git } from "@/git"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
 import { ReadTool } from "./read"
+import { ViewImageTool } from "./view-image"
 import { TaskTool } from "./task"
 import { Database } from "@opencode-ai/core/database/database"
 import { TodoWriteTool } from "./todo"
@@ -16,6 +18,10 @@ import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
 import { InvalidTool } from "./invalid"
 import { SkillTool } from "./skill"
+import { SkillSearchTool } from "./skill-search"
+import { HistoryTool } from "./history"
+import { WorkflowTool } from "./workflow"
+import { SessionTool } from "./session"
 import * as Tool from "./tool"
 import { Config } from "@/config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
@@ -28,6 +34,11 @@ import { Provider } from "@/provider/provider"
 import { WebSearchTool } from "./websearch"
 import { LspTool } from "./lsp"
 import * as Truncate from "./truncate"
+import { History } from "@opencode-ai/core/history"
+import { SessionCheckpoint } from "@opencode-ai/core/session/checkpoint"
+import { SupervisorRegistryService } from "@opencode-ai/supervisor/registry"
+import { makeGlobalNode } from "@opencode-ai/core/effect/app-node"
+import { Bus } from "@opencode-ai/bus"
 import { ApplyPatchTool } from "./apply_patch"
 import { Glob } from "@opencode-ai/core/util/glob"
 import path from "path"
@@ -54,31 +65,63 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { MCP } from "@/mcp"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { McpCatalog } from "@/mcp/catalog"
+import { MemoryTool } from "./memory"
+import { MemoryRecallTool } from "./memory-recall"
+import { MemoryStatusTool } from "./memory-status"
+import { MemoryDumpTool } from "./memory-dump"
+import { MemoryGcTool } from "./memory-gc"
+import { MemoryAddTool } from "./memory-add"
+import { MemoryUpdateTool } from "./memory-update"
+import { MemorySessionTool } from "./memory-session"
+import { ChangeDirectoryTool } from "./change-directory"
+import { NotebookEditTool } from "./notebook-edit"
+import { MultiEditTool } from "./multiedit"
+import { BashInteractive } from "./bash-interactive"
+import { SupervisorTool } from "./supervisor"
+import { CronTool } from "./cron"
+import { McpToolSearchTool } from "./mcp-tool-search"
+import { Memory } from "@opencode-ai/memory"
+import { node as EmbeddingNode } from "@opencode-ai/memory/embedding/service"
+import { node as VectorStoreNode } from "@opencode-ai/memory/embedding/vector-store"
+import { SupervisorWaiter } from "@opencode-ai/supervisor/waiter"
+import { Team } from "@opencode-ai/team"
+import { TaskRegistry } from "@opencode-ai/task/registry"
+import { Inbox } from "@opencode-ai/inbox"
+import { Scheduler, defaultLayer } from "@opencode-ai/cron/scheduler"
+import { Worktree } from "@/worktree"
 
 export function webSearchEnabled(providerID: ProviderV2.ID, flags = { exa: false, parallel: false }) {
-  return providerID === ProviderV2.ID.opencode || flags.exa || flags.parallel
+  return (
+    providerID === ProviderV2.ID.opencode ||
+    providerID === ProviderV2.ID.make("opencode-go") ||
+    flags.exa ||
+    flags.parallel
+  )
 }
 
 type TaskDef = Tool.InferDef<typeof TaskTool>
 type ReadDef = Tool.InferDef<typeof ReadTool>
+type SupervisorDef = Tool.InferDef<typeof SupervisorTool>
 
 type State = {
   custom: Tool.Def[]
   builtin: Tool.Def[]
   task: TaskDef
   read: ReadDef
+  supervisor: SupervisorDef
 }
 
 export interface Interface {
   readonly ids: () => Effect.Effect<string[]>
   readonly all: () => Effect.Effect<Tool.Def[]>
-  readonly named: () => Effect.Effect<{ task: TaskDef; read: ReadDef }>
+  readonly named: () => Effect.Effect<{ task: TaskDef; read: ReadDef; supervisor: SupervisorDef }>
   readonly tools: (model: {
     providerID: ProviderV2.ID
     modelID: ModelV2.ID
     agent: Agent.Info
     permission?: PermissionV1.Ruleset
   }) => Effect.Effect<Tool.Def[]>
+  readonly reload: () => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/ToolRegistry") {}
@@ -88,18 +131,22 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const config = yield* Config.Service
     const plugin = yield* Plugin.Service
+    const skill = yield* Skill.Service
     const agents = yield* Agent.Service
     const truncate = yield* Truncate.Service
     const flags = yield* RuntimeFlags.Service
     const mcp = yield* MCP.Service
+    const database = yield* Database.Service
 
     const invalid = yield* InvalidTool
     const task = yield* TaskTool
     const read = yield* ReadTool
+    const viewimage = yield* ViewImageTool
     const question = yield* QuestionTool
     const todo = yield* TodoWriteTool
     const lsptool = yield* LspTool
     const plan = yield* PlanExitTool
+    const planEnter = yield* PlanEnterTool
     const webfetch = yield* WebFetchTool
     const websearch = yield* WebSearchTool
     const shell = yield* ShellTool
@@ -109,71 +156,95 @@ const layer = Layer.effect(
     const greptool = yield* GrepTool
     const patchtool = yield* ApplyPatchTool
     const skilltool = yield* SkillTool
+    const skillsearch = yield* SkillSearchTool
+    const history = yield* HistoryTool
+    const workflow = yield* WorkflowTool
+    const sessiontool = yield* SessionTool
     const agent = yield* Agent.Service
+    const memorytool = yield* MemoryTool
+    const memoryrecalltool = yield* MemoryRecallTool
+    const memorystatustool = yield* MemoryStatusTool
+    const memorydump = yield* MemoryDumpTool
+    const memorygc = yield* MemoryGcTool
+    const memoryadd = yield* MemoryAddTool
+    const memoryupdate = yield* MemoryUpdateTool
+    const memorysessiontool = yield* MemorySessionTool
+    const changedirtool = yield* ChangeDirectoryTool
+    const notebookedittool = yield* NotebookEditTool
+    const supervisorTool = yield* SupervisorTool
+    const crontool = yield* CronTool
+    const mcpToolSearchTool = yield* McpToolSearchTool
+    const multiedit = yield* MultiEditTool
     const codeMode = flags.experimentalCodeMode ? yield* Effect.promise(() => import("./code-mode")) : undefined
     const codeModeTool = codeMode ? yield* codeMode.CodeModeTool : undefined
+
+    function fromPlugin(id: string, def: ToolDefinition, directory: string, worktree: string): Tool.Def {
+      // Plugin tools still expose Zod args publicly; keep that compatibility
+      // boxed at the registry boundary and give the LLM the original JSON Schema.
+      // Normalize missing args to `{}` once — pre-1.14.49 the code was
+      // `z.object(def.args)` and Zod silently tolerated undefined (#27451, #27630).
+      const args = def.args ?? {}
+      const entries = Object.entries(args)
+      const allZod = entries.every((entry) => isZodType(entry[1]))
+      const zodParams = allZod ? z.object(args) : undefined
+      const jsonSchema = zodParams ? zodJsonSchema(zodParams) : legacyJsonSchema(entries)
+      const parameters = zodParams
+        ? Schema.declare<unknown>((u): u is unknown => zodParams.safeParse(u).success)
+        : Schema.Unknown
+      return {
+        id,
+        parameters,
+        jsonSchema,
+        description: def.description,
+        execute: (args, toolCtx) =>
+          Effect.gen(function* () {
+            // Bridge the host's Effect-based `ask` into a Promise-returning
+            // function for the plugin to make sure context persists
+            const bridge = yield* EffectBridge.make()
+            const pluginCtx: PluginToolContext = {
+              ...toolCtx,
+              ask: (req) => bridge.promise(toolCtx.ask(req)),
+              directory,
+              worktree,
+            }
+            // The registry's Schema-decoded args are `unknown`; the plugin's
+            // `execute` expects its zod-inferred shape (erased to a record by
+            // `ToolDefinition = ReturnType<typeof tool>`), and the value was
+            // already zod-validated by the Schema.declare guard above. Cast to
+            // the plugin's own parameter type instead of `any` so the shape
+            // stays synchronized with the plugin signature.
+            const result = yield* Effect.promise(() => def.execute(args as Parameters<typeof def.execute>[0], pluginCtx))
+            const output = typeof result === "string" ? result : result.output
+            const metadata = typeof result === "string" ? {} : (result.metadata ?? {})
+            const attachments = typeof result === "string" ? undefined : result.attachments
+            const info = yield* agent.get(toolCtx.agent)
+            const out = yield* truncate.output(output, {}, info)
+            return {
+              title: typeof result === "string" ? "" : (result.title ?? ""),
+              output: out.truncated ? out.content : output,
+              attachments,
+              metadata: {
+                ...metadata,
+                truncated: out.truncated,
+                ...(out.truncated && { outputPath: out.outputPath }),
+              },
+            }
+          }).pipe(
+            Effect.withSpan("Tool.execute", {
+              attributes: {
+                "tool.name": id,
+                "session.id": toolCtx.sessionID,
+                "message.id": toolCtx.messageID,
+                ...(toolCtx.callID ? { "tool.call_id": toolCtx.callID } : {}),
+              },
+            }),
+          ),
+      }
+    }
 
     const state = yield* InstanceState.make<State>(
       Effect.fn("ToolRegistry.state")(function* (ctx) {
         const custom: Tool.Def[] = []
-
-        function fromPlugin(id: string, def: ToolDefinition): Tool.Def {
-          // Plugin tools still expose Zod args publicly; keep that compatibility
-          // boxed at the registry boundary and give the LLM the original JSON Schema.
-          // Normalize missing args to `{}` once — pre-1.14.49 the code was
-          // `z.object(def.args)` and Zod silently tolerated undefined (#27451, #27630).
-          const args = def.args ?? {}
-          const entries = Object.entries(args)
-          const allZod = entries.every((entry) => isZodType(entry[1]))
-          const zodParams = allZod ? z.object(args) : undefined
-          const jsonSchema = zodParams ? zodJsonSchema(zodParams) : legacyJsonSchema(entries)
-          const parameters = zodParams
-            ? Schema.declare<unknown>((u): u is unknown => zodParams.safeParse(u).success)
-            : Schema.Unknown
-          return {
-            id,
-            parameters,
-            jsonSchema,
-            description: def.description,
-            execute: (args, toolCtx) =>
-              Effect.gen(function* () {
-                // Bridge the host's Effect-based `ask` into a Promise-returning
-                // function for the plugin to make sure context persists
-                const bridge = yield* EffectBridge.make()
-                const pluginCtx: PluginToolContext = {
-                  ...toolCtx,
-                  ask: (req) => bridge.promise(toolCtx.ask(req)),
-                  directory: ctx.directory,
-                  worktree: ctx.worktree,
-                }
-                const result = yield* Effect.promise(() => def.execute(args as any, pluginCtx))
-                const output = typeof result === "string" ? result : result.output
-                const metadata = typeof result === "string" ? {} : (result.metadata ?? {})
-                const attachments = typeof result === "string" ? undefined : result.attachments
-                const info = yield* agent.get(toolCtx.agent)
-                const out = yield* truncate.output(output, {}, info)
-                return {
-                  title: typeof result === "string" ? "" : (result.title ?? ""),
-                  output: out.truncated ? out.content : output,
-                  attachments,
-                  metadata: {
-                    ...metadata,
-                    truncated: out.truncated,
-                    ...(out.truncated && { outputPath: out.outputPath }),
-                  },
-                }
-              }).pipe(
-                Effect.withSpan("Tool.execute", {
-                  attributes: {
-                    "tool.name": id,
-                    "session.id": toolCtx.sessionID,
-                    "message.id": toolCtx.messageID,
-                    ...(toolCtx.callID ? { "tool.call_id": toolCtx.callID } : {}),
-                  },
-                }),
-              ),
-          }
-        }
 
         const dirs = yield* config.directories()
         const matches = dirs.flatMap((dir) =>
@@ -187,14 +258,14 @@ const layer = Layer.effect(
           const mod = yield* Effect.promise(() => import(pathToFileURL(match).href))
           for (const [id, def] of Object.entries(mod)) {
             if (!isPluginTool(def)) continue
-            custom.push(fromPlugin(id === "default" ? namespace : `${namespace}_${id}`, def))
+            custom.push(fromPlugin(id === "default" ? namespace : `${namespace}_${id}`, def, ctx.directory, ctx.worktree))
           }
         }
 
         const plugins = yield* plugin.list()
         for (const p of plugins) {
           for (const [id, def] of Object.entries(p.tool ?? {})) {
-            custom.push(fromPlugin(id, def))
+            custom.push(fromPlugin(id, def, ctx.directory, ctx.worktree))
           }
         }
 
@@ -205,6 +276,7 @@ const layer = Layer.effect(
           invalid: Tool.init(invalid),
           shell: Tool.init(shell),
           read: Tool.init(read),
+          viewimage: Tool.init(viewimage),
           glob: Tool.init(globtool),
           grep: Tool.init(greptool),
           edit: Tool.init(edit),
@@ -214,10 +286,29 @@ const layer = Layer.effect(
           todo: Tool.init(todo),
           search: Tool.init(websearch),
           skill: Tool.init(skilltool),
+          skillsearch: Tool.init(skillsearch),
+          history: Tool.init(history),
+          workflow: Tool.init(workflow),
+          session: Tool.init(sessiontool),
           patch: Tool.init(patchtool),
           question: Tool.init(question),
           lsp: Tool.init(lsptool),
           plan: Tool.init(plan),
+          plan_enter: Tool.init(planEnter),
+          memory: Tool.init(memorytool),
+          memory_recall: Tool.init(memoryrecalltool),
+          memory_status: Tool.init(memorystatustool),
+          memory_dump: Tool.init(memorydump),
+          memory_gc: Tool.init(memorygc),
+          memory_add: Tool.init(memoryadd),
+          memory_update: Tool.init(memoryupdate),
+          memory_session: Tool.init(memorysessiontool),
+          changedir: Tool.init(changedirtool),
+          notebookedit: Tool.init(notebookedittool),
+          supervisor: Tool.init(supervisorTool),
+          cron: Tool.init(crontool),
+          mcp_tool_search: Tool.init(mcpToolSearchTool),
+          multiedit: Tool.init(multiedit),
           ...(codeModeTool ? { execute: Tool.init(codeModeTool) } : {}),
         })
 
@@ -228,6 +319,7 @@ const layer = Layer.effect(
             ...(questionEnabled ? [tool.question] : []),
             tool.shell,
             tool.read,
+            tool.viewimage,
             tool.glob,
             tool.grep,
             tool.edit,
@@ -237,13 +329,32 @@ const layer = Layer.effect(
             tool.todo,
             tool.search,
             tool.skill,
+            tool.skillsearch,
             tool.patch,
+            tool.history,
+            tool.workflow,
+            tool.session,
             ...(tool.execute ? [tool.execute] : []),
             ...(flags.experimentalLspTool ? [tool.lsp] : []),
-            ...(flags.experimentalPlanMode && flags.client === "cli" ? [tool.plan] : []),
+            ...(flags.experimentalPlanMode && flags.client === "cli" ? [tool.plan, tool.plan_enter] : []),
+            tool.memory,
+            tool.memory_recall,
+            tool.memory_status,
+            tool.memory_dump,
+            tool.memory_gc,
+            tool.memory_add,
+            tool.memory_update,
+            tool.memory_session,
+            tool.changedir,
+            tool.notebookedit,
+            tool.supervisor,
+            tool.cron,
+            tool.mcp_tool_search,
+            tool.multiedit,
           ],
           task: tool.task,
           read: tool.read,
+          supervisor: tool.supervisor,
         }
       }),
     )
@@ -336,10 +447,16 @@ const layer = Layer.effect(
 
     const named: Interface["named"] = Effect.fn("ToolRegistry.named")(function* () {
       const s = yield* InstanceState.get(state)
-      return { task: s.task, read: s.read }
+      return { task: s.task, read: s.read, supervisor: s.supervisor }
     })
 
-    return Service.of({ ids, all, named, tools })
+    const reload: Interface["reload"] = Effect.fn("ToolRegistry.reload")(function* () {
+      yield* skill.reload()
+      yield* plugin.reloadFileHooks()
+      yield* InstanceState.invalidate(state)
+    })
+
+    return Service.of({ ids, all, named, tools, reload })
   }),
 )
 
@@ -419,10 +536,47 @@ function isJsonSchemaObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+const HistoryNode = makeGlobalNode({ service: History.Service, layer: History.layer, deps: [Config.node] })
+const SupervisorRegistryNode = makeGlobalNode({ service: SupervisorRegistryService.Service, layer: SupervisorRegistryService.defaultLayer, deps: [] })
+const BusNode = makeGlobalNode({ service: Bus.Service, layer: Bus.defaultLayer, deps: [] })
+const MemoryNode = makeGlobalNode({ service: Memory.Service, layer: Memory.layer as Layer.Layer<Memory.Service>, deps: [Database.node, Config.node, EmbeddingNode, VectorStoreNode] })
+const SchedulerNode = makeGlobalNode({ service: Scheduler, layer: defaultLayer, deps: [] })
+const TeamNode = makeGlobalNode({ service: Team.Service, layer: Team.defaultLayer, deps: [] })
+const SupervisorWaiterNode = makeGlobalNode({
+  service: SupervisorWaiter.Service,
+  layer: SupervisorWaiter.defaultLayer,
+  deps: [Database.node],
+})
+const TaskRegistryNode = makeGlobalNode({
+  service: TaskRegistry.Service,
+  layer: TaskRegistry.layer as Layer.Layer<TaskRegistry.Service>,
+  deps: [Database.node, BusNode, Config.node],
+})
+const InboxNode = makeGlobalNode({
+  service: Inbox.Service,
+  layer: Inbox.defaultLayer as Layer.Layer<Inbox.Service, never, never>,
+  deps: [Database.node],
+})
+// SupervisorTool spawns with context:"state", which reads SessionCheckpoint
+// to prepend the parent session's latest checkpoint onto the child prompt.
+const SessionCheckpointNode = makeGlobalNode({
+  service: SessionCheckpoint.Service,
+  layer: SessionCheckpoint.layer as Layer.Layer<SessionCheckpoint.Service, never, never>,
+  deps: [Session.node, BusNode, Config.node, MemoryNode, TaskRegistryNode, SupervisorRegistryNode],
+})
 export const node = LayerNode.make({
   service: Service,
   layer,
   deps: [
+    HistoryNode,
+    SupervisorRegistryNode,
+    BusNode,
+    MemoryNode,
+    SupervisorWaiterNode,
+    TaskRegistryNode,
+    InboxNode,
+    SchedulerNode,
+    TeamNode,
     Config.node,
     Plugin.node,
     Question.node,
@@ -430,6 +584,8 @@ export const node = LayerNode.make({
     Agent.node,
     Skill.node,
     Session.node,
+    SessionCheckpointNode,
+    Worktree.node,
     BackgroundJob.node,
     Provider.node,
     LSP.node,
@@ -444,6 +600,7 @@ export const node = LayerNode.make({
     MCP.node,
     Database.node,
     Ripgrep.node,
+    Git.node,
   ],
 })
 

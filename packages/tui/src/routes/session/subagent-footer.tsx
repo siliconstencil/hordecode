@@ -1,55 +1,79 @@
 import { createMemo, createSignal, Show } from "solid-js"
-import { useRouteData } from "../../context/route"
-import { useSync } from "../../context/sync"
+import { useCurrentAgentID, useRouteData } from "../../context/route"
+import { selectMessages, useSync } from "../../context/sync"
 import { useTheme } from "../../context/theme"
 import { SplitBorder } from "../../ui/border"
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
 import { Locale } from "../../util/locale"
+import { contextUsage } from "../../util/context-usage"
 import { useTerminalDimensions } from "@opentui/solid"
 import { useCommandShortcut, useOpencodeKeymap } from "../../keymap"
+import { filterSupervisorList } from "../../feature-plugins/sidebar/supervisor"
 
 export function SubagentFooter() {
   const route = useRouteData("session")
   const sync = useSync()
-  const messages = createMemo(() => sync.data.message[route.sessionID] ?? [])
+  const currentAgentID = useCurrentAgentID()
+  const messages = createMemo(() => selectMessages(sync.data.message[route.sessionID], currentAgentID(), route.sessionID))
   const session = createMemo(() => sync.session.get(route.sessionID))
 
   const subagentInfo = createMemo(() => {
-    const s = session()
-    if (!s) return { label: "Subagent", index: 0, total: 0 }
-    const agentMatch = s.title.match(/@(\w+) subagent/)
-    const label = agentMatch ? Locale.titlecase(agentMatch[1]) : "Subagent"
-
-    if (!s.parentID) return { label, index: 0, total: 0 }
-
-    const siblings = sync.data.session
-      .filter((x) => x.parentID === s.parentID)
-      .toSorted((a, b) => a.time.created - b.time.created)
-    const index = siblings.findIndex((x) => x.id === s.id)
-
-    return { label, index: index + 1, total: siblings.length }
+    const list = filterSupervisorList(
+      Object.values(sync.data.supervisor).flat(),
+      route.sessionID,
+      { get: (id) => sync.session.get(id) },
+    )
+      .filter((a) => a.mode === "subagent")
+      .toSorted((a, b) => (a.time_created ?? 0) - (b.time_created ?? 0))
+    const entry = list.find((a) => a.supervisor_id === route.agentID)
+    // Field-based labeling from supervisor registry; fallback to session title regex for peer/legacy
+    const rawAgent = entry?.agent
+    const label = rawAgent
+      ? Locale.titlecase(rawAgent)
+      : (() => {
+          const s = session()
+          if (!s) return "Subagent"
+          const m = s.title.match(/@(\w+) subagent/)
+          return m ? Locale.titlecase(m[1]) : "Subagent"
+        })()
+    const status = entry?.status
+    // Child-session view of a subagent (fork isolates its turn in its own child
+    // session) carries no agentID, so the counter comes from sibling sessions:
+    // opencode subagent-footer.tsx:24-30.
+    if (!route.agentID) {
+      const s = session()
+      // Hydration lag (the session row is not loaded yet): opencode hides the
+      // counter entirely instead of falling through to "0 of N"
+      // -- subagent-footer.tsx:18-19.
+      if (!s) return { label, status, index: 0, total: 0 }
+      if (s.parentID) {
+        const parentID = s.parentID
+        const siblings = sync.data.session
+          .filter((x) => x.parentID === parentID)
+          .toSorted((a, b) => a.time.created - b.time.created)
+        return { label, status, index: siblings.findIndex((x) => x.id === s.id) + 1, total: siblings.length }
+      }
+    }
+    if (list.length === 0) return { label, status, index: 0, total: 0 }
+    const idx = list.findIndex((a) => a.supervisor_id === route.agentID)
+    // When viewing main (no agentID), show total but index 0; when viewing subagent, 1-based index
+    return { label, status, index: idx === -1 ? 0 : idx + 1, total: list.length }
   })
 
   const usage = createMemo(() => {
     const msg = messages()
     const last = msg.findLast((item): item is AssistantMessage => item.role === "assistant" && item.tokens.output > 0)
     if (!last) return
-
-    const tokens =
-      last.tokens.input + last.tokens.output + last.tokens.reasoning + last.tokens.cache.read + last.tokens.cache.write
-    if (tokens <= 0) return
-
     const model = sync.data.provider.find((item) => item.id === last.providerID)?.models[last.modelID]
-    const pct = model?.limit.context ? `${Math.round((tokens / model.limit.context) * 100)}%` : undefined
-    const cost = session()?.cost ?? 0
-
+    if (!model) return
+    const ctx = contextUsage({ tokens: last.tokens, model, config: sync.data.config })
+    const cost = messages().reduce((sum, item) => sum + (item.role === "assistant" ? (item as AssistantMessage).cost : 0), 0)
     const money = new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
     })
-
     return {
-      context: pct ? `${Locale.number(tokens)} (${pct})` : Locale.number(tokens),
+      context: ctx.percent !== null ? `${Locale.number(ctx.tokens)} (${ctx.percent}%)` : Locale.number(ctx.tokens),
       cost: cost > 0 ? money.format(cost) : undefined,
     }
   })
@@ -80,6 +104,13 @@ export function SubagentFooter() {
             <text fg={theme.text}>
               <b>{subagentInfo().label}</b>
             </text>
+            <Show when={subagentInfo().status}>
+              {(s) => (
+                <text style={{ fg: theme.textMuted }} wrapMode="none">
+                  · {s()}
+                </text>
+              )}
+            </Show>
             <Show when={subagentInfo().total > 0}>
               <text style={{ fg: theme.textMuted }}>
                 ({subagentInfo().index} of {subagentInfo().total})

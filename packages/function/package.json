@@ -1,6 +1,7 @@
 {
   "name": "@opencode-ai/function",
-  "version": "1.17.18",
+  "version": "0.1.0",
+  "hordecodeBase": "1.17.18",
   "$schema": "https://json.schemastore.org/package.json",
   "private": true,
   "type": "module",
@@ -15,6 +16,7 @@
     "@octokit/auth-app": "8.0.1",
     "@octokit/rest": "catalog:",
     "hono": "catalog:",
-    "jose": "6.0.11"
+    "jose": "6.0.11",
+    "sst": "catalog:"
   }
 }

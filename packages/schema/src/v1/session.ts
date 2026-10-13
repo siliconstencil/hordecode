@@ -62,15 +62,17 @@ export const ContentFilterError = namedError("ContentFilterError", {
   message: Schema.String,
 })
 
-export class OutputFormatText extends Schema.Class<OutputFormatText>("OutputFormatText")({
+export const OutputFormatText = Schema.Struct({
   type: Schema.Literal("text"),
-}) {}
+}).annotate({ identifier: "OutputFormatText" })
+export type OutputFormatText = Schema.Schema.Type<typeof OutputFormatText>
 
-export class OutputFormatJsonSchema extends Schema.Class<OutputFormatJsonSchema>("OutputFormatJsonSchema")({
+export const OutputFormatJsonSchema = Schema.Struct({
   type: Schema.Literal("json_schema"),
   schema: Schema.Record(Schema.String, Schema.Any).annotate({ identifier: "JSONSchema" }),
   retryCount: NonNegativeInt.pipe(Schema.optional, Schema.withDecodingDefault(Effect.succeed(2))),
-}) {}
+}).annotate({ identifier: "OutputFormatJsonSchema" })
+export type OutputFormatJsonSchema = Schema.Schema.Type<typeof OutputFormatJsonSchema>
 
 export const Format = Schema.Union([OutputFormatText, OutputFormatJsonSchema]).annotate({
   discriminator: "type",
@@ -201,6 +203,15 @@ export const CompactionPart = Schema.Struct({
 }).annotate({ identifier: "CompactionPart" })
 export type CompactionPart = Types.DeepMutable<Schema.Schema.Type<typeof CompactionPart>>
 
+export const CheckpointPart = Schema.Struct({
+  ...partBase,
+  type: Schema.Literal("checkpoint"),
+  checkpointDir: Schema.String,
+  checkpointNumber: Schema.Number,
+  coveredUpTo: MessageID,
+}).annotate({ identifier: "CheckpointPart" })
+export type CheckpointPart = Types.DeepMutable<Schema.Schema.Type<typeof CheckpointPart>>
+
 export const SubtaskPart = Schema.Struct({
   ...partBase,
   type: Schema.Literal("subtask"),
@@ -327,6 +338,7 @@ export type ToolPart = Omit<Types.DeepMutable<Schema.Schema.Type<typeof ToolPart
 const messageBase = {
   id: MessageID,
   sessionID: partBase.sessionID,
+  agentID: Schema.optional(Schema.String),
 }
 
 export const User = Schema.Struct({
@@ -367,6 +379,7 @@ export const Part = Schema.Union([
   AgentPart,
   RetryPart,
   CompactionPart,
+  CheckpointPart,
 ]).annotate({ discriminator: "type", identifier: "Part" })
 export type Part =
   | TextPart
@@ -381,6 +394,7 @@ export type Part =
   | AgentPart
   | RetryPart
   | CompactionPart
+  | CheckpointPart
 
 const AssistantErrorSchema = Schema.Union([
   AuthError.EffectSchema,

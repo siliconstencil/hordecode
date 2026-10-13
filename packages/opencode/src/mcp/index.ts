@@ -31,6 +31,7 @@ import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
+import { withoutCredentials } from "@opencode-ai/core/util/credential-env"
 import { McpCatalog } from "./catalog"
 import { McpEvent } from "@opencode-ai/schema/mcp-event"
 import { McpBrowser } from "./browser"
@@ -350,7 +351,7 @@ const layer = Layer.effect(
         args,
         cwd,
         env: {
-          ...process.env,
+          ...withoutCredentials(process.env),
           ...(cmd === "opencode" ? { BUN_BE_BUN: "1" } : {}),
           ...mcp.environment,
         },
@@ -1000,5 +1001,40 @@ export const node = LayerNode.make({
   layer: layer,
   deps: [CrossSpawnSpawner.node, McpAuth.node, EventV2Bridge.node, Config.node, McpBrowser.node],
 })
+
+export namespace Test {
+  export function withPrompts(
+    prompts: Record<string, { description?: string; arguments?: Array<{ name: string; description?: string; required?: boolean }> }>,
+  ): Layer.Layer<Service> {
+    const result: Record<string, { name: string; description: string; arguments: Array<{ name: string; description?: string; required?: boolean }>; client: string }> = {}
+    for (const [name, p] of Object.entries(prompts)) {
+      result[name] = { name, description: p.description ?? "", arguments: p.arguments ?? [], client: "test-mcp" }
+    }
+    return Layer.succeed(
+      Service,
+      Service.of({
+        prompts: () => Effect.succeed(result),
+        status: () => Effect.die("MCP.Test.withPrompts: status not implemented"),
+        clients: () => Effect.die("MCP.Test.withPrompts: clients not implemented"),
+        instructions: () => Effect.die("MCP.Test.withPrompts: instructions not implemented"),
+        tools: () => Effect.die("MCP.Test.withPrompts: tools not implemented"),
+        resources: () => Effect.die("MCP.Test.withPrompts: resources not implemented"),
+        resourceTemplates: () => Effect.die("MCP.Test.withPrompts: resourceTemplates not implemented"),
+        add: () => Effect.die("MCP.Test.withPrompts: add not implemented"),
+        connect: () => Effect.die("MCP.Test.withPrompts: connect not implemented"),
+        disconnect: () => Effect.die("MCP.Test.withPrompts: disconnect not implemented"),
+        getPrompt: () => Effect.die("MCP.Test.withPrompts: getPrompt not implemented"),
+        readResource: () => Effect.die("MCP.Test.withPrompts: readResource not implemented"),
+        startAuth: () => Effect.die("MCP.Test.withPrompts: startAuth not implemented"),
+        authenticate: () => Effect.die("MCP.Test.withPrompts: authenticate not implemented"),
+        finishAuth: () => Effect.die("MCP.Test.withPrompts: finishAuth not implemented"),
+        removeAuth: () => Effect.die("MCP.Test.withPrompts: removeAuth not implemented"),
+        supportsOAuth: () => Effect.die("MCP.Test.withPrompts: supportsOAuth not implemented"),
+        hasStoredTokens: () => Effect.die("MCP.Test.withPrompts: hasStoredTokens not implemented"),
+        getAuthStatus: () => Effect.die("MCP.Test.withPrompts: getAuthStatus not implemented"),
+      }),
+    )
+  }
+}
 
 export * as MCP from "."

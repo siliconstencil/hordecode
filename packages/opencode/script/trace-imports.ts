@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 import * as path from "path"
 import * as ts from "typescript"
+import { fileURLToPath } from "url"
 
-const BASE_DIR = "/home/thdxr/dev/projects/anomalyco/opencode/packages/opencode"
+const BASE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
 // Get entry file from command line arg or use default
 const ENTRY_FILE = process.argv[2] || "src/plugin/tui/runtime.ts"

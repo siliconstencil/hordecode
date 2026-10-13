@@ -23,6 +23,9 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { isRecord } from "@/util/record"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { Flag } from "@opencode-ai/core/flag/flag"
+import { decideAskRouting } from "@/agent/config"
+import { MCP_TOOL_SEARCH_ID } from "@/tool/mcp-tool-search"
 
 const MCP_RESOURCE_TOOLS = {
   list: "list_mcp_resources",
@@ -46,6 +49,14 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   bypassAgentCheck: boolean
   messages: SessionV1.WithParts[]
   promptOps: TaskPromptOps
+  /** Pre-resolved askSupervisor from SupervisorRegistryService — used by decideAskRouting for
+   *  orchestrator peer detection and system-agent classification. Resolved at
+   *  the call site (prompt.ts) where agentID and SupervisorRegistryService are available. */
+  askSupervisor?: { agent: string; background: boolean; mode: string; parentSupervisorID?: string }
+  /** Task row this turn is bound to (supervisor task_id). Carried to Tool.Context.taskId. Ported from MiMo prompt.ts:1298. */
+  taskId?: string
+  /** Per-supervisor tool allowlist from the supervisor row (undefined = full access). Ported from MiMo prompt.ts:1234-1244. */
+  toolWhitelist?: readonly string[]
 }) {
   const tools: Record<string, AITool> = {}
   const run = yield* EffectBridge.make()
@@ -56,45 +67,58 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   const truncate = yield* Truncate.Service
   const flags = yield* RuntimeFlags.Service
 
-  const context = (args: Record<string, unknown>, options: ToolExecutionOptions): Tool.Context => ({
-    sessionID: input.session.id,
-    abort: options.abortSignal!,
-    messageID: input.processor.message.id,
-    callID: options.toolCallId,
-    extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck, promptOps: input.promptOps },
-    agent: input.agent.name,
-    messages: input.messages,
-    metadata: (val) =>
-      input.processor.updateToolCall(options.toolCallId, (match) => {
-        if (!["running", "pending"].includes(match.state.status)) return match
-        return {
-          ...match,
-          state: {
-            title: val.title,
-            metadata: val.metadata,
-            status: "running",
-            input: args,
-            time: { start: Date.now() },
-          },
-        }
-      }),
-    ask: (req) =>
-      permission
-        .ask({
-          ...req,
-          sessionID: input.session.id,
-          tool: { messageID: input.processor.message.id, callID: options.toolCallId },
-          ruleset: Permission.merge(input.agent.permission, input.session.permission ?? []),
-        })
-        .pipe(Effect.orDie),
-  })
+  const context = (args: Record<string, unknown>, options: ToolExecutionOptions): Tool.Context => {
+    const routing = decideAskRouting({
+      agentName: input.agent.name,
+      sessionParentID: input.session.parentID,
+      askSupervisor: input.askSupervisor,
+      orchestratorEnabled: Flag.HORDECODE_EXPERIMENTAL_ORCHESTRATOR,
+    })
+    return {
+      sessionID: input.session.id,
+      abort: options.abortSignal!,
+      messageID: input.processor.message.id,
+      callID: options.toolCallId,
+      extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck, promptOps: input.promptOps },
+      agent: input.agent.name,
+      // Ported from MiMo prompt.ts:1298 (taskId: input.task_id).
+      taskId: input.taskId,
+      messages: input.messages,
+      interactive: routing.interactive,
+      metadata: (val) =>
+        input.processor.updateToolCall(options.toolCallId, (match) => {
+          if (!["running", "pending"].includes(match.state.status)) return match
+          return {
+            ...match,
+            state: {
+              title: val.title,
+              metadata: val.metadata,
+              status: "running",
+              input: args,
+              time: match.state.status === "running" ? match.state.time : { start: Date.now() },
+            },
+          }
+        }),
+      ask: (req) =>
+        permission
+          .ask({
+            ...req,
+            ...routing,
+            sessionID: input.session.id,
+            tool: { messageID: input.processor.message.id, callID: options.toolCallId },
+            ruleset: Agent.runtimePermission(input.agent, input.session.permission),
+          })
+          .pipe(Effect.orDie),
+    }
+  }
 
-  for (const item of yield* registry.tools({
+  const registryTools = yield* registry.tools({
     modelID: ModelV2.ID.make(input.model.api.id),
     providerID: input.model.providerID,
     agent: input.agent,
     permission: input.session.permission,
-  })) {
+  })
+  for (const item of registryTools) {
     const schema = ProviderTransform.schema(input.model, ToolJsonSchema.fromTool(item))
     tools[item.id] = tool({
       description: item.description,
@@ -385,7 +409,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     })
   }
 
-  if (flags.experimentalCodeMode) return tools
+  if (flags.experimentalCodeMode) return applyToolWhitelist(tools, input.toolWhitelist)
 
   for (const [key, entry] of Object.entries(yield* mcp.tools())) {
     const item = McpCatalog.convertTool(entry.def, entry.client, entry.timeout)
@@ -489,8 +513,32 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     tools[key] = item
   }
 
-  return tools
+  return applyToolWhitelist(tools, input.toolWhitelist)
 })
+
+// Per-supervisor tool allowlist. Ported from MiMo prompt.ts:1234-1281 (whitelist and
+// rejectionFor) with the execute-time rejection of :1354 and :1493. A tool outside the
+// list stays in the map, so the schema list does not change (see supervisor/src/spawn.ts:74-83
+// on fork-agent schema parity); its execute returns a rejection and never runs. The MCP
+// tool-search tool is exempt, as in MiMo. Unlike MiMo, the MCP resource tools are gated
+// too, because they are tools a supervisor must not reach outside its list.
+function applyToolWhitelist(tools: Record<string, AITool>, whitelist: readonly string[] | undefined) {
+  if (!whitelist) return tools
+  const allowed = new Set(whitelist)
+  for (const [key, item] of Object.entries(tools)) {
+    if (allowed.has(key) || key === MCP_TOOL_SEARCH_ID) continue
+    tools[key] = {
+      ...item,
+      execute: async () => ({
+        title: "Tool not permitted",
+        metadata: { rejected: true, reason: "tool-whitelist" },
+        output: `The "${key}" tool is not in this supervisor's whitelist. Allowed tools: ${[...allowed].join(", ") || "(none)"}.`,
+        attachments: [],
+      }),
+    }
+  }
+  return tools
+}
 
 function toRecord(value: unknown) {
   if (isRecord(value)) return value

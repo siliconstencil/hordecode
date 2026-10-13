@@ -371,4 +371,270 @@ describe("RuntimeFlags", () => {
       expect(flags.disableClaudeCodeSkills).toBe(true)
     }),
   )
+
+  it.effect("pure reads HORDECODE_PURE", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ HORDECODE_PURE: "1" })))
+
+      expect(flags.pure).toBe(true)
+    }),
+  )
+
+  it.effect("pure still reads OPENCODE_PURE (upstream compatibility)", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ OPENCODE_PURE: "1" })))
+
+      expect(flags.pure).toBe(true)
+    }),
+  )
+
+  it.effect("pure defaults to false when neither HORDECODE_PURE nor OPENCODE_PURE is set", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({})))
+
+      expect(flags.pure).toBe(false)
+    }),
+  )
+
+  it.effect("client reads HORDECODE_CLIENT", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ HORDECODE_CLIENT: "myvalue" })))
+
+      expect(flags.client).toBe("myvalue")
+    }),
+  )
+
+  it.effect("client still reads OPENCODE_CLIENT (upstream compatibility)", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ OPENCODE_CLIENT: "myvalue" })))
+
+      expect(flags.client).toBe("myvalue")
+    }),
+  )
+
+  // HORDECODE_* twin wiring for the remaining 13 fields
+
+  it.effect("experimental umbrella enables experimentalIconDiscovery via HORDECODE_EXPERIMENTAL", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ HORDECODE_EXPERIMENTAL: "1" })))
+
+      expect(flags.experimentalIconDiscovery).toBe(true)
+    }),
+  )
+
+  it.effect("experimental umbrella still enables experimentalIconDiscovery via OPENCODE_EXPERIMENTAL (upstream compatibility)", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ OPENCODE_EXPERIMENTAL: "1" })))
+
+      expect(flags.experimentalIconDiscovery).toBe(true)
+    }),
+  )
+
+  it.effect("autoShare reads HORDECODE_AUTO_SHARE", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ HORDECODE_AUTO_SHARE: "1" })))
+
+      expect(flags.autoShare).toBe(true)
+    }),
+  )
+
+  it.effect("autoShare still reads OPENCODE_AUTO_SHARE (upstream compatibility)", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ OPENCODE_AUTO_SHARE: "1" })))
+
+      expect(flags.autoShare).toBe(true)
+    }),
+  )
+
+  it.effect("disableDefaultPlugins reads HORDECODE_DISABLE_DEFAULT_PLUGINS", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ HORDECODE_DISABLE_DEFAULT_PLUGINS: "1" })))
+
+      expect(flags.disableDefaultPlugins).toBe(true)
+    }),
+  )
+
+  it.effect("disableDefaultPlugins still reads OPENCODE_DISABLE_DEFAULT_PLUGINS (upstream compatibility)", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ OPENCODE_DISABLE_DEFAULT_PLUGINS: "1" })))
+
+      expect(flags.disableDefaultPlugins).toBe(true)
+    }),
+  )
+
+  it.effect("disableEmbeddedWebUi reads HORDECODE_DISABLE_EMBEDDED_WEB_UI", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ HORDECODE_DISABLE_EMBEDDED_WEB_UI: "1" })))
+
+      expect(flags.disableEmbeddedWebUi).toBe(true)
+    }),
+  )
+
+  it.effect("disableEmbeddedWebUi still reads OPENCODE_DISABLE_EMBEDDED_WEB_UI (upstream compatibility)", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ OPENCODE_DISABLE_EMBEDDED_WEB_UI: "1" })))
+
+      expect(flags.disableEmbeddedWebUi).toBe(true)
+    }),
+  )
+
+  it.effect("disableExternalSkills reads HORDECODE_DISABLE_EXTERNAL_SKILLS", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ HORDECODE_DISABLE_EXTERNAL_SKILLS: "1" })))
+
+      expect(flags.disableExternalSkills).toBe(true)
+    }),
+  )
+
+  it.effect("disableExternalSkills still reads OPENCODE_DISABLE_EXTERNAL_SKILLS (upstream compatibility)", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ OPENCODE_DISABLE_EXTERNAL_SKILLS: "1" })))
+
+      expect(flags.disableExternalSkills).toBe(true)
+    }),
+  )
+
+  it.effect("disableLspDownload reads HORDECODE_DISABLE_LSP_DOWNLOAD", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ HORDECODE_DISABLE_LSP_DOWNLOAD: "1" })))
+
+      expect(flags.disableLspDownload).toBe(true)
+    }),
+  )
+
+  it.effect("disableLspDownload still reads OPENCODE_DISABLE_LSP_DOWNLOAD (upstream compatibility)", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ OPENCODE_DISABLE_LSP_DOWNLOAD: "1" })))
+
+      expect(flags.disableLspDownload).toBe(true)
+    }),
+  )
+
+  it.effect("disableClaudeCodePrompt reads HORDECODE_DISABLE_CLAUDE_CODE_PROMPT", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ HORDECODE_DISABLE_CLAUDE_CODE_PROMPT: "1" })))
+
+      expect(flags.disableClaudeCodePrompt).toBe(true)
+    }),
+  )
+
+  it.effect("disableClaudeCodePrompt still reads OPENCODE_DISABLE_CLAUDE_CODE_PROMPT (upstream compatibility)", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ OPENCODE_DISABLE_CLAUDE_CODE_PROMPT: "1" })))
+
+      expect(flags.disableClaudeCodePrompt).toBe(true)
+    }),
+  )
+
+  it.effect("disableClaudeCodePrompt inherits HORDECODE_DISABLE_CLAUDE_CODE", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ HORDECODE_DISABLE_CLAUDE_CODE: "1" })))
+
+      expect(flags.disableClaudeCodePrompt).toBe(true)
+    }),
+  )
+
+  it.effect("disableClaudeCodeSkills reads HORDECODE_DISABLE_CLAUDE_CODE_SKILLS", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ HORDECODE_DISABLE_CLAUDE_CODE_SKILLS: "1" })))
+
+      expect(flags.disableClaudeCodeSkills).toBe(true)
+    }),
+  )
+
+  it.effect("disableClaudeCodeSkills still reads OPENCODE_DISABLE_CLAUDE_CODE_SKILLS (upstream compatibility)", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ OPENCODE_DISABLE_CLAUDE_CODE_SKILLS: "1" })))
+
+      expect(flags.disableClaudeCodeSkills).toBe(true)
+    }),
+  )
+
+  it.effect("disableClaudeCodeSkills inherits HORDECODE_DISABLE_CLAUDE_CODE", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ HORDECODE_DISABLE_CLAUDE_CODE: "1" })))
+
+      expect(flags.disableClaudeCodeSkills).toBe(true)
+    }),
+  )
+
+  it.effect("enableExa reads HORDECODE_ENABLE_EXA", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ HORDECODE_ENABLE_EXA: "1" })))
+
+      expect(flags.enableExa).toBe(true)
+    }),
+  )
+
+  it.effect("enableExa still reads OPENCODE_ENABLE_EXA (upstream compatibility)", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ OPENCODE_ENABLE_EXA: "1" })))
+
+      expect(flags.enableExa).toBe(true)
+    }),
+  )
+
+  it.effect("enableExa legacy reads HORDECODE_EXPERIMENTAL_EXA", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ HORDECODE_EXPERIMENTAL_EXA: "1" })))
+
+      expect(flags.enableExa).toBe(true)
+    }),
+  )
+
+  it.effect("enableExa legacy still reads OPENCODE_EXPERIMENTAL_EXA (upstream compatibility)", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ OPENCODE_EXPERIMENTAL_EXA: "1" })))
+
+      expect(flags.enableExa).toBe(true)
+    }),
+  )
+
+  it.effect("enableExperimentalModels reads HORDECODE_ENABLE_EXPERIMENTAL_MODELS", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ HORDECODE_ENABLE_EXPERIMENTAL_MODELS: "1" })))
+
+      expect(flags.enableExperimentalModels).toBe(true)
+    }),
+  )
+
+  it.effect("enableExperimentalModels still reads OPENCODE_ENABLE_EXPERIMENTAL_MODELS (upstream compatibility)", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ OPENCODE_ENABLE_EXPERIMENTAL_MODELS: "1" })))
+
+      expect(flags.enableExperimentalModels).toBe(true)
+    }),
+  )
+
+  it.effect("enableQuestionTool reads HORDECODE_ENABLE_QUESTION_TOOL", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ HORDECODE_ENABLE_QUESTION_TOOL: "1" })))
+
+      expect(flags.enableQuestionTool).toBe(true)
+    }),
+  )
+
+  it.effect("enableQuestionTool still reads OPENCODE_ENABLE_QUESTION_TOOL (upstream compatibility)", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ OPENCODE_ENABLE_QUESTION_TOOL: "1" })))
+
+      expect(flags.enableQuestionTool).toBe(true)
+    }),
+  )
+
+  it.effect("experimentalLspTy reads HORDECODE_EXPERIMENTAL_LSP_TY", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ HORDECODE_EXPERIMENTAL_LSP_TY: "1" })))
+
+      expect(flags.experimentalLspTy).toBe(true)
+    }),
+  )
+
+  it.effect("experimentalLspTy still reads OPENCODE_EXPERIMENTAL_LSP_TY (upstream compatibility)", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ OPENCODE_EXPERIMENTAL_LSP_TY: "1" })))
+
+      expect(flags.experimentalLspTy).toBe(true)
+    }),
+  )
 })

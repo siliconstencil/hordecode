@@ -96,6 +96,49 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return yield* todoSvc.get(ctx.params.sessionID)
     })
 
+    const task = Effect.fn("SessionHttpApi.task")(function* (ctx: { params: { sessionID: SessionID } }) {
+      yield* requireSession(ctx.params.sessionID)
+      const { TaskRegistry } = yield* Effect.promise(() => import("@opencode-ai/task/registry"))
+      const reg = yield* TaskRegistry.Service
+      return yield* reg.list({ session_id: ctx.params.sessionID, include_terminal: true })
+    })
+
+    const supervisor = Effect.fn("SessionHttpApi.supervisor")(function* (ctx: { params: { sessionID: SessionID } }) {
+      yield* requireSession(ctx.params.sessionID)
+      const { SupervisorRegistryService } = yield* Effect.promise(() => import("@opencode-ai/supervisor/registry"))
+      const reg = yield* SupervisorRegistryService.Service
+      const rows = yield* reg.listBySession(ctx.params.sessionID)
+      return rows.map((r) => {
+        const status =
+          r.status === "idle"
+            ? r.lastOutcome === "success"
+              ? ("completed" as const)
+              : r.lastOutcome === "failure"
+                ? ("failed" as const)
+                : r.lastOutcome === "cancelled"
+                  ? ("cancelled" as const)
+                  : ("completed" as const)
+            : r.status === "pending"
+              ? ("pending" as const)
+              : r.status === "running"
+                ? ("running" as const)
+                : ("unknown" as const)
+        return {
+          supervisor_id: r.supervisorID,
+          session_id: r.sessionID,
+          mode: r.mode as "subagent" | "peer" | "main",
+          status,
+          agent: r.agent,
+          description: r.description,
+          parent_supervisor_id: r.parentSupervisorID ?? null,
+          time_created: r.time.created,
+          time_updated: r.time.updated,
+          turn_count: r.turnCount,
+          last_turn_time: r.lastTurnTime ?? null,
+        }
+      })
+    })
+
     const diff = Effect.fn("SessionHttpApi.diff")(function* (ctx: {
       params: { sessionID: SessionID }
       query: typeof DiffQuery.Type
@@ -116,8 +159,9 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         })
       }
       yield* requireSession(ctx.params.sessionID)
+      const agentID = ctx.query.agent_id
       if (ctx.query.limit === undefined || ctx.query.limit === 0) {
-        return yield* SessionError.mapStorageNotFound(session.messages({ sessionID: ctx.params.sessionID }))
+        return yield* SessionError.mapStorageNotFound(session.messages({ sessionID: ctx.params.sessionID, agentID }))
       }
 
       const page = yield* SessionError.mapStorageNotFound(
@@ -125,6 +169,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
           sessionID: ctx.params.sessionID,
           limit: ctx.query.limit,
           before: ctx.query.before,
+          agentID,
         }),
       )
       if (!page.cursor) return page.items
@@ -416,6 +461,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("get", get)
       .handle("children", children)
       .handle("todo", todo)
+      .handle("task", task)
+      .handle("supervisor", supervisor)
       .handle("diff", diff)
       .handle("messages", messages)
       .handle("message", message)

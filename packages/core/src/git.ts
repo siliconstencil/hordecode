@@ -1,5 +1,3 @@
-export * as Git from "./git"
-
 import path from "path"
 import { randomUUID } from "crypto"
 import { Context, Effect, Layer, Schema, Stream } from "effect"
@@ -8,6 +6,7 @@ import { AbsolutePath, RelativePath } from "./schema"
 import { FSUtil } from "./fs-util"
 import { AppProcess } from "./process"
 import { makeGlobalNode } from "./effect/app-node"
+import * as LayerNode from "./effect/layer-node"
 import { File } from "./file"
 import { KeyedMutex } from "./effect/keyed-mutex"
 
@@ -943,7 +942,18 @@ const layer = Layer.effect(
   }),
 )
 
-export const node = makeGlobalNode({ service: Service, layer: layer, deps: [FSUtil.node, AppProcess.node] })
+// Thunk to break module-init TDZ.
+// Eager [FSUtil.node, AppProcess.node] forces module-init-time resolution of those nodes,
+// which (transitively) re-enters storage.ts:328's defaultLayer initializer and throws a JS-level
+// TDZ before walk()'s cycle detector can run.
+export const node = makeGlobalNode({ service: Service, layer: layer, deps: () => [FSUtil.node, AppProcess.node] })
+// Layer.suspend defers compile(node) (and the service-graph walk() it triggers) to first Layer
+// build time, which is post-module-init. Without this, any module that reads Git.defaultLayer
+// in its top-level (e.g. storage.ts:328's .pipe(Layer.provide(Git.defaultLayer))) hits a JS-level
+// TDZ on `defaultLayer` before walk()'s Effect-level cycle detector can fire. Same pattern as
+// packages/supervisor/src/spawn.ts:1061 and packages/supervisor/src/waiter.ts:161.
+export const defaultLayer = Layer.suspend(() => LayerNode.compile(node))
+export * as Git from "./git"
 
 interface Result {
   readonly exitCode: number

@@ -1,11 +1,12 @@
+/// <reference path="./npmcli-config.d.ts" />
+
 export * as NpmConfig from "./npm-config"
 
 import { fileURLToPath } from "url"
-// @ts-expect-error npm does not publish types for this internal config API.
 import Config from "@npmcli/config"
-// @ts-expect-error npm does not publish types for this internal config API.
 import { definitions, flatten, nerfDarts, shorthands } from "@npmcli/config/lib/definitions/index.js"
 import { Effect } from "effect"
+
 
 const npmPath = fileURLToPath(new URL("..", import.meta.url))
 

@@ -262,4 +262,29 @@ describe("instance HttpApi", () => {
       )
     }),
   )
+
+  it.live("lists session tasks without TaskRegistry DI failure", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped({ git: true })
+      const created = yield* HttpClientRequest.post(SessionPaths.create).pipe(
+        directoryHeader(dir),
+        HttpClientRequest.bodyJson({ title: "task-registry-regression" }),
+        Effect.flatMap(HttpClient.execute),
+      )
+      expect(created.status).toBe(200)
+      const sessionID = ((yield* created.json) as { id: string }).id
+
+      const response = yield* HttpClientRequest.get(SessionPaths.task.replace(":sessionID", sessionID)).pipe(
+        directoryHeader(dir),
+        HttpClient.execute,
+      )
+
+      // Before the fix, the task route threw `Service not found:
+      // @opencode/TaskRegistry` (HTTP 500) because TaskRegistryNode was not
+      // provided to the HTTP API runtime layer. After the fix it returns 200
+      // with an (empty) task array.
+      expect(response.status).toBe(200)
+      expect(yield* response.json).toEqual([])
+    }),
+  )
 })

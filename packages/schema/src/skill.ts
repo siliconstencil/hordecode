@@ -23,6 +23,8 @@ export const Info = Schema.Struct({
   slash: Schema.Boolean.pipe(optional),
   location: AbsolutePath,
   content: Schema.String,
+  aliases: Schema.Array(Schema.String).pipe(optional),
+  bundled: Schema.Boolean.pipe(optional),
 }).annotate({ identifier: "SkillV2.Info" })
 
 export interface EmbeddedSource extends Schema.Schema.Type<typeof EmbeddedSource> {}

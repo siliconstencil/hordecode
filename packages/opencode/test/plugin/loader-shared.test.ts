@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, spyOn } from "bun:test"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { Effect, Layer } from "effect"
 import fs from "fs/promises"
 import path from "path"
@@ -22,7 +23,7 @@ afterEach(async () => {
 })
 
 const it = testEffect(
-  Layer.mergeAll(LayerNode.compile(LayerNode.group([CrossSpawnSpawner.node, FSUtil.node])), testInstanceStoreLayer),
+  Layer.mergeAll(AppNodeBuilder.build(LayerNode.group([CrossSpawnSpawner.node, FSUtil.node])), testInstanceStoreLayer),
 )
 
 function withTmp<T, A, E, R>(
@@ -48,7 +49,7 @@ function load(dir: string, flags?: Parameters<typeof RuntimeFlags.layer>[0]) {
       yield* plugin.list()
     }).pipe(
       Effect.provide(
-        LayerNode.compile(Plugin.node, [
+        AppNodeBuilder.build(Plugin.node, [
           [
             Config.node,
             TestConfig.layer({
@@ -283,7 +284,7 @@ describe("plugin.loader.shared", () => {
       (tmp) =>
         Effect.gen(function* () {
           const add = spyOn(Npm, "add").mockImplementation(async (pkg) => {
-            if (pkg === "acme-plugin") return { directory: tmp.extra.acme, entrypoint: undefined }
+            if (pkg === "acme-plugin@latest") return { directory: tmp.extra.acme, entrypoint: undefined }
             return { directory: tmp.extra.scope, entrypoint: undefined }
           })
 

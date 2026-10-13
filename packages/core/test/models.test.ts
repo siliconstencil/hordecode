@@ -8,7 +8,8 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 import { Global } from "@opencode-ai/core/global"
 import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { it } from "./lib/effect"
-import { readFile, rm, writeFile, utimes, mkdir } from "fs/promises"
+import { readFile, rm, writeFile, utimes, mkdir, mkdtemp } from "fs/promises"
+import os from "os"
 import path from "path"
 
 // test/preload.ts pins OPENCODE_MODELS_PATH to a fixture so other tests can
@@ -18,16 +19,44 @@ import path from "path"
 // bun process.
 const ORIGINAL_MODELS_PATH = Flag.OPENCODE_MODELS_PATH
 const ORIGINAL_DISABLE_FETCH = Flag.OPENCODE_DISABLE_MODELS_FETCH
-beforeAll(() => {
+// Isolate the on-disk cache + cross-process lock to a per-suite temp dir so
+// concurrent `bun test` runners (full-suite, other packages) don't contend on
+// the shared Global.Path.cache/models.json and Global.Path.state/locks.
+// Without this the fetch tests hang on Flock and bun kills them at its 5s
+// default test timeout — the observed run-to-run flake (pass on one run,
+// 5000ms timeout on another depending on whether another runner holds the
+// lock). ModelsDev reads Global.Path.cache/state at layer-build time, so
+// pointing them at a temp dir before building isolates the file + lock.
+const ORIGINAL_CACHE = Global.Path.cache
+const ORIGINAL_STATE = Global.Path.state
+// The ModelsDev layer builds a Database node whose SQLite file resolves via
+// database.ts path() -> Flag.OPENCODE_DB (a getter over process.env.OPENCODE_DB)
+// else the shared StorageDbPath. Two concurrent `bun test` processes opening
+// that shared file hit SQLITE_BUSY ("database is locked" on PRAGMA journal_mode
+// = WAL) — the second half of the observed cross-process flake. Pointing
+// process.env.OPENCODE_DB at a per-suite absolute temp path isolates the DB
+// file per process. The Database node layer is Layer.suspend(() => layerFromPath(path())),
+// so path() is re-evaluated at build time and reads this env mutation.
+const ORIGINAL_DB = process.env.OPENCODE_DB
+let cacheFile: string
+let suiteTmp: string
+beforeAll(async () => {
   Flag.OPENCODE_MODELS_PATH = undefined
   Flag.OPENCODE_DISABLE_MODELS_FETCH = true
+  suiteTmp = await mkdtemp(path.join(os.tmpdir(), "modelsdev-test-"))
+  Global.Path.cache = suiteTmp
+  Global.Path.state = suiteTmp
+  process.env.OPENCODE_DB = path.join(suiteTmp, "modelsdev-test.db")
+  cacheFile = path.join(suiteTmp, "models.json")
 })
-afterAll(() => {
+afterAll(async () => {
   Flag.OPENCODE_MODELS_PATH = ORIGINAL_MODELS_PATH
   Flag.OPENCODE_DISABLE_MODELS_FETCH = ORIGINAL_DISABLE_FETCH
+  Global.Path.cache = ORIGINAL_CACHE
+  Global.Path.state = ORIGINAL_STATE
+  process.env.OPENCODE_DB = ORIGINAL_DB
+  if (suiteTmp) await rm(suiteTmp, { recursive: true, force: true })
 })
-
-const cacheFile = path.join(Global.Path.cache, "models.json")
 
 const fixture: Record<string, ModelsDev.Provider> = {
   acme: {

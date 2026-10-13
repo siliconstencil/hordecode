@@ -2,6 +2,7 @@ import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { describe, expect } from "bun:test"
 import path from "path"
+import { Global } from "@opencode-ai/core/global"
 import { Effect } from "effect"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import type { Tool } from "@/tool/tool"
@@ -102,6 +103,44 @@ describe("tool.assertExternalDirectory", () => {
       yield* assertExternalDirectoryEffect(ctx, "/tmp/outside/file.txt", { bypass: true })
 
       expect(requests.length).toBe(0)
+    }),
+  )
+
+  it.instance("does NOT ask for paths under the app-managed worktree base", () =>
+    Effect.gen(function* () {
+      const { requests, ctx } = makeCtx()
+
+      // A child isolated into <data>/worktree/<projectID>/<name> whose Instance is
+      // bound to the main checkout (or fell back to shared on a failed boot) sees
+      // the worktree as external. Trusting the app-managed base prevents the
+      // external_directory ask that would deadlock a background child.
+      const wtTarget = path.join(
+        Global.Path.data,
+        "worktree",
+        "21e0df6f-0ff7-4b4e-9f19-9bf7d7f64ba1",
+        "peer-relay",
+        "packages",
+        "opencode",
+        "src",
+        "tool",
+        "session.ts",
+      )
+
+      yield* assertExternalDirectoryEffect(ctx, wtTarget)
+
+      expect(requests.length).toBe(0)
+    }),
+  )
+
+  it.instance("still asks for a foreign path that merely resembles the worktree base name (regression)", () =>
+    Effect.gen(function* () {
+      const { requests, ctx } = makeCtx()
+
+      // A user path NOT under <data>/worktree must still prompt: the trust is
+      // scoped to the app-managed base, it does not broadly weaken external_directory.
+      yield* assertExternalDirectoryEffect(ctx, "/tmp/worktree/foreign/file.txt")
+
+      expect(requests.find((r) => r.permission === "external_directory")).toBeDefined()
     }),
   )
 

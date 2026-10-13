@@ -1,6 +1,7 @@
 import path from "path"
 import { Effect, Schema } from "effect"
 import { InstanceState } from "@/effect/instance-state"
+import { SessionCwd } from "@opencode-ai/core/tool/session-cwd"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { assertExternalDirectoryEffect } from "./external-directory"
@@ -10,10 +11,10 @@ import * as Tool from "./tool"
 export const Parameters = Schema.Struct({
   pattern: Schema.String.annotate({ description: "The regex pattern to search for in file contents" }),
   path: Schema.optional(Schema.String).annotate({
-    description: "The directory to search in. Defaults to the current working directory.",
+    description: "The directory to search in. Defaults to the current working directory. External or absolute directories MUST be passed via this field, not embedded in `include`.",
   }),
   include: Schema.optional(Schema.String).annotate({
-    description: 'File pattern to include in the search (e.g. "*.js", "*.{ts,tsx}")',
+    description: 'File pattern to include in the search (e.g. "*.js", "*.{ts,tsx}") — relative glob only. Do not embed an absolute directory in `include`; pass external/absolute directories via `path` instead. An absolute path in `include` will be rejected with a clear error.',
   }),
 })
 
@@ -48,14 +49,20 @@ export const GrepTool = Tool.define(
           })
 
           const ins = yield* InstanceState.context
-          const requested = path.isAbsolute(params.path ?? ins.directory)
-            ? (params.path ?? ins.directory)
-            : path.join(ins.directory, params.path ?? ".")
+          // Session cwd (change_directory) anchors relative paths; MiMo Code 0.1.11 tool/grep.ts:48.
+          const base = SessionCwd.get(ctx.sessionID, ins.directory)
+          const requested = path.isAbsolute(params.path ?? base) ? (params.path ?? base) : path.join(base, params.path ?? ".")
           const requestedInfo = yield* fs.stat(requested).pipe(Effect.catch(() => Effect.succeed(undefined)))
           yield* assertExternalDirectoryEffect(ctx, requested, {
             bypass: false,
             kind: requestedInfo?.type === "Directory" ? "directory" : "file",
           })
+
+          if (params.include && path.isAbsolute(params.include)) {
+            throw new Error(
+              `grep include must not be an absolute path (got "${params.include}"). Pass the directory via the \`path\` parameter and use a relative glob for \`include\` (e.g. { pattern: "${params.pattern}", include: "${path.basename(params.include ?? "") || "*.txt"}", path: "${path.dirname(params.include ?? "") || "/tmp/dir"}" }).`,
+            )
+          }
 
           const search = FSUtil.resolve(requested)
           const info = yield* fs.stat(search).pipe(Effect.catch(() => Effect.succeed(undefined)))
@@ -65,11 +72,15 @@ export const GrepTool = Tool.define(
             pattern: params.pattern,
             include: params.include,
             limit: 100,
+            signal: ctx.abort,
           })
           if (result.length === 0) return empty
 
           const rows = result.map((item) => ({
-            path: path.resolve(cwd, item.entry.path),
+            path: path.resolve(
+              requestedInfo?.type === "Directory" ? requested : path.dirname(requested),
+              item.entry.path,
+            ),
             line: item.line,
             text: item.text,
           }))

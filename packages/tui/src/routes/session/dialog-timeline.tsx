@@ -20,7 +20,7 @@ export function DialogTimeline(props: {
   })
 
   const options = createMemo((): DialogSelectOption<string>[] => {
-    const messages = sync.data.message[props.sessionID] ?? []
+    const messages = Object.values(sync.data.message[props.sessionID] ?? {}).flat()
     const result = [] as DialogSelectOption<string>[]
     for (const message of messages) {
       if (message.role !== "user") continue

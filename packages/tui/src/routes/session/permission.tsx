@@ -141,11 +141,11 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
           body={
             <Switch>
               <Match when={props.request.always.length === 1 && props.request.always[0] === "*"}>
-                <TextBody title={"This will allow " + props.request.permission + " until OpenCode is restarted."} />
+                <TextBody title={"This will allow " + props.request.permission + " until Hordecode is restarted."} />
               </Match>
               <Match when={true}>
                 <box paddingLeft={1} gap={1}>
-                  <text fg={theme.textMuted}>This will allow the following patterns until OpenCode is restarted</text>
+                  <text fg={theme.textMuted}>This will allow the following patterns until Hordecode is restarted</text>
                   <box>
                     <For each={props.request.always}>
                       {(pattern) => (
@@ -165,25 +165,37 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
           onSelect={(option) => {
             setStore("stage", "permission")
             if (option === "cancel") return
-            void sdk.client.permission.reply({
-              reply: "always",
-              requestID: props.request.id,
-              directory: props.directory,
-              workspace: project.workspace.current(),
-            })
+            {
+              const sid = props.request.sessionID
+              const rid = props.request.id
+              sdk.client.permission
+                .reply({
+                  reply: "always",
+                  requestID: rid,
+                  directory: props.directory,
+                  workspace: project.workspace.current(),
+                })
+                .then(() => sync.removePermissionOptimistic(sid, rid))
+                .catch(() => sync.removePermissionOptimistic(sid, rid))
+            }
           }}
         />
       </Match>
       <Match when={store.stage === "reject"}>
         <RejectPrompt
           onConfirm={(message) => {
-            void sdk.client.permission.reply({
-              reply: "reject",
-              requestID: props.request.id,
-              directory: props.directory,
-              message: message || undefined,
-              workspace: project.workspace.current(),
-            })
+            const sid = props.request.sessionID
+            const rid = props.request.id
+            sdk.client.permission
+              .reply({
+                reply: "reject",
+                requestID: rid,
+                directory: props.directory,
+                message: message || undefined,
+                workspace: project.workspace.current(),
+              })
+              .then(() => sync.removePermissionOptimistic(sid, rid))
+              .catch(() => sync.removePermissionOptimistic(sid, rid))
           }}
           onCancel={() => {
             setStore("stage", "permission")
@@ -269,10 +281,12 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
             }
 
             if (permission === "bash") {
+              const title =
+                typeof data.description === "string" && data.description ? data.description : "Shell command"
               const command = typeof data.command === "string" ? data.command : ""
               return {
                 icon: "#",
-                title: "Shell command",
+                title,
                 body: (
                   <Show when={command}>
                     <box paddingLeft={1}>
@@ -415,20 +429,34 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
                     setStore("stage", "reject")
                     return
                   }
-                  void sdk.client.permission.reply({
-                    reply: "reject",
-                    requestID: props.request.id,
-                    directory: props.directory,
-                    workspace: project.workspace.current(),
-                  })
+                  {
+                    const sid = props.request.sessionID
+                    const rid = props.request.id
+                    sdk.client.permission
+                      .reply({
+                        reply: "reject",
+                        requestID: rid,
+                        directory: props.directory,
+                        workspace: project.workspace.current(),
+                      })
+                      .then(() => sync.removePermissionOptimistic(sid, rid))
+                      .catch(() => sync.removePermissionOptimistic(sid, rid))
+                  }
                   return
                 }
-                void sdk.client.permission.reply({
-                  reply: "once",
-                  requestID: props.request.id,
-                  directory: props.directory,
-                  workspace: project.workspace.current(),
-                })
+                {
+                  const sid = props.request.sessionID
+                  const rid = props.request.id
+                  sdk.client.permission
+                    .reply({
+                      reply: "once",
+                      requestID: rid,
+                      directory: props.directory,
+                      workspace: project.workspace.current(),
+                    })
+                    .then(() => sync.removePermissionOptimistic(sid, rid))
+                    .catch(() => sync.removePermissionOptimistic(sid, rid))
+                }
               }}
             />
           )
@@ -483,7 +511,7 @@ function RejectPrompt(props: { onConfirm: (message: string) => void; onCancel: (
           <text fg={theme.text}>Reject permission</text>
         </box>
         <box paddingLeft={1}>
-          <text fg={theme.textMuted}>Tell OpenCode what to do differently</text>
+          <text fg={theme.textMuted}>Tell Hordecode what to do differently</text>
         </box>
       </box>
       <box
@@ -507,6 +535,7 @@ function RejectPrompt(props: { onConfirm: (message: string) => void; onCancel: (
           textColor={theme.text}
           focusedTextColor={theme.text}
           cursorColor={theme.primary}
+          cursorStyle={tuiConfig.cursor}
         />
         <box flexDirection="row" gap={2} flexShrink={0}>
           <text fg={theme.text}>

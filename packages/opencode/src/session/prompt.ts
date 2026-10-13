@@ -17,6 +17,8 @@ import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
 import { Plugin } from "../plugin"
 import { MAX_STEPS_PROMPT } from "@opencode-ai/core/session/runner/max-steps"
+import { applyHarnessInjection } from "@opencode-ai/core/session/prompt"
+import * as MaxMode from "./max-mode"
 import { ToolRegistry } from "@/tool/registry"
 import { MCP } from "../mcp"
 import { LSP } from "@/lsp/lsp"
@@ -27,6 +29,11 @@ import * as Stream from "effect/Stream"
 import { Command } from "../command"
 import { pathToFileURL, fileURLToPath } from "url"
 import { Config } from "@/config/config"
+import { isMemoryWriteEnabled } from "@/memory/write-gate"
+import { Memory } from "@opencode-ai/memory"
+import { node as EmbeddingNode } from "@opencode-ai/memory/embedding/service"
+import { node as VectorStoreNode } from "@opencode-ai/memory/embedding/vector-store"
+import { TaskRegistry } from "@opencode-ai/task/registry"
 import { ConfigMarkdown } from "@/config/markdown"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@opencode-ai/core/util/error"
@@ -40,23 +47,48 @@ import { ShellID } from "@/tool/shell/id"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Truncate } from "@/tool/truncate"
 import { Image } from "@/image/image"
-import { decodeDataUrl } from "@/util/data-url"
+import { decodeDataUrl } from "@opencode-ai/core/util/data-url"
 import { Process } from "@/util/process"
-import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
+import { Cause, Duration, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
 import { InstanceState } from "@/effect/instance-state"
-import { TaskTool, type TaskPromptOps } from "@/tool/task"
+import type { TaskPromptOps } from "@/tool/task"
+import { SupervisorTool } from "@/tool/supervisor"
 import { SessionRunState } from "./run-state"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Database } from "@opencode-ai/core/database/database"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { Team } from "@opencode-ai/team"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { eq } from "drizzle-orm"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
 import { LLMEvent } from "@opencode-ai/llm"
-
+import { Goal } from "@opencode-ai/core/session/goal"
+import { SessionCheckpoint } from "@opencode-ai/core/session/checkpoint"
+import { SessionPrune } from "@opencode-ai/core/session/prune"
+import { computeLastMessageInfo } from "@opencode-ai/core/session/last-message-info"
+import { Service as CoreSessionService } from "@opencode-ai/core/session/session"
+import type { Interface as CoreSessionInterface } from "@opencode-ai/core/session/session"
+import {
+  shouldAutoDream,
+  shouldAutoDistill,
+  DREAM_TASK,
+  DISTILL_TASK,
+  AUTO_DREAM_TITLE,
+  AUTO_DISTILL_TITLE,
+} from "@opencode-ai/core/session/auto-dream"
+import { Bus } from "@opencode-ai/bus"
+import { SupervisorRegistryService } from "@opencode-ai/supervisor/registry"
+import { spawnRef } from "@opencode-ai/supervisor/spawn-ref"
+import { sessionPromptRef, inboxServiceRef, defaultModelRef } from "@opencode-ai/inbox/inbox-ref"
+import { TuiEvent } from "@opencode-ai/cli/cmd/tui/event"
+import { prefixCaptureRef } from "@opencode-ai/core/session/prefix-capture-ref"
+import type { ModelMessage } from "ai"
+import { ProviderTransform } from "@/provider/transform"
+import { ToolJsonSchema } from "@/tool/json-schema"
+import type { Permission as PermissionV2 } from "@opencode-ai/schema/permission"
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
 
@@ -81,6 +113,17 @@ IMPORTANT:
 
 const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured output. You MUST use the StructuredOutput tool to provide your final response. Do NOT respond with plain text - you MUST call the StructuredOutput tool with your answer formatted according to the schema.`
 
+// meta/muse-spark only supports "auto" for tool_choice. For meta,
+// "required" (structured output) is enforced via STRUCTURED_OUTPUT_SYSTEM_PROMPT
+// and "none" (max-steps) via MAX_STEPS_PROMPT, not via wire tool_choice.
+function normalizeToolChoiceForMeta(
+  providerID: string,
+  value: "auto" | "required" | "none" | undefined,
+): "auto" | "required" | "none" | undefined {
+  if (providerID === "meta" && value && value !== "auto") return undefined
+  return value
+}
+
 function mcpResourceBase64Size(value: string) {
   const trimmed = value.replace(/\s/g, "")
   const padding = trimmed.endsWith("==") ? 2 : trimmed.endsWith("=") ? 1 : 0
@@ -97,6 +140,22 @@ function isOrphanedInterruptedTool(part: SessionV1.ToolPart) {
   // cleanup() marks abandoned tool_use blocks this way after retries/aborts.
   // They are not pending work and must not trigger an assistant-prefill request.
   return part.state.status === "error" && part.state.metadata?.interrupted === true
+}
+
+// The orchestrator root session is PERSISTENT and coordinates many tasks over
+// its lifetime, so its title must be stable and task-independent — it must not
+// be renamed by the per-first-message auto-title generator as tasks come and
+// go. Any root session driven by the orchestrator agent keeps this fixed name.
+const ORCHESTRATOR_TITLE = "Orchestrator"
+
+// Returns the stable, task-independent title a root session should keep instead
+// of a per-message auto-generated one, or undefined when normal auto-titling
+// applies. `agent` is the triggering agent's name (e.g. "orchestrator");
+// `parentID` distinguishes root from child sessions.
+function stableRootTitle(input: { agent: string | undefined; parentID: string | undefined }): string | undefined {
+  if (input.parentID) return undefined
+  if (input.agent === "orchestrator") return ORCHESTRATOR_TITLE
+  return undefined
 }
 
 export interface Interface {
@@ -141,6 +200,100 @@ const layer = Layer.effect(
     const flags = yield* RuntimeFlags.Service
     const database = yield* Database.Service
     const { db } = database
+    const goal = yield* Goal.Service
+    const bus = yield* Bus.Service
+    const supervisorRegistry = yield* SupervisorRegistryService.Service
+    const checkpoint = yield* SessionCheckpoint.Service
+    const prune = yield* SessionPrune.Service
+    const instructionsNotified = new Set<SessionID>()
+
+    // Late-bind prefix-capture helper for checkpoint writer so SessionCheckpoint can call
+    // it without forming a layer cycle (ToolRegistry -> SessionCheckpoint -> ToolRegistry).
+    // Mirror of MiMo prompt.ts:292-338 + core prompt.ts:398-441, adapted for Hordecode fork.
+    // Consumer uses forkCtx: system (passed to MaxMode/handle.process), inheritedMessages
+    // (ModelMessage[] prefix), parentPermission (converted to V2 Ruleset), and tools (never dispatched).
+    const capture: typeof prefixCaptureRef.current = (input) =>
+      Effect.gen(function* () {
+        const empty = {
+          system: [] as string[],
+          tools: {} as Record<string, AITool>,
+          inheritedMessages: [] as ModelMessage[],
+          parentPermission: [] as PermissionV2.Ruleset,
+        }
+        const ag = yield* agents.get(input.agentName).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        if (!ag) return empty
+        const model = yield* provider
+          .getModel(input.providerID as ProviderV2.ID, input.modelID as ModelV2.ID)
+          .pipe(Effect.catch(() => Effect.succeed(undefined)))
+        if (!model) return empty
+        const captureSession = yield* sessions.get(input.sessionID).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        if (!captureSession) return empty
+        // Build system array byte-equal to parent runLoop (lines 1889-1913):
+        // env, instructions (spread directly, already string[]), mcp, skills.
+        const [skills, env, instructions, mcpInstructions] = yield* Effect.all([
+          sys.skills(ag),
+          sys.environment(model),
+          instruction.system().pipe(Effect.orDie),
+          sys.mcp(ag, captureSession.permission),
+        ]).pipe(
+          Effect.catchCause(() => Effect.succeed([undefined, [] as string[], [] as string[], undefined] as const)),
+        )
+        const system = [
+          ...env,
+          ...instructions,
+          ...(mcpInstructions ? [mcpInstructions] : []),
+          ...(skills ? [skills] : []),
+        ]
+        // Build inherited messages (first part of LLM request prefix).
+        const inheritedMessages = yield* MessageV2.toModelMessagesEffect(input.msgs as SessionV1.WithParts[], model).pipe(
+          Effect.catchCause(() => Effect.succeed([] as ModelMessage[])),
+        )
+        // Build definition-only tools from registry (never dispatched by fork, per
+        // MiMo prompt.ts:3787-3788; schema parity is consequence of checkpoint-writer
+        // having no toolAllowlist). Capture covers registry tools only; MCP resources
+        // are not included (open decision).
+        const registryTools = yield* registry.tools({
+          modelID: ModelV2.ID.make(model.api.id),
+          providerID: model.providerID,
+          agent: ag,
+          permission: captureSession.permission,
+        }).pipe(
+          Effect.catchCause(() => Effect.succeed([] as Tool.Def[])),
+        )
+        const tools: Record<string, AITool> = {}
+        for (const item of registryTools) {
+          const schema = ProviderTransform.schema(model, ToolJsonSchema.fromTool(item))
+          tools[item.id] = tool({
+            description: item.description,
+            inputSchema: jsonSchema(schema),
+          })
+        }
+        // Convert agent permission from PermissionV1.Ruleset { permission, pattern, action }
+        // to V2 shape { action, resource, effect } expected by fork consumer mapping
+        // (prompt.ts:1762-1766). Pattern: core/src/permission/index.ts:160-161.
+        const parentPermission = (ag.permission ?? []).map((rule) => ({
+          action: rule.permission,
+          resource: rule.pattern,
+          effect: rule.action,
+        }))
+        return { system, tools, inheritedMessages, parentPermission }
+      }).pipe(
+        Effect.catchCause(() =>
+          Effect.succeed({
+            system: [] as string[],
+            tools: {} as Record<string, AITool>,
+            inheritedMessages: [] as ModelMessage[],
+            parentPermission: [] as PermissionV2.Ruleset,
+          }),
+        ),
+      )
+    prefixCaptureRef.current = capture
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        if (prefixCaptureRef.current === capture) prefixCaptureRef.current = undefined
+      }),
+    )
+
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
         cancel: (sessionID: SessionID) => cancel(sessionID),
@@ -150,8 +303,28 @@ const layer = Layer.effect(
     })
 
     const cancel = Effect.fn("SessionPrompt.cancel")(function* (sessionID: SessionID) {
+      const { setInterrupted } = yield* Effect.promise(() => import("@opencode-ai/inbox/interrupt-latch"))
+      setInterrupted(sessionID)
       yield* Effect.logInfo("cancel", { "session.id": sessionID })
       yield* state.cancel(sessionID)
+      // Propagate cancel to child subagent/peer sessions so their loops exit too;
+      // otherwise the parent goes idle while children stay busy.
+      // Only live rows are cancelled. Finished rows (status "idle",
+      // lastOutcome "success" or "failure") keep their outcome; re-cancelling them would
+      // overwrite it and send a contradictory "cancelled" notification after "completed".
+      // Matches the tool-level cancel, which skips idle rows (packages/opencode/src/tool/supervisor.ts
+      // cancel branch), and upstream run-state.ts:111-142, which cancels only running background jobs.
+      const children = yield* sessions.children(sessionID)
+      yield* Effect.forEach(children, (child) =>
+        Effect.gen(function* () {
+          const supers = yield* supervisorRegistry.listBySession(child.id)
+          const live = supers.filter((sup) => sup.status === "pending" || sup.status === "running")
+          yield* Effect.forEach(
+            live,
+            (sup) => spawnRef.current?.cancel(child.id, sup.supervisorID, "graceful") ?? Effect.void,
+            { concurrency: "unbounded", discard: true },
+          )
+        }), { concurrency: "unbounded", discard: true })
     })
 
     const resolvePromptParts = Effect.fn("SessionPrompt.resolvePromptParts")(function* (template: string) {
@@ -192,18 +365,38 @@ const layer = Layer.effect(
 
     const title = Effect.fn("SessionPrompt.ensureTitle")(function* (input: {
       session: Session.Info
+      agent: string | undefined
       history: SessionV1.WithParts[]
       providerID: ProviderV2.ID
       modelID: ModelV2.ID
     }) {
       if (input.session.parentID) return
+
+      // Persistent orchestrator root session: keep a stable, task-independent
+      // title. Set it once (if still the default) and SKIP the per-first-message
+      // LLM title generation so later tasks never rename it.
+      const stable = stableRootTitle({ agent: input.agent, parentID: input.session.parentID })
+      if (stable) {
+        if (Session.isDefaultTitle(input.session.title))
+          yield* sessions
+            .setTitle({ sessionID: input.session.id, title: stable })
+            .pipe(Effect.catchCause((cause) => Effect.logError("failed to set stable title", { error: Cause.squash(cause) })))
+        return
+      }
+
       if (!Session.isDefaultTitle(input.session.title)) return
 
       const real = (m: SessionV1.WithParts) =>
         m.info.role === "user" && !m.parts.every((p) => "synthetic" in p && p.synthetic)
       const idx = input.history.findIndex(real)
       if (idx === -1) return
-      if (input.history.filter(real).length !== 1) return
+      // Allow retry on later turns if title still default. Previously
+      // required exactly 1 real user message, so a transient provider outage
+      // (command-code 107 "upstream unavailable" while opencode zen was clean)
+      // at step 1 left "New session - ..." for ~19min with no retry. Now retry
+      // is throttled by the caller (steps 1-4, fresh session check) and this
+      // function reuses the first real user message for context. Stable
+      // orchestrator path handled above, keeps its fixed title.
 
       const context = input.history.slice(0, idx + 1)
       const firstUser = context[idx]
@@ -214,11 +407,25 @@ const layer = Layer.effect(
       const onlySubtasks = subtasks.length > 0 && firstUser.parts.every((p) => p.type === "subtask")
 
       const ag = yield* agents.get("title")
-      if (!ag) return
+      if (!ag) {
+        yield* Effect.logWarning("title agent not found, skipping title generation")
+        return
+      }
+      const sessionModel = ag.model
+        ? undefined
+        : yield* provider.getModel(input.providerID, input.modelID).pipe(
+            Effect.catch(() => Effect.succeed(undefined)),
+          )
+      if (!ag.model && !sessionModel) {
+        yield* Effect.logError(
+          "session's selected model unavailable for title generation; skipping (pick a different model to retry)",
+          { providerID: input.providerID, modelID: input.modelID },
+        )
+        return
+      }
       const mdl = ag.model
         ? yield* provider.getModel(ag.model.providerID, ag.model.modelID)
-        : ((yield* provider.getSmallModel(input.providerID)) ??
-          (yield* provider.getModel(input.providerID, input.modelID)))
+        : sessionModel!
       const msgs = onlySubtasks
         ? [{ role: "user" as const, content: subtasks.map((p) => p.prompt).join("\n") }]
         : yield* MessageV2.toModelMessagesEffect(context, mdl)
@@ -263,7 +470,7 @@ const layer = Layer.effect(
       const { task, model, lastUser, sessionID, session, msgs } = input
       const ctx = yield* InstanceState.context
       const promptOps = yield* ops()
-      const { task: taskTool } = yield* registry.named()
+      const { supervisor: supervisorTool } = yield* registry.named()
       const taskModel = task.model ? yield* getModel(task.model.providerID, task.model.modelID, sessionID) : model
       const assistantMessage: SessionV1.Assistant = yield* sessions.updateMessage({
         id: MessageID.ascending(),
@@ -286,7 +493,7 @@ const layer = Layer.effect(
         sessionID: assistantMessage.sessionID,
         type: "tool",
         callID: ulid(),
-        tool: TaskTool.id,
+        tool: SupervisorTool.id,
         state: {
           status: "running",
           input: {
@@ -299,14 +506,17 @@ const layer = Layer.effect(
         },
       })
       const taskArgs = {
-        prompt: task.prompt,
-        description: task.description,
-        subagent_type: task.agent,
-        command: task.command,
+        operation: {
+          action: "run" as const,
+          prompt: task.prompt,
+          description: task.description,
+          subagent_type: task.agent,
+          ...(task.command ? { command: task.command } : {}),
+        },
       }
       yield* plugin.trigger(
         "tool.execute.before",
-        { tool: TaskTool.id, sessionID, callID: part.id },
+        { tool: SupervisorTool.id, sessionID, callID: part.id },
         { args: taskArgs },
       )
 
@@ -321,14 +531,14 @@ const layer = Layer.effect(
 
       let error: Error | undefined
       const taskAbort = new AbortController()
-      const result = yield* taskTool
+      const result = yield* supervisorTool
         .execute(taskArgs, {
           agent: task.agent,
           messageID: assistantMessage.id,
           sessionID,
           abort: taskAbort.signal,
           callID: part.callID,
-          extra: { bypassAgentCheck: true, promptOps },
+          extra: { bypassAgentCheck: true, promptOps, model: taskModel },
           messages: msgs,
           metadata: (val: { title?: string; metadata?: Record<string, any> }) =>
             Effect.gen(function* () {
@@ -343,7 +553,7 @@ const layer = Layer.effect(
               .ask({
                 ...req,
                 sessionID,
-                ruleset: Permission.merge(taskAgent.permission, session.permission ?? []),
+                ruleset: Agent.runtimePermission(taskAgent, session.permission),
               })
               .pipe(Effect.orDie),
         })
@@ -388,7 +598,7 @@ const layer = Layer.effect(
 
       yield* plugin.trigger(
         "tool.execute.after",
-        { tool: TaskTool.id, sessionID, callID: part.id, args: taskArgs },
+        { tool: SupervisorTool.id, sessionID, callID: part.id, args: taskArgs },
         result,
       )
 
@@ -633,7 +843,8 @@ const layer = Layer.effect(
     })
 
     const createUserMessage = Effect.fn("SessionPrompt.createUserMessage")(function* (input: PromptInput) {
-      const agentName = input.agent
+      const current = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+      const agentName = input.agent ?? current.agent
       const ag = agentName ? yield* agents.get(agentName) : yield* agents.defaultInfo()
       if (!ag) {
         const available = (yield* agents.list()).filter((a) => !a.hidden).map((a) => a.name)
@@ -660,6 +871,7 @@ const layer = Layer.effect(
         time: { created: Date.now() },
         tools: input.tools,
         agent: ag.name,
+        agentID: input.agentID,
         model: {
           providerID: model.providerID,
           modelID: model.modelID,
@@ -669,7 +881,6 @@ const layer = Layer.effect(
         format: input.format,
       }
 
-      const current = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
       if (
         current.agent !== info.agent ||
         current.model?.providerID !== info.model.providerID ||
@@ -1052,6 +1263,14 @@ const layer = Layer.effect(
     const prompt: (input: PromptInput) => Effect.Effect<SessionV1.WithParts, Image.Error> = Effect.fn(
       "SessionPrompt.prompt",
     )(function* (input: PromptInput) {
+      // The opencode-side PromptInput schema does not carry a `source` field
+      // (only the core-side does). opencode's SessionPrompt.prompt is the
+      // user HTTP path -- every call here is a real user turn, so clearing on
+      // every prompt is safe. The source-filtered clear lives in
+      // core/src/session/prompt.ts where `source: "hook"` (cron) and
+      // `source: "spawn"` (supervisor) must NOT clear.
+      const { clearInterrupted } = yield* Effect.promise(() => import("@opencode-ai/inbox/interrupt-latch"))
+      clearInterrupted(input.sessionID)
       const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
       yield* revert.cleanup(session)
       const message = yield* createUserMessage(input)
@@ -1067,7 +1286,8 @@ const layer = Layer.effect(
       }
 
       if (input.noReply === true) return message
-      return yield* loop({ sessionID: input.sessionID })
+      // Ported from MiMo prompt.ts:4776-4777 and :4842 (task_id passed to the loop).
+      return yield* loop({ sessionID: input.sessionID, agentID: input.agentID, task_id: input.task_id })
     })
 
     const lastAssistant = Effect.fnUntraced(function* (sessionID: SessionID) {
@@ -1078,24 +1298,163 @@ const layer = Layer.effect(
       throw new Error("Impossible")
     })
 
-    const runLoop: (sessionID: SessionID) => Effect.Effect<SessionV1.WithParts> = Effect.fn("SessionPrompt.run")(
-      function* (sessionID: SessionID) {
+    // Checkpoint-rebuild machinery (ported from v0.1.11 prompt.ts:3145-3305).
+    // MANUAL_WRITER_WAIT_MS: a manual /rebuild may wait long enough for a cold
+    // writer (it may need to boot a whole new session for the writer agent).
+    const MANUAL_WRITER_WAIT_MS = 300_000
+    // AUTO_WRITER_WAIT_MS: 180s is the top of the writer's self-documented
+    // 60-180s band. Abandoning the wait does NOT cancel the writer -- it keeps
+    // running detached, so the checkpoint still lands for the next overflow.
+    const AUTO_WRITER_WAIT_MS = 180_000
+
+    // Named for what the attempt DID, not what it means to the caller:
+    // "insert-failed" means the checkpoint exists but the insert was refused,
+    // which must NOT fall back to compaction (the rebuild will land next turn).
+    type RebuildAttempt = "rebuilt" | "writer-failed" | "insert-failed" | "memory-write-off"
+
+    const rebuildFromCheckpoint = Effect.fn("SessionPrompt.rebuildFromCheckpoint")(function* (input: {
+      sessionID: SessionID
+      msgs: SessionV1.WithParts[]
+      agentID?: string
+      agent: string
+      model: { providerID: string; id: string }
+    }) {
+      const hasCP = yield* checkpoint.hasCheckpoint(input.sessionID).pipe(Effect.catch(() => Effect.succeed(false)))
+      if (!hasCP) return false
+      const boundary = yield* checkpoint.lastBoundary(input.sessionID).pipe(Effect.catch(() => Effect.succeed(undefined)))
+      if (!boundary) return false
+      const boundaryMsg = input.msgs.find((m) => m.info.id === boundary)
+      const inserted = yield* checkpoint
+        .insertRebuildBoundary({
+          sessionID: input.sessionID,
+          boundary,
+          lastMessageInfo: computeLastMessageInfo(input.msgs.map((m) => m.info)),
+          agentID: input.agentID,
+          agent: input.agent,
+          model: { providerID: input.model.providerID, modelID: input.model.id },
+          boundaryCreatedAt: boundaryMsg?.info.time.created,
+        })
+        .pipe(Effect.catch(() => Effect.succeed(false)))
+      if (inserted) yield* prune.resetThresholds(input.sessionID)
+      return inserted
+    })
+
+    const rebuildEnsuringCheckpoint = Effect.fn("SessionPrompt.rebuildEnsuringCheckpoint")(function* (input: {
+      sessionID: SessionID
+      msgs: SessionV1.WithParts[]
+      agentID?: string
+      agent: string
+      model: { providerID: string; id: string }
+      writerWaitMs: number
+      onWaitingForWriter?: Effect.Effect<void>
+    }) {
+      // Step 0: writing is off -> no checkpoint can ever land; caller falls back.
+      if (!isMemoryWriteEnabled(yield* config.get())) return "memory-write-off" as const
+      // Step 1: a checkpoint already exists -- rebuild from it directly.
+      if (yield* rebuildFromCheckpoint(input).pipe(Effect.catch(() => Effect.succeed(false)))) return "rebuilt" as const
+      // Step 2: a checkpoint exists but the rebuild was refused. Do NOT compact.
+      const hasCP = yield* checkpoint.hasCheckpoint(input.sessionID).pipe(Effect.catch(() => Effect.succeed(false)))
+      const boundary = hasCP
+        ? yield* checkpoint.lastBoundary(input.sessionID).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        : undefined
+      if (hasCP && boundary) return "insert-failed" as const
+      // Step 3: no checkpoint yet -- ensure the writer runs, wait for it.
+      const writerRunning = yield* checkpoint.isWriterRunning(input.sessionID).pipe(
+        Effect.catch(() => Effect.succeed(false)),
+      )
+      if (!writerRunning) {
+        yield* checkpoint
+          .tryStartCheckpointWriter({ sessionID: input.sessionID, model: { providerID: input.model.providerID, modelID: input.model.id }, promptOps: {} as never })
+          .pipe(Effect.catch(() => Effect.succeed("skipped")))
+      }
+      if (input.onWaitingForWriter) yield* input.onWaitingForWriter
+      const writerOutcome = yield* checkpoint
+        .waitForWriter(input.sessionID)
+        .pipe(Effect.timeout(input.writerWaitMs), Effect.catch(() => Effect.succeed("failure")))
+      if (writerOutcome !== "success") return "writer-failed" as const
+      // Step 4: writer landed it -- rebuild now.
+      if (yield* rebuildFromCheckpoint(input).pipe(Effect.catch(() => Effect.succeed(false)))) return "rebuilt" as const
+      return "insert-failed" as const
+    })
+
+    const MEMORY_WRITE_OFF_FALLBACK_NOTICE =
+      "Memory writing is off, so no checkpoint can be written for this session and the context was compacted instead of rebuilt from one. Compaction is what runs whenever the context fills up: earlier turns leave the model's view without a summary, which can weaken continuity on long-running work. Nothing is broken and the session keeps working -- to get checkpoint rebuilds back, set `memory.disable_write` to false in config."
+    const memoryWriteOffNoticed = new Set<SessionID>()
+
+    const noticeMemoryWriteOffFallback = Effect.fn("SessionPrompt.noticeMemoryWriteOffFallback")(function* (
+      sessionID: SessionID,
+    ) {
+      if (memoryWriteOffNoticed.has(sessionID)) return MEMORY_WRITE_OFF_FALLBACK_NOTICE
+      memoryWriteOffNoticed.add(sessionID)
+      const msgs = yield* sessions.messages({ sessionID }).pipe(Effect.orDie)
+      const anchor =
+        msgs.findLast((m) => m.parts.some((p) => p.type === "compaction")) ?? msgs[msgs.length - 1]
+      if (!anchor) return MEMORY_WRITE_OFF_FALLBACK_NOTICE
+      const now = Date.now()
+      yield* sessions
+        .updatePart({
+          id: PartID.ascending(),
+          messageID: anchor.info.id,
+          sessionID,
+          type: "text",
+          text: MEMORY_WRITE_OFF_FALLBACK_NOTICE,
+          synthetic: true,
+          ignored: true,
+          time: { start: now, end: now },
+        })
+        .pipe(Effect.ignore)
+      return MEMORY_WRITE_OFF_FALLBACK_NOTICE
+    })
+
+    // task_id: Ported from MiMo prompt.ts:2675 (runLoop task_id parameter).
+    const runLoop: (sessionID: SessionID, agentID?: string, task_id?: string) => Effect.Effect<SessionV1.WithParts> =
+      Effect.fn("SessionPrompt.run")(function* (sessionID: SessionID, agentID?: string, task_id?: string) {
         const ctx = yield* InstanceState.context
         let structured: unknown
         let step = 0
+        let skipOverflowCheck = false
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
 
         while (true) {
+          // Intentional divergence from v0.1.11 (packages/opencode/src/session/prompt.ts:3251,3661),
+          // which uses while(true) + agent.steps ?? Infinity. Fork caps at 100/200
+          // because an unbounded loop hung in practice (see commit f6cac78ae0).
+          // Do not revert to Infinity without first root-causing that hang.
+          if (step > 200) {
+            yield* Effect.logWarning("rl:hard-cap breached, forcing exit", { "session.id": sessionID, step })
+            break
+          }
           yield* status.set(sessionID, { type: "busy" })
           yield* Effect.logInfo("loop", { "session.id": sessionID, step })
+
+          // Drain inbox rows (e.g. supervisor/session sends) into a synthetic user
+          // message so this iteration's finish-gate sees a new unanswered user
+          // message instead of breaking. Mirrors v0.1.11 prompt.ts:2526.
+          // inboxServiceRef is used instead of yielding Inbox.Service because
+          // yielding it here corrupts runLoop's Effect type (see note above).
+          const inbox = inboxServiceRef.current
+          if (inbox) yield* inbox.drain(sessionID, agentID ?? "main").pipe(Effect.ignore)
 
           let msgs = yield* MessageV2.filterCompactedEffect(sessionID).pipe(
             Effect.provideService(Database.Service, database),
           )
+          yield* Effect.logInfo("rl:iter", {
+            "session.id": sessionID,
+            step,
+            msgCount: msgs.length,
+          })
 
           const { user: lastUser, assistant: lastAssistant, finished: lastFinished, tasks } = MessageV2.latest(msgs)
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+
+          // SessionV1.Part has no "checkpoint" type (checkpoint parts live in core's V2
+          // part system, invisible here) -- only compaction parts signal recovery.
+          const usageRecovered =
+            !!lastFinished &&
+            msgs.some(
+              (msg) => msg.info.id > lastFinished.id && msg.parts.some((part) => part.type === "compaction"),
+            )
 
           const lastAssistantMsg = msgs.findLast(
             (msg) => msg.info.role === "assistant" && msg.info.id === lastAssistant?.id,
@@ -1110,9 +1469,9 @@ const layer = Layer.effect(
 
           if (
             lastAssistant?.finish &&
-            !["tool-calls"].includes(lastAssistant.finish) &&
+            !["tool-calls", "unknown"].includes(lastAssistant.finish) &&
             !hasToolCalls &&
-            lastUser.id < lastAssistant.id
+            lastAssistant.parentID === lastUser.id
           ) {
             const orphan = lastAssistantMsg?.parts.find(
               (part): part is SessionV1.ToolPart => part.type === "tool" && isOrphanedInterruptedTool(part),
@@ -1125,18 +1484,109 @@ const layer = Layer.effect(
                 callID: orphan.callID,
               })
             }
+            // Goal stop-condition gate (only for main agent, not subagents).
+            // Goal.runGate treats agentID "main" (its default) as the top-level
+            // thread and skips gating for anything else -- session.parentID is
+            // this codebase's actual top-level-vs-subagent signal (see the
+            // !session.parentID check above), not the agent *persona* name
+            // (e.g. "build"), which is never literally "main" and made this
+            // gate a permanent no-op.
+            if (lastUser) {
+              // Narrowed casts: opencode MessageV2 (SessionV1 shapes, optional retryCount) vs core MessageV2 (required retryCount) + dual-path Session tag
+              const shouldReenter = yield* Goal.runGate({
+                sessionID,
+                // opencode/src/session/prompt.ts:1399 (opencode MessageV2) vs core/src/session/goal.ts (core MessageV2)
+                lastUser: lastUser as unknown as Parameters<typeof Goal.runGate>[0]["lastUser"],
+                // opencode/src/session/prompt.ts:1400 (opencode MessageV2[]) vs core/src/session/goal.ts (core MessageV2[])
+                msgs: msgs as unknown as Parameters<typeof Goal.runGate>[0]["msgs"],
+                agentID: session.parentID ? lastUser.agent : undefined,
+              }).pipe(
+                Effect.provideService(Goal.Service, goal),
+                Effect.provideService(Bus.Service, bus),
+                // opencode/src/session/prompt.ts:1405 (opencode Session.Interface) vs core/src/session/goal.ts (CoreSessionInterface)
+                Effect.provideService(CoreSessionService, sessions as unknown as CoreSessionInterface),
+              )
+              if (shouldReenter) continue
+            }
             yield* Effect.logInfo("exiting loop", { "session.id": sessionID })
+            yield* Effect.logInfo("rl:exit", { "session.id": sessionID, step, site: "finish-gate" })
             break
           }
 
           step++
-          if (step === 1)
-            yield* title({
-              session,
-              modelID: lastUser.model.modelID,
-              providerID: lastUser.model.providerID,
-              history: msgs,
-            }).pipe(Effect.ignore, Effect.forkIn(scope))
+          // Per-step turn heartbeat: only writer of turn_count; advances last_turn_time/time_updated so the orchestrator can tell progressing children from stalled ones. Safe 0-row no-op when no registry row exists.
+          yield* supervisorRegistry.updateTurn(sessionID, agentID ?? "main").pipe(Effect.ignore)
+          // Title generation runs in its own fiber so the first model call is never
+          // delayed by it (upstream 1.18.15 prompt.ts:1141-1147 forks it the same way).
+          // Retried on steps 2-4 while the title is still the default, so a transient
+          // provider failure at step 1 does not leave the placeholder for the whole
+          // session. Stable orchestrator sessions keep their fixed title through
+          // ensureTitle's stableRootTitle branch.
+          if (step >= 1 && step <= 4) {
+            const freshSession = yield* sessions.get(sessionID).pipe(Effect.orDie)
+            if (Session.isDefaultTitle(freshSession.title)) {
+              yield* title({
+                session: freshSession,
+                agent: lastUser.agent,
+                modelID: lastUser.model.modelID,
+                providerID: lastUser.model.providerID,
+                history: msgs,
+              }).pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logWarning("title generation failed, will retry if still default", {
+                    error: Cause.squash(cause),
+                    step,
+                    "session.id": sessionID,
+                  }),
+                ),
+                Effect.forkIn(scope),
+              )
+            }
+          }
+
+          // Auto-dream/distill at step 1 — ported from core's prompt.ts:2280-2312
+          // Fires a background session for dream memory consolidation or distill
+          // workflow packaging when the interval has elapsed since last run.
+          if (step === 1 && !session.parentID) {
+            const cfg = yield* config.get()
+            const dreamTrigger = yield* shouldAutoDream(cfg).pipe(
+              Effect.catch(() => Effect.succeed(false)),
+            )
+            const distillTrigger = yield* shouldAutoDistill(cfg).pipe(
+              Effect.catch(() => Effect.succeed(false)),
+            )
+            if (dreamTrigger || distillTrigger) {
+              const mdl = { providerID: lastUser.model.providerID, modelID: lastUser.model.modelID }
+              if (dreamTrigger) {
+                yield* Effect.gen(function* () {
+                  const s = yield* sessions.create({ title: AUTO_DREAM_TITLE })
+                  yield* prompt({
+                    sessionID: s.id,
+                    agent: "dream",
+                    model: mdl,
+                    parts: [{ type: "text", text: DREAM_TASK }],
+                  })
+                }).pipe(
+                  Effect.catch((err: unknown) => Effect.logError("auto-dream prompt failed", { error: String(err) })),
+                  Effect.forkIn(scope),
+                )
+              }
+              if (distillTrigger) {
+                yield* Effect.gen(function* () {
+                  const s = yield* sessions.create({ title: AUTO_DISTILL_TITLE })
+                  yield* prompt({
+                    sessionID: s.id,
+                    agent: "distill",
+                    model: mdl,
+                    parts: [{ type: "text", text: DISTILL_TASK }],
+                  })
+                }).pipe(
+                  Effect.catch((err: unknown) => Effect.logError("auto-distill prompt failed", { error: String(err) })),
+                  Effect.forkIn(scope),
+                )
+              }
+            }
+          }
 
           const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
           const task = tasks.pop()
@@ -1154,16 +1604,10 @@ const layer = Layer.effect(
               auto: task.auto,
               overflow: task.overflow,
             })
-            if (result === "stop") break
-            continue
-          }
-
-          if (
-            lastFinished &&
-            lastFinished.summary !== true &&
-            (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
-          ) {
-            yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
+            if (result === "stop") {
+              yield* Effect.logInfo("rl:exit", { "session.id": sessionID, step, site: "compaction:stop" })
+              break
+            }
             continue
           }
 
@@ -1175,7 +1619,91 @@ const layer = Layer.effect(
             yield* events.publish(Session.Event.Error, { sessionID, error: error.toObject() })
             throw error
           }
-          const maxSteps = agent.steps ?? Infinity
+          // Bounded-computation agents (title, summary, checkpoint-writer) are
+          // exempt from context management -- they run with a small, fixed
+          // context by design. Mirrors v0.1.11 prompt.ts:3538-3545
+          // (bounded-computation agents design).
+          const isBoundedComputation = agent?.native === true && agent?.hidden === true
+
+          if (!skipOverflowCheck && !usageRecovered && !isBoundedComputation && lastFinished && lastFinished.tokens) {
+            const fireOps = yield* ops()
+            yield* prune
+              .fireCheckpoints({
+                sessionID,
+                // opencode/src/session/prompt.ts:1533 (Provider.Model V2) vs core/src/session/processor.ts (Provider.Model V1)
+                model: model as unknown as Parameters<typeof prune.fireCheckpoints>[0]["model"],
+                tokens: lastFinished.tokens,
+                promptOps: fireOps,
+                agentID: lastUser.agentID,
+              })
+              .pipe(Effect.ignore)
+          }
+
+          if (
+            !skipOverflowCheck &&
+            !usageRecovered &&
+            !isBoundedComputation &&
+            lastFinished &&
+            lastFinished.summary !== true
+          ) {
+            const overflowNow = yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }).pipe(
+              Effect.catch(() => Effect.succeed(false)),
+            )
+            if (overflowNow) {
+              // Subagents don't have checkpoints (see checkpoint.ts:715 gate):
+              // compact them directly, never attempt a checkpoint rebuild.
+              if (lastUser.agentID && lastUser.agentID !== "main") {
+                yield* compaction
+                  .create({
+                    sessionID,
+                    agent: lastUser.agent,
+                    model: { providerID: model.providerID, modelID: model.id },
+                    auto: true,
+                    agentID: lastUser.agentID,
+                  })
+                  .pipe(Effect.ignore)
+                skipOverflowCheck = true
+                continue
+              }
+              const attempt = yield* rebuildEnsuringCheckpoint({
+                sessionID,
+                msgs,
+                agentID: lastUser.agentID,
+                agent: lastUser.agent,
+                model: { providerID: model.providerID, id: model.id },
+                writerWaitMs: AUTO_WRITER_WAIT_MS,
+                onWaitingForWriter: status
+                  .set(sessionID, { type: "busy", message: "Writing checkpoint…" })
+                  .pipe(Effect.catch(() => Effect.void)),
+              })
+            if (attempt === "rebuilt") {
+              skipOverflowCheck = true
+              continue
+            }
+            if (attempt === "writer-failed" || attempt === "memory-write-off") {
+              yield* compaction
+                .create({
+                  sessionID,
+                  agent: lastUser.agent,
+                  model: { providerID: model.providerID, modelID: model.id },
+                  auto: true,
+                  agentID: lastUser.agentID,
+                })
+                .pipe(Effect.ignore)
+              if (attempt === "memory-write-off") {
+                yield* noticeMemoryWriteOffFallback(sessionID).pipe(Effect.ignore)
+              }
+              skipOverflowCheck = true
+              continue
+            }
+            // "insert-failed": the checkpoint exists but the rebuild insert was
+            // refused -- do NOT compact, fall through so the rest of the turn
+            // still runs; the rebuild lands on the next overflow.
+            }
+          }
+          skipOverflowCheck = false
+          // See divergence note above (Infinity vs fork 100): agent.steps ?? Infinity in v0.1.11.
+          const maxSteps = agent.steps ?? 100
           const isLastStep = step >= maxSteps
           msgs = yield* SessionReminders.apply({ messages: msgs, agent, session }).pipe(
             Effect.provideService(RuntimeFlags.Service, flags),
@@ -1189,6 +1717,7 @@ const layer = Layer.effect(
             role: "assistant",
             mode: agent.name,
             agent: agent.name,
+            agentID: lastUser.agentID,
             variant: lastUser.model.variant,
             path: { cwd: ctx.directory, root: ctx.worktree },
             cost: 0,
@@ -1218,10 +1747,28 @@ const layer = Layer.effect(
             })
             .pipe(Effect.onInterrupt(() => finalizeInterruptedAssistant))
 
+          // KNOWN GAP: mode is hardcoded to "subagent". The real supervisor mode
+          // (peer/subagent/main) lives in the SupervisorRegistryService DB table
+          // (supervisor_registry.mode) and SupervisorRegistryService.Service cannot be yielded in
+          // runLoop without corrupting its Effect type (runLoop is typed
+          // Effect<WithParts, never, never>). HORDECODE_EXPERIMENTAL_ORCHESTRATOR is
+          // off by default, so peers never spawn and this default is correct.
+          // db → SupervisorRegistryService.Service + reg.get/reg.listBySession to resolve.
+          const askSupervisor: { agent: string; background: boolean; mode: string; parentSupervisorID?: string } | undefined =
+            lastUser.agent && session.parentID
+              ? { agent: lastUser.agent, background: true, mode: "subagent", parentSupervisorID: undefined }
+              : undefined
           const outcome: "break" | "continue" = yield* Effect.gen(function* () {
             const lastUserMsg = msgs.findLast((m) => m.info.role === "user")
             const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
             const promptOps = yield* ops()
+            // Per-supervisor tool allowlist from the supervisor row. Ported from MiMo
+            // prompt.ts:1238-1244 (whitelistFor). A missing row or "INHERIT" means full access.
+            const supervisorRow = lastUser.agentID
+              ? yield* supervisorRegistry.get(sessionID, lastUser.agentID).pipe(Effect.orElseSucceed(() => undefined))
+              : undefined
+            const toolWhitelist =
+              supervisorRow && Array.isArray(supervisorRow.tools) ? [...supervisorRow.tools] : undefined
 
             const tools = yield* SessionTools.resolve({
               agent,
@@ -1231,6 +1778,10 @@ const layer = Layer.effect(
               bypassAgentCheck,
               messages: msgs,
               promptOps,
+              askSupervisor,
+              // Ported from MiMo prompt.ts:1298 (taskId) and :1234-1244 (toolWhitelist).
+              taskId: task_id,
+              toolWhitelist,
             }).pipe(
               Effect.provideService(Plugin.Service, plugin),
               Effect.provideService(Permission.Service, permission),
@@ -1254,36 +1805,284 @@ const layer = Layer.effect(
 
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
 
+            // Harness mode injection: detect harness agent and inject prompt
+            const cfg = yield* config.get()
+            const maxModeCfg = cfg.experimental?.maxMode
+            yield* applyHarnessInjection(msgs as never, agent as never, cfg as never, ctx)
+
+            // Bounded context for supervisor turns: a subagent/peer that is not
+            // contextMode "full" only sees its own messages, not the full
+            // growing parent session. Full-context supervisors keep the
+            // undifferentiated full-session behavior until the real ForkContext
+            // snapshot mechanism not yet implemented.
+            const supervisorRecord = lastUser.agentID
+              ? yield* supervisorRegistry.get(sessionID, lastUser.agentID).pipe(Effect.orElseSucceed(() => undefined))
+              : undefined
+            const boundedMsgs =
+              lastUser.agentID && supervisorRecord?.contextMode !== "full"
+                ? msgs.filter((m) => m.info.agentID === lastUser.agentID)
+                : msgs
+
+            // Fork-agent turn: full-context subagents/peers drive their turn
+            // from the parent's ForkContext snapshot (captured at spawn by
+            // Supervisor.getForkContext, see packages/supervisor/src/spawn.ts), not from
+            // the undifferentiated growing parent session. Ported from the V2
+            // runLoop (packages/core/src/session/prompt.ts) so the frozen
+            // parent context not yet passed to child turns.
+            const isForkAgent =
+              supervisorRecord?.contextMode === "full" &&
+              (supervisorRecord.mode === "subagent" || supervisorRecord.mode === "peer")
+            if (isForkAgent) {
+              const forkCtxEffect = spawnRef.current?.getForkContext(lastUser.agentID!)
+              const forkCtx = forkCtxEffect ? yield* forkCtxEffect : undefined
+              if (!forkCtx) {
+                yield* Effect.logWarning("fork agent runLoop: missing forkContext, failing supervisor", {
+                  "session.id": sessionID,
+                  agentID: lastUser.agentID,
+                })
+                yield* supervisorRegistry
+                  .updateStatus(sessionID, lastUser.agentID!, {
+                    status: "idle",
+                    lastOutcome: "failure",
+                    lastError: "missing fork context",
+                  })
+                  .pipe(Effect.ignore)
+                return "break" as const
+              }
+              const ownNew = msgs.filter(
+                (m) => m.info.id > forkCtx.watermarkMsgID && m.info.agentID === lastUser.agentID,
+              )
+              const ownNewModelMsgs = yield* MessageV2.toModelMessagesEffect(ownNew, model)
+              const forkModelMsgs = [...forkCtx.inheritedMessages, ...ownNewModelMsgs]
+              // opencode/src/session/prompt.ts:1746 (opencode MessageV2.format) vs MaxMode.runMaxStep signature
+              const format: { type: string } = lastUser.format ?? { type: "text" as const }
+              const result = yield* (
+                agent.name === MaxMode.MAX_MODE_AGENT && maxModeCfg !== undefined && format.type !== "json_schema"
+                  ? MaxMode.runMaxStep({
+                      handle,
+                      llm,
+                      candidates: maxModeCfg?.candidates ?? MaxMode.DEFAULT_CANDIDATES,
+                      setStatus: (message: string | undefined) =>
+                        message
+                          ? status.set(sessionID, { type: "busy", message })
+                          : status.set(sessionID, { type: "busy" }),
+                      user: lastUser,
+                      agent,
+                      permission: forkCtx.parentPermission.map((p) => ({
+                        permission: p.action,
+                        pattern: p.resource,
+                        action: p.effect,
+                      })),
+                      sessionID,
+                      parentSessionID: session.parentID,
+                      system: forkCtx.system,
+                      messages: [
+                        ...forkModelMsgs,
+                        ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS_PROMPT }] : []),
+                      ],
+                      tools,
+                      model,
+                      toolChoice: normalizeToolChoiceForMeta(
+                        model.providerID,
+                        isLastStep ? ("none" as const) : format.type === "json_schema" ? ("required" as const) : undefined,
+                      ),
+                    }).pipe(
+                      Effect.catchCause((cause) =>
+                        Effect.logError("max mode step failed", { error: Cause.pretty(cause) }).pipe(
+                          Effect.flatMap(() => Effect.failCause(cause)),
+                        ),
+                      ),
+                    )
+                  : handle.process({
+                      user: lastUser,
+                      agent,
+                      permission: forkCtx.parentPermission.map((p) => ({
+                        permission: p.action,
+                        pattern: p.resource,
+                        action: p.effect,
+                      })),
+                      sessionID,
+                      parentSessionID: session.parentID,
+                      system: forkCtx.system,
+                      messages: [
+                        ...forkModelMsgs,
+                        ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS_PROMPT }] : []),
+                      ],
+                      tools,
+                      model,
+                      toolChoice: normalizeToolChoiceForMeta(
+                        model.providerID,
+                        isLastStep ? ("none" as const) : format.type === "json_schema" ? ("required" as const) : undefined,
+                      ),
+                    })
+              )
+
+              if (structured !== undefined) {
+                handle.message.structured = structured
+                handle.message.finish = handle.message.finish ?? "stop"
+                yield* sessions.updateMessage(handle.message)
+                return "break" as const
+              }
+              if ((result as string) === "text-repeat") {
+                yield* Effect.logWarning("max mode: text repetition detected, terminating", { sessionID }).pipe(Effect.ignore)
+                return "break" as const
+              }
+              if (result === "stop") return "break" as const
+              // Provider-signalled compact (fork's name for the "overflow" signal):
+              // prefer checkpoint rebuild over compaction on the main path via the
+              // same shared rebuildEnsuringCheckpoint helper the token-threshold
+              // path and manual /rebuild use — so the compaction fallback stays
+              // ONE condition, not three lookalikes. Ported from v0.1.11
+              // prompt.ts:4160-4223.
+              if (!isBoundedComputation && result === "compact") {
+                // Subagent overflow -> per-supervisor compaction. Insert a boundary
+                // tagged with the subagent's agent_id; the next runLoop iteration
+                // sees trimmed context. Gate must exclude "main" — see comment at
+                // checkpoint.ts:715.
+                if (lastUser.agentID && lastUser.agentID !== "main") {
+                  yield* compaction
+                    .create({
+                      sessionID,
+                      agent: lastUser.agent,
+                      model: { providerID: model.providerID, modelID: model.id },
+                      auto: true,
+                      overflow: true,
+                      agentID: lastUser.agentID,
+                    })
+                    .pipe(Effect.ignore)
+                  skipOverflowCheck = true
+                  return "continue" as const
+                }
+
+                // Main-agent provider-signalled overflow: prefer rebuild over
+                // compaction.
+                const attempt2: RebuildAttempt = yield* rebuildEnsuringCheckpoint({
+                  sessionID,
+                  msgs,
+                  agentID: lastUser.agentID,
+                  agent: lastUser.agent,
+                  model: { providerID: model.providerID, id: model.id },
+                  writerWaitMs: AUTO_WRITER_WAIT_MS,
+                  onWaitingForWriter: status
+                    .set(sessionID, { type: "busy", message: "Writing checkpoint…" })
+                    .pipe(Effect.catch(() => Effect.void)),
+                })
+                if (attempt2 === "rebuilt") {
+                  skipOverflowCheck = true
+                  return "continue" as const
+                }
+
+                // The writer ran and failed — not "no checkpoint" — or memory
+                // writing is off and nothing was attempted.
+                if (attempt2 === "writer-failed" || attempt2 === "memory-write-off") {
+                  // THE single compaction fallback (see the token-threshold site).
+                  yield* compaction
+                    .create({
+                      sessionID,
+                      agent: lastUser.agent,
+                      model: { providerID: model.providerID, modelID: model.id },
+                      auto: true,
+                      overflow: true,
+                      agentID: lastUser.agentID,
+                    })
+                    .pipe(Effect.ignore)
+                  // Same reason-split as the token-threshold site.
+                  if (attempt2 === "memory-write-off")
+                    yield* noticeMemoryWriteOffFallback(sessionID).pipe(Effect.ignore)
+                  skipOverflowCheck = true
+                }
+                // "insert-failed" -> a checkpoint exists; must not compact.
+              }
+              return "continue" as const
+            }
             const [skills, env, instructions, mcpInstructions, modelMsgs] = yield* Effect.all([
               sys.skills(agent),
               sys.environment(model),
               instruction.system().pipe(Effect.orDie),
               sys.mcp(agent, session.permission),
-              MessageV2.toModelMessagesEffect(msgs, model),
+              MessageV2.toModelMessagesEffect(boundedMsgs, model),
             ])
+            // Surface which instruction files (CLAUDE.md, AGENTS.md, ...) were
+            // loaded. Only for primary sessions (subagents would be noisy) and
+            // once per session.
+            if (!session.parentID && !instructionsNotified.has(sessionID)) {
+              instructionsNotified.add(sessionID)
+              const ctx = yield* InstanceState.context
+              const paths = yield* instruction.systemPaths().pipe(Effect.orDie)
+              // Relative to the session directory when the file lives under it
+              // (a non-git directory has worktree "/", which would print the
+              // whole path); otherwise relative to the worktree, then ~.
+              const files = Array.from(paths, (p) => {
+                const rel = path.relative(ctx.directory, p)
+                if (rel && !rel.startsWith("..") && !path.isAbsolute(rel)) return rel
+                return Instruction.display(p, ctx.worktree)
+              })
+              if (files.length > 0) {
+                yield* bus.publish(TuiEvent.InstructionsLoaded, { files }).pipe(Effect.ignore)
+              }
+            }
             const system = [
               ...env,
               ...instructions,
               ...(mcpInstructions ? [mcpInstructions] : []),
               ...(skills ? [skills] : []),
             ]
-            const format = lastUser.format ?? { type: "text" as const }
+            // opencode/src/session/prompt.ts:1911 (opencode MessageV2.format) vs MaxMode.runMaxStep signature
+            const format: { type: string } = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
-            const result = yield* handle.process({
-              user: lastUser,
-              agent,
-              permission: session.permission,
-              sessionID,
-              parentSessionID: session.parentID,
-              system,
-              messages: [
-                ...modelMsgs,
-                ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS_PROMPT }] : []),
-              ],
-              tools,
-              model,
-              toolChoice: format.type === "json_schema" ? "required" : undefined,
-            })
+            // max-mode ensemble (mirrors fork branch)
+            const result = yield* (
+              agent.name === MaxMode.MAX_MODE_AGENT && maxModeCfg !== undefined && format.type !== "json_schema"
+                ? MaxMode.runMaxStep({
+                    handle,
+                    llm,
+                    candidates: maxModeCfg?.candidates ?? MaxMode.DEFAULT_CANDIDATES,
+                    setStatus: (message: string | undefined) =>
+                      message
+                        ? status.set(sessionID, { type: "busy", message })
+                        : status.set(sessionID, { type: "busy" }),
+                    user: lastUser,
+                    agent,
+                    permission: session.permission,
+                    sessionID,
+                    parentSessionID: session.parentID,
+                    system,
+                    messages: [
+                      ...modelMsgs,
+                      ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS_PROMPT }] : []),
+                    ],
+                    tools,
+                    model,
+                    toolChoice: normalizeToolChoiceForMeta(
+                      model.providerID,
+                      isLastStep ? ("none" as const) : format.type === "json_schema" ? ("required" as const) : undefined,
+                    ),
+                  }).pipe(
+                    Effect.catchCause((cause) =>
+                      Effect.logError("max mode step failed", { error: Cause.pretty(cause) }).pipe(
+                        Effect.flatMap(() => Effect.failCause(cause)),
+                      ),
+                    ),
+                  )
+                : handle.process({
+                    user: lastUser,
+                    agent,
+                    permission: session.permission,
+                    sessionID,
+                    parentSessionID: session.parentID,
+                    system,
+                    messages: [
+                      ...modelMsgs,
+                      ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS_PROMPT }] : []),
+                    ],
+                    tools,
+                    model,
+                    toolChoice: normalizeToolChoiceForMeta(
+                      model.providerID,
+                      isLastStep ? ("none" as const) : format.type === "json_schema" ? ("required" as const) : undefined,
+                    ),
+                  })
+            )
 
             if (structured !== undefined) {
               handle.message.structured = structured
@@ -1312,30 +2111,115 @@ const layer = Layer.effect(
                   retries: 0,
                 }).toObject()
                 yield* sessions.updateMessage(handle.message)
+                yield* events.publish(Session.Event.Error, { sessionID, error: handle.message.error })
                 return "break" as const
               }
             }
 
+            if ((result as string) === "text-repeat") {
+              yield* Effect.logWarning("max mode: text repetition detected, terminating", { sessionID }).pipe(Effect.ignore)
+              return "break" as const
+            }
             if (result === "stop") return "break" as const
-            if (result === "compact") {
-              yield* compaction.create({
+            // Provider-signalled compact (fork's name for the "overflow" signal):
+            // prefer checkpoint rebuild over compaction on the main path via the
+            // same shared rebuildEnsuringCheckpoint helper the token-threshold
+            // path and manual /rebuild use — so the compaction fallback stays
+            // ONE condition, not three lookalikes. Ported from v0.1.11
+            // prompt.ts:4160-4223.
+            if (!isBoundedComputation && result === "compact") {
+              // Subagent overflow -> per-supervisor compaction. Insert a boundary
+              // tagged with the subagent's agent_id; the next runLoop iteration
+              // sees trimmed context. Gate must exclude "main" — see comment at
+              // checkpoint.ts:715.
+              if (lastUser.agentID && lastUser.agentID !== "main") {
+                yield* compaction
+                  .create({
+                    sessionID,
+                    agent: lastUser.agent,
+                    model: { providerID: model.providerID, modelID: model.id },
+                    auto: true,
+                    overflow: true,
+                    agentID: lastUser.agentID,
+                  })
+                  .pipe(Effect.ignore)
+                skipOverflowCheck = true
+                return "continue" as const
+              }
+
+              // Main-agent provider-signalled overflow: prefer rebuild over
+              // compaction.
+              const attempt2: RebuildAttempt = yield* rebuildEnsuringCheckpoint({
                 sessionID,
+                msgs,
+                agentID: lastUser.agentID,
                 agent: lastUser.agent,
-                model: lastUser.model,
-                auto: true,
-                overflow: !handle.message.finish,
+                model: { providerID: model.providerID, id: model.id },
+                writerWaitMs: AUTO_WRITER_WAIT_MS,
+                onWaitingForWriter: status
+                  .set(sessionID, { type: "busy", message: "Writing checkpoint…" })
+                  .pipe(Effect.catch(() => Effect.void)),
               })
+              if (attempt2 === "rebuilt") {
+                skipOverflowCheck = true
+                return "continue" as const
+              }
+
+              // The writer ran and failed — not "no checkpoint" — or memory
+              // writing is off and nothing was attempted.
+              if (attempt2 === "writer-failed" || attempt2 === "memory-write-off") {
+                // THE single compaction fallback (see the token-threshold site).
+                yield* compaction
+                  .create({
+                    sessionID,
+                    agent: lastUser.agent,
+                    model: { providerID: model.providerID, modelID: model.id },
+                    auto: true,
+                    overflow: true,
+                    agentID: lastUser.agentID,
+                  })
+                  .pipe(Effect.ignore)
+                // Same reason-split as the token-threshold site.
+                if (attempt2 === "memory-write-off")
+                  yield* noticeMemoryWriteOffFallback(sessionID).pipe(Effect.ignore)
+                skipOverflowCheck = true
+              }
+              // "insert-failed" -> a checkpoint exists; must not compact.
             }
             return "continue" as const
           }).pipe(
             Effect.ensuring(instruction.clear(handle.message.id)),
             Effect.onInterrupt(() => finalizeInterruptedAssistant),
           )
-          if (outcome === "break") break
+          if (outcome === "break") {
+            // Goal stop-condition gate (second site: after outcome break).
+            // See the first call site above for why agentID must be
+            // session.parentID-derived, not the agent persona name.
+            if (lastUser) {
+              // Narrowed casts: same dual-path + format mismatch as first site (see comment above)
+              const shouldReenter = yield* Goal.runGate({
+                sessionID,
+                // opencode/src/session/prompt.ts:2082 (opencode MessageV2) vs core/src/session/goal.ts (core MessageV2)
+                lastUser: lastUser as unknown as Parameters<typeof Goal.runGate>[0]["lastUser"],
+                // opencode/src/session/prompt.ts:2083 (opencode MessageV2[]) vs core/src/session/goal.ts (core MessageV2[])
+                msgs: msgs as unknown as Parameters<typeof Goal.runGate>[0]["msgs"],
+                agentID: session.parentID ? lastUser.agent : undefined,
+              }).pipe(
+                Effect.provideService(Goal.Service, goal),
+                Effect.provideService(Bus.Service, bus),
+                // opencode/src/session/prompt.ts:2088 (opencode Session.Interface) vs core/src/session/goal.ts (CoreSessionInterface)
+                Effect.provideService(CoreSessionService, sessions as unknown as CoreSessionInterface),
+              )
+              if (shouldReenter) continue
+            }
+            yield* Effect.logInfo("rl:exit", { "session.id": sessionID, step, site: "outcome:break" })
+            break
+          }
           continue
         }
 
         yield* compaction.prune({ sessionID }).pipe(Effect.ignore, Effect.forkIn(scope))
+        yield* Effect.logInfo("rl:return", { "session.id": sessionID, step })
         return yield* lastAssistant(sessionID)
       },
     )
@@ -1343,7 +2227,12 @@ const layer = Layer.effect(
     const loop: (input: LoopInput) => Effect.Effect<SessionV1.WithParts> = Effect.fn("SessionPrompt.loop")(function* (
       input: LoopInput,
     ) {
-      return yield* state.ensureRunning(input.sessionID, lastAssistant(input.sessionID), runLoop(input.sessionID))
+      return yield* state.ensureRunning(
+        input.sessionID,
+        input.agentID ?? "main",
+        lastAssistant(input.sessionID),
+        runLoop(input.sessionID, input.agentID, input.task_id),
+      )
     })
 
     const shell: (input: ShellInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError> = Effect.fn(
@@ -1368,6 +2257,22 @@ const layer = Layer.effect(
         throw error
       }
       const agentName = cmd.agent ?? input.agent
+
+      // /goal — set or clear a session-level stop-condition goal.
+      if (input.command === Command.Default.GOAL) {
+        const condition = input.arguments.trim()
+        if (condition === "" || condition === "clear" || condition === "reset") {
+          yield* goal.clear(input.sessionID)
+          return yield* prompt({
+            sessionID: input.sessionID,
+            messageID: input.messageID,
+            agent: agentName,
+            parts: [{ type: "text", text: "Goal cleared.", synthetic: true }],
+            noReply: true,
+          })
+        }
+        yield* goal.set(input.sessionID, condition)
+      }
 
       const raw = input.arguments.match(argsRegex) ?? []
       const args = raw.map((arg) => arg.replace(quoteTrimRegex, ""))
@@ -1480,7 +2385,7 @@ const layer = Layer.effect(
       return result
     })
 
-    return Service.of({
+    const impl = Service.of({
       cancel,
       prompt,
       loop,
@@ -1488,6 +2393,23 @@ const layer = Layer.effect(
       command,
       resolvePromptParts,
     })
+    // opencode/src/session/prompt.ts:2273 (impl function signatures) vs inbox-ref.ts SessionPromptLoopRef
+    const loopEntry: { loop: typeof impl.loop; prompt: typeof impl.prompt } = { loop: impl.loop, prompt: impl.prompt }
+    sessionPromptRef.current = loopEntry as any
+    const loopRef = sessionPromptRef.current!.loop
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        if (sessionPromptRef.current?.loop === loopRef) sessionPromptRef.current = undefined
+      }),
+    )
+    defaultModelRef.current = { defaultModel: () => provider.defaultModel() }
+    const dmRef = defaultModelRef.current
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        if (defaultModelRef.current === dmRef) defaultModelRef.current = undefined
+      }),
+    )
+    return impl
   }),
 )
 
@@ -1501,6 +2423,9 @@ export const PromptInput = Schema.Struct({
   messageID: Schema.optional(MessageID),
   model: Schema.optional(ModelRef),
   agent: Schema.optional(Schema.String),
+  agentID: Schema.optional(Schema.String),
+  // Bound user-task id from the supervisor (spawn.ts:404). Ported from MiMo prompt.ts:4776-4777.
+  task_id: Schema.optional(Schema.String),
   noReply: Schema.optional(Schema.Boolean),
   tools: Schema.optional(Schema.Record(Schema.String, Schema.Boolean)).annotate({
     description:
@@ -1522,6 +2447,9 @@ export type PromptInput = Schema.Schema.Type<typeof PromptInput>
 
 export class LoopInput extends Schema.Class<LoopInput>("SessionPrompt.LoopInput")({
   sessionID: SessionID,
+  agentID: Schema.optional(Schema.String),
+  // Ported from MiMo prompt.ts:4842 (LoopInput.task_id).
+  task_id: Schema.optional(Schema.String),
 }) {}
 
 export const ShellInput = Schema.Struct({
@@ -1595,6 +2523,53 @@ const argsRegex = /(?:\[Image\s+\d+\]|"[^"]*"|'[^']*'|[^\s"']+)/gi
 const placeholderRegex = /\$(\d+)/g
 const quoteTrimRegex = /^["']|["']$/g
 
+const TeamNode = LayerNode.make({
+  service: Team.Service,
+  layer: Team.defaultLayer,
+  deps: [],
+})
+
+const GoalNode = LayerNode.make({
+  service: Goal.Service,
+  layer: Goal.defaultLayer as Layer.Layer<Goal.Service>,
+  deps: [Provider.node],
+})
+
+const BusNode = LayerNode.make({
+  service: Bus.Service,
+  layer: Bus.layer,
+  deps: [],
+})
+
+const SupervisorRegistryNode = LayerNode.make({
+  service: SupervisorRegistryService.Service,
+  layer: SupervisorRegistryService.defaultLayer,
+  deps: [],
+})
+
+const TaskRegistryNode = LayerNode.make({
+  service: TaskRegistry.Service,
+  layer: TaskRegistry.layer as Layer.Layer<TaskRegistry.Service>,
+  deps: [Database.node, BusNode, Config.node],
+})
+
+const MemoryNode = LayerNode.make({
+  service: Memory.Service,
+  layer: Memory.layer as Layer.Layer<Memory.Service>,
+  deps: [Database.node, Config.node, EmbeddingNode, VectorStoreNode],
+})
+
+const SessionCheckpointNode = LayerNode.make({
+  service: SessionCheckpoint.Service,
+  layer: SessionCheckpoint.layer as Layer.Layer<SessionCheckpoint.Service>,
+  deps: [Session.node, BusNode, Config.node, MemoryNode, TaskRegistryNode, SupervisorRegistryNode],
+})
+const SessionPruneNode = LayerNode.make({
+  service: SessionPrune.Service,
+  layer: SessionPrune.layer as Layer.Layer<SessionPrune.Service>,
+  deps: [Session.node, Config.node, SessionCheckpointNode, SupervisorRegistryNode],
+})
+
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
@@ -1625,6 +2600,12 @@ export const node = LayerNode.make({
     EventV2Bridge.node,
     RuntimeFlags.node,
     Database.node,
+    TeamNode,
+    GoalNode,
+    BusNode,
+    SupervisorRegistryNode,
+    SessionCheckpointNode,
+    SessionPruneNode,
   ],
 })
 

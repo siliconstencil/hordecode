@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import { pathToFileURL } from "url"
 import { define } from "../internal"
 import { Npm } from "../../npm"
@@ -13,7 +13,7 @@ export const DynamicProviderPlugin = define({
 
         const installedPath = evt.package.startsWith("file://")
           ? evt.package
-          : (yield* npm.add(evt.package).pipe(Effect.orDie)).entrypoint
+          : Option.getOrNull((yield* npm.add(evt.package).pipe(Effect.orDie)).entrypoint)
         if (!installedPath) throw new Error(`Package ${evt.package} has no import entrypoint`)
 
         const mod = yield* Effect.promise(async () => {

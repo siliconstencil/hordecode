@@ -1,6 +1,6 @@
 import { AISDK } from "@opencode-ai/core/aisdk"
 import { describe, expect } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { PluginV2 } from "@opencode-ai/core/plugin"
 import { PluginHost } from "@opencode-ai/core/plugin/host"
@@ -13,9 +13,10 @@ import { PluginTestLayer } from "./fixture"
 const fixtureProvider = new URL("./fixtures/provider-factory.ts", import.meta.url).href
 const it = testEffect(PluginTestLayer)
 const npm = Npm.Service.of({
-  add: () => Effect.succeed({ directory: "", entrypoint: undefined }),
+  add: () => Effect.succeed({ directory: "", entrypoint: Option.none() }),
   install: () => Effect.void,
-  which: () => Effect.succeed(undefined),
+  which: () => Effect.succeed(Option.none()),
+  outdated: () => Effect.succeed(false),
 })
 
 const addPlugin = Effect.fn(function* () {

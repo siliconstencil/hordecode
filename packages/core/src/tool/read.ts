@@ -83,6 +83,9 @@ const layer = Layer.effectDiscard(
                 offset: input.offset,
                 limit: input.limit,
               })
+              if ("encoding" in content && content.encoding === "base64" && content.mime === "application/pdf") {
+                return content
+              }
               if ("encoding" in content && content.encoding === "base64" && SUPPORTED_IMAGE_MIMES.has(content.mime)) {
                 return yield* image
                   .normalize(resource, { ...content, encoding: "base64" })

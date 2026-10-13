@@ -13,6 +13,7 @@ import { MessageID, PartID, SessionID } from "@/session/schema"
 import { Snapshot } from "@/snapshot"
 import { Schema, Struct } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
+import { RateLimitMiddleware } from "@opencode-ai/server/rate-limit"
 import { Authorization } from "../middleware/authorization"
 import { InstanceContextMiddleware } from "../middleware/instance-context"
 import {
@@ -25,6 +26,7 @@ import { described } from "./metadata"
 import { QueryBoolean } from "./query"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { Info as TaskInfo } from "@opencode-ai/task/schema"
 
 const root = "/session"
 export const ListQuery = Schema.Struct({
@@ -44,6 +46,7 @@ export const MessagesQuery = Schema.Struct({
   ...WorkspaceRoutingQueryFields,
   limit: Schema.optional(Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))),
   before: Schema.optional(Schema.String),
+  agent_id: Schema.optional(Schema.String),
 })
 export const StatusMap = Schema.Record(Schema.String, SessionStatus.Info)
 export const UpdatePayload = Schema.Struct({
@@ -75,12 +78,29 @@ export const PermissionResponsePayload = Schema.Struct({
   response: PermissionV1.Reply,
 })
 
+export const SupervisorInfo = Schema.Struct({
+  supervisor_id: Schema.String,
+  session_id: Schema.String,
+  mode: Schema.Literals(["subagent", "peer", "main"]),
+  status: Schema.Literals(["pending", "running", "completed", "failed", "cancelled", "stuck", "unknown"]),
+  agent: Schema.String,
+  description: Schema.String,
+  parent_supervisor_id: Schema.NullOr(Schema.String),
+  time_created: Schema.Number,
+  time_updated: Schema.Number,
+  turn_count: Schema.Number,
+  last_turn_time: Schema.NullOr(Schema.Number),
+}).annotate({ identifier: "SupervisorInfo" })
+export type SupervisorInfo = typeof SupervisorInfo.Type
+
 export const SessionPaths = {
   list: root,
   status: `${root}/status`,
   get: `${root}/:sessionID`,
   children: `${root}/:sessionID/children`,
   todo: `${root}/:sessionID/todo`,
+  task: `${root}/:sessionID/task`,
+  supervisor: `${root}/:sessionID/supervisor`,
   diff: `${root}/:sessionID/diff`,
   messages: `${root}/:sessionID/message`,
   message: `${root}/:sessionID/message/:messageID`,
@@ -163,6 +183,30 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.todo",
             summary: "Get session todos",
             description: "Retrieve the todo list associated with a specific session, showing tasks and action items.",
+          }),
+        ),
+        HttpApiEndpoint.get("task", SessionPaths.task, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Array(TaskInfo), "Task list"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.task",
+            summary: "List session tasks",
+            description: "List tasks registered for a session (the work-item registry).",
+          }),
+        ),
+        HttpApiEndpoint.get("supervisor", SessionPaths.supervisor, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Array(SupervisorInfo), "Supervisor list"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.supervisor",
+            summary: "List session supervisors",
+            description: "List supervisors/subagents registered for a session, hydrated on TUI cold start.",
           }),
         ),
         HttpApiEndpoint.get("diff", SessionPaths.diff, {
@@ -449,6 +493,7 @@ export const SessionApi = HttpApi.make("session")
           description: "Experimental HttpApi session routes.",
         }),
       )
+      .middleware(RateLimitMiddleware)
       .middleware(InstanceContextMiddleware)
       .middleware(WorkspaceRoutingMiddleware)
       .middleware(Authorization),

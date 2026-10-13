@@ -1,5 +1,8 @@
 import type { Event } from "@opencode-ai/sdk/v2"
+import { Log } from "@opencode-ai/core/util"
 import { useSDK } from "./sdk"
+
+const log = Log.create({ service: "tui.event" })
 
 type EventMetadata = {
   directory: string
@@ -15,7 +18,11 @@ export function useEvent() {
         return
       }
 
-      handler(event.payload, { directory: event.directory, workspace: event.workspace })
+      try {
+        handler(event.payload, { directory: event.directory, workspace: event.workspace })
+      } catch (error) {
+        log.error("event handler failed", { error, type: event.payload.type })
+      }
     })
   }
 
@@ -25,7 +32,11 @@ export function useEvent() {
   ) {
     return subscribe((event: Event, metadata: EventMetadata) => {
       if (event.type !== type) return
-      handler(event as Extract<Event, { type: T }>, metadata)
+      try {
+        handler(event as Extract<Event, { type: T }>, metadata)
+      } catch (error) {
+        log.error("event handler failed", { error, type })
+      }
     })
   }
 

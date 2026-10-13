@@ -1,0 +1,56 @@
+import { BusEvent } from "@opencode-ai/bus/bus-event"
+import z from "zod"
+
+const Str = z.string()
+const StrArr = z.array(z.string())
+
+export const TuiEvent = {
+  PromptAppend: BusEvent.define("tui.prompt.append", z.object({ text: Str })),
+  CommandExecute: BusEvent.define(
+    "tui.command.execute",
+    z.object({
+      command: z.union([
+        z.enum([
+          "session.list",
+          "session.new",
+          "session.share",
+          "session.interrupt",
+          "session.compact",
+          "session.page.up",
+          "session.page.down",
+          "session.line.up",
+          "session.line.down",
+          "session.half.page.up",
+          "session.half.page.down",
+          "session.first",
+          "session.last",
+          "prompt.clear",
+          "prompt.submit",
+          "agent.cycle",
+        ]),
+        Str,
+      ]),
+    }),
+  ),
+  ToastShow: BusEvent.define(
+    "tui.toast.show",
+    z.object({
+      title: Str.optional(),
+      message: Str,
+      variant: z.enum(["info", "success", "warning", "error"]),
+      duration: z.number().default(5000).optional().describe("Duration in milliseconds"),
+    }),
+  ),
+  SessionSelect: BusEvent.define(
+    "tui.session.select",
+    z.object({
+      sessionID: Str.describe("Session ID to navigate to"),
+    }),
+  ),
+  InstructionsLoaded: BusEvent.define(
+    "tui.instructions.loaded",
+    z.object({
+      files: StrArr.describe("Display labels of loaded instruction files: worktree-relative path, ~-path, or absolute"),
+    }),
+  ),
+}

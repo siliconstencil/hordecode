@@ -14,6 +14,7 @@ import { PermissionV2 } from "@opencode-ai/core/permission"
 import { AppProcess } from "@opencode-ai/core/process"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionV2 } from "@opencode-ai/core/session"
+import { BashInteractive } from "@opencode-ai/core/tool/bash-interactive"
 import { BashTool } from "@opencode-ai/core/tool/bash"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
@@ -101,6 +102,7 @@ const withTool = <A, E, R>(
   directory: string,
   body: (registry: ToolRegistry.Interface) => Effect.Effect<A, E, R>,
   processLayer: Layer.Layer<AppProcess.Service> = appProcess,
+  extras: LayerNode.Replacements = [],
 ) => {
   const activeLocation = Layer.succeed(
     Location.Service,
@@ -118,6 +120,7 @@ const withTool = <A, E, R>(
           [AppProcess.node, processLayer],
           [Config.node, config],
           [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
+          ...extras,
         ],
       ),
     ),
@@ -172,7 +175,7 @@ describe("BashTool", () => {
               combineOutput: true,
               maxOutputBytes: BashTool.MAX_CAPTURE_BYTES,
             })
-            expect(assertions).toMatchObject([{ sessionID, action: "bash", resources: ["pwd"], save: ["pwd"] }])
+            expect(assertions).toMatchObject([{ sessionID, action: "bash", resources: ["pwd"], save: ["pwd *"] }])
           }),
         )
       },
@@ -416,14 +419,50 @@ describe("BashTool", () => {
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
     ),
   )
+
+  it.live("defers interactive commands to BashInteractive without running a process", () =>
+    Effect.acquireUseRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => {
+        reset()
+        const interactive = Layer.succeed(
+          BashInteractive.Service,
+          BashInteractive.Service.of({
+            request: () => Effect.succeed({ output: "user input captured", exitCode: 0 }),
+            reply: () => Effect.void,
+            list: () => Effect.succeed([]),
+          }),
+        )
+        return withTool(
+          tmp.path,
+          (registry) => settleTool(registry, call({ command: "ssh user@host", interactive: true })),
+          appProcess,
+          [[BashInteractive.node, interactive]],
+        ).pipe(
+          Effect.andThen((settled) =>
+            Effect.sync(() => {
+              expect(settled.result).toEqual({
+                type: "content",
+                value: [
+                  { type: "text", text: "user input captured" },
+                  { type: "text", text: "Command exited with code 0." },
+                ],
+              })
+              expect(settled.output?.structured).toMatchObject({ exit: 0, truncated: false })
+              expect(runs).toEqual([])
+              expect(assertions.map((input) => input.action)).toEqual(["bash"])
+            }),
+          ),
+        )
+      },
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ),
+  )
 })
 
 test("keeps locked deferred parity TODOs visible", async () => {
   const source = await fs.readFile(new URL("../src/tool/bash.ts", import.meta.url), "utf8")
   for (const todo of [
-    "Port tree-sitter bash / PowerShell parser-based approval reduction.",
-    "Port BashArity reusable command-prefix approvals.",
-    "Replace token-based command-argument external-directory advisories with parser-based detection.",
     "Restore PowerShell and cmd-specific invocation/path handling on Windows.",
     "Add plugin shell.env environment augmentation once V2 plugin hooks exist.",
     "Add durable/live progress metadata streaming for long-running commands once V2 tool invocation progress context is wired.",

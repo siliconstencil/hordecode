@@ -54,7 +54,7 @@
   flex: none;
   font-style: normal;
   font-weight: 530;
-  font-size: 11px;
+  font-size: var(--font-size-xx-small);
   line-height: 1;
   text-align: center;
   letter-spacing: 0.05px;

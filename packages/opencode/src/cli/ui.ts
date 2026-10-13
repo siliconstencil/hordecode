@@ -2,13 +2,6 @@ import { EOL } from "os"
 import { Schema } from "effect"
 import { logo as glyphs } from "./logo"
 
-const wordmark = [
-  `⠀                                ▄     `,
-  `█▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█`,
-  `█  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀`,
-  `▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀  ▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀`,
-]
-
 export class CancelledError extends Schema.TaggedErrorClass<CancelledError>()("UICancelledError", {}) {}
 
 export const Style = {
@@ -26,6 +19,24 @@ export const Style = {
   TEXT_SUCCESS_BOLD: "\x1b[92m\x1b[1m",
   TEXT_INFO: "\x1b[94m",
   TEXT_INFO_BOLD: "\x1b[94m\x1b[1m",
+}
+
+const reset = "\x1b[0m"
+const fg24 = (r: number, g: number, b: number) => `\x1b[38;2;${r};${g};${b}m`
+const bg24 = (r: number, g: number, b: number) => `\x1b[48;2;${r};${g};${b}m`
+
+const hasTrueColor = () => {
+  const ct = process.env.COLORTERM
+  return ct === "truecolor" || ct === "24bit"
+}
+
+const BRAND = {
+  horde: { r: 163, g: 32, b: 32 },
+  code: { r: 245, g: 239, b: 237 },
+  bg: { r: 15, g: 10, b: 10 },
+  shadowDark: { r: 25, g: 12, b: 12 },
+  shadowMid: { r: 45, g: 20, b: 18 },
+  shadowLight: { r: 55, g: 48, b: 47 },
 }
 
 export function println(...message: string[]) {
@@ -47,27 +58,41 @@ export function empty() {
 
 export function logo(pad?: string) {
   if (!process.stdout.isTTY && !process.stderr.isTTY) {
-    const result = []
-    for (const row of wordmark) {
+    const result: string[] = []
+    glyphs.left.forEach((row, index) => {
       if (pad) result.push(pad)
       result.push(row)
+      result.push(" ")
+      result.push(glyphs.right[index] ?? "")
       result.push(EOL)
-    }
+    })
     return result.join("").trimEnd()
   }
 
   const result: string[] = []
-  const reset = "\x1b[0m"
-  const left = {
-    fg: "\x1b[90m",
-    shadow: "\x1b[38;5;235m",
-    bg: "\x1b[48;5;235m",
-  }
-  const right = {
-    fg: reset,
-    shadow: "\x1b[38;5;238m",
-    bg: "\x1b[48;5;238m",
-  }
+  const tc = hasTrueColor()
+  const left = tc
+    ? {
+        fg: fg24(BRAND.horde.r, BRAND.horde.g, BRAND.horde.b),
+        shadow: fg24(BRAND.shadowDark.r, BRAND.shadowDark.g, BRAND.shadowDark.b),
+        bg: bg24(BRAND.shadowDark.r, BRAND.shadowDark.g, BRAND.shadowDark.b),
+      }
+    : {
+        fg: "\x1b[91m",
+        shadow: "\x1b[38;5;52m",
+        bg: "\x1b[48;5;52m",
+      }
+  const right = tc
+    ? {
+        fg: fg24(BRAND.code.r, BRAND.code.g, BRAND.code.b),
+        shadow: fg24(BRAND.shadowLight.r, BRAND.shadowLight.g, BRAND.shadowLight.b),
+        bg: bg24(BRAND.shadowLight.r, BRAND.shadowLight.g, BRAND.shadowLight.b),
+      }
+    : {
+        fg: "\x1b[97m",
+        shadow: "\x1b[38;5;248m",
+        bg: "\x1b[48;5;248m",
+      }
   const gap = " "
   const draw = (line: string, fg: string, shadow: string, bg: string) => {
     const parts: string[] = []

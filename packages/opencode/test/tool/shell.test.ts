@@ -1,7 +1,8 @@
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { describe, expect } from "bun:test"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { Cause, Effect, Exit, Layer } from "effect"
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { Cause, Effect, Exit, Fiber, Layer } from "effect"
 import type * as Scope from "effect/Scope"
 import os from "os"
 import path from "path"
@@ -17,13 +18,15 @@ import { SessionID, MessageID } from "../../src/session/schema"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Plugin } from "../../src/plugin"
-import { testEffect } from "../lib/effect"
+import { pollWithTimeout, testEffect, testEffectShared } from "../lib/effect"
 import { Tool } from "@/tool/tool"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { InstanceStore } from "@/project/instance-store"
+import { BashInteractive } from "@/tool/bash-interactive"
+import { Git } from "@/git"
 
 const shellLayer = Layer.mergeAll(
-  LayerNode.compile(
+  AppNodeBuilder.build(
     LayerNode.group([
       CrossSpawnSpawner.node,
       FSUtil.node,
@@ -32,6 +35,7 @@ const shellLayer = Layer.mergeAll(
       Config.node,
       Agent.node,
       RuntimeFlags.node,
+      Git.node,
     ]),
   ),
   testInstanceStoreLayer,
@@ -169,6 +173,30 @@ const capture = (requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" |
       if (stop) throw stop
     }),
 })
+
+// Scope a body so selected process.env vars are set for its duration and then
+// restored verbatim. `undefined` deletes the var so a floor can be proven to
+// come from the repo rather than a pre-existing value in the environment.
+const withEnv = <A, E, R>(set: Record<string, string | undefined>, self: Effect.Effect<A, E, R>) =>
+  Effect.acquireUseRelease(
+    Effect.sync(() => {
+      const prev: Record<string, string | undefined> = {}
+      for (const [key, value] of Object.entries(set)) {
+        prev[key] = process.env[key]
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+      return prev
+    }),
+    () => self,
+    (prev) =>
+      Effect.sync(() => {
+        for (const [key, value] of Object.entries(prev)) {
+          if (value === undefined) delete process.env[key]
+          else process.env[key] = value
+        }
+      }),
+  )
 
 const mustTruncate = (result: {
   metadata: { truncated?: boolean; exit?: number | null } & Record<string, unknown>
@@ -1195,5 +1223,204 @@ describe("tool.shell truncation", () => {
         expect(lines[lineCount - 1]).toBe(String(lineCount))
       }),
     ),
+  )
+})
+
+describe("tool.shell interactive", () => {
+  const interactiveIt = testEffectShared(Layer.mergeAll(shellLayer, BashInteractive.defaultLayer))
+
+  interactiveIt.live(
+    "routes interactive commands through BashInteractive and returns the reply",
+    () =>
+      Effect.gen(function* () {
+        const tmp = yield* tmpdirScoped()
+        yield* runIn(
+          tmp,
+          Effect.gen(function* () {
+            const svc = yield* BashInteractive.Service
+            const fiber = yield* run(
+              { command: "echo interactive-command", interactive: true, description: "Echo test command" },
+              ctx,
+            ).pipe(Effect.forkScoped)
+
+            const request = yield* pollWithTimeout(
+              Effect.gen(function* () {
+                const pending = yield* svc.list()
+                return pending[0]
+              }),
+              "interactive request never appeared",
+            )
+            expect(request.command).toBe("echo interactive-command")
+            expect(request.description).toBe("Echo test command")
+
+            yield* svc.reply({ id: request.id, output: "interactive output", exitCode: 0 })
+
+            const result = yield* Fiber.join(fiber)
+            expect(result.output).toContain("interactive output")
+            expect(result.metadata.exit).toBe(0)
+            expect(result.metadata.truncated).toBe(false)
+          }),
+        )
+      }),
+    15_000,
+  )
+
+  interactiveIt.live(
+    "non-interactive commands still execute normally when the flag is absent",
+    () =>
+      Effect.gen(function* () {
+        const tmp = yield* tmpdirScoped()
+        yield* runIn(
+          tmp,
+          Effect.gen(function* () {
+            const svc = yield* BashInteractive.Service
+            const result = yield* run({ command: "echo plain" }, ctx)
+            expect(result.metadata.exit).toBe(0)
+            expect(result.output).toContain("plain")
+            expect(yield* svc.list()).toHaveLength(0)
+          }),
+        )
+      }),
+  )
+})
+
+describe("tool.shell credential + git authorship floor", () => {
+  it.live("strips credential env and fills git authorship floor from repo config", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped({ git: true })
+      yield* runIn(
+        tmp,
+        withEnv(
+          {
+            OPENCODE_AUTH_CONTENT: "secret-provider-key",
+            AWS_SECRET_ACCESS_KEY: "aws-secret",
+            GIT_AUTHOR_NAME: undefined,
+            GIT_AUTHOR_EMAIL: undefined,
+            GIT_COMMITTER_NAME: undefined,
+            GIT_COMMITTER_EMAIL: undefined,
+          },
+          Effect.gen(function* () {
+            const requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" | "tool">> = []
+            const result = yield* run({ command: "env" }, capture(requests))
+            const out = result.output
+            // Repo identity (user.name "Test" / user.email "test@opencode.test") propagated
+            expect(out).toContain("GIT_AUTHOR_NAME=Test")
+            expect(out).toContain("GIT_AUTHOR_EMAIL=test@opencode.test")
+            expect(out).toContain("GIT_COMMITTER_NAME=Test")
+            expect(out).toContain("GIT_COMMITTER_EMAIL=test@opencode.test")
+            // Credential-content env scrubbed (auth/config carried in env)
+            expect(out).not.toContain("OPENCODE_AUTH_CONTENT=secret-provider-key")
+            // Scrub scope is exactly the credential-content vars; unrelated
+            // secret-named vars are out of scope for withoutCredentials.
+            expect(out).toContain("AWS_SECRET_ACCESS_KEY=aws-secret")
+          }),
+        ),
+      )
+    }),
+  )
+
+  it.live("does not clobber operator-set git authorship env", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped({ git: true })
+      yield* runIn(
+        tmp,
+        withEnv(
+          {
+            OPENCODE_AUTH_CONTENT: "secret-provider-key",
+            GIT_AUTHOR_NAME: "Operator",
+            GIT_AUTHOR_EMAIL: "operator@example.com",
+          },
+          Effect.gen(function* () {
+            const requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" | "tool">> = []
+            const result = yield* run({ command: "env" }, capture(requests))
+            const out = result.output
+            // Operator-set env still wins over the repo-derived floor
+            expect(out).toContain("GIT_AUTHOR_NAME=Operator")
+            expect(out).toContain("GIT_AUTHOR_EMAIL=operator@example.com")
+            // Repo email would have been set by the floor, but the operator wins
+            expect(out).not.toContain("GIT_AUTHOR_EMAIL=test@opencode.test")
+            // Credentials still scrubbed
+            expect(out).not.toContain("OPENCODE_AUTH_CONTENT=secret-provider-key")
+          }),
+        ),
+      )
+    }),
+  )
+})
+
+describe("tool.shell delete confirmation", () => {
+  it.live("asks bash_delete for a delete inside the project", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      yield* runIn(
+        tmp,
+        Effect.gen(function* () {
+          const err = new Error("stop after permission")
+          const requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" | "tool">> = []
+          const target = path.join(tmp, "subdir")
+          expect(
+            yield* fail(
+              {
+                command: `rm -rf ${target}`,
+              },
+              capture(requests, err),
+            ),
+          ).toMatchObject({ message: err.message })
+          const deleteReq = requests.find((r) => r.permission === "bash_delete")
+          expect(deleteReq).toBeDefined()
+          expect(deleteReq!.patterns).toContain(`rm -rf ${target}`)
+          expect(deleteReq!.always).toEqual([])
+        }),
+      )
+    }),
+  )
+
+  it.live("skips bash_delete ask for a delete confined to a temp root outside the project", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      yield* runIn(
+        tmp,
+        Effect.gen(function* () {
+          const requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" | "tool">> = []
+          const target = path.join(os.tmpdir(), `ppp-s1-throwaway-${Math.random().toString(36).slice(2)}`)
+          yield* run(
+            {
+              command: `rm -rf ${target}`,
+            },
+            capture(requests),
+          )
+          const deleteReq = requests.find((r) => r.permission === "bash_delete")
+          expect(deleteReq).toBeUndefined()
+          const bashReq = requests.find((r) => r.permission === "bash")
+          expect(bashReq).toBeDefined()
+        }),
+      )
+    }),
+  )
+
+  it.live("skips bash_delete ask when autoApproveDelete is true", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      yield* runIn(
+        tmp,
+        Effect.gen(function* () {
+          const requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" | "tool">> = []
+          const target = path.join(tmp, "does-not-exist")
+          yield* run(
+            {
+              command: `rm -rf ${target}`,
+            },
+            {
+              ...capture(requests),
+              autoApproveDelete: () => Effect.succeed(true),
+            },
+          )
+          const deleteReq = requests.find((r) => r.permission === "bash_delete")
+          expect(deleteReq).toBeUndefined()
+          const bashReq = requests.find((r) => r.permission === "bash")
+          expect(bashReq).toBeDefined()
+        }),
+      )
+    }),
   )
 })

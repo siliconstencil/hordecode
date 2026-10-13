@@ -2,15 +2,13 @@ import { createContext, useContext, type ParentProps, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useTheme } from "../context/theme"
 import { useTerminalDimensions } from "@opentui/solid"
-import { SplitBorder } from "./border"
+import { SplitBorder } from "../component/border"
 import { TextAttributes } from "@opentui/core"
-export type ToastOptions = {
-  title?: string
-  message: string
-  variant: "info" | "success" | "warning" | "error"
-  duration: number
-}
-type ToastInput = Omit<ToastOptions, "duration"> & { duration?: number }
+import z from "zod"
+import { type TuiEvent } from "../event"
+import { useLanguage } from "../context/language"
+
+export type ToastOptions = z.infer<typeof TuiEvent.ToastShow.properties>
 
 export function Toast() {
   const toast = useToast()
@@ -22,6 +20,7 @@ export function Toast() {
       {(current) => (
         <box
           position="absolute"
+          zIndex={4000}
           justifyContent="center"
           alignItems="flex-start"
           top={2}
@@ -54,17 +53,18 @@ function init() {
   const [store, setStore] = createStore({
     currentToast: null as ToastOptions | null,
   })
+  const t = useLanguage().t
 
   let timeoutHandle: NodeJS.Timeout | null = null
 
   const toast = {
-    show(options: ToastInput) {
-      const toastOptions = { ...options, duration: options.duration ?? 5000 }
-      setStore("currentToast", toastOptions)
+    show(options: ToastOptions) {
+      const { duration = 5000, ...currentToast } = options
+      setStore("currentToast", currentToast)
       if (timeoutHandle) clearTimeout(timeoutHandle)
       timeoutHandle = setTimeout(() => {
         setStore("currentToast", null)
-      }, toastOptions.duration).unref()
+      }, duration).unref()
     },
     error: (err: any) => {
       if (err instanceof Error)
@@ -74,7 +74,7 @@ function init() {
         })
       toast.show({
         variant: "error",
-        message: "An unknown error has occurred",
+        message: t("tui.toast.unknown_error"),
       })
     },
     get currentToast(): ToastOptions | null {
@@ -99,4 +99,11 @@ export function useToast() {
     throw new Error("useToast must be used within a ToastProvider")
   }
   return value
+}
+
+// For contexts that want to surface a toast when one is available but must not
+// REQUIRE the toast stack (theme + terminal dimensions + border) as a dependency
+// — a data context should not be untestable because of a presentation concern.
+export function useToastOptional() {
+  return useContext(ctx)
 }

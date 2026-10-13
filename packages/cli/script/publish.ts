@@ -4,6 +4,11 @@ import pkg from "../package.json"
 import { Script } from "@opencode-ai/script"
 import { fileURLToPath } from "url"
 
+if (process.env.HORDECODE_RELEASE_CONFIRMED !== "1") {
+  console.error("Blocked: set HORDECODE_RELEASE_CONFIRMED=1 to publish (local-only policy).")
+  process.exit(1)
+}
+
 const dir = fileURLToPath(new URL("..", import.meta.url))
 process.chdir(dir)
 

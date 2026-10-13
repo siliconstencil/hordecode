@@ -132,5 +132,12 @@ const layer = Layer.effect(
 export const node = makeGlobalNode({
   service: Service,
   layer: layer,
-  deps: [FSUtil.node, Git.node, ProjectDirectories.node],
+  // Lazy deps: `project` sits in a module-init cycle (project -> fs-util/git/
+  // directories -> session/location -> project). Evaluating the depended-on
+  // `.node` consts eagerly at module-eval time hits a temporal-dead-zone
+  // (ReferenceError: Cannot access 'node' before initialization), which breaks
+  // `bun test` for any core-importing test. Deferring to a thunk resolves them
+  // on first use, after all modules are initialized. Matches the existing
+  // pattern at project/directories.ts:158.
+  deps: () => [FSUtil.node, Git.node, ProjectDirectories.node],
 })

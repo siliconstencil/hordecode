@@ -165,8 +165,9 @@ export async function warpWorkspaceSession(input: {
 export async function confirmWorkspaceFileChanges(input: {
   dialog: ReturnType<typeof useDialog>
   sdk: ReturnType<typeof useSDK>
-  sourceWorkspaceID?: string
+  sourceWorkspaceID?: string | null
 }) {
+  if (!input.sourceWorkspaceID) return false
   const status = await input.sdk.client.vcs.status({ workspace: input.sourceWorkspaceID }).catch(() => undefined)
   const fileChangeChoice = status?.data?.length
     ? await DialogWorkspaceFileChanges.show(input.dialog, status.data)

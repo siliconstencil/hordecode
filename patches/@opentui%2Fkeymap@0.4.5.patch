@@ -1,0 +1,14 @@
+diff --git a/src/addons/index.js b/src/addons/index.js
+index 2ed0d3d6f807a1027c5fd62bd8335829ec7fea25..c273d24e3428dd3d192a87d856dc38b028419b01 100644
+--- a/src/addons/index.js
++++ b/src/addons/index.js
+@@ -405,6 +405,9 @@ var defaultBindingParser = (ctx) => {
+   };
+ };
+ var defaultEventMatchResolver = (event, ctx) => {
++  if (!event.name) {
++    return;
++  }
+   return [
+     ctx.resolveKey({
+       name: event.name,

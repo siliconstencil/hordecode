@@ -6,3 +6,4 @@
 - Use this tool when you need to find files containing specific patterns
 - If you need to identify/count the number of matches within files, use the Bash tool with `rg` (ripgrep) directly. Do NOT use `grep`.
 - When you are doing an open-ended search that may require multiple rounds of globbing and grepping, use the Task tool instead
+- `include` must be a relative glob (e.g. "*.ts"). Do not embed an absolute directory in `include`; pass external/absolute directories via `path` instead. An absolute path in `include` is rejected with a clear error instead of silently returning no results.

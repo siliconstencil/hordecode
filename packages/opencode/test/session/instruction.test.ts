@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import path from "path"
+import os from "os"
 import { Effect, FileSystem, Layer } from "effect"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 
@@ -246,6 +247,22 @@ describe("Instruction.system", () => {
       )
     }),
   )
+})
+
+describe("Instruction.display", () => {
+  test("returns worktree-relative path when filepath is inside worktree", () => {
+    expect(Instruction.display("/repo/AGENTS.md", "/repo")).toBe("AGENTS.md")
+    expect(Instruction.display("/repo/subdir/AGENTS.md", "/repo")).toBe(path.join("subdir", "AGENTS.md"))
+  })
+
+  test("returns ~-prefixed path when filepath is under home but outside worktree", () => {
+    const home = os.homedir()
+    expect(Instruction.display(path.join(home, "AGENTS.md"), "/repo")).toBe(path.join("~", "AGENTS.md"))
+  })
+
+  test("returns absolute path when neither worktree- nor home-relative", () => {
+    expect(Instruction.display("/etc/AGENTS.md", "/repo")).toBe("/etc/AGENTS.md")
+  })
 })
 
 describe("Instruction.systemPaths global config", () => {

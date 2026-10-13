@@ -20,7 +20,11 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { EventV2 } from "@opencode-ai/core/event"
 
-const disabled = process.env["OPENCODE_DISABLE_SHARE"] === "true" || process.env["OPENCODE_DISABLE_SHARE"] === "1"
+const disabled =
+  process.env["HORDECODE_DISABLE_SHARE"] === "true" ||
+  process.env["HORDECODE_DISABLE_SHARE"] === "1" ||
+  process.env["OPENCODE_DISABLE_SHARE"] === "true" ||
+  process.env["OPENCODE_DISABLE_SHARE"] === "1"
 
 export type Api = {
   create: string
@@ -292,7 +296,9 @@ const layer = Layer.effect(
       yield* sync(sessionID, [
         { type: "session", data: info },
         ...messages.map((item) => ({ type: "message" as const, data: item.info })),
-        ...messages.flatMap((item) => item.parts.map((part) => ({ type: "part" as const, data: part }))),
+        ...messages.flatMap((item) =>
+          item.parts.map((part) => ({ type: "part" as const, data: part as SDK.Part })),
+        ),
         { type: "session_diff", data: diffs },
         { type: "model", data: models },
       ])

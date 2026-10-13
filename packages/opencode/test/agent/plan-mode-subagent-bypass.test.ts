@@ -1,5 +1,5 @@
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
-import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { expect } from "bun:test"
 import { Effect } from "effect"
 import { Agent } from "../../src/agent/agent"
@@ -7,7 +7,7 @@ import { deriveSubagentSessionPermission } from "../../src/agent/subagent-permis
 import { Permission } from "../../src/permission"
 import { testEffect } from "../lib/effect"
 
-const it = testEffect(LayerNode.compile(Agent.node))
+const it = testEffect(AppNodeBuilder.build(Agent.node))
 
 function testAgent(input: {
   name: string
@@ -35,8 +35,12 @@ it.instance("subagent permissions take precedence over parent agent restrictions
     expect(generalAgent).toBeDefined()
     // Sanity: the plan agent itself blocks edit. (Note: `write` and
     // `apply_patch` route through the `edit` permission at the runtime
-    // tool layer — see Permission.disabled / EDIT_TOOLS.)
-    expect(Permission.evaluate("edit", "/some/file.ts", planAgent!.permission).action).toBe("deny")
+    // tool layer — see Permission.disabled / EDIT_TOOLS. The edit block
+    // lives in planAgent.hardPermission, re-appended by runtimePermission
+    // so it cannot be relaxed by user/session config.)
+    expect(
+      Permission.evaluate("edit", "/some/file.ts", Agent.runtimePermission(planAgent!)).action,
+    ).toBe("deny")
 
     const parentSessionPermission: PermissionV1.Ruleset = []
 
@@ -86,7 +90,7 @@ it.instance(
       })
       const effective = Permission.merge(my!.permission, subagentSessionPermission)
 
-      expect(Permission.evaluate("edit", "/some/file.ts", planAgent!.permission).action).toBe("deny")
+      expect(Permission.evaluate("edit", "/some/file.ts", Agent.runtimePermission(planAgent!)).action).toBe("deny")
       expect(Permission.evaluate("edit", "/some/file.ts", effective).action).toBe("allow")
       expect(Permission.disabled(["edit", "write", "apply_patch"], effective)).toEqual(new Set())
     }),

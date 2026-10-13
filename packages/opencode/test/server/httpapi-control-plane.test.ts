@@ -48,6 +48,27 @@ const apiLayer = HttpRouter.serve(
 )
 const it = testEffect(apiLayer)
 
+const errorApiLayer = HttpRouter.serve(
+  HttpApiBuilder.layer(RootHttpApi).pipe(
+    Layer.provide([controlHandlers, controlPlaneHandlers, globalHandlers]),
+    Layer.provide([authorizationLayer, schemaErrorLayer]),
+    HttpRouter.provideRequest(Layer.succeedContext(Context.empty() as Context.Context<unknown>)),
+  ),
+  { disableListenLog: true, disableLogger: true },
+).pipe(
+  Layer.provideMerge(NodeHttpServer.layerTest),
+  Layer.provide(Layer.mock(Auth.Service)({})),
+  Layer.provide(Layer.mock(Config.Service)({})),
+  Layer.provide(Layer.mock(Installation.Service)({})),
+  Layer.provide(
+    Layer.mock(MoveSession.Service)({
+      moveSession: () => Effect.fail(new SessionV2.NotFoundError({ sessionID: SessionV2.ID.make("ses_move") })),
+    }),
+  ),
+  Layer.provide(ServerAuth.Config.configLayer({ password: Option.none(), username: "opencode" })),
+)
+const itError = testEffect(errorApiLayer)
+
 describe("control-plane HttpApi", () => {
   it.live("moves a session through the root control-plane route", () =>
     Effect.gen(function* () {
@@ -58,6 +79,20 @@ describe("control-plane HttpApi", () => {
 
       expect(response.status).toBe(204)
       expect(yield* Ref.get(called)).toEqual(input)
+    }),
+  )
+
+  itError.live("returns 400 + MoveSessionError when the session is missing", () =>
+    Effect.gen(function* () {
+      const response = yield* HttpClientRequest.post("/experimental/control-plane/move-session").pipe(
+        HttpClientRequest.setBody(HttpBody.jsonUnsafe(input)),
+        HttpClient.execute,
+      )
+
+      expect(response.status).toBe(400)
+      const body = (yield* response.json) as { name: string; data: { message: string } }
+      expect(body.name).toBe("MoveSessionError")
+      expect(body.data.message).toContain("ses_move")
     }),
   )
 })

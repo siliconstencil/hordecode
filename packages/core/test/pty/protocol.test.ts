@@ -6,7 +6,7 @@ describe("pty protocol", () => {
     expect(PtyProtocol.decodeInput("ready")).toBe("ready")
     expect(PtyProtocol.decodeInput(new Uint8Array([0xff, 0xfe, 0xfd]))).toBeUndefined()
     expect(PtyProtocol.decodeInput(new TextEncoder().encode("hello"))).toBe("hello")
-    expect(PtyProtocol.decodeInput(new TextEncoder().encode("hello").buffer)).toBe("hello")
+    expect(PtyProtocol.decodeInput(new TextEncoder().encode("hello").buffer as ArrayBuffer)).toBe("hello")
   })
 
   test("encodes the cursor as a 0x00-prefixed JSON control frame", () => {

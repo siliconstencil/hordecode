@@ -190,12 +190,6 @@ describe("Session input schemas", () => {
     expect(decode(input)).toEqual(input)
     expect(() => decode({ sessionID })).toThrow()
   })
-
-  test("MessagesInput accepts optional limit", () => {
-    const decode = decodeUnknown(Session.MessagesInput)
-    expect(decode({ sessionID })).toEqual({ sessionID })
-    expect(decode({ sessionID, limit: 50 })).toEqual({ sessionID, limit: 50 })
-  })
 })
 
 describe("SessionRevert.RevertInput", () => {

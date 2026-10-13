@@ -28,6 +28,7 @@ import type { PlanExitTool } from "@/tool/plan"
 import type { QuestionTool } from "@/tool/question"
 import type { ReadTool } from "@/tool/read"
 import type { SkillTool } from "@/tool/skill"
+import type { SupervisorTool } from "@/tool/supervisor"
 import type { TaskTool } from "@/tool/task"
 import type { TodoWriteTool } from "@/tool/todo"
 import type { WebFetchTool } from "@/tool/webfetch"
@@ -99,6 +100,7 @@ type ToolDefs = {
   apply_patch: typeof ApplyPatchTool
   batch: Tool.Info
   task: typeof TaskTool
+  supervisor: typeof SupervisorTool
   todowrite: typeof TodoWriteTool
   question: typeof QuestionTool
   read: typeof ReadTool
@@ -363,15 +365,76 @@ function runWebSearch(p: ToolProps<typeof WebSearchTool>): ToolInline {
   }
 }
 
-function runTask(p: ToolProps<typeof TaskTool>): ToolInline {
-  const kind = Locale.titlecase(p.input.subagent_type || "unknown")
-  const desc = p.input.description
+function runTask(p: ToolProps<typeof SupervisorTool>): ToolInline {
+  const op = operationOrInput(p.input)
+  const kind = Locale.titlecase((op.subagent_type as string | undefined) || "unknown")
+  const desc = op.description as string | undefined
   const icon = p.frame.status === "error" ? "✗" : p.frame.status === "running" ? "•" : "✓"
   return {
     icon,
     title: desc || `${kind} Task`,
     description: desc ? `${kind} Agent` : undefined,
   }
+}
+
+function taskOp(input: unknown): Record<string, unknown> {
+  const raw = input as Record<string, unknown>
+  const op = raw?.operation
+  if (op && typeof op === "object" && !Array.isArray(op)) return op as Record<string, unknown>
+  return raw ?? {}
+}
+
+// Top-level fields win and nested `operation` fields fill in, the same precedence as the
+// `input.x ?? input.operation?.x` chains this replaced.
+function operationOrInput(input: unknown): Record<string, unknown> {
+  if (typeof input !== "object" || input === null) return {}
+  const raw = input as Record<string, unknown>
+  const op = raw.operation
+  const nested = op && typeof op === "object" && !Array.isArray(op) ? (op as Record<string, unknown>) : {}
+  const merged: Record<string, unknown> = { ...nested }
+  for (const [key, value] of Object.entries(raw)) if (value != null) merged[key] = value
+  return merged
+}
+
+function taskVerbLabel(action: string): string {
+  const map: Record<string, string> = {
+    create: "Create",
+    list: "List",
+    get: "Get",
+    start: "Start",
+    block: "Block",
+    unblock: "Unblock",
+    done: "Complete",
+    abandon: "Abandon",
+    rename: "Rename",
+  }
+  return map[action] ?? Locale.titlecase(action)
+}
+
+function taskHeader(op: Record<string, unknown>): string {
+  const action = typeof op.action === "string" ? op.action : ""
+  const label = action ? taskVerbLabel(action) : "Task"
+  const summary = typeof op.summary === "string" ? op.summary.trim() : ""
+  const id = typeof op.id === "string" ? op.id.trim() : ""
+  const status = typeof op.status === "string" ? op.status.trim() : ""
+  if (action === "create" && summary) return `Create Task — ${summary}`
+  if (action === "list") return status ? `List Tasks (${status})` : "List Tasks"
+  if (action === "rename") {
+    if (summary && id) return `Rename Task ${id} — ${summary}`
+    if (summary) return `Rename Task — ${summary}`
+    if (id) return `Rename Task — ${id}`
+    return "Rename Task"
+  }
+  if (summary) return `${label} Task — ${summary}`
+  if (id) return `${label} Task — ${id}`
+  return `${label} Task`
+}
+
+function runTaskRegistry(p: ToolProps<typeof TaskTool>): ToolInline {
+  const op = taskOp(p.input)
+  const header = taskHeader(op)
+  const icon = p.frame.status === "error" ? "✗" : p.frame.status === "running" ? "•" : "✓"
+  return { icon, title: header }
 }
 
 function runTodo(p: ToolProps<typeof TodoWriteTool>): ToolInline {
@@ -569,13 +632,25 @@ function snapPatch(p: ToolProps<typeof ApplyPatchTool>): ToolSnapshot | undefine
 }
 
 function snapTask(p: ToolProps<typeof TaskTool>): ToolSnapshot {
-  const kind = Locale.titlecase(p.input.subagent_type || "general")
-  const desc = p.input.description
+  const op = taskOp(p.input)
+  const kind = Locale.titlecase((op.subagent_type as string | undefined) || "")
+  const header = kind ? `${kind} Task` : taskHeader(op)
+  const titleOut = text(p.frame.state.title)
+  const output = text(p.frame.state.output)
+  const detail = output || titleOut
+  const rows = detail ? [detail] : []
+  return { kind: "task", title: `# ${header}`, rows, tail: "" }
+}
+
+function snapSupervisor(p: ToolProps<typeof SupervisorTool>): ToolSnapshot {
+  const op = operationOrInput(p.input)
+  const kind = Locale.titlecase((op.subagent_type as string | undefined) || "general")
+  const desc = op.description as string | undefined
   const title = text(p.frame.state.title)
   const rows = [desc || title].filter((item): item is string => Boolean(item))
 
   return {
-    kind: "task",
+    kind: "supervisor",
     title: `# ${kind} Task`,
     rows,
     tail: "",
@@ -756,6 +831,10 @@ function scrollTaskStart(_: ToolProps<typeof TaskTool>): string {
   return ""
 }
 
+function scrollSupervisorStart(_: ToolProps<typeof SupervisorTool>): string {
+  return ""
+}
+
 function taskResult(output: string): string | undefined {
   if (!output.trim()) {
     return undefined
@@ -775,12 +854,23 @@ function taskResult(output: string): string | undefined {
 }
 
 function scrollTaskFinal(p: ToolProps<typeof TaskTool>): string {
+  if (p.frame.status === "error") return fail(p.frame)
+  const op = taskOp(p.input)
+  const kind = Locale.titlecase((op.subagent_type as string | undefined) || "")
+  const header = kind ? `${kind} Task` : taskHeader(op)
+  const out = text(p.frame.state.output) || text(p.frame.state.title)
+  if (!out) return `# ${header}`
+  return `# ${header}\n${out}`
+}
+
+function scrollSupervisorFinal(p: ToolProps<typeof SupervisorTool>): string {
   if (p.frame.status === "error") {
     return fail(p.frame)
   }
 
-  const kind = Locale.titlecase(p.input.subagent_type || "general")
-  const row = p.input.description || text(p.frame.state.title)
+  const op = operationOrInput(p.input)
+  const kind = Locale.titlecase((op.subagent_type as string | undefined) || "general")
+  const row = (op.description as string | undefined) || text(p.frame.state.title)
   if (!row) {
     return `# ${kind} Task`
   }
@@ -975,8 +1065,21 @@ function permBash(p: ToolPermissionProps<typeof BashTool>): ToolPermissionInfo {
 }
 
 function permTask(p: ToolPermissionProps<typeof TaskTool>): ToolPermissionInfo {
-  const type = p.input.subagent_type || "general"
-  const desc = p.input.description
+  const op = taskOp(p.input)
+  const header = taskHeader(op)
+  const eventSummary = typeof op.event_summary === "string" ? op.event_summary.trim() : ""
+  const parentId = typeof op.parent_id === "string" ? op.parent_id.trim() : ""
+  const lines: string[] = []
+  if (eventSummary) lines.push(`◉ ${eventSummary}`)
+  else if (typeof op.summary === "string") lines.push(`◉ ${op.summary}`)
+  if (parentId) lines.push(`Parent: ${parentId}`)
+  return { icon: "#", title: header, lines }
+}
+
+function permSupervisor(p: ToolPermissionProps<typeof SupervisorTool>): ToolPermissionInfo {
+  const op = operationOrInput(p.input)
+  const type = (op.subagent_type as string | undefined) || "general"
+  const desc = op.description as string | undefined
   return {
     icon: "#",
     title: `${Locale.titlecase(type)} Task`,
@@ -1097,13 +1200,27 @@ const TOOL_RULES = {
       final: true,
       snap: "structured",
     },
-    run: runTask,
+    run: runTaskRegistry,
     snap: snapTask,
     scroll: {
       start: scrollTaskStart,
       final: scrollTaskFinal,
     },
     permission: permTask,
+  },
+  supervisor: {
+    view: {
+      output: false,
+      final: true,
+      snap: "structured",
+    },
+    run: runTask,
+    snap: snapSupervisor,
+    scroll: {
+      start: scrollSupervisorStart,
+      final: scrollSupervisorFinal,
+    },
+    permission: permSupervisor,
   },
   todowrite: {
     view: {
@@ -1432,19 +1549,6 @@ export function toolEntryBody(commit: StreamCommit, raw: string): RunEntryBody |
 
   const ctx = toolFrame(commit, raw)
   const view = toolView(ctx.name)
-
-  if (ctx.name === "task") {
-    if (commit.phase === "start") {
-      return undefined
-    }
-
-    if (commit.phase === "final" && ctx.status === "completed") {
-      const result = taskResult(text(ctx.state.output))
-      if (result) {
-        return markdownBody(result)
-      }
-    }
-  }
 
   if (commit.phase === "progress" && !view.output) {
     return undefined

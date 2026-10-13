@@ -209,6 +209,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
           prompt: PromptInput.Prompt,
           delivery: SessionInput.Delivery.pipe(Schema.optional),
           resume: Schema.Boolean.pipe(Schema.optional),
+          steps: PositiveInt.pipe(Schema.optional),
         }),
         success: Schema.Struct({ data: SessionInput.Admitted }),
         error: [ConflictError, SessionNotFoundError],

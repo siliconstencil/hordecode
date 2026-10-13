@@ -24,6 +24,27 @@ exports[`tool parameters JSON Schema (wire shape) bash 1`] = `
       "description": "The command to execute",
       "type": "string",
     },
+    "description": {
+      "description": 
+"Clear, concise description of what this command does in 5-10 words. Examples:
+Input: ls
+Output: Lists files in current directory
+
+Input: git status
+Output: Shows working tree status
+
+Input: npm install
+Output: Installs package dependencies
+
+Input: mkdir foo
+Output: Creates directory 'foo'"
+,
+      "type": "string",
+    },
+    "interactive": {
+      "description": "Set to true when the command requires user interaction (password input, y/N confirmation, SSH key passphrase, etc). The terminal will be handed to the user for direct interaction.",
+      "type": "boolean",
+    },
     "timeout": {
       "description": "Optional timeout in milliseconds",
       "exclusiveMinimum": 0,
@@ -78,11 +99,11 @@ exports[`tool parameters JSON Schema (wire shape) glob 1`] = `
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "path": {
-      "description": "The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. DO NOT enter "undefined" or "null" - simply omit it for the default behavior. Must be a valid directory path if provided.",
+      "description": "The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. DO NOT enter "undefined" or "null" - simply omit it for the default behavior. Must be a valid directory path if provided. External or absolute directories MUST be passed via this field, not embedded in \`pattern\`.",
       "type": "string",
     },
     "pattern": {
-      "description": "The glob pattern to match files against",
+      "description": "The glob pattern to match files against (relative glob, e.g. "**/*.ts"). Do not embed an absolute directory in the pattern — pass external/absolute directories via the \`path\` parameter instead; an absolute path in \`pattern\` will be rejected with a clear error.",
       "type": "string",
     },
   },
@@ -98,11 +119,11 @@ exports[`tool parameters JSON Schema (wire shape) grep 1`] = `
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "include": {
-      "description": "File pattern to include in the search (e.g. "*.js", "*.{ts,tsx}")",
+      "description": "File pattern to include in the search (e.g. "*.js", "*.{ts,tsx}") — relative glob only. Do not embed an absolute directory in \`include\`; pass external/absolute directories via \`path\` instead. An absolute path in \`include\` will be rejected with a clear error.",
       "type": "string",
     },
     "path": {
-      "description": "The directory to search in. Defaults to the current working directory.",
+      "description": "The directory to search in. Defaults to the current working directory. External or absolute directories MUST be passed via this field, not embedded in \`include\`.",
       "type": "string",
     },
     "pattern": {
@@ -301,35 +322,390 @@ exports[`tool parameters JSON Schema (wire shape) task 1`] = `
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "background": {
-      "description": "Run the agent in the background. You will be notified when it completes. DO NOT sleep, poll, or proactively check on its progress",
-      "type": "boolean",
-    },
-    "command": {
-      "description": "The command that triggered this task",
-      "type": "string",
-    },
-    "description": {
-      "description": "A short (3-5 words) description of the task",
-      "type": "string",
-    },
-    "prompt": {
-      "description": "The task for the agent to perform",
-      "type": "string",
-    },
-    "subagent_type": {
-      "description": "The type of specialized agent to use for this task",
-      "type": "string",
-    },
-    "task_id": {
-      "description": "This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one)",
-      "type": "string",
+    "operation": {
+      "anyOf": [
+        {
+          "properties": {
+            "action": {
+              "enum": [
+                "create",
+              ],
+              "type": "string",
+            },
+            "parent_id": {
+              "anyOf": [
+                {
+                  "minLength": 1,
+                  "type": "string",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+              "description": "Parent task id for sub-tasks.",
+            },
+            "session_id": {
+              "anyOf": [
+                {
+                  "minLength": 1,
+                  "type": "string",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+              "description": "Session id to act on. Defaults to current session.",
+            },
+            "summary": {
+              "description": "Task summary for a single task.",
+              "minLength": 1,
+              "type": "string",
+            },
+          },
+          "required": [
+            "action",
+            "summary",
+          ],
+          "type": "object",
+        },
+        {
+          "properties": {
+            "action": {
+              "enum": [
+                "list",
+              ],
+              "type": "string",
+            },
+            "include_archived": {
+              "anyOf": [
+                {
+                  "type": "boolean",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+              "description": "Include archived tasks. Default false.",
+            },
+            "include_terminal": {
+              "anyOf": [
+                {
+                  "type": "boolean",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+              "description": "Include done/abandoned tasks. Default false.",
+            },
+            "session_id": {
+              "anyOf": [
+                {
+                  "minLength": 1,
+                  "type": "string",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+              "description": "Session id to act on. Defaults to current session.",
+            },
+            "status": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "open",
+                    "in_progress",
+                    "blocked",
+                    "done",
+                    "abandoned",
+                  ],
+                  "type": "string",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+              "description": "Filter by status.",
+            },
+          },
+          "required": [
+            "action",
+          ],
+          "type": "object",
+        },
+        {
+          "properties": {
+            "action": {
+              "enum": [
+                "get",
+              ],
+              "type": "string",
+            },
+            "id": {
+              "description": "Task id, e.g. T1 or T1.1.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "session_id": {
+              "anyOf": [
+                {
+                  "minLength": 1,
+                  "type": "string",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+              "description": "Session id to act on. Defaults to current session.",
+            },
+          },
+          "required": [
+            "action",
+            "id",
+          ],
+          "type": "object",
+        },
+        {
+          "properties": {
+            "action": {
+              "enum": [
+                "start",
+              ],
+              "type": "string",
+            },
+            "event_summary": {
+              "anyOf": [
+                {
+                  "minLength": 1,
+                  "type": "string",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+              "description": "Short note on starting.",
+            },
+            "id": {
+              "description": "Task id, e.g. T1 or T1.1.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "session_id": {
+              "anyOf": [
+                {
+                  "minLength": 1,
+                  "type": "string",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+              "description": "Session id to act on. Defaults to current session.",
+            },
+          },
+          "required": [
+            "action",
+            "id",
+          ],
+          "type": "object",
+        },
+        {
+          "properties": {
+            "action": {
+              "enum": [
+                "block",
+              ],
+              "type": "string",
+            },
+            "event_summary": {
+              "description": "Short reason for blocking.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "id": {
+              "description": "Task id, e.g. T1 or T1.1.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "session_id": {
+              "anyOf": [
+                {
+                  "minLength": 1,
+                  "type": "string",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+              "description": "Session id to act on. Defaults to current session.",
+            },
+          },
+          "required": [
+            "action",
+            "id",
+            "event_summary",
+          ],
+          "type": "object",
+        },
+        {
+          "properties": {
+            "action": {
+              "enum": [
+                "unblock",
+              ],
+              "type": "string",
+            },
+            "event_summary": {
+              "description": "Short reason for unblocking.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "id": {
+              "description": "Task id, e.g. T1 or T1.1.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "session_id": {
+              "anyOf": [
+                {
+                  "minLength": 1,
+                  "type": "string",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+              "description": "Session id to act on. Defaults to current session.",
+            },
+          },
+          "required": [
+            "action",
+            "id",
+            "event_summary",
+          ],
+          "type": "object",
+        },
+        {
+          "properties": {
+            "action": {
+              "enum": [
+                "done",
+              ],
+              "type": "string",
+            },
+            "event_summary": {
+              "description": "Short summary of what was completed.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "id": {
+              "description": "Task id, e.g. T1 or T1.1.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "session_id": {
+              "anyOf": [
+                {
+                  "minLength": 1,
+                  "type": "string",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+              "description": "Session id to act on. Defaults to current session.",
+            },
+          },
+          "required": [
+            "action",
+            "id",
+            "event_summary",
+          ],
+          "type": "object",
+        },
+        {
+          "properties": {
+            "action": {
+              "enum": [
+                "abandon",
+              ],
+              "type": "string",
+            },
+            "event_summary": {
+              "description": "Short reason for abandoning.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "id": {
+              "description": "Task id, e.g. T1 or T1.1.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "session_id": {
+              "anyOf": [
+                {
+                  "minLength": 1,
+                  "type": "string",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+              "description": "Session id to act on. Defaults to current session.",
+            },
+          },
+          "required": [
+            "action",
+            "id",
+            "event_summary",
+          ],
+          "type": "object",
+        },
+        {
+          "properties": {
+            "action": {
+              "enum": [
+                "rename",
+              ],
+              "type": "string",
+            },
+            "id": {
+              "description": "Task id, e.g. T1 or T1.1.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "session_id": {
+              "anyOf": [
+                {
+                  "minLength": 1,
+                  "type": "string",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+              "description": "Session id to act on. Defaults to current session.",
+            },
+            "summary": {
+              "description": "New task summary.",
+              "minLength": 1,
+              "type": "string",
+            },
+          },
+          "required": [
+            "action",
+            "id",
+            "summary",
+          ],
+          "type": "object",
+        },
+      ],
+      "type": "object",
     },
   },
   "required": [
-    "description",
-    "prompt",
-    "subagent_type",
+    "operation",
   ],
   "type": "object",
 }

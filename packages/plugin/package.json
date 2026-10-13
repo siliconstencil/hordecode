@@ -1,11 +1,12 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@opencode-ai/plugin",
-  "version": "1.17.18",
+  "version": "0.1.0",
+  "hordecodeBase": "1.18.34",
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "typecheck": "tsgo --noEmit",
+    "typecheck": "tsc --noEmit",
     "build": "tsc"
   },
   "exports": {
@@ -15,21 +16,26 @@
     "./v2/effect": "./src/v2/effect/index.ts",
     "./v2/effect/integration": "./src/v2/effect/integration.ts",
     "./v2/effect/plugin": "./src/v2/effect/plugin.ts",
-    "./v2/promise": "./src/v2/promise/index.ts"
+    "./v2/promise": "./src/v2/promise/index.ts",
+    "./shared": "./src/shared.ts",
+    "./matcher": "./src/matcher.ts"
   },
   "files": [
     "dist"
   ],
   "dependencies": {
     "@ai-sdk/provider": "3.0.8",
+    "@opencode-ai/core": "workspace:*",
     "@opencode-ai/sdk": "workspace:*",
     "effect": "catalog:",
+    "npm-package-arg": "13.0.2",
+    "semver": "catalog:",
     "zod": "catalog:"
   },
   "peerDependencies": {
-    "@opentui/core": ">=0.4.3",
-    "@opentui/keymap": ">=0.4.3",
-    "@opentui/solid": ">=0.4.3"
+    "@opentui/core": ">=0.4.5",
+    "@opentui/keymap": ">=0.4.5",
+    "@opentui/solid": ">=0.4.5"
   },
   "peerDependenciesMeta": {
     "@opentui/core": {
@@ -47,8 +53,11 @@
     "@opentui/keymap": "catalog:",
     "@opentui/solid": "catalog:",
     "@tsconfig/node22": "catalog:",
+    "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "typescript": "catalog:",
-    "@typescript/native-preview": "catalog:"
+    "@typescript/native-preview": "catalog:",
+    "@types/npm-package-arg": "6.1.4",
+    "@types/semver": "catalog:"
   }
 }

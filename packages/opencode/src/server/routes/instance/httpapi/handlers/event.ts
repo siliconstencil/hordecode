@@ -2,6 +2,7 @@ import { EventV2Bridge } from "@/event-v2-bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { GlobalBus } from "@/bus/global"
 import { EventV2 } from "@opencode-ai/core/event"
+import { Bus } from "@opencode-ai/bus"
 import { Effect, Queue } from "effect"
 import * as Stream from "effect/Stream"
 import { HttpServerResponse } from "effect/unstable/http"
@@ -22,7 +23,7 @@ function eventID() {
   return EventV2.ID.create()
 }
 
-function eventResponse(events: EventV2.Interface) {
+function eventResponse(events: EventV2.Interface, bus: Bus.Interface) {
   return Effect.gen(function* () {
     const instance = yield* InstanceState.context
     const workspaceID = yield* InstanceState.workspaceID
@@ -31,6 +32,21 @@ function eventResponse(events: EventV2.Interface) {
     const queue = yield* Queue.unbounded<EventV2.Payload>()
     const unsubscribe = yield* events.listen((event) => Effect.sync(() => Queue.offerUnsafe(queue, event)))
     yield* Effect.addFinalizer(() => unsubscribe)
+    // TuiEvent (PromptAppend, ToastShow, CommandExecute, SessionSelect,
+    // InstructionsLoaded, ...) publishes through @opencode-ai/bus, a separate
+    // pub/sub from EventV2 above -- the original single event.ts route subscribes to
+    // its one unified Bus directly (Bus.subscribeAll in
+    // server/routes/instance/event.ts:89); fork split session/durable events
+    // into EventV2 but never bridged the older Bus into this SSE stream, so
+    // every TuiEvent silently never reached an SSE-connected TUI client.
+    // subscribeAllCallback (not subscribeAll) resolves the instance-scoped Bus
+    // state in this handler's context and forks a scoped consumer, so the
+    // response-stream fiber never re-resolves InstanceRef itself.
+    const busQueue = yield* Queue.unbounded<{ id: string; type: string; properties: unknown }>()
+    const busUnsubscribe = yield* bus.subscribeAllCallback((event) => {
+      Queue.offerUnsafe(busQueue, { id: eventID(), type: event.type, properties: event.properties })
+    })
+    yield* Effect.addFinalizer(() => Effect.sync(busUnsubscribe))
     const stream = Stream.fromQueue(queue).pipe(
       Stream.filter(
         (event) =>
@@ -39,6 +55,7 @@ function eventResponse(events: EventV2.Interface) {
       ),
       Stream.map((event) => ({ id: event.id, type: event.type, properties: event.data })),
     )
+    const busEvents = Stream.fromQueue(busQueue)
     const disposed = Stream.callback<{ id: string; type: string; properties: unknown }>((queue) => {
       const listener = (event: {
         directory?: string
@@ -58,6 +75,7 @@ function eventResponse(events: EventV2.Interface) {
     })
     const output = stream.pipe(
       Stream.merge(disposed, { haltStrategy: "left" }),
+      Stream.merge(busEvents, { haltStrategy: "left" }),
       Stream.takeUntil((event) => event.type === "server.instance.disposed"),
     )
     const heartbeat = Stream.tick("10 seconds").pipe(
@@ -89,10 +107,11 @@ function eventResponse(events: EventV2.Interface) {
 export const eventHandlers = HttpApiBuilder.group(EventApi, "event", (handlers) =>
   Effect.gen(function* () {
     const events = yield* EventV2Bridge.Service
+    const bus = yield* Bus.Service
     return handlers.handleRaw(
       "subscribe",
       Effect.fn("EventHttpApi.subscribe")(function* () {
-        return yield* eventResponse(events)
+        return yield* eventResponse(events, bus)
       }),
     )
   }),

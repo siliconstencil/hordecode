@@ -24,7 +24,7 @@ export interface Node<A, E = never, T extends Tag | undefined = undefined> {
   readonly name: string
   readonly service?: Context.Service.Any
   readonly implementation?: Layer.Any
-  readonly dependencies: readonly AnyNode[]
+  readonly dependencies: readonly AnyNode[] | (() => readonly AnyNode[])
   readonly tag?: T
   readonly [$OutputType]?: () => A
   readonly [$ErrorType]?: () => E
@@ -74,7 +74,7 @@ type MakeInput<
   T extends Tag | undefined = undefined,
 > = NodeIdentity & {
   readonly layer: Implementation
-  readonly deps: Items & CheckDependencies<Implementation, NoInfer<Items>>
+  readonly deps: (Items & CheckDependencies<Implementation, NoInfer<Items>>) | (() => Items)
   readonly tag?: T
 }
 
@@ -159,6 +159,10 @@ function isNode(input: Layer.Any | AnyNode): input is AnyNode {
   return "kind" in input && "dependencies" in input
 }
 
+function resolveDeps(node: AnyNode) {
+  return typeof node.dependencies === "function" ? node.dependencies() : node.dependencies
+}
+
 // Tree -----------------------------------------------------------------------
 
 type Visit<Result> = (node: AnyNode, context: VisitContext<Result>) => Result
@@ -223,7 +227,7 @@ export function hoist<A, E, T extends Tag, const Items extends Replacements = re
     root,
     (node, context) => {
       if (node.kind === "group") {
-        return { ...node, dependencies: node.dependencies.map(context.visit) }
+        return { ...node, dependencies: resolveDeps(node).map(context.visit) }
       }
       if (node.tag === tag) {
         const existing = hoisted.get(node.name)
@@ -236,7 +240,7 @@ export function hoist<A, E, T extends Tag, const Items extends Replacements = re
       if (node.kind === "unbound") {
         return node
       }
-      return { ...node, dependencies: node.dependencies.map(context.visit) }
+      return { ...node, dependencies: resolveDeps(node).map(context.visit) }
     },
     { resolve: (node) => replacementMap.get(node.name) ?? node },
   )
@@ -258,7 +262,7 @@ export function compile<A, E, const Items extends Replacements = readonly []>(
       node,
       (node, context) => {
         if (node.kind === "unbound") throw new Error(`Unbound layer node: ${node.name}`)
-        const dependencies = node.dependencies.flatMap(flatten).map(context.visit)
+        const dependencies = resolveDeps(node).flatMap(flatten).map(context.visit)
         const implementation = node.implementation! as RuntimeLayer
         return dependencies.length === 0
           ? implementation
@@ -303,8 +307,9 @@ function rewriteReplacementDependencies(root: AnyNode, replacements: ReadonlyMap
     visiting.add(target)
     stack.push(target)
     try {
-      const dependencies = target.dependencies.map((dependency) => recur(dependency))
-      const result = dependencies.every((dependency, index) => dependency === target.dependencies[index])
+      const targetDeps = resolveDeps(target)
+      const dependencies = targetDeps.map((dependency) => recur(dependency))
+      const result = dependencies.every((dependency, index) => dependency === targetDeps[index])
         ? target
         : { ...target, dependencies }
       cache.set(target, result)
@@ -322,12 +327,12 @@ export function hasUnbound(root: Node<unknown, unknown, any>, source: AnyNode): 
   if (source.kind !== "unbound") throw new Error(`Cannot check non-unbound layer node: ${source.name}`)
   return walk<boolean>(root, (node, context) => {
     if (node === source) return true
-    return node.dependencies.some(context.visit)
+    return resolveDeps(node).some(context.visit)
   })
 }
 
 function flatten(node: AnyNode): readonly AnyNode[] {
-  return node.kind === "group" ? node.dependencies.flatMap(flatten) : [node]
+  return node.kind === "group" ? resolveDeps(node).flatMap(flatten) : [node]
 }
 
 export * as LayerNode from "./layer-node"

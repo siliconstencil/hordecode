@@ -2,6 +2,7 @@ import { afterEach, describe, expect } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect"
 import { EditTool } from "../../src/tool/edit"
 import { disposeAllInstances, TestInstance } from "../fixture/fixture"
@@ -11,7 +12,7 @@ import { Format } from "../../src/format"
 import { Agent } from "../../src/agent/agent"
 import { EventV2Bridge } from "../../src/event-v2-bridge"
 import { Truncate } from "@/tool/truncate"
-import { SessionID, MessageID } from "../../src/session/schema"
+import { SessionID, MessageID, PartID } from "../../src/session/schema"
 import * as Tool from "../../src/tool/tool"
 import { testEffect } from "../lib/effect"
 import { Watcher } from "@opencode-ai/core/filesystem/watcher"
@@ -27,11 +28,41 @@ const ctx = {
   ask: () => Effect.void,
 }
 
+function withReadFor(filePath: string, base: Tool.Context = ctx): Tool.Context {
+  const messageID = MessageID.make("msg_read")
+  return {
+    ...base,
+    messages: [
+      {
+        info: { id: messageID, sessionID: base.sessionID, role: "assistant" },
+        parts: [
+          {
+            id: PartID.make("prt_read"),
+            messageID,
+            sessionID: base.sessionID,
+            type: "tool",
+            tool: "read",
+            callID: "call_read",
+            state: {
+              status: "completed",
+              input: { filePath },
+              output: "",
+              title: `Read ${filePath}`,
+              metadata: {},
+              time: { start: 0, end: 0 },
+            },
+          },
+        ],
+      },
+    ] as unknown as Tool.Context["messages"],
+  }
+}
+
 afterEach(async () => {
   await disposeAllInstances()
 })
 
-const layer = LayerNode.compile(
+const layer = AppNodeBuilder.build(
   LayerNode.group([LSP.node, FSUtil.node, Format.node, EventV2Bridge.node, Truncate.node, Agent.node]),
 )
 
@@ -47,7 +78,10 @@ const run = Effect.fn("EditToolTest.run")(function* (
   next: Tool.Context = ctx,
 ) {
   const tool = yield* init()
-  return yield* tool.execute(args, next)
+  // Editing existing files requires a prior Read; creating new files (oldString === "")
+  // is exempt. Simulate the Read so the read-gate passes for real edits.
+  const context = args.oldString === "" ? next : withReadFor(args.filePath, next)
+  return yield* tool.execute(args, context)
 })
 
 const fail = Effect.fn("EditToolTest.fail")(function* (args: Tool.InferParameters<typeof EditTool>) {

@@ -1,0 +1,30 @@
+Performs multiple exact string replacements in a single file in one operation.
+
+Use this when you need to make several find-and-replace edits to the same file efficiently.
+
+Before using this tool:
+1. Use the `read` tool to understand the file's contents and context
+2. Verify the directory path is correct
+
+To make multiple file edits, provide:
+1. filePath: The absolute path to the file to modify (must be absolute, not relative)
+2. edits: An array of edit operations to perform sequentially, where each edit contains:
+   - oldString: The exact text to replace (must match file contents exactly)
+   - newString: The replacement text (must differ from oldString)
+   - replaceAll: Optional boolean (default false). Replace all occurrences of oldString.
+
+IMPORTANT:
+- All edits are applied in sequence, in the order they are provided
+- Each edit operates on the result of the previous edit
+- All edits must be valid for the operation to succeed -- if any edit fails, the tool fails
+- This tool is ideal when you need several changes to different parts of the same file
+
+CRITICAL:
+- All edits follow the same requirements as a single Edit tool call
+- The operation will fail if oldString doesn't match file contents exactly (including whitespace)
+- The operation will fail if oldString and newString are identical
+- Plan edits to avoid conflicts between sequential operations
+
+When making edits:
+- Always use absolute file paths (starting with /)
+- Use replaceAll for renaming strings across the file

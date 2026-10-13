@@ -113,11 +113,18 @@ type Endpoint3_6Input = {
   readonly prompt: Endpoint3_6Request["payload"]["prompt"]
   readonly delivery?: Endpoint3_6Request["payload"]["delivery"]
   readonly resume?: Endpoint3_6Request["payload"]["resume"]
+  readonly steps?: Endpoint3_6Request["payload"]["steps"]
 }
 const Endpoint3_6 = (raw: RawClient["server.session"]) => (input: Endpoint3_6Input) =>
   raw["session.prompt"]({
     params: { sessionID: input["sessionID"] },
-    payload: { id: input["id"], prompt: input["prompt"], delivery: input["delivery"], resume: input["resume"] },
+    payload: {
+      id: input["id"],
+      prompt: input["prompt"],
+      delivery: input["delivery"],
+      resume: input["resume"],
+      steps: input["steps"],
+    },
   }).pipe(
     Effect.mapError(mapClientError),
     Effect.map((value) => value.data),
@@ -233,11 +240,12 @@ type Endpoint4_0Input = {
   readonly limit?: Endpoint4_0Request["query"]["limit"]
   readonly order?: Endpoint4_0Request["query"]["order"]
   readonly cursor?: Endpoint4_0Request["query"]["cursor"]
+  readonly agent_id?: Endpoint4_0Request["query"]["agent_id"]
 }
 const Endpoint4_0 = (raw: RawClient["server.message"]) => (input: Endpoint4_0Input) =>
   raw["session.messages"]({
     params: { sessionID: input["sessionID"] },
-    query: { limit: input["limit"], order: input["order"], cursor: input["cursor"] },
+    query: { limit: input["limit"], order: input["order"], cursor: input["cursor"], agent_id: input["agent_id"] },
   }).pipe(Effect.mapError(mapClientError))
 
 const adaptGroup4 = (raw: RawClient["server.message"]) => ({ list: Endpoint4_0(raw) })
@@ -685,7 +693,7 @@ const adaptClient = (raw: RawClient) => ({
   health: adaptGroup0(raw["server.health"]),
   location: adaptGroup1(raw["server.location"]),
   agents: adaptGroup2(raw["server.agent"]),
-  sessions: adaptGroup3(raw["server.session"]),
+  session: adaptGroup3(raw["server.session"]),
   messages: adaptGroup4(raw["server.message"]),
   models: adaptGroup5(raw["server.model"]),
   providers: adaptGroup6(raw["server.provider"]),

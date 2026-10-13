@@ -10,17 +10,17 @@ submit one that will be an automatic ban from the project.
 
 ### Overview
 
-OpenCode is an AI-powered coding assistant that runs locally on your machine. It provides an agent system with access to powerful tools including shell execution, file operations, and web access.
+Hordecode is an AI-powered coding assistant that runs locally on your machine. It provides an agent system with access to powerful tools including shell execution, file operations, and web access.
 
 ### No Sandbox
 
-OpenCode does **not** sandbox the agent. The permission system exists as a UX feature to help users stay aware of what actions the agent is taking - it prompts for confirmation before executing commands, writing files, etc. However, it is not designed to provide security isolation.
+Hordecode does **not** sandbox the agent. The permission system exists as a UX feature to help users stay aware of what actions the agent is taking - it prompts for confirmation before executing commands, writing files, etc. However, it is not designed to provide security isolation.
 
-If you need true isolation, run OpenCode inside a Docker container or VM.
+If you need true isolation, run Hordecode inside a Docker container or VM.
 
 ### Server Mode
 
-Server mode is opt-in only. When enabled, set `OPENCODE_SERVER_PASSWORD` to require HTTP Basic Auth. Without this, the server runs unauthenticated (with a warning). It is the end user's responsibility to secure the server - any functionality it provides is not a vulnerability.
+Server mode is opt-in only. When enabled, set `HORDECODE_SERVER_PASSWORD` to require HTTP Basic Auth. `OPENCODE_SERVER_PASSWORD` is also accepted for compatibility. Without this, the server runs unauthenticated (with a warning). It is the end user's responsibility to secure the server - any functionality it provides is not a vulnerability.
 
 ### Out of Scope
 
@@ -34,14 +34,31 @@ Server mode is opt-in only. When enabled, set `OPENCODE_SERVER_PASSWORD` to requ
 
 ---
 
+## Data Retention and PII
+
+Hordecode stores session history, tool outputs, task state, and inbox rows in local SQLite files at `~/.local/share/hordecode/hordecode.db`. These files may contain prompts, file excerpts, and other user-controlled content (PII). Treat them as sensitive user data.
+
+- **Filesystem permissions**: Hordecode sets mode 0600 on the database file when it opens it, restricting access to the owner only. On shared machines, verify with:
+  ```bash
+  ls -l ~/.local/share/hordecode/hordecode.db
+  ```
+  The permissions should show `-rw-------` (0600).
+
+- **Retention**:
+  - Tasks: Tasks marked done or abandoned are hidden from default task lists after 7 days (configurable via `task_archive_days`). The rows are kept, not deleted.
+  - Inbox: Inbox rows older than 7 days are garbage-collected on startup.
+  - Session context: Compaction and context pruning are in-memory and do not delete session history.
+
+- **Deletion**: Durable deletion of user data is never automatic. Retention cleanup only filters or garbage-collects the rows named above.
+
 # Reporting Security Issues
 
 We appreciate your efforts to responsibly disclose your findings, and will make every effort to acknowledge your contributions.
 
-To report a security issue, please use the GitHub Security Advisory ["Report a Vulnerability"](https://github.com/anomalyco/opencode/security/advisories/new) tab.
+To report a security issue, please use the GitHub Security Advisory ["Report a Vulnerability"](https://github.com/siliconstencil/hordecode/security/advisories/new) tab.
 
 The team will send a response indicating the next steps in handling your report. After the initial reply to your report, the security team will keep you informed of the progress towards a fix and full announcement, and may ask for additional information or guidance.
 
 ## Escalation
 
-If you do not receive an acknowledgement of your report within 6 business days, you may send an email to security@anoma.ly
+If you do not receive an acknowledgement of your report within 6 business days, please open a follow-up via the same advisory workflow or a private security issue. Hordecode is an independent fork; do not report Hordecode issues to the opencode maintainers.

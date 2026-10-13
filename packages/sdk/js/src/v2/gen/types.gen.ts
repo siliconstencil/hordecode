@@ -75,6 +75,9 @@ export type Event =
   | EventTuiCommandExecute2
   | EventTuiToastShow2
   | EventTuiSessionSelect2
+  | EventTuiInstructionsLoaded
+  | EventSessionTryBestDetected
+  | EventSupervisorStuck
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
@@ -239,6 +242,7 @@ export type OutputFormat = OutputFormatText | OutputFormatJsonSchema
 export type UserMessage = {
   id: string
   sessionID: string
+  agentID?: string
   role: "user"
   time: {
     created: number
@@ -333,6 +337,7 @@ export type ApiError = {
 export type AssistantMessage = {
   id: string
   sessionID: string
+  agentID?: string
   role: "assistant"
   time: {
     created: number
@@ -624,6 +629,16 @@ export type CompactionPart = {
   tail_start_id?: string
 }
 
+export type CheckpointPart = {
+  id: string
+  sessionID: string
+  messageID: string
+  type: "checkpoint"
+  checkpointDir: string
+  checkpointNumber: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  coveredUpTo: string
+}
+
 export type Part =
   | TextPart
   | SubtaskPart
@@ -637,6 +652,7 @@ export type Part =
   | AgentPart
   | RetryPart
   | CompactionPart
+  | CheckpointPart
 
 export type Prompt = {
   text: string
@@ -690,6 +706,7 @@ export type SessionStatus =
     }
   | {
       type: "busy"
+      message?: string
     }
 
 export type QuestionOption = {
@@ -1453,6 +1470,46 @@ export type GlobalEvent = {
       }
     | {
         id: string
+        type: "tui.instructions.loaded"
+        properties: {
+          /**
+           * Display labels of loaded instruction files: worktree-relative path, ~-path, or absolute
+           */
+          files: Array<string>
+        }
+      }
+    | {
+        id: string
+        type: "session.try_best.detected"
+        properties: {
+          sessionID: string
+          agentID?: string
+          providerID: string
+          modelID: string
+          reason: "edit_repeat" | "bash_retry" | "action_streak"
+          evidence: {
+            tool: string
+            path?: string
+            command?: string
+            count: number
+            similarity?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+            action?: "edit" | "verify"
+          }
+        }
+      }
+    | {
+        id: string
+        type: "supervisor.stuck"
+        properties: {
+          sessionID: string
+          supervisorID: string
+          description: string
+          lastTurnTime: number
+          stuckDuration: number
+        }
+      }
+    | {
+        id: string
         type: "mcp.tools.changed"
         properties: {
           server: string
@@ -1751,11 +1808,14 @@ export type ProviderConfig = {
      */
     timeout?: number | false
     /**
-     * Timeout in milliseconds to wait for response headers. Provider integrations may set defaults. Set to false to disable timeout.
+     * Timeout in milliseconds to wait for response headers (default: 300000). Set to false to disable timeout.
      */
     headerTimeout?: number | false
-    chunkTimeout?: number
-    [key: string]: unknown | string | boolean | number | false | number | false | number | undefined
+    /**
+     * Timeout in milliseconds between streamed SSE chunks for this provider (default: 300000). If no chunk arrives within this window, the request is aborted. Set to false to disable timeout.
+     */
+    chunkTimeout?: number | false
+    [key: string]: unknown | string | boolean | number | false | number | false | number | false | undefined
   }
   models?: {
     [key: string]: {
@@ -1768,9 +1828,13 @@ export type ProviderConfig = {
       temperature?: boolean
       tool_call?: boolean
       interleaved?:
-        | true
+        | boolean
+        | "reasoning"
+        | "reasoning_content"
+        | "reasoning_text"
+        | string
         | {
-            field: "reasoning" | "reasoning_content" | "reasoning_details"
+            field: "reasoning" | "reasoning_content" | "reasoning_text" | string
           }
       cost?: {
         input: number
@@ -1927,6 +1991,15 @@ export type Config = {
   enabled_providers?: Array<string>
   model?: string
   small_model?: string
+  vision_model?: string
+  model_groups?: {
+    [key: string]:
+      | string
+      | {
+          default: string
+          models?: Array<string>
+        }
+  }
   default_agent?: string
   username?: string
   mode?: {
@@ -1943,6 +2016,20 @@ export type Config = {
     summary?: AgentConfig
     compaction?: AgentConfig
     [key: string]: AgentConfig | undefined
+  }
+  harness?: {
+    docs?: string
+    docs_absolute?: boolean
+  }
+  workflow?: {
+    /**
+     * Process-wide ceiling on subagents running concurrently across ALL workflow runs.
+     */
+    maxConcurrentAgents?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    /**
+     * Wall-clock budget for a whole workflow script, in milliseconds.
+     */
+    scriptDeadlineMs?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
   }
   provider?: {
     [key: string]: ProviderConfig
@@ -1998,6 +2085,12 @@ export type Config = {
   tools?: {
     [key: string]: boolean
   }
+  tool?: {
+    invocation_style?: "json" | "shell"
+    invocation_style_by_tool?: {
+      [key: string]: "json" | "shell"
+    }
+  }
   attachment?: AttachmentConfig
   enterprise?: {
     url?: string
@@ -2012,15 +2105,79 @@ export type Config = {
     tail_turns?: number
     preserve_recent_tokens?: number
     reserved?: number
+    /**
+     * Compact earlier than the model window. A token count (300000), a shorthand string ("300K", "1M", "50%"), or a map keyed by "<providerID>/<modelID>" with wildcards ("openai/gpt-5*"). Always clamped to the model's real window — it can only lower the compaction trigger, never raise it. 0 means no budget.
+     */
+    max_context?:
+      | number
+      | string
+      | {
+          [key: string]: number | string
+        }
+  }
+  checkpoint?: {
+    thresholds?: Array<string>
+    reserved?: number
+    max_writer_failures?: number
+    fork?: boolean
+    push_caps?: {
+      tasks_ledger?: number
+      focus_task?: number
+      supervisor_ledger?: number
+      memory_titles?: number
+      global?: number
+      checkpoint?: number
+      memory?: number
+      notes?: number
+      design_decisions?: number
+      open_notes?: number
+      recent_user?: number
+      recent_user_per_msg?: number
+    }
+    task_archive_days?: number
+    task_cleanup_days?: number
+    memory_reconcile_on_search?: boolean
+    /**
+     * Relative BM25 floor for memory.search (OR-joined query): keep results scoring >= this fraction of the top hit, dropping common-word-only noise. The #1 result is always kept. Default: 0.15. Set 0 to keep all matches.
+     */
+    memory_search_score_floor?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+  memory?: {
+    disable_write?: boolean
+    cc_index?: boolean
+    embedding?: boolean
+  }
+  history?: {
+    kinds?: Array<"user_text" | "assistant_text" | "tool_input" | "tool_error" | "reasoning" | "tool_output">
+  }
+  dream?: {
+    auto?: boolean
+    interval_days?: number
+  }
+  distill?: {
+    auto?: boolean
+    interval_days?: number
+  }
+  cron?: {
+    timezone?: string
   }
   experimental?: {
     disable_paste_summary?: boolean
-    batch_tool?: boolean
     openTelemetry?: boolean
-    primary_tools?: Array<string>
     continue_loop_on_deny?: boolean
     mcp_timeout?: number
+    predict_next_prompt?: boolean
     policies?: Array<ConfigV2ExperimentalPolicy>
+    maxMode?: {
+      candidates?: number
+    }
+    try_best?: {
+      edit_window?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      edit_similarity?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      edit_matches?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      action_streak?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      bash_retries?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
   }
 }
 
@@ -2055,8 +2212,13 @@ export type Model = {
     }
     interleaved:
       | boolean
+      | "reasoning"
+      | "reasoning_content"
+      | "reasoning_text"
+      | "reasoning_details"
+      | string
       | {
-          field: "reasoning" | "reasoning_content" | "reasoning_details"
+          field: "reasoning" | "reasoning_content" | "reasoning_text" | "reasoning_details" | string
         }
   }
   cost: {
@@ -2352,16 +2514,19 @@ export type Agent = {
   temperature?: number
   color?: string
   permission: PermissionRuleset
+  hardPermission?: PermissionRuleset
   model?: {
     modelID: string
     providerID: string
   }
   variant?: string
   prompt?: string
+  completionGate?: boolean
   options: {
     [key: string]: unknown
   }
   steps?: number
+  skillPipeline?: string
 }
 
 export type LspStatus = {
@@ -2540,6 +2705,33 @@ export type NotFoundError = {
   data: {
     message: string
   }
+}
+
+export type Task = {
+  id: string
+  session_id: string
+  parent_task_id?: string
+  status: "open" | "in_progress" | "blocked" | "done" | "abandoned"
+  summary: string
+  owner?: string
+  created_at: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  last_event_at: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  ended_at?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  cleanup_after?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+}
+
+export type SupervisorInfo = {
+  supervisor_id: string
+  session_id: string
+  mode: "subagent" | "peer" | "main"
+  status: "pending" | "running" | "completed" | "failed" | "cancelled" | "stuck" | "unknown"
+  agent: string
+  description: string
+  parent_supervisor_id: string
+  time_created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  time_updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  turn_count: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  last_turn_time: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
 }
 
 export type TextPartInput = {
@@ -2782,16 +2974,6 @@ export type ProviderNotFoundError = {
   message: string
 }
 
-export type OutputFormat1 =
-  | {
-      type: "text"
-    }
-  | {
-      type: "json_schema"
-      schema: JsonSchema
-      retryCount?: number
-    }
-
 export type SessionStatus2 = {
   id: string
   metadata?: {
@@ -2918,6 +3100,9 @@ export type V2Event =
   | TuiCommandExecute
   | TuiToastShow
   | TuiSessionSelect
+  | TuiInstructionsLoaded
+  | SessionTryBestDetected
+  | SupervisorStuck
   | McpToolsChanged
   | McpBrowserOpenFailed
   | CommandExecuted
@@ -5014,6 +5199,8 @@ export type SkillV2Info = {
   slash?: boolean
   location: string
   content: string
+  aliases?: Array<string>
+  bundled?: boolean
 }
 
 export type ModelsDevRefreshed = {
@@ -5823,6 +6010,76 @@ export type TuiSessionSelect = {
      * Session ID to navigate to
      */
     sessionID: string
+  }
+}
+
+export type TuiInstructionsLoaded = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "tui.instructions.loaded"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    /**
+     * Display labels of loaded instruction files: worktree-relative path, ~-path, or absolute
+     */
+    files: Array<string>
+  }
+}
+
+export type SessionTryBestDetected = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.try_best.detected"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    sessionID: string
+    agentID?: string
+    providerID: string
+    modelID: string
+    reason: "edit_repeat" | "bash_retry" | "action_streak"
+    evidence: {
+      tool: string
+      path?: string
+      command?: string
+      count: number
+      similarity?: number | "NaN" | "Infinity" | "-Infinity"
+      action?: "edit" | "verify"
+    }
+  }
+}
+
+export type SupervisorStuck = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "supervisor.stuck"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    sessionID: string
+    supervisorID: string
+    description: string
+    lastTurnTime: number
+    stuckDuration: number
   }
 }
 
@@ -6880,6 +7137,49 @@ export type EventPermissionReplied = {
   }
 }
 
+export type EventTuiInstructionsLoaded = {
+  id: string
+  type: "tui.instructions.loaded"
+  properties: {
+    /**
+     * Display labels of loaded instruction files: worktree-relative path, ~-path, or absolute
+     */
+    files: Array<string>
+  }
+}
+
+export type EventSessionTryBestDetected = {
+  id: string
+  type: "session.try_best.detected"
+  properties: {
+    sessionID: string
+    agentID?: string
+    providerID: string
+    modelID: string
+    reason: "edit_repeat" | "bash_retry" | "action_streak"
+    evidence: {
+      tool: string
+      path?: string
+      command?: string
+      count: number
+      similarity?: number | "NaN" | "Infinity" | "-Infinity"
+      action?: "edit" | "verify"
+    }
+  }
+}
+
+export type EventSupervisorStuck = {
+  id: string
+  type: "supervisor.stuck"
+  properties: {
+    sessionID: string
+    supervisorID: string
+    description: string
+    lastTurnTime: number
+    stuckDuration: number
+  }
+}
+
 export type EventMcpToolsChanged = {
   id: string
   type: "mcp.tools.changed"
@@ -7348,7 +7648,7 @@ export type GlobalDisposeResponse = GlobalDisposeResponses[keyof GlobalDisposeRe
 
 export type GlobalUpgradeData = {
   body?: {
-    target?: string
+    target: string
   }
   path?: never
   query?: never
@@ -7897,9 +8197,9 @@ export type FindTextData = {
 
 export type FindTextErrors = {
   /**
-   * Bad request
+   * BadRequest | InvalidRequestError
    */
-  400: BadRequestError
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
 }
 
 export type FindTextError = FindTextErrors[keyof FindTextErrors]
@@ -8032,9 +8332,9 @@ export type FileReadData = {
 
 export type FileReadErrors = {
   /**
-   * Bad request
+   * BadRequest | InvalidRequestError
    */
-  400: BadRequestError
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
 }
 
 export type FileReadError = FileReadErrors[keyof FileReadErrors]
@@ -8360,6 +8660,8 @@ export type AppSkillsResponses = {
   200: Array<{
     name: string
     description?: string
+    aliases?: Array<string>
+    bundled?: boolean
     location: string
     content: string
   }>
@@ -9228,6 +9530,64 @@ export type QuestionRejectResponses = {
 
 export type QuestionRejectResponse = QuestionRejectResponses[keyof QuestionRejectResponses]
 
+export type QuestionNeverAskData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/question/never-ask"
+}
+
+export type QuestionNeverAskErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type QuestionNeverAskError = QuestionNeverAskErrors[keyof QuestionNeverAskErrors]
+
+export type QuestionNeverAskResponses = {
+  /**
+   * Current never-ask state
+   */
+  200: boolean
+}
+
+export type QuestionNeverAskResponse = QuestionNeverAskResponses[keyof QuestionNeverAskResponses]
+
+export type QuestionSetNeverAskData = {
+  body?: {
+    enabled: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/question/never-ask"
+}
+
+export type QuestionSetNeverAskErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type QuestionSetNeverAskError = QuestionSetNeverAskErrors[keyof QuestionSetNeverAskErrors]
+
+export type QuestionSetNeverAskResponses = {
+  /**
+   * Updated never-ask state
+   */
+  200: boolean
+}
+
+export type QuestionSetNeverAskResponse = QuestionSetNeverAskResponses[keyof QuestionSetNeverAskResponses]
+
 export type PermissionListData = {
   body?: never
   path?: never
@@ -9716,6 +10076,74 @@ export type SessionTodoResponses = {
 
 export type SessionTodoResponse = SessionTodoResponses[keyof SessionTodoResponses]
 
+export type SessionTaskData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/task"
+}
+
+export type SessionTaskErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionTaskError = SessionTaskErrors[keyof SessionTaskErrors]
+
+export type SessionTaskResponses = {
+  /**
+   * Task list
+   */
+  200: Array<Task>
+}
+
+export type SessionTaskResponse = SessionTaskResponses[keyof SessionTaskResponses]
+
+export type SessionSupervisorData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/supervisor"
+}
+
+export type SessionSupervisorErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionSupervisorError = SessionSupervisorErrors[keyof SessionSupervisorErrors]
+
+export type SessionSupervisorResponses = {
+  /**
+   * Supervisor list
+   */
+  200: Array<SupervisorInfo>
+}
+
+export type SessionSupervisorResponse = SessionSupervisorResponses[keyof SessionSupervisorResponses]
+
 export type SessionDiffData = {
   body?: never
   path: {
@@ -9757,6 +10185,7 @@ export type SessionMessagesData = {
     workspace?: string
     limit?: number
     before?: string
+    agent_id?: string
   }
   url: "/session/{sessionID}/message"
 }
@@ -9794,6 +10223,7 @@ export type SessionPromptData = {
       modelID: string
     }
     agent?: string
+    agentID?: string
     noReply?: boolean
     tools?: {
       [key: string]: boolean
@@ -10141,6 +10571,7 @@ export type SessionPromptAsyncData = {
       modelID: string
     }
     agent?: string
+    agentID?: string
     noReply?: boolean
     tools?: {
       [key: string]: boolean
@@ -10995,6 +11426,126 @@ export type TuiControlResponseResponses = {
 
 export type TuiControlResponseResponse = TuiControlResponseResponses[keyof TuiControlResponseResponses]
 
+export type WorkflowListData = {
+  body?: never
+  path?: never
+  query: {
+    sessionID: string
+  }
+  url: "/workflows"
+}
+
+export type WorkflowListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type WorkflowListError = WorkflowListErrors[keyof WorkflowListErrors]
+
+export type WorkflowListResponses = {
+  /**
+   * Workflow runs
+   */
+  200: Array<unknown>
+}
+
+export type WorkflowListResponse = WorkflowListResponses[keyof WorkflowListResponses]
+
+export type WorkflowResumeData = {
+  body?: never
+  path: {
+    runID: string
+  }
+  query?: never
+  url: "/workflows/{runID}/resume"
+}
+
+export type WorkflowResumeErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowResumeError = WorkflowResumeErrors[keyof WorkflowResumeErrors]
+
+export type WorkflowResumeResponses = {
+  /**
+   * Resume result
+   */
+  200: {
+    runID: string
+    resumed: boolean
+  }
+}
+
+export type WorkflowResumeResponse = WorkflowResumeResponses[keyof WorkflowResumeResponses]
+
+export type WorkflowTranscriptData = {
+  body?: never
+  path: {
+    runID: string
+  }
+  query?: never
+  url: "/workflows/{runID}/transcript"
+}
+
+export type WorkflowTranscriptErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowTranscriptError = WorkflowTranscriptErrors[keyof WorkflowTranscriptErrors]
+
+export type WorkflowTranscriptResponses = {
+  /**
+   * Full transcript
+   */
+  200: {
+    runID: string
+    transcript: Array<{
+      kind: "phase" | "log"
+      text: string
+    }>
+  }
+}
+
+export type WorkflowTranscriptResponse = WorkflowTranscriptResponses[keyof WorkflowTranscriptResponses]
+
+export type WorkflowStructureData = {
+  body?: never
+  path: {
+    runID: string
+  }
+  query?: never
+  url: "/workflows/{runID}/structure"
+}
+
+export type WorkflowStructureErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowStructureError = WorkflowStructureErrors[keyof WorkflowStructureErrors]
+
+export type WorkflowStructureResponses = {
+  /**
+   * Structure tree
+   */
+  200: {
+    runID: string
+    nodes: Array<unknown>
+  }
+}
+
+export type WorkflowStructureResponse = WorkflowStructureResponses[keyof WorkflowStructureResponses]
+
 export type ExperimentalWorkspaceAdapterListData = {
   body?: never
   path?: never
@@ -11187,7 +11738,7 @@ export type ExperimentalWorkspaceRemoveResponse =
 
 export type ExperimentalWorkspaceWarpData = {
   body?: {
-    id: string | null
+    id?: string | null
     sessionID: string
     copyChanges?: boolean
   }
@@ -11551,6 +12102,7 @@ export type V2SessionPromptData = {
     prompt: PromptInput
     delivery?: "steer" | "queue"
     resume?: boolean
+    steps?: number
   }
   path: {
     sessionID: string
@@ -11992,6 +12544,7 @@ export type V2SessionMessagesData = {
      * Opaque pagination cursor returned as cursor.previous or cursor.next in the previous response. Do not combine with order.
      */
     cursor?: string
+    agent_id?: string
   }
   url: "/api/session/{sessionID}/message"
 }

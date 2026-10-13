@@ -2,7 +2,7 @@
   --avatar-bg: var(--v2-background-bg-layer-02);
   --avatar-fg: var(--v2-text-text-muted);
   --avatar-radius: 9999px;
-  --avatar-font-size: 11px;
+  --avatar-font-size: var(--font-size-xx-small);
   --avatar-tracking: 0.05px;
   display: flex;
   align-items: center;

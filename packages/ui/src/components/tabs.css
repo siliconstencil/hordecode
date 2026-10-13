@@ -51,7 +51,7 @@
 
     /* text-14-medium */
     font-family: var(--font-family-sans);
-    font-size: 14px;
+    font-size: var(--font-size-base);
     font-style: normal;
     font-weight: var(--font-weight-medium);
     line-height: var(--line-height-large); /* 142.857% */
@@ -74,9 +74,9 @@
       overflow: hidden;
       text-overflow: ellipsis;
 
-      &:focus-visible {
+       &:focus-visible {
         outline: none;
-        box-shadow: none;
+        box-shadow: var(--shadow-xs-border-focus);
       }
     }
 
@@ -96,7 +96,7 @@
     }
     &:focus-visible {
       outline: none;
-      box-shadow: none;
+      box-shadow: var(--shadow-xs-border-focus);
     }
     &:has([data-selected]) {
       color: var(--text-strong);
@@ -304,7 +304,7 @@
       font-family: Inter, sans-serif;
       font-style: normal;
       font-weight: 440;
-      font-size: 13px;
+      font-size: var(--font-size-small);
       line-height: 16px;
       letter-spacing: -0.04px;
       color: var(--v2-text-text-base);

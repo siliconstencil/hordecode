@@ -26,7 +26,7 @@ import { useGlobal } from "@/context/global"
 import { ServerConnection, useServer } from "@/context/server"
 import { tabKey, useTabs } from "@/context/tabs"
 import "./titlebar.css"
-import { newTabTooltipKeybind } from "./command-tooltip-keybind"
+import { newTabTooltipKeybind, sidebarTooltipKeybind } from "./command-tooltip-keybind"
 
 type TauriDesktopWindow = {
   startDragging?: () => Promise<void>
@@ -458,6 +458,18 @@ export function Titlebar(props: { update?: TitlebarUpdate }) {
                 <Show when={windows() || linux()}>
                   <WindowsAppMenu command={command} platform={platform} variant="v2" />
                 </Show>
+                <div class="xl:hidden shrink-0 flex items-center justify-center">
+                  <IconButtonV2
+                    type="button"
+                    variant="ghost-muted"
+                    size="large"
+                    class="shrink-0"
+                    icon={<IconV2 name="menu" />}
+                    onClick={layout.mobileSidebar.toggle}
+                    aria-label={language.t("sidebar.menu.toggle")}
+                    aria-expanded={layout.mobileSidebar.opened()}
+                  />
+                </div>
                 <TooltipV2
                   placement="bottom"
                   value={
@@ -700,8 +712,32 @@ type TitlebarV2RightState = {
 }
 
 function TitlebarV2Right(props: { state: TitlebarV2RightState }) {
+  const layout = useLayout()
+  const command = useCommand()
+  const language = useLanguage()
   return (
     <div class="relative z-20 flex shrink-0 items-center justify-end gap-0 overflow-visible">
+      <TooltipV2
+        placement="bottom"
+        value={
+          <>
+            {language.t("command.sidebar.toggle")}
+            <KeybindV2 keys={sidebarTooltipKeybind(command)} variant="neutral" />
+          </>
+        }
+      >
+        <IconButtonV2
+          type="button"
+          variant="ghost-muted"
+          size="large"
+          class="shrink-0"
+          state={layout.sidebar.opened() ? "pressed" : undefined}
+          onClick={layout.sidebar.toggle}
+          aria-label={language.t("command.sidebar.toggle")}
+          aria-expanded={layout.sidebar.opened()}
+          icon={<IconV2 name="sidebar-right" />}
+        />
+      </TooltipV2>
       <Show when={props.state.update.visible}>
         <TitlebarUpdateIconButton state={props.state.update} />
       </Show>

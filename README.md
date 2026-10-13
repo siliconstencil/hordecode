@@ -1,129 +1,126 @@
 <p align="center">
-  <a href="https://opencode.ai">
-    <picture>
-      <source srcset="packages/console/app/src/asset/logo-ornate-dark.svg" media="(prefers-color-scheme: dark)">
-      <source srcset="packages/console/app/src/asset/logo-ornate-light.svg" media="(prefers-color-scheme: light)">
-      <img src="packages/console/app/src/asset/logo-ornate-light.svg" alt="OpenCode logo">
-    </picture>
-  </a>
+  <a href="https://hordecode.com"><img src="assets/logo.svg" alt="Hordecode" width="96" height="96"></a>
 </p>
-<p align="center">The open source AI coding agent.</p>
+<h1 align="center">Hordecode</h1>
+<p align="center">The AI coding agent built for the terminal.</p>
 <p align="center">
-  <a href="https://opencode.ai/discord"><img alt="Discord" src="https://img.shields.io/discord/1391832426048651334?style=flat-square&label=discord" /></a>
-  <a href="https://www.npmjs.com/package/opencode-ai"><img alt="npm" src="https://img.shields.io/npm/v/opencode-ai?style=flat-square" /></a>
-  <a href="https://github.com/anomalyco/opencode/actions/workflows/publish.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/anomalyco/opencode/publish.yml?style=flat-square&branch=dev" /></a>
+  <a href="https://hordecode.com">Website</a> |
+  <a href="https://hordecode.com/docs/">Docs</a> |
+  <a href="https://github.com/siliconstencil/hordecode">GitHub</a>
 </p>
-
 <p align="center">
-  <a href="README.md">English</a> |
-  <a href="README.zh.md">简体中文</a> |
-  <a href="README.zht.md">繁體中文</a> |
-  <a href="README.ko.md">한국어</a> |
-  <a href="README.de.md">Deutsch</a> |
-  <a href="README.es.md">Español</a> |
-  <a href="README.fr.md">Français</a> |
-  <a href="README.it.md">Italiano</a> |
-  <a href="README.da.md">Dansk</a> |
-  <a href="README.ja.md">日本語</a> |
-  <a href="README.pl.md">Polski</a> |
-  <a href="README.ru.md">Русский</a> |
-  <a href="README.bs.md">Bosanski</a> |
-  <a href="README.ar.md">العربية</a> |
-  <a href="README.no.md">Norsk</a> |
-  <a href="README.br.md">Português (Brasil)</a> |
-  <a href="README.th.md">ไทย</a> |
-  <a href="README.tr.md">Türkçe</a> |
-  <a href="README.uk.md">Українська</a> |
-  <a href="README.bn.md">বাংলা</a> |
-  <a href="README.gr.md">Ελληνικά</a> |
-  <a href="README.vi.md">Tiếng Việt</a>
+  <a href="https://www.npmjs.com/package/hordecode"><img alt="npm" src="https://img.shields.io/npm/v/hordecode?style=flat-square" /></a>
+  <a href="https://github.com/siliconstencil/hordecode/actions/workflows/fork-typecheck.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/siliconstencil/hordecode/fork-typecheck.yml?style=flat-square&branch=main" /></a>
+  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" /></a>
 </p>
-
-[![OpenCode Terminal UI](packages/web/src/assets/lander/screenshot.png)](https://opencode.ai)
 
 ---
 
-### Installation
+Hordecode is a terminal-native AI coding agent. It is a friendly fork of
+[opencode](https://github.com/anomalyco/opencode) that tracks upstream, carries a
+delta-port of [MiMo Code](https://github.com/XiaomiMiMo/MiMo-Code), and adds its own
+layer: a supervisor for long-running work, a harness pipeline, an inbox, persistent
+memory with an optional on-device embedding index, skills, workflows and cron.
 
-```bash
-# YOLO
-curl -fsSL https://opencode.ai/install | bash
-
-# Package managers
-npm i -g opencode-ai@latest        # or bun/pnpm/yarn
-scoop install opencode             # Windows
-choco install opencode             # Windows
-brew install anomalyco/tap/opencode # macOS and Linux (recommended, always up to date)
-brew install opencode              # macOS and Linux (official brew formula, updated less)
-sudo pacman -S opencode            # Arch Linux (Stable)
-paru -S opencode-bin               # Arch Linux (Latest from AUR)
-mise use -g opencode               # Any OS
-nix run nixpkgs#opencode           # or github:anomalyco/opencode for latest dev branch
-```
-
-> [!TIP]
-> Remove versions older than 0.1.x before installing.
-
-### Desktop App (BETA)
-
-OpenCode is also available as a desktop application. Download directly from the [releases page](https://github.com/anomalyco/opencode/releases) or [opencode.ai/download](https://opencode.ai/download).
-
-| Platform              | Download                           |
-| --------------------- | ---------------------------------- |
-| macOS (Apple Silicon) | `opencode-desktop-mac-arm64.dmg`   |
-| macOS (Intel)         | `opencode-desktop-mac-x64.dmg`     |
-| Windows               | `opencode-desktop-windows-x64.exe` |
-| Linux                 | `.deb`, `.rpm`, or `.AppImage`     |
-
-```bash
-# macOS (Homebrew)
-brew install --cask opencode-desktop
-# Windows (Scoop)
-scoop bucket add extras; scoop install extras/opencode-desktop
-```
-
-#### Installation Directory
-
-The install script respects the following priority order for the installation path:
-
-1. `$OPENCODE_INSTALL_DIR` - Custom installation directory
-2. `$XDG_BIN_DIR` - XDG Base Directory Specification compliant path
-3. `$HOME/bin` - Standard user binary directory (if it exists or can be created)
-4. `$HOME/.opencode/bin` - Default fallback
-
-```bash
-# Examples
-OPENCODE_INSTALL_DIR=/usr/local/bin curl -fsSL https://opencode.ai/install | bash
-XDG_BIN_DIR=$HOME/.local/bin curl -fsSL https://opencode.ai/install | bash
-```
-
-### Agents
-
-OpenCode includes two built-in agents you can switch between with the `Tab` key.
-
-- **build** - Default, full-access agent for development work
-- **plan** - Read-only agent for analysis and code exploration
-  - Denies file edits by default
-  - Asks permission before running bash commands
-  - Ideal for exploring unfamiliar codebases or planning changes
-
-Also included is a **general** subagent for complex searches and multistep tasks.
-This is used internally and can be invoked using `@general` in messages.
-
-Learn more about [agents](https://opencode.ai/docs/agents).
-
-### Documentation
-
-For more info on how to configure OpenCode, [**head over to our docs**](https://opencode.ai/docs).
-
-### Contributing
-
-If you're interested in contributing to OpenCode, please read our [contributing docs](./CONTRIBUTING.md) before submitting a pull request.
-
-### Building on OpenCode
-
-If you are working on a project that's related to OpenCode and is using "opencode" as part of its name, for example "opencode-dashboard" or "opencode-mobile", please add a note to your README to clarify that it is not built by the OpenCode team and is not affiliated with us in any way.
+Every opencode provider, plugin and config file keeps working. Hordecode is not
+affiliated with or endorsed by either upstream project.
 
 ---
 
-**Join our community** [Discord](https://discord.gg/opencode) | [X.com](https://x.com/opencode)
+## Quick Start
+
+```bash
+# npm (all platforms)
+npm install -g hordecode
+
+# One-line install (macOS / Linux)
+curl -fsSL https://raw.githubusercontent.com/siliconstencil/hordecode/main/install | bash
+
+# Run
+horde
+```
+
+`hordecode` is an alias of `horde`; both commands are installed. On first launch, add a
+provider with `horde providers` (or `horde auth`), then start a session.
+
+Upgrade an existing install with the method it was installed with:
+
+```bash
+horde upgrade            # latest
+horde upgrade 0.1.1      # a specific version
+```
+
+> [!WARNING]
+> 0.1.x is a pre-release. APIs, config and storage may change without a migration path.
+
+<details>
+<summary><strong>Install script details</strong></summary>
+
+The script installs into `~/.hordecode/bin` and adds that directory to your shell
+profile unless you pass `--no-modify-path`.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/siliconstencil/hordecode/main/install | bash -s -- --version 0.1.1
+curl -fsSL https://raw.githubusercontent.com/siliconstencil/hordecode/main/install | bash -s -- --no-modify-path
+./install --binary /path/to/hordecode     # install a locally built binary
+```
+
+Set `HORDECODE_RELEASE_BASE` to install from a mirror of the GitHub releases.
+
+</details>
+
+<details>
+<summary><strong>Platforms</strong></summary>
+
+| Target | npm package | Notes |
+| --- | --- | --- |
+| linux-x64 | `hordecode-linux-x64` | verified target; ships the on-device embedding index |
+| linux-x64 (no AVX2) | `hordecode-linux-x64-baseline` | |
+| linux-x64 musl | `hordecode-linux-x64-musl`, `-baseline-musl` | Alpine and other musl systems |
+| linux-arm64 | `hordecode-linux-arm64`, `-musl` | |
+| darwin-arm64 | `hordecode-darwin-arm64` | |
+| darwin-x64 | `hordecode-darwin-x64`, `-baseline` | no embedding index (no onnxruntime binding) |
+| windows-x64 | `hordecode-windows-x64`, `-baseline` | use npm; the install script needs bash |
+| windows-arm64 | `hordecode-windows-arm64` | use npm |
+
+The `hordecode` npm package selects the right platform package at install time. On
+targets without the embedding index, memory search falls back to BM25.
+
+</details>
+
+## What Hordecode adds
+
+Fork features surface as tools the agent can call, not as extra CLI commands:
+
+- **supervisor**: runs delegated work as supervised child sessions with spawn
+  references, task links and waiters, so multi-step work is tracked past one turn.
+- **task** and **workflow**: units of work, and declared multi-step workflows.
+- **memory-add / memory-recall / memory-update / memory-session / memory-status /
+  memory-dump / memory-gc**: persistent project memory. With `memory.embedding`
+  enabled (linux-x64) recall uses an on-device embedding index; otherwise BM25.
+- **skill** and **skill-search**: discover and load skills from the user and project
+  skill directories; the bundled research pipeline ships as a skill set.
+- **cron**: scheduled runs.
+- **session**: manage sessions and worktrees, including a fleet view of running agents.
+
+Behind the tools, the **inbox** carries messages between agents and sessions, and the
+**harness** pipeline drives supervised runs.
+
+The upstream tool set (read, edit, bash, grep, glob, lsp, MCP, plan, question, ...)
+and the built-in **build**, **plan** and **general** agents are unchanged. Switch
+agents with `Tab`.
+
+### Memory search: keyword by default, semantic opt-in
+
+Memory recall is keyword search (BM25) out of the box and needs no download. Semantic
+(vector) search is opt-in. Enable it in `hordecode.json`:
+
+```json
+{ "memory": { "embedding": true } }
+```
+
+On first use Hordecode downloads the embedding model once (about 133 MB) into its cache
+directory; recall stays keyword-only until the model is ready, then becomes hybrid
+(keyword + semantic). The on-device index ships in the linux-x64 package; on other targets
+the setting is accepted but recall stays keyword-only. `memory-status` reports the current
+mode and vector count, and `horde debug embedding-check` verifies the pipeline.
