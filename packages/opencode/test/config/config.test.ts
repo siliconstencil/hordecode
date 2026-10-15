@@ -898,10 +898,23 @@ it.instance("migrates autoshare to share field", () =>
     yield* writeConfigEffect(test.directory, {
       $schema: "https://opencode.ai/config.json",
       autoshare: true,
+      enterprise: { url: "https://share.example.com" },
     })
     const config = yield* Config.use.get()
     expect(config.share).toBe("auto")
     expect(config.autoshare).toBe(true)
+  }),
+)
+
+it.instance("disables sharing when no share server is configured", () =>
+  Effect.gen(function* () {
+    const test = yield* TestInstance
+    yield* writeConfigEffect(test.directory, {
+      $schema: "https://opencode.ai/config.json",
+      share: "manual",
+    })
+    const config = yield* Config.use.get()
+    expect(config.share).toBe("disabled")
   }),
 )
 

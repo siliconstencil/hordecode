@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.2] - Unreleased
+
+### Changed
+
+- Session sharing uses the share server you configure with `enterprise.url`; the share
+  command appears in the TUI once one is set.
+
 ## [0.1.1] - 2026-10-13
 
 First version on npm (`npm install -g hordecode`). 0.1.0 was published

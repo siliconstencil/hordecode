@@ -211,7 +211,10 @@ const layer = Layer.effect(
       const headers: Record<string, string> = {}
       const active = yield* account.active()
       if (Option.isNone(active) || !active.value.active_org_id) {
-        const baseUrl = (yield* cfg.get()).enterprise?.url ?? "https://opncd.ai"
+        // Upstream (share-next.ts:210) and MiMo (share-next.ts:239) fall back to the opencode-hosted
+        // share service; Hordecode has no agreement to use it, so sharing needs a configured server.
+        const baseUrl = (yield* cfg.get()).enterprise?.url
+        if (!baseUrl) throw new Error("Sharing needs a share server: set enterprise.url in the config")
         return { headers, api: legacyApi, baseUrl } satisfies Req
       }
 
