@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.1.1] - Unreleased
+## [0.1.1] - 2026-10-13
 
 First version on npm (`npm install -g hordecode`). 0.1.0 was published
 incompletely on 2026-09-18 (one platform package of twelve), withdrawn the

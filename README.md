@@ -25,6 +25,31 @@ memory with an optional on-device embedding index, skills, workflows and cron.
 Every opencode provider, plugin and config file keeps working. Hordecode is not
 affiliated with or endorsed by either upstream project.
 
+## Why Hordecode
+
+- **Long-running work is built in.** A supervisor runs delegated work as tracked child
+  sessions with waiters and task links, so multi-step work survives past one turn. Tasks,
+  workflows, cron and an inbox are tools the agent calls, not plugins to assemble.
+- **Memory that stays local.** Seven memory tools keep project knowledge across sessions.
+  Keyword search (BM25) works out of the box; semantic search is opt-in and runs on-device.
+- **Skill pipelines ship with the binary.** A harness set of 16 skills (plan, tdd, debug,
+  review, verify, ...) and a separate research set of 16 skills.
+- **Visible, not a black box.** Running agents, subagents and scheduled jobs show in the
+  sidebar with status and elapsed time.
+- **A maintained base.** The core, CLI, server and TUI track the opencode 1.x line, so
+  providers, plugins, MCP servers and existing config keep working.
+
+## Base and upstream tracking
+
+| Part | Follows | Notes |
+| --- | --- | --- |
+| core, CLI, server, TUI, SDK and the small packages | opencode 1.18.34 | ported as a whole at each base bump |
+| web, desktop and shared UI packages | opencode 1.17.18 | lag behind; `horde web` still shows upstream branding |
+| supervisor, harness, memory, inbox, cron, workflow, skill, task and the other fork packages | Hordecode | fork-only; supervisor and harness are customized ports of the MiMo Code designs (parity 0.1.11) |
+
+Hordecode 0.1.x stays on the opencode 1.x line; each base bump ports a newer 1.x release
+whole. The file-level ownership map is in [docs/UPSTREAM-MAP.md](docs/UPSTREAM-MAP.md).
+
 ---
 
 ## Quick Start
