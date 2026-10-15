@@ -44,7 +44,7 @@ affiliated with or endorsed by either upstream project.
 | Part | Follows | Notes |
 | --- | --- | --- |
 | core, CLI, server, TUI, SDK and the small packages | opencode 1.18.34 | ported as a whole at each base bump |
-| web, desktop and shared UI packages | opencode 1.17.18 | lag behind; `horde web` still shows upstream branding |
+| web, desktop and shared UI packages | opencode 1.17.18 | ported in their own step |
 | supervisor, harness, memory, inbox, cron, workflow, skill, task and the other fork packages | Hordecode | fork-only; supervisor and harness are customized ports of the MiMo Code designs (parity 0.1.11) |
 
 Hordecode 0.1.x stays on the opencode 1.x line; each base bump ports a newer 1.x release
@@ -104,12 +104,12 @@ Set `HORDECODE_RELEASE_BASE` to install from a mirror of the GitHub releases.
 | linux-x64 musl | `hordecode-linux-x64-musl`, `-baseline-musl` | Alpine and other musl systems |
 | linux-arm64 | `hordecode-linux-arm64`, `-musl` | |
 | darwin-arm64 | `hordecode-darwin-arm64` | |
-| darwin-x64 | `hordecode-darwin-x64`, `-baseline` | no embedding index (no onnxruntime binding) |
-| windows-x64 | `hordecode-windows-x64`, `-baseline` | use npm; the install script needs bash |
+| darwin-x64 | `hordecode-darwin-x64`, `-baseline` | keyword memory search (BM25) |
+| windows-x64 | `hordecode-windows-x64`, `-baseline` | install with npm |
 | windows-arm64 | `hordecode-windows-arm64` | use npm |
 
-The `hordecode` npm package selects the right platform package at install time. On
-targets without the embedding index, memory search falls back to BM25.
+The `hordecode` npm package selects the right platform package at install time. Every
+target has keyword memory search (BM25); linux-x64 adds the on-device embedding index.
 
 </details>
 
@@ -145,7 +145,7 @@ Memory recall is keyword search (BM25) out of the box and needs no download. Sem
 ```
 
 On first use Hordecode downloads the embedding model once (about 133 MB) into its cache
-directory; recall stays keyword-only until the model is ready, then becomes hybrid
-(keyword + semantic). The on-device index ships in the linux-x64 package; on other targets
-the setting is accepted but recall stays keyword-only. `memory-status` reports the current
+directory; recall uses keyword search while the model loads, then becomes hybrid
+(keyword + semantic). The on-device index ships in the linux-x64 package; other targets use
+keyword search. `memory-status` reports the current
 mode and vector count, and `horde debug embedding-check` verifies the pipeline.
