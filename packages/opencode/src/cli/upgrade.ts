@@ -25,29 +25,13 @@ export async function upgrade() {
 
   if (InstallationVersion === latest) return
 
-  const kind = Installation.getReleaseType(InstallationVersion, latest)
-
-  if (config.autoupdate === "notify" || kind !== "patch") {
-    GlobalBus.emit("event", {
-      directory: "global",
-      payload: {
-        type: Installation.Event.UpdateAvailable.type,
-        properties: { version: latest },
-      },
-    })
-    return
-  }
-
-  if (method === "unknown") return
-  await Installation.upgrade(method, latest)
-    .then(() =>
-      GlobalBus.emit("event", {
-        directory: "global",
-        payload: {
-          type: Installation.Event.Updated.type,
-          properties: { version: latest },
-        },
-      }),
-    )
-    .catch(() => {})
+  // Checking never installs anything: a newer version is announced and the user chooses in the
+  // update dialog (upstream v1.19.0 packages/opencode/src/cli/upgrade.ts:7,21-36).
+  GlobalBus.emit("event", {
+    directory: "global",
+    payload: {
+      type: Installation.Event.UpdateAvailable.type,
+      properties: { version: latest },
+    },
+  })
 }

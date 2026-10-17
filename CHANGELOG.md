@@ -12,6 +12,12 @@ All notable changes to this project will be documented in this file.
   Hordecode keeps its own update flow.
 - Session sharing uses the share server you configure with `enterprise.url`; the share
   command appears in the TUI once one is set.
+- Update checks never install anything: a newer version shows the update notice and installs
+  only when you confirm it or run `horde upgrade` (previously a newer patch release installed
+  itself in the background).
+- Every `HORDECODE_*` environment switch that has an `OPENCODE_*` twin is honored, with the
+  `HORDECODE_*` value first; `HORDECODE_DISABLE_AUTOUPDATE` and `HORDECODE_DISABLE_MODELS_FETCH`
+  had no effect before.
 
 ## [0.1.1] - 2026-10-13
 
