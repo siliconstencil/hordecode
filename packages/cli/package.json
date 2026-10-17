@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@opencode-ai/cli",
   "version": "0.1.0",
-  "hordecodeBase": "1.18.34",
+  "hordecodeBase": "1.19.0",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",

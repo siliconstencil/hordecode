@@ -3,7 +3,7 @@
   "displayName": "opencode",
   "description": "opencode for VS Code",
   "version": "0.1.0",
-  "hordecodeBase": "1.18.34",
+  "hordecodeBase": "1.19.0",
   "publisher": "sst-dev",
   "repository": {
     "type": "git",

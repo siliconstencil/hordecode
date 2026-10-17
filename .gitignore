@@ -50,3 +50,4 @@ database.db-wal
 # contains its own .gitignore already, this stops it showing as untracked
 # noise in git status. Confirmed harmless 2026-08-01.
 .hordecode/
+/artifacts/
