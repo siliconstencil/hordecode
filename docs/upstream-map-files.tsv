@@ -88,26 +88,6 @@ PARITY	.vscode/launch.example.json
 PARITY	.vscode/settings.example.json
 PARITY	.zed/settings.json
 FORK_DELTA	AGENTS.md
-PARITY	artifacts/glm52-rise-video/.gitignore
-PARITY	artifacts/glm52-rise-video/bun.lock
-PARITY	artifacts/glm52-rise-video/out/flash-share.mp4
-PARITY	artifacts/glm52-rise-video/out/glm-52-broke-out.mp4
-PARITY	artifacts/glm52-rise-video/out/june-totals.png
-PARITY	artifacts/glm52-rise-video/out/minimax-climb.mp4
-PARITY	artifacts/glm52-rise-video/out/novel-1984.mp4
-PARITY	artifacts/glm52-rise-video/out/nz-sheep.mp4
-PARITY	artifacts/glm52-rise-video/package.json
-PARITY	artifacts/glm52-rise-video/public/book.jpg
-PARITY	artifacts/glm52-rise-video/public/sheep.jpg
-PARITY	artifacts/glm52-rise-video/src/data.ts
-PARITY	artifacts/glm52-rise-video/src/flash.tsx
-PARITY	artifacts/glm52-rise-video/src/index.tsx
-PARITY	artifacts/glm52-rise-video/src/june.tsx
-PARITY	artifacts/glm52-rise-video/src/minimax.tsx
-PARITY	artifacts/glm52-rise-video/src/novel.tsx
-PARITY	artifacts/glm52-rise-video/src/sheep.tsx
-PARITY	artifacts/glm52-rise-video/src/video.tsx
-UPSTREAM_ONLY	artifacts/glm52-rise-video/sst-env.d.ts
 FORK_ONLY	assets/logo.svg
 PARITY	bunfig.toml
 FORK_ONLY	CHANGELOG.md
@@ -133,7 +113,6 @@ PARITY	github/tsconfig.json
 PARITY	infra/app.ts
 PARITY	infra/console.ts
 PARITY	infra/enterprise.ts
-PARITY	infra/lake.ts
 PARITY	infra/monitoring.ts
 PARITY	infra/secret.ts
 PARITY	infra/stage.ts
@@ -2581,7 +2560,7 @@ PARITY	packages/opencode/src/cli/tui/layer.ts
 PARITY	packages/opencode/src/cli/tui/validate-session.ts
 FORK_DELTA	packages/opencode/src/cli/tui/worker.ts
 FORK_DELTA	packages/opencode/src/cli/ui.ts
-PARITY	packages/opencode/src/cli/upgrade.ts
+LAGGING	packages/opencode/src/cli/upgrade.ts
 FORK_DELTA	packages/opencode/src/command/index.ts
 PARITY	packages/opencode/src/command/template/initialize.txt
 FORK_ONLY	packages/opencode/src/command/template/loops.txt
@@ -3016,6 +2995,7 @@ PARITY	packages/opencode/test/cli/tui/plugin-loader-pure.test.ts
 FORK_DELTA	packages/opencode/test/cli/tui/plugin-loader.test.ts
 PARITY	packages/opencode/test/cli/tui/plugin-toggle.test.ts
 PARITY	packages/opencode/test/cli/tui/thread.test.ts
+UPSTREAM_ONLY	packages/opencode/test/cli/upgrade.test.ts
 FORK_ONLY	packages/opencode/test/cli/workspace-trust-gate.test.ts
 FORK_ONLY	packages/opencode/test/command/builtin.test.ts
 FORK_ONLY	packages/opencode/test/command/config.test.ts
@@ -3234,6 +3214,7 @@ PARITY	packages/opencode/test/provider/error.test.ts
 PARITY	packages/opencode/test/provider/gitlab-duo.test.ts
 FORK_DELTA	packages/opencode/test/provider/header-timeout.test.ts
 PARITY	packages/opencode/test/provider/model-status.test.ts
+PARITY	packages/opencode/test/provider/openai.test.ts
 FORK_DELTA	packages/opencode/test/provider/provider.test.ts
 FORK_DELTA	packages/opencode/test/provider/transform.test.ts
 PARITY	packages/opencode/test/question/question.test.ts
@@ -3632,7 +3613,7 @@ PARITY	packages/sdk/js/src/v2/server.ts
 PARITY	packages/sdk/js/sst-env.d.ts
 PARITY	packages/sdk/js/test/session-history.test.ts
 PARITY	packages/sdk/js/tsconfig.json
-PARITY	packages/sdk/openapi.json
+FORK_DELTA	packages/sdk/openapi.json
 FORK_DELTA	packages/server/package.json
 FORK_ONLY	packages/server/src/adapter.bun.ts
 FORK_ONLY	packages/server/src/adapter.node.ts
@@ -4210,6 +4191,7 @@ PARITY	packages/tui/src/component/dialog-stash.tsx
 FORK_DELTA	packages/tui/src/component/dialog-status.tsx
 PARITY	packages/tui/src/component/dialog-tag.tsx
 PARITY	packages/tui/src/component/dialog-theme-list.tsx
+UPSTREAM_ONLY	packages/tui/src/component/dialog-update.tsx
 PARITY	packages/tui/src/component/dialog-variant.tsx
 FORK_ONLY	packages/tui/src/component/dialog-workflows.tsx
 FORK_DELTA	packages/tui/src/component/dialog-workspace-create.tsx
@@ -4304,6 +4286,7 @@ FORK_ONLY	packages/tui/src/context/theme/vesper.json
 FORK_ONLY	packages/tui/src/context/theme/zenburn.json
 FORK_DELTA	packages/tui/src/context/thinking.ts
 FORK_ONLY	packages/tui/src/context/tui-config.tsx
+UPSTREAM_ONLY	packages/tui/src/context/update-notification.tsx
 FORK_ONLY	packages/tui/src/context/visual.ts
 PARITY	packages/tui/src/editor-zed.ts
 PARITY	packages/tui/src/editor.ts
@@ -4355,7 +4338,7 @@ FORK_ONLY	packages/tui/src/i18n/tr.ts
 FORK_ONLY	packages/tui/src/i18n/zh-Hant.ts
 FORK_ONLY	packages/tui/src/i18n/zh.ts
 FORK_ONLY	packages/tui/src/i18n/zht.ts
-PARITY	packages/tui/src/index.tsx
+LAGGING	packages/tui/src/index.tsx
 PARITY	packages/tui/src/keymap.tsx
 FORK_DELTA	packages/tui/src/logo.ts
 PARITY	packages/tui/src/parsers-config.ts
@@ -4492,6 +4475,7 @@ PARITY	packages/tui/test/cli/tui/thinking.test.ts
 PARITY	packages/tui/test/cli/tui/use-event.test.tsx
 PARITY	packages/tui/test/clipboard.test.ts
 PARITY	packages/tui/test/component/dialog-session-list.test.ts
+UPSTREAM_ONLY	packages/tui/test/component/dialog-update.test.ts
 FORK_DELTA	packages/tui/test/config.test.tsx
 PARITY	packages/tui/test/context/local.test.ts
 FORK_ONLY	packages/tui/test/context/supervisor-self-healing.test.tsx
@@ -6977,7 +6961,7 @@ PARITY	patches/@ai-sdk%2Fgroq@3.0.31.patch
 PARITY	patches/@ai-sdk%2Fmistral@3.0.51.patch
 FORK_DELTA	patches/@ai-sdk%2Fopenai-compatible@2.0.41.patch
 PARITY	patches/@ai-sdk%2Fopenai@3.0.88.patch
-PARITY	patches/@ai-sdk%2Fxai@3.0.102.patch
+PARITY	patches/@ai-sdk%2Fxai@3.0.139.patch
 PARITY	patches/@dnd-kit%2Fdom@0.5.0.patch
 PARITY	patches/@modelcontextprotocol%2Fsdk@1.29.0.patch
 PARITY	patches/@npmcli%2Fagent@4.0.2.patch

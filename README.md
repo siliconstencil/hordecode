@@ -43,7 +43,7 @@ affiliated with or endorsed by either upstream project.
 
 | Part | Follows | Notes |
 | --- | --- | --- |
-| core, CLI, server, TUI, SDK and the small packages | opencode 1.18.34 | ported as a whole at each base bump |
+| core, CLI, server, TUI, SDK and the small packages | opencode 1.19.0 | ported as a whole at each base bump |
 | web, desktop and shared UI packages | opencode 1.17.18 | ported in their own step |
 | supervisor, harness, memory, inbox, cron, workflow, skill, task and the other fork packages | Hordecode | fork-only; supervisor and harness are customized ports of the MiMo Code designs (parity 0.1.11) |
 

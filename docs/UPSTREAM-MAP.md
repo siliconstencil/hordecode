@@ -6,21 +6,21 @@ Regenerate with `bun run script/upstream-map.ts` (writes this file and `docs/ups
 Reference points:
 
 - Git base: upstream tag `v1.17.18` (an ancestor of `main`).
-- Parity reference: opencode 1.18.34 checkout at `../repos/opencode-1.18.34`.
+- Parity reference: opencode 1.19.0 checkout at `../repos/opencode-1.19.0`.
 - MiMo Code references: `../repos/mimocode-v0.1.5` (starting base) and `../repos/mimocode-v0.1.11` (parity), selective from 0.1.12.
 
 ## Classes
 
 | class | meaning | rule for changes |
 |---|---|---|
-| PARITY | identical to opencode 1.18.34 | Do not edit. Upstream owns it; take the next upstream version as-is. |
+| PARITY | identical to opencode 1.19.0 | Do not edit. Upstream owns it; take the next upstream version as-is. |
 | LAGGING | identical to v1.17.18, upstream has moved on | Port the upstream change, do not hand-edit. |
 | FORK_DELTA | upstream file that Hordecode modified | Every edit must cite the upstream and MiMo reference. Ports must re-apply the delta. |
 | FORK_ONLY | exists only in Hordecode | Hordecode owns it. Custom features and the MiMo delta-port live here. |
 | kept (upstream removed) | Hordecode still carries a file upstream deleted | Decide per file at the next port. |
-| UPSTREAM_ONLY | present in 1.18.34, absent here | Not yet ported (deliberately dropped: `packages/console`, `packages/stats`). |
+| UPSTREAM_ONLY | present in 1.19.0, absent here | Not yet ported (deliberately dropped: `packages/console`, `packages/stats`). |
 
-Totals: PARITY 4500, LAGGING 452, FORK_DELTA 689, FORK_ONLY 1132, FORK_KEPT_UPSTREAM_REMOVED 8, UPSTREAM_ONLY 293.
+Totals: PARITY 4478, LAGGING 454, FORK_DELTA 690, FORK_ONLY 1132, FORK_KEPT_UPSTREAM_REMOVED 8, UPSTREAM_ONLY 296.
 
 ## Packages that are entirely Hordecode's
 
@@ -33,8 +33,8 @@ agent, bus, control-plane, cron, global, inbox, memory, project, shared, skill, 
 | path | parity | lagging | fork delta | fork only | kept (upstream removed) | upstream only |
 |---|---|---|---|---|---|---|
 | packages/core | 371 | 0 | 117 | 329 | 0 | 5 |
-| packages/opencode | 598 | 0 | 232 | 159 | 0 | 8 |
-| packages/tui | 122 | 0 | 117 | 135 | 0 | 2 |
+| packages/opencode | 598 | 1 | 232 | 159 | 0 | 9 |
+| packages/tui | 121 | 1 | 117 | 135 | 0 | 5 |
 | packages/web | 554 | 94 | 55 | 0 | 0 | 2 |
 | packages/ui | 1542 | 53 | 45 | 0 | 0 | 55 |
 | packages/app | 265 | 208 | 37 | 0 | 5 | 133 |
@@ -44,7 +44,7 @@ agent, bus, control-plane, cron, global, inbox, memory, project, shared, skill, 
 | packages/client | 11 | 0 | 10 | 0 | 0 | 0 |
 | packages/plugin | 35 | 0 | 6 | 4 | 0 | 1 |
 | packages/schema | 67 | 0 | 7 | 0 | 0 | 0 |
-| packages/sdk | 43 | 0 | 5 | 0 | 0 | 0 |
+| packages/sdk | 42 | 0 | 6 | 0 | 0 | 0 |
 | packages/enterprise | 17 | 15 | 4 | 0 | 0 | 0 |
 | packages/protocol | 23 | 0 | 3 | 0 | 0 | 0 |
 | packages/function | 2 | 0 | 2 | 0 | 0 | 2 |
@@ -97,13 +97,12 @@ A package with zero LAGGING and zero UPSTREAM_ONLY rows is at parity. Packages w
 | .prettierignore | 1 | 0 | 0 | 0 | 0 | 0 |
 | .vscode | 2 | 0 | 0 | 0 | 0 | 0 |
 | .zed | 1 | 0 | 0 | 0 | 0 | 0 |
-| artifacts | 19 | 0 | 0 | 0 | 0 | 1 |
 | bunfig.toml | 1 | 0 | 0 | 0 | 0 | 0 |
 | CONTEXT.md | 1 | 0 | 0 | 0 | 0 | 0 |
 | flake.lock | 1 | 0 | 0 | 0 | 0 | 0 |
 | flake.nix | 1 | 0 | 0 | 0 | 0 | 0 |
 | github | 10 | 0 | 0 | 0 | 0 | 0 |
-| infra | 8 | 0 | 0 | 0 | 0 | 0 |
+| infra | 7 | 0 | 0 | 0 | 0 | 0 |
 | nix | 6 | 0 | 0 | 0 | 0 | 0 |
 | perf | 1 | 0 | 0 | 0 | 0 | 0 |
 | README.ar.md | 1 | 0 | 0 | 0 | 0 | 0 |
