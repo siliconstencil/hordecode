@@ -92,8 +92,9 @@ describe("normalizeUseGithubToken", () => {
 })
 
 describe("normalizeOidcBaseUrl", () => {
-  it("defaults to opencode api", () => {
-    expect(normalizeOidcBaseUrl()).toBe("https://api.opencode.ai")
+  it("has no default broker", () => {
+    delete process.env["OIDC_BASE_URL"]
+    expect(normalizeOidcBaseUrl()).toBe("")
   })
   it("strips trailing slashes", () => {
     process.env["OIDC_BASE_URL"] = "https://oidc.example.com/"

@@ -24,6 +24,8 @@ All notable changes to this project will be documented in this file.
   startup.
 - The legacy model catalog loader no longer fetches models.dev at startup; the catalog comes
   from one source and is cached in one file.
+- `horde github run` uses the token broker set in `OIDC_BASE_URL`, or `GITHUB_TOKEN` with
+  `use_github_token: true`; `horde github install` explains that setup and changes no files.
 
 ## [0.1.1] - 2026-10-13
 

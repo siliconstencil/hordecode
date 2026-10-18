@@ -187,9 +187,11 @@ export function normalizeUseGithubToken() {
   throw new Error(`Invalid use_github_token value: ${value}. Must be a boolean.`)
 }
 
+// Upstream defaults to its own token broker (upstream github.handler.ts:698). Hordecode calls
+// no hosted service unless the user configures one, so an unset OIDC_BASE_URL stays empty.
 export function normalizeOidcBaseUrl(): string {
   const value = process.env["OIDC_BASE_URL"]
-  if (!value) return "https://api.opencode.ai"
+  if (!value) return ""
   return value.replace(/\/+$/, "")
 }
 
@@ -215,6 +217,14 @@ export const githubInstall = Effect.fn("Cli.github.install")(function* () {
     {
       UI.empty()
       prompts.intro("Install GitHub agent")
+      // Upstream installs the opencode GitHub app and a workflow that runs the opencode action
+      // (upstream github.handler.ts:157,289,325). Neither installs Hordecode, so the guided
+      // setup stops here; `horde github run` works in a workflow with use_github_token: true.
+      prompts.log.info(
+        "Set up Hordecode in a GitHub Actions workflow with `horde github run` and `use_github_token: true` (GITHUB_TOKEN).",
+      )
+      prompts.outro("No files were changed")
+      return
       const app = await getAppInfo()
       await installGitHubApp()
 
@@ -997,6 +1007,10 @@ export const githubRun = Effect.fn("Cli.github.run")(function* (args: { event?: 
     }
 
     async function exchangeForAppToken(token: string) {
+      if (!oidcBaseUrl)
+        throw new Error(
+          "No GitHub token broker configured: set use_github_token: true (with GITHUB_TOKEN) or OIDC_BASE_URL.",
+        )
       const response = token.startsWith("github_pat_")
         ? await fetch(`${oidcBaseUrl}/exchange_github_app_token_with_pat`, {
             method: "POST",
