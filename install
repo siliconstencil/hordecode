@@ -5,6 +5,10 @@ set -euo pipefail
 # or .zip, binary bin/hordecode). `horde` is installed as a symlink to it.
 APP=hordecode
 
+# Checksum manifest published with every release (lines: "<sha256>  <filename>").
+# The archive is verified against it before extraction.
+SUMS_FILE=SHA256SUMS
+
 # Single source of truth for the Hordecode release channel. Override via
 # `HORDECODE_RELEASE_BASE` for self-hosted/private mirrors. Mirrors the same
 # constant in `packages/opencode/src/installation/index.ts` and
@@ -28,13 +32,16 @@ Usage: install.sh [options]
 
 Options:
     -h, --help              Display this help message
-    -v, --version <version> Install a specific version (e.g., 0.1.0)
+    -v, --version <version> Install a specific version (e.g., 0.1.1)
     -b, --binary <path>     Install from a local binary instead of downloading
         --no-modify-path    Don't modify shell config files (.zshrc, .bashrc, etc.)
 
+Downloads are verified against the release SHA256SUMS before extraction.
+A local --binary is installed without a checksum.
+
 Examples:
     curl -fsSL "$RELEASE_BASE/install" | bash
-    curl -fsSL "$RELEASE_BASE/install" | bash -s -- --version 0.1.0
+    curl -fsSL "$RELEASE_BASE/install" | bash -s -- --version 0.1.1
     ./install --binary /path/to/horde
 
 Release channel: $RELEASE_BASE
@@ -196,27 +203,33 @@ else
     fi
 
     if [ -z "$requested_version" ]; then
-        url="$RELEASE_BASE/releases/latest/download/$filename"
-        specific_version=$(curl -s "${RELEASE_API}" | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')
+        # Resolve the latest tag once; the archive and checksum are then fetched from that tag.
+        release_json=$(curl -fsS "${RELEASE_API}" 2>/dev/null) || release_json=""
+        specific_version=$(printf '%s\n' "$release_json" | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')
 
-        if [[ $? -ne 0 || -z "$specific_version" ]]; then
+        if [ -z "$specific_version" ]; then
             echo -e "${RED}Failed to fetch version information from $RELEASE_API${NC}"
             exit 1
         fi
     else
         # Strip leading 'v' if present
         requested_version="${requested_version#v}"
-        url="$RELEASE_BASE/releases/download/v${requested_version}/$filename"
         specific_version=$requested_version
 
         # Verify the release exists before downloading
-        http_status=$(curl -sI -o /dev/null -w "%{http_code}" "$RELEASE_BASE/releases/tag/v${requested_version}")
+        http_status=$(curl -sI -o /dev/null -w "%{http_code}" "$RELEASE_BASE/releases/tag/v${requested_version}") || http_status=000
+        if [ "$http_status" = "000" ]; then
+            echo -e "${RED}Error: could not reach $RELEASE_BASE${NC}"
+            exit 1
+        fi
         if [ "$http_status" = "404" ]; then
             echo -e "${RED}Error: Release v${requested_version} not found at $RELEASE_BASE${NC}"
             echo -e "${MUTED}Available releases: $RELEASE_BASE/releases${NC}"
             exit 1
         fi
     fi
+    url="$RELEASE_BASE/releases/download/v${specific_version}/$filename"
+    sums_url="$RELEASE_BASE/releases/download/v${specific_version}/$SUMS_FILE"
 fi
 
 print_message() {
@@ -339,15 +352,61 @@ download_with_progress() {
     return $ret
 }
 
+# Verify $1/$2 (archive) against the SHA256SUMS line for its name in $1/$SUMS_FILE.
+# Exits 1 without extracting on any missing entry or mismatch.
+verify_checksum() {
+    local dir="$1"
+    local name="$2"
+    local sums="$dir/$SUMS_FILE"
+    local count expected actual
+
+    count=$(awk -v name="$name" '{ f = $2; sub(/^\*/, "", f); if (f == name) n++ } END { print n + 0 }' "$sums")
+    if [ "$count" -ne 1 ]; then
+        echo -e "${RED}Error: $SUMS_FILE has $count entries for $name (expected 1)${NC}"
+        rm -rf "$dir"
+        exit 1
+    fi
+    expected=$(awk -v name="$name" '{ f = $2; sub(/^\*/, "", f); if (f == name) print $1 }' "$sums" | tr '[:upper:]' '[:lower:]')
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        actual=$(sha256sum "$dir/$name" | cut -d ' ' -f 1)
+    elif command -v shasum >/dev/null 2>&1; then
+        actual=$(shasum -a 256 "$dir/$name" | cut -d ' ' -f 1)
+    else
+        echo -e "${RED}Error: sha256sum or shasum is required to verify the download${NC}"
+        rm -rf "$dir"
+        exit 1
+    fi
+    actual=$(echo "$actual" | tr '[:upper:]' '[:lower:]')
+
+    if [ "$actual" != "$expected" ]; then
+        echo -e "${RED}Error: SHA256 mismatch for $name${NC}"
+        echo -e "${RED}  expected: $expected${NC}"
+        echo -e "${RED}  actual:   $actual${NC}"
+        echo -e "${RED}Nothing was installed.${NC}"
+        rm -rf "$dir"
+        exit 1
+    fi
+    print_message info "${MUTED}Verified SHA256 ${NC}$actual${MUTED} for ${NC}$name"
+}
+
 download_and_install() {
     print_message info "\n${MUTED}Installing ${NC}horde ${MUTED}version: ${NC}$specific_version"
     local tmp_dir="${TMPDIR:-/tmp}/horde_install_$$"
     mkdir -p "$tmp_dir"
 
+    if ! curl -fsSL -o "$tmp_dir/$SUMS_FILE" "$sums_url"; then
+        echo -e "${RED}Error: could not download $SUMS_FILE from $sums_url${NC}"
+        rm -rf "$tmp_dir"
+        exit 1
+    fi
+
     if [[ "$os" == "windows" ]] || ! [ -t 2 ] || ! download_with_progress "$url" "$tmp_dir/$filename"; then
         # Fallback to standard curl on Windows, non-TTY environments, or if custom progress fails
-        curl -# -L -o "$tmp_dir/$filename" "$url"
+        curl -# -fL -o "$tmp_dir/$filename" "$url"
     fi
+
+    verify_checksum "$tmp_dir" "$filename"
 
     if [ "$os" = "linux" ]; then
         tar -xzf "$tmp_dir/$filename" -C "$tmp_dir"
