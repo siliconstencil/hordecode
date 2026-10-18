@@ -70,7 +70,8 @@ export const Flag = {
   OPENCODE_MODELS_URL: process.env["HORDECODE_MODELS_URL"] ?? process.env["OPENCODE_MODELS_URL"],
   OPENCODE_MODELS_PATH: process.env["HORDECODE_MODELS_PATH"] ?? process.env["OPENCODE_MODELS_PATH"],
   get OPENCODE_DB() {
-    return process.env["HORDECODE_DB"] ?? process.env["OPENCODE_DB"]
+    // Not paired: tests and upstream code switch databases by setting OPENCODE_DB at runtime.
+    return process.env["OPENCODE_DB"]
   },
 
   OPENCODE_WORKSPACE_ID: process.env["HORDECODE_WORKSPACE_ID"] ?? process.env["OPENCODE_WORKSPACE_ID"],
