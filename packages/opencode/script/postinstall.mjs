@@ -160,7 +160,25 @@ function copyRuntime(source, target) {
     const dir = path.join(from, extra)
     if (!fs.existsSync(dir)) continue
     fs.rmSync(path.join(to, extra), { recursive: true, force: true })
-    fs.cpSync(dir, path.join(to, extra), { recursive: true })
+    linkTree(dir, path.join(to, extra))
+  }
+}
+
+// Hard-link each file (no extra disk use, like copyBinary); copy where linking fails.
+function linkTree(from, to) {
+  fs.mkdirSync(to, { recursive: true })
+  for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+    const source = path.join(from, entry.name)
+    const target = path.join(to, entry.name)
+    if (entry.isDirectory()) {
+      linkTree(source, target)
+      continue
+    }
+    try {
+      fs.linkSync(source, target)
+    } catch {
+      fs.cpSync(source, target)
+    }
   }
 }
 

@@ -22,6 +22,8 @@ All notable changes to this project will be documented in this file.
   before extracting it, and takes the archive, checksum and version from one release.
 - The memory embedding runtime loads when semantic search first starts instead of at
   startup.
+- npm installs hard-link the embedding runtime next to the binary instead of copying it,
+  about 70 MiB less disk use on linux-x64.
 - The legacy model catalog loader no longer fetches models.dev at startup; the catalog comes
   from one source and is cached in one file.
 - `horde github run` uses the token broker set in `OIDC_BASE_URL`, or `GITHUB_TOKEN` with
