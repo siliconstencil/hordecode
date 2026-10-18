@@ -357,20 +357,14 @@ const layer = Layer.effect(
       }),
     )
 
-    const resolveAlias = (name: string, skills: Record<string, Info>): Info | undefined => {
-      if (skills[name]) return skills[name]
-      if (name === "research:deliberate" && skills["harness:deliberate"]) return skills["harness:deliberate"]
-      if (name === "harness:deliberate" && skills["research:deliberate"]) return skills["research:deliberate"]
-      return undefined
-    }
     const get = Effect.fn("Skill.get")(function* (name: string) {
       const s = yield* InstanceState.get(state)
-      return resolveAlias(name, s.skills) ?? s.skills[name]
+      return s.skills[name]
     })
 
     const require = Effect.fn("Skill.require")(function* (name: string) {
       const s = yield* InstanceState.get(state)
-      const info = resolveAlias(name, s.skills) ?? s.skills[name]
+      const info = s.skills[name]
       if (info) return info
       return yield* new NotFoundError({ name, available: Object.keys(s.skills).toSorted() })
     })

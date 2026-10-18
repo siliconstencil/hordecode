@@ -1,204 +1,70 @@
 ---
 name: harness:brainstorm
-description: "You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation."
+description: "Use when requirements or design are ambiguous, before planning or implementation - explores user intent, constraints, and approaches, and settles the design one decision at a time"
 ---
 
 # Brainstorming Ideas Into Designs
 
-Help turn ideas into fully formed designs and specs through natural collaborative dialogue.
+Turn an ambiguous idea into a settled design through focused dialogue: understand the context, resolve one decision at a time, propose approaches, and get the design approved.
 
-Start by understanding the current project context, then ask questions one at a time to refine the idea. Once you understand what you're building, present the design and get user approval.
+Step 0 of the mode prompt sends work here only when requirements or design are ambiguous. Once you are here, do not write code, scaffold, or invoke an implementation skill until the design is settled and, when a user is available, approved. Keep the design proportional: a few sentences for a small change.
 
-<HARD-GATE>
-Do NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action until you have presented a design and the user has approved it. This applies to EVERY project regardless of perceived simplicity.
+## No User Available
 
-**Autonomous override:** When no user is available to approve, this HARD-GATE does not apply: skip design presentation and approval, proceed directly to implementation, treating every approval gate as auto-approved.
-</HARD-GATE>
-
-## Anti-Pattern: "This Is Too Simple To Need A Design"
-
-Every project goes through this process. A todo list, a single-function utility, a config change — all of them. "Simple" projects are where unexamined assumptions cause the most wasted work. The design can be short (a few sentences for truly simple projects), but you MUST present it and get approval.
-
-**Autonomous override:** When no user is available, skip this anti-pattern guidance — proceed directly to exploring context and implementing; do not present a design for approval.
+Run the same thinking without the dialogue: explore the project context, pose the questions you would ask and answer each from the context, propose 2-3 approaches, pick one with its rationale, and state your assumptions and open questions in your response. Write the spec for multi-step changes unless your instructions say otherwise, then go to `harness:plan`. Do not wait for approval and do not start the visual companion.
 
 ## Checklist
 
-You MUST create a task for each of these items and complete them in order:
+Create a task per item with the `task` tool and complete them in order:
 
-**Autonomous mode (no user available):** Skip steps 2–8. Only do: explore project context (step 1) → implement directly (invoke harness:plan or harness:execute). Do NOT present a design, ask questions, write a spec, or wait for approval.
+1. **Explore project context:** files, docs, recent commits. Do not ask what the repository already answers.
+2. **Check scope:** if the request spans independent subsystems, decompose it first into sub-projects, each with its own spec, plan, and implementation cycle; brainstorm the first one.
+3. **Clarify:** one question per `harness:ask` call, purpose, constraints, success criteria. Offer likely answers as options; use `options: []` only when answers cannot be enumerated.
+4. **Propose 2-3 approaches** with trade-offs, leading with your recommendation and why.
+5. **Present the design** in sections scaled to their complexity. After each section, ask through `harness:ask` (header `Design Review`, options `Looks good` / `Needs changes`).
+6. **Write the spec** (multi-step features only) to the specs directory in the harness docs directory from the mode prompt, as `YYYY-MM-DD-<topic>-design.md`, and commit it. For small changes, keep the design in the conversation.
+7. **Self-review the spec** (below).
+8. **User review:** ask through `harness:ask` (header `Spec Review`, question `Spec written to <path>. Ready to plan?`, options `Approved` / `Changes needed`). Apply changes and re-review until approved.
+9. **Next step:** `harness:plan`. It is the only skill you invoke after brainstorming.
 
-1. **Explore project context** — check files, docs, recent commits
-2. **Offer visual companion** (if topic will involve visual questions) — this is its own message, not combined with a clarifying question. See the Visual Companion section below.
-3. **Ask clarifying questions** — one at a time, understand purpose/constraints/success criteria
-4. **Propose 2-3 approaches** — with trade-offs and your recommendation
-5. **Present design** — in sections scaled to their complexity, get user approval after each section
-6. **Write design doc** (optional, multi-step features only) — save to the `specs/` directory given in the `<harness_docs_dir>` block of your prompt, as `YYYY-MM-DD-<topic>-design.md`, and commit. For single-step fixes or small changes, keep the design in conversation context only.
-7. **Spec self-review** (if doc written) — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
-8. **User reviews written spec** (if doc written) — ask user to review the spec file before proceeding
-9. **Transition to implementation** — invoke harness:plan to create implementation plan
+## Design Content
 
-## Process Flow
+Cover what affects the change: architecture, components, data flow, error behavior, testing boundaries.
 
-- **Explore project context**
-- **Visual questions ahead?** — Yes → offer Visual Companion (own message, no other content)
-- **Ask clarifying questions**
-- **Propose 2-3 approaches**
-- **Present design sections**
-- **User approves design?** — No → revise, back to present design sections
-- **Write design doc**
-- **Spec self-review** (fix inline)
-- **User reviews spec?** — Changes requested → back to write design doc / Approved → **invoke harness:plan**
-
-**The terminal state is invoking harness:plan.** Do NOT invoke frontend-design, mcp-builder, or any other implementation skill. The ONLY skill you invoke after brainstorming is harness:plan.
-
-## The Process
-
-**Understanding the idea:**
-
-- Check out the current project state first (files, docs, recent commits)
-- Before asking detailed questions, assess scope: if the request describes multiple independent subsystems (e.g., "build a platform with chat, file storage, billing, and analytics"), flag this immediately. Don't spend questions refining details of a project that needs to be decomposed first.
-- If the project is too large for a single spec, help the user decompose into sub-projects: what are the independent pieces, how do they relate, what order should they be built? Then brainstorm the first sub-project through the normal design flow. Each sub-project gets its own spec → plan → implementation cycle.
-- For appropriately-scoped projects, ask questions one at a time to refine the idea
-- When the question has a known set of likely answers, use `harness:ask` with those answers as options
-- For open-ended questions, use `harness:ask` with 2-3 suggested answers as options — the user can always type their own answer
-- If no user is available, make reasonable assumptions from project context and proceed
-- Only one question per tool call — if a topic needs more exploration, break it into multiple questions
-- Focus on understanding: purpose, constraints, success criteria
-
-**Exploring approaches:**
-
-- Propose 2-3 different approaches with trade-offs
-- Present options conversationally with your recommendation and reasoning
-- Lead with your recommended option and explain why
-
-**Presenting the design:**
-
-- Once you believe you understand what you're building, present the design
-- Scale each section to its complexity: a few sentences if straightforward, up to 200-300 words if nuanced
-- After presenting each section, use `harness:ask`:
-  - header: `Design Review`
-  - question: `Does this <section-name> look right?`
-  - options:
-    - label: `Looks good`, description: `Approve and continue`
-    - label: `Needs changes`, description: `I have feedback`
-
-  If no user is available, treat as approved and continue.
-- Cover: architecture, components, data flow, error handling, testing
-- Be ready to go back and clarify if something doesn't make sense
-
-**Design for isolation and clarity:**
-
-- Break the system into smaller units that each have one clear purpose, communicate through well-defined interfaces, and can be understood and tested independently
-- For each unit, you should be able to answer: what does it do, how do you use it, and what does it depend on?
-- Can someone understand what a unit does without reading its internals? Can you change the internals without breaking consumers? If not, the boundaries need work.
-- Smaller, well-bounded units are also easier for you to work with - you reason better about code you can hold in context at once, and your edits are more reliable when files are focused. When a file grows large, that's often a signal that it's doing too much.
-
-**Working in existing codebases:**
-
-- Explore the current structure before proposing changes. Follow existing patterns.
-- Where existing code has problems that affect the work (e.g., a file that's grown too large, unclear boundaries, tangled responsibilities), include targeted improvements as part of the design - the way a good developer improves code they're working in.
-- Don't propose unrelated refactoring. Stay focused on what serves the current goal.
-
-## After the Design
-
-**Documentation (optional, multi-step features only):**
-
-For features with multiple tasks or significant architectural decisions:
-- Write the validated design (spec) to the `specs/` directory given in `<harness_docs_dir>`, as `YYYY-MM-DD-<topic>-design.md`
-  - (User preferences for spec location override this default)
-- Use elements-of-style:writing-clearly-and-concisely skill if available
-- Commit the design document to git
-
-For single bug fixes or small changes, skip the written spec — the design presented in conversation is sufficient.
-
-**Spec Self-Review (if doc written):**
-After writing the spec document, look at it with fresh eyes:
-
-1. **Placeholder scan:** Any "TBD", "TODO", incomplete sections, or vague requirements? Fix them.
-2. **Internal consistency:** Do any sections contradict each other? Does the architecture match the feature descriptions?
-3. **Scope check:** Is this focused enough for a single implementation plan, or does it need decomposition?
-4. **Ambiguity check:** Could any requirement be interpreted two different ways? If so, pick one and make it explicit.
-
-Fix any issues inline. No need to re-review — just fix and move on.
-
-**User Review Gate (if doc written):**
-After spec self-review passes, use `harness:ask`:
-- header: `Spec Review`
-- question: `Spec written and committed to <path>. Ready to proceed?`
-- options:
-  - label: `Approved`, description: `Proceed to harness:plan`
-  - label: `Changes needed`, description: `I have revisions`
-
-If no user is available, treat as approved and invoke harness:plan.
-
-If "Changes needed" or custom feedback, apply changes and re-run spec review. Only proceed on approval.
-
-**Implementation:**
-
-- Invoke harness:plan to create a detailed implementation plan
-- Do NOT invoke any other skill. harness:plan is the next step.
+- Break the system into units with one clear purpose and well-defined interfaces, each understandable and testable on its own. For each unit: what does it do, how is it used, what does it depend on?
+- In existing codebases, follow established patterns. Include targeted improvements only where existing problems affect this work; no unrelated refactoring.
+- YAGNI: remove features nobody asked for.
 
 ## Spec Section Anchors
 
-When writing the spec, give every `##` section heading a stable anchor ID so downstream plan tasks and reviewers can reference exact spec locations. Put the ID at the start of the heading text:
+Give every `##` heading in the spec a stable anchor so plan tasks and reviewers can reference it:
 
 ```markdown
 ## [S1] Problem
 ## [S2] Solution overview
-## [S3] Coverage gate behavior
+## [S3] Out of scope
 ```
 
-Rules:
+- IDs are `S` plus a number, unique, numbered in document order when first written.
+- IDs are stable: when a heading is reworded, keep its ID and never renumber the others. Plan `Covers:` lines and review verdicts depend on them.
 
-- **ID format** is `S` followed by a number (`[S1]`, `[S2]`, `[S3]`, ...), unique within the spec — no two sections share an ID, and no section is left without one.
-- **Number sections in document order** when first authoring the spec (top section is `[S1]`, the next is `[S2]`, and so on).
-- **The ID is stable.** If a heading is later reworded, keep its existing ID and do NOT renumber the other sections. Downstream `covers:` references and review verdicts depend on these IDs not drifting — renumbering would silently break every reference that points at them.
+## Spec Self-Review
 
-These anchors are the index the plan and reviewers use to trace each task and each review verdict back to the exact spec section it serves.
+1. **Placeholders:** no "TBD", "TODO", incomplete sections, or vague requirements.
+2. **Consistency:** no contradicting sections; architecture matches the feature description.
+3. **Scope:** focused enough for one plan.
+4. **Ambiguity:** any requirement readable two ways gets one explicit reading.
 
-## Key Principles
+Fix issues inline.
 
-- **One question at a time** - Don't overwhelm with multiple questions
-- **Multiple choice preferred** - Easier to answer than open-ended when possible
-- **YAGNI ruthlessly** - Remove unnecessary features from all designs
-- **Explore alternatives** - Always propose 2-3 approaches before settling
-- **Incremental validation** - Present design, get approval before moving on
-- **Be flexible** - Go back and clarify when something doesn't make sense
+For a large or durable spec, also dispatch an independent reviewer with `spec-document-reviewer-prompt.md`.
 
-## Visual Companion
+## Visual Companion (opt-in)
 
-A browser-based companion for showing mockups, diagrams, and visual options during brainstorming. Available as a tool — not a mode. Accepting the companion means it's available for questions that benefit from visual treatment; it does NOT mean every question goes through the browser.
+A local browser page for mockups, diagrams, and side-by-side visual options. It needs `node` on PATH, a browser, and a local port, so it is used only when the user opts in.
 
-**Offering the companion:** When you anticipate visual content (mockups, layouts, diagrams):
+1. When upcoming questions are genuinely visual (layouts, mockups, diagrams), check for a saved preference: `memory_recall` with `scope: "global"`, query `harness-preference visual-companion`.
+2. If none, offer it in its own `harness:ask` call: header `Visual Companion`, question `Some upcoming questions may be clearer as browser mockups. This uses more tokens and needs a local URL.`, options `Yes, this time` / `No, this time` / `Yes, always` / `No, never`.
+3. For "always" or "never": `memory_add` with `scope: "global"`, `type: "decision"`, body `harness-preference visual-companion: always` (or `never`). If the write is refused, continue.
 
-1. **Check memory** for a `visual-companion` preference in the `harness-preferences` memory file
-   (`{Global.Path.memory}/global/harness-preferences.md`, i.e.
-   `~/.local/share/hordecode/memory/global/harness-preferences.md` -- `global` scope has no
-   `scope_id` segment, per `packages/memory/src/paths.ts`'s `parsePath` regex; the `memory` tool
-   is search-only, this file is written directly with a normal file write, then picked up by the
-   memory indexer on its next pass). If found, honor it.
-
-2. **If no saved preference,** offer consent using `harness:ask` (this MUST be its own message — do not combine with other content):
-   - header: `Visual Companion`
-   - question: `Some upcoming questions may benefit from browser-based mockups and diagrams. This feature is token-intensive and requires opening a local URL.`
-   - options:
-     - label: `Yes, always`, description: `Enable visuals for this and future sessions`
-     - label: `No, never`, description: `Skip visuals for this and future sessions`
-     - label: `Yes, this time`, description: `Enable visuals for this session only`
-     - label: `No, this time`, description: `Skip visuals for this session only`
-
-   If no user is available, skip the visual companion and use text-only.
-
-3. **If "Yes, always" or "No, never":** Save to the `harness-preferences` memory file.
-
-If declined, proceed with text-only brainstorming.
-
-**Per-question decision:** Even after the user accepts, decide FOR EACH QUESTION whether to use the browser or the terminal. The test: **would the user understand this better by seeing it than reading it?**
-
-- **Use the browser** for content that IS visual — mockups, wireframes, layout comparisons, architecture diagrams, side-by-side visual designs
-- **Use the terminal** for content that is text — requirements questions, conceptual choices, tradeoff lists, A/B/C/D text options, scope decisions
-
-A question about a UI topic is not automatically a visual question. "What does personality mean in this context?" is a conceptual question — use the terminal. "Which wizard layout works better?" is a visual question — use the browser.
-
-If they agree to the companion, read the detailed guide before proceeding:
-`<harness:brainstorm>/visual-companion.md`
+Even after acceptance, decide per question: use the browser only when the user would understand it better by seeing it; requirements, trade-offs, and scope questions stay in the terminal. When accepted, read `visual-companion.md` in this skill's directory before starting.

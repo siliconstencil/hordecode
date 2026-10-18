@@ -1,85 +1,70 @@
 ---
 name: harness:subagent
-description: Use when executing implementation plans with independent tasks in the current session
+description: Use when executing an implementation plan in this session by dispatching a fresh subagent per task, with a spec-compliance review and then a code-quality review after each task
 ---
 
 # Subagent-Driven Development
 
-Execute plan by dispatching fresh subagent per task, with two-stage review after each: spec compliance review first, then code quality review.
+Execute the plan by dispatching a fresh implementer subagent per task, then two reviews per task: spec compliance first, code quality second.
 
-**Core principle:** Fresh subagent per task + two-stage review (spec then quality) = high quality, fast iteration
+**Continuous execution:** do not pause between tasks. Stop only for a BLOCKED status you cannot resolve, ambiguity that genuinely prevents progress, a destructive action needing consent, or completion.
 
-**Continuous execution:** Do not pause to check in with your human partner between tasks. Execute all tasks from the plan without stopping. The only reasons to stop are: BLOCKED status you cannot resolve, ambiguity that genuinely prevents progress, or all tasks complete.
+## Prompt Templates
 
-## When to Use
+All in this skill's base directory:
+- `implementer-prompt.md`: implementer dispatch
+- `spec-reviewer-prompt.md`: spec-compliance reviewer (two-phase, evidence-gated verdict)
+- `code-quality-reviewer-prompt.md`: code-quality reviewer (builds on `../review/code-reviewer.md`)
 
-1. Have implementation plan? -- No -> brainstorm first or manual execution
-2. Tasks mostly independent? -- No (tightly coupled) -> brainstorm first or manual execution
-3. Stay in this session? -- Yes -> **harness:subagent** / No -> harness:execute (parallel session)
+Dispatch every subagent with the `supervisor` tool, for example:
 
-## The Process
+```
+{"operation":{"action":"run","subagent_type":"general","description":"Implement Task 1: Parser","prompt":"<filled implementer-prompt.md>","task_id":"T1"}}
+```
 
-**Setup:** Read plan -> extract all tasks with full text -> note context -> create a task per plan task (task create)
+## Setup
 
-**Per Task:**
+1. Read the plan once; extract every task's full text, its `Covers:` anchors, and the Global Constraints.
+2. **Pre-flight:** scan the whole plan for contradictions, conflicts with Global Constraints, and inconsistent interface contracts. Present them as one batched question through `harness:ask`. No user available: resolve conservatively (strictest reading).
+3. Create one task per plan task with the `task` tool: `{"operation":{"action":"create","summary":"Task 1: Parser"}}`.
 
-- **Dispatch implementer** -- create+bind task (--task TID, auto-starts), inject covered spec as Intent
-- **Implementer asks questions?** -- Yes -> answer, provide context, re-dispatch
-- **Implementer implements** -- tests, commits, self-reviews
-- **Spec review phase 1** -- dispatch with spec + diff only, no report
-- **Phase 1 flagged anything?** -- Yes -> dispatch phase 2 (report explains flags, downgrade-only)
-- **Spec gate: all in-scope claims pass with evidence?** -- No -> implementer fixes -> back to spec review
-- **Code quality review** -- dispatch reviewer
-- **Quality approved?** -- No -> implementer fixes -> back to quality review
-- **Mark task done** -- task done TID
+Never start on `main` or `master` without explicit user consent.
 
-**More tasks remain?** -- Yes -> next task (dispatch implementer)
+## Per Task
 
-**Finish:** Dispatch final code reviewer for entire implementation -> **harness:merge**
+1. **Dispatch the implementer** from `implementer-prompt.md`, passing the task's id as `task_id` (binding auto-starts the task). Paste the verbatim `[Sn]` spec sections listed in `Covers:` into its Intent block and the full task text into its Task block; never make the subagent read the plan. If a worktree is in use, give its absolute path and tell the subagent to run commands with `bash` `workdir` set to it.
+2. **Questions** (NEEDS_CONTEXT): answer, add context, re-dispatch.
+3. **Spec review, phase 1** from `spec-reviewer-prompt.md`: covered spec text plus the diff only, never the implementer's report.
+4. **Phase 2** only if phase 1 flagged anything: same reviewer, phase-1 verdict plus the implementer report; it may only downgrade flags.
+5. **Spec gate:** pass only when every in-scope claim is `pass` with evidence (test name, command output, or file:line). Otherwise the implementer fixes and spec review restarts at phase 1.
+6. **Code-quality review** from `code-quality-reviewer-prompt.md`, only after the spec gate passes. Critical or Important issues: implementer fixes, quality review repeats.
+7. **Mark done:** `{"operation":{"action":"done","id":"T1","event_summary":"spec gate pass, quality approved"}}`.
+
+**Non-convergence:** if a fix-and-re-review loop stops converging (the same findings return on the same area, or fixes introduce new critical findings), stop looping. `block` the task with the remaining findings as `event_summary` and report the impasse instead of forcing a pass.
+
+## Implementer Status
+
+- **DONE:** go to spec review.
+- **DONE_WITH_CONCERNS:** read the concerns; correctness or scope concerns are addressed before review.
+- **NEEDS_CONTEXT:** provide it, re-dispatch.
+- **BLOCKED:** context problem -> more context; needs more reasoning -> more capable model; too large -> split; plan wrong -> escalate through `harness:ask`.
+
+Never force the same model to retry without changing something.
 
 ## Model Selection
 
-Use the least powerful model that can handle each role.
+Use the least powerful model that handles each role: cheap for mechanical 1-2 file tasks, standard for multi-file integration, most capable for design and review. Reviewers are at least as capable as the implementer they review. `{"operation":{"action":"models"}}` lists the configured models.
 
-- **Mechanical implementation** (isolated functions, clear specs, 1-2 files): cheap model
-- **Integration and judgment** (multi-file, debugging): standard model
-- **Architecture, design, review**: most capable model
+## Rules
 
-**Reviewer tier:** Spec reviewer at least as capable as implementer. Weaker reviewer = blind spots.
+- Never skip either review, and never start quality review before the spec gate passes.
+- Never include the implementer report in phase 1.
+- Never mark a task done while an in-scope claim is `fail` or `unverifiable`.
+- Do not dispatch parallel implementers into the same checkout; they collide. For independent work, see `harness:parallel`.
+- Treat every subagent report as a claim; inspect the diff.
 
-## Handling Implementer Status
+## Finish
 
-- **DONE:** Proceed to spec compliance review
-- **DONE_WITH_CONCERNS:** Read concerns before proceeding
-- **NEEDS_CONTEXT:** Provide missing context, re-dispatch
-- **BLOCKED:** Assess (context -> re-dispatch, reasoning -> upgrade model, size -> split, plan wrong -> escalate)
+When all tasks are done, go to `harness:verify` for full verification, then `harness:review` for the whole change, then `harness:report`, then `harness:merge`.
 
-Never ignore an escalation or force the same model to retry without changes.
-
-## Pre-Flight Review
-
-Before Task 1: scan entire plan for conflicts, contradictions, ambiguous contracts. Present as one batched question via harness:ask.
-
-## Red Flags
-
-**Never:**
-- Start on main/master without user consent
-- Skip reviews (spec compliance OR code quality)
-- Proceed with unfixed issues
-- Dispatch multiple implementation subagents in parallel (conflicts)
-- Make subagent read plan file (provide full text instead)
-- Start code quality review before spec compliance pass
-- Include implementer report in phase-1 spec review
-- Mark task complete while any in-scope claim is fail/unverifiable
-
-## Detailed Reference
-
-For spec-anchored review gate, full example workflow, advantages, and prompt templates, see `<harness:subagent>/reference.md`.
-
-## Integration
-
-- **harness:worktree** - Isolated workspace
-- **harness:plan** - Creates the plan
-- **harness:review** - Code review template
-- **harness:merge** - Complete development
-- **harness:tdd** - TDD workflow in subagent prompts
+`reference.md` in this directory has the detailed review gate and a worked example.

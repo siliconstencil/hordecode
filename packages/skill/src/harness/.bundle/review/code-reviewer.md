@@ -4,8 +4,9 @@ Use this template when dispatching a code reviewer subagent.
 
 **Purpose:** Review completed work against requirements and code quality standards before it cascades into more work.
 
-Dispatch a `general` subagent via the `supervisor` tool, following the syntax in that
-tool's own description. Use a title like "Review code changes" with this prompt:
+Dispatch a `general` subagent with the `supervisor` tool (`run`). Use a reviewer model
+at least as capable as the strongest implementer it reviews. Use a description like
+"Review code changes" with this prompt:
 
 ~~~
     You are a Senior Code Reviewer with expertise in software architecture,
@@ -22,9 +23,9 @@ tool's own description. Use a title like "Review code changes" with this prompt:
 
     ## Git Range to Review
 
-    [If the work was done in an isolated worktree, add a line here: "Run all
-    commands from `<worktree path>` — `cd` there first." Omit this if there's no
-    separate worktree; the current checkout is correct by default.]
+    [If the work was done in an isolated worktree the session did not switch into,
+    add: "Run all commands with the bash tool's `workdir` set to `<absolute worktree
+    path>`." Omit otherwise.]
 
     **Base:** {BASE_SHA}
     **Head:** {HEAD_SHA}
@@ -33,6 +34,17 @@ tool's own description. Use a title like "Review code changes" with this prompt:
     git diff --stat {BASE_SHA}..{HEAD_SHA}
     git diff {BASE_SHA}..{HEAD_SHA}
     ```
+
+    ## Verification Already Run
+
+    {VERIFICATION_SUMMARY}
+
+    Do not repeat a command reported above as PASS, especially a heavy end-to-end
+    suite, unless the result is stale (code changed afterward) or concrete evidence
+    makes it suspect. Before any justified rerun, make sure no equivalent command is
+    still running. Gather missing evidence with the cheapest command that is not a
+    duplicate. PRE-EXISTING failures are baseline, not findings, unless this change
+    made them worse.
 
     ## What to Check
 
@@ -57,11 +69,16 @@ tool's own description. Use a title like "Review code changes" with this prompt:
     - Security concerns?
     - Integrates cleanly with surrounding code?
 
+    **Codebase consistency:**
+    - Do naming, structure, and error-handling style match the surrounding code?
+    - Does it reuse existing helpers and patterns instead of introducing parallel ones?
+    - Do new files sit where similar files live?
+
     **Testing:**
     - Tests verify real behavior, not mocks?
     - Edge cases covered?
     - Integration tests where they matter?
-    - All tests passing?
+    - Do tests cover the acceptance criteria?
 
     **Production readiness:**
     - Migration strategy if schema changed?
@@ -72,7 +89,7 @@ tool's own description. Use a title like "Review code changes" with this prompt:
     ## Calibration
 
     Categorize issues by actual severity. Not everything is Critical.
-    Acknowledge what was done well before listing issues — accurate praise
+    Acknowledge what was done well before listing issues - accurate praise
     helps the implementer trust the rest of the feedback.
 
     If you find significant deviations from the plan, flag them specifically
@@ -81,6 +98,11 @@ tool's own description. Use a title like "Review code changes" with this prompt:
     say so.
 
     ## Output Format
+
+    Give separate conclusions for three axes: spec compliance (every acceptance
+    criterion met, with evidence), correctness (logic, boundaries, error handling,
+    regressions, tests), and codebase consistency. Unmet or unverifiable acceptance
+    criteria and correctness bugs are Critical.
 
     ### Strengths
     [What's well done? Be specific.]
@@ -129,13 +151,14 @@ tool's own description. Use a title like "Review code changes" with this prompt:
 ~~~
 
 **Placeholders:**
-- `{DESCRIPTION}` — brief summary of what was built
-- `{PLAN_OR_REQUIREMENTS}` — what it should do (plan file path, task text, or requirements)
-- `{BASE_SHA}` — starting commit
-- `{HEAD_SHA}` — ending commit
+- `{DESCRIPTION}` - brief summary of what was built
+- `{PLAN_OR_REQUIREMENTS}` - what it should do (plan file path, task text, or requirements)
+- `{BASE_SHA}` - starting commit
+- `{HEAD_SHA}` - ending commit
+- `{VERIFICATION_SUMMARY}` - one line per command: PASS / FAIL / PRE-EXISTING, with test counts; no full output unless a specific failure needs it
 
-If the work was done in an isolated worktree, also add a `cd <worktree path>`
-instruction to the Git Range section; otherwise the current checkout is correct.
+If the work was done in an isolated worktree, add the `workdir` line to the Git
+Range section (see above).
 
 **Reviewer returns:** Strengths, Issues (Critical / Important / Minor), Recommendations, Assessment
 

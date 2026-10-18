@@ -1,7 +1,7 @@
 export const meta = {
   name: "harness",
   description:
-    "Autonomous harness pipeline — brainstorms context, designs (spec/plan), implements via parallel per-task worktrees with TDD, verifies, reviews, reports, and merges. Bounded retry, never-ask mode.",
+    "Autonomous harness pipeline — brainstorms context, designs (spec/plan), implements via parallel per-task worktrees with TDD, verifies, reviews, reports, and commits on a feature branch (never pushes, opens a PR or merges into the base branch). Bounded retry, never-ask mode.",
   whenToUse:
     "Use to drive a feature, bugfix, refactor, or review-feedback task through the full harness flow without user prompting. Pass args.task = the user's request. Optionally args.type to set the task type (feature/bugfix/refactor/feedback; otherwise inferred), args.feature_name for the report filename, args.skip_brainstorm / args.skip_report to drop those phases, args.maxConcurrent to bound per-batch parallelism. Independent tasks auto-run in parallel, each in its own worktree, then merge back; pass args.isolate_worktrees=false to force all-sequential or =true to force isolation.",
   phases: [
@@ -11,7 +11,7 @@ export const meta = {
     { title: "Verify", detail: "Run project verify commands; structured pass/fail" },
     { title: "Review", detail: "harness:review for critical/important/minor issues" },
     { title: "Report", detail: "harness:report per-iteration + final consolidated report" },
-    { title: "Merge", detail: "harness:merge to commit (and optionally push/PR)" },
+    { title: "Merge", detail: "harness:merge to commit on the feature branch" },
   ],
 }
 
@@ -122,7 +122,7 @@ const MERGE_SHAPE = {
     committed: { type: "boolean" },
     sha: { type: "string" },
     prUrl: { type: "string" },
-    action: { enum: ["commit", "commit+push", "commit+pr", "none"] },
+    action: { enum: ["commit", "none"] },
   },
 }
 
@@ -711,11 +711,9 @@ const merge = await agent(
       (_arr(review.important).length ? "Important (should follow up):\n" + _arr(review.important).map((x) => "- " + x).join("\n") + "\n" : "") +
       (_arr(review.minor).length ? "Minor (nits):\n" + _arr(review.minor).map((x) => "- " + x).join("\n") + "\n" : "") + "\n"
     : "") +
-  "Commit the changes. If the branch tracks a remote and a PR is appropriate, push and open one.\n" +
-  "Pick the smallest action that satisfies the goal:\n" +
-  "- `commit`: just record locally\n" +
-  "- `commit+push`: also push to the existing remote branch\n" +
-  "- `commit+pr`: push and open a PR\n\n" +
+  "This run is unattended. Commit the changes on the current feature branch; if HEAD is the base branch, " +
+  "create a feature branch first. Do not push, open a PR, or merge into the base branch: report the branch " +
+  "and the suggested closing commands instead (action `commit`).\n\n" +
   "Return structured output only.",
   { label: "merge", phase: "Merge", schema: MERGE_SHAPE, steps: 8 }
 )
