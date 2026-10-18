@@ -22,14 +22,21 @@ delta-port of [MiMo Code](https://github.com/XiaomiMiMo/MiMo-Code), and adds its
 layer: a supervisor for long-running work, a harness pipeline, an inbox, persistent
 memory with an optional on-device embedding index, skills, workflows and cron.
 
-Every opencode provider, plugin and config file keeps working. Hordecode is not
+Bring your own API key: Hordecode works with the more than 200 providers in its model
+catalog and with local models. Every opencode provider, plugin and config file keeps working.
+Hordecode is maintained by [Silicon Stencil](https://siliconstencil.com) and is not
 affiliated with or endorsed by either upstream project.
 
 ## Why Hordecode
 
+The supervisor, the harness and research pipelines and memory run inside the session runtime,
+so they share the session's permissions, sidebar and storage instead of living in a separate
+plugin process.
+
 - **Long-running work is built in.** A supervisor runs delegated work as tracked child
   sessions with waiters and task links, so multi-step work survives past one turn. Tasks,
-  workflows, cron and an inbox are tools the agent calls, not plugins to assemble.
+  workflows, cron and an inbox are tools the agent calls, not plugins to assemble. Shell
+  commands in scheduled jobs run only after you approve them.
 - **Memory that stays local.** Seven memory tools keep project knowledge across sessions.
   Keyword search (BM25) works out of the box; semantic search is opt-in and runs on-device.
 - **Skill pipelines ship with the binary.** A harness set of 16 skills (plan, tdd, debug,
@@ -48,7 +55,8 @@ affiliated with or endorsed by either upstream project.
 | supervisor, harness, memory, inbox, cron, workflow, skill, task and the other fork packages | Hordecode | fork-only; supervisor and harness are customized ports of the MiMo Code designs (parity 0.1.11) |
 
 Hordecode 0.1.x stays on the opencode 1.x line; each base bump ports a newer 1.x release
-whole. The file-level ownership map is in [docs/UPSTREAM-MAP.md](docs/UPSTREAM-MAP.md).
+whole. The file-level ownership map is in [docs/UPSTREAM-MAP.md](docs/UPSTREAM-MAP.md): 1,132
+files are Hordecode's own and 690 upstream files carry Hordecode changes.
 
 ---
 
@@ -59,7 +67,7 @@ whole. The file-level ownership map is in [docs/UPSTREAM-MAP.md](docs/UPSTREAM-M
 npm install -g hordecode
 
 # One-line install (macOS / Linux)
-curl -fsSL https://raw.githubusercontent.com/siliconstencil/hordecode/main/install | bash
+curl -fsSL https://hordecode.com/install | bash
 
 # Run
 horde
@@ -81,8 +89,10 @@ horde upgrade 0.1.1      # a specific version
 <details>
 <summary><strong>Install script details</strong></summary>
 
-The script installs into `~/.hordecode/bin` and adds that directory to your shell
-profile unless you pass `--no-modify-path`.
+`https://hordecode.com/install` redirects to the `install` script in this repository; the
+raw URL below works the same for mirrors and pinned versions. The script checks the release
+archive against the release's `SHA256SUMS`, installs into `~/.hordecode/bin` and adds that
+directory to your shell profile unless you pass `--no-modify-path`.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/siliconstencil/hordecode/main/install | bash -s -- --version 0.1.1
@@ -132,8 +142,20 @@ Behind the tools, the **inbox** carries messages between agents and sessions, an
 **harness** pipeline drives supervised runs.
 
 The upstream tool set (read, edit, bash, grep, glob, lsp, MCP, plan, question, ...)
-and the built-in **build**, **plan** and **general** agents are unchanged. Switch
-agents with `Tab`.
+and the built-in **build**, **plan** and **general** agents are unchanged. Hordecode adds
+two primary agents, **harness** and **research**. Switch agents with `Tab`.
+
+### Harness and research pipelines
+
+Pick **build** for a direct change, **harness** for build work that should go through a
+fixed discipline, and **research** for a question that needs sources and a decision.
+
+- **harness** loads the 16 `harness:*` skills: ask, brainstorm, debug, deliberate, eval,
+  execute, feedback, merge, parallel, plan, report, review, subagent, tdd, verify, worktree.
+- **research** loads the 16 `research:*` skills and runs ask, scope, gather, verify, filter,
+  synthesize, decide and eval. Gathering runs up to five sub-agents in parallel, each with
+  its own context; the report is written once from the verified evidence, with a citation
+  table, and every run ends with a decision record.
 
 ### Memory search: keyword by default, semantic opt-in
 
@@ -149,3 +171,8 @@ directory; recall uses keyword search while the model loads, then becomes hybrid
 (keyword + semantic). The on-device index ships in the linux-x64 package; other targets use
 keyword search. `memory-status` reports the current
 mode and vector count, and `horde debug embedding-check` verifies the pipeline.
+
+## Network access
+
+Every outbound connection, what starts it and how to turn it off is listed in
+[docs/NETWORK.md](docs/NETWORK.md). Hordecode has no product telemetry.
