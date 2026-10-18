@@ -28,6 +28,11 @@ All notable changes to this project will be documented in this file.
   from one source and is cached in one file.
 - `horde github run` uses the token broker set in `OIDC_BASE_URL`, or `GITHUB_TOKEN` with
   `use_github_token: true`; `horde github install` explains that setup and changes no files.
+- Model requests identify Hordecode: the default `User-Agent` is `hordecode/<version>`, and
+  the attribution headers sent to OpenRouter, Vercel, LLM Gateway, ZenMux, Kilo and Cerebras
+  name Hordecode (`https://hordecode.com/`). Providers hosted by opencode and the provider
+  integrations carried unchanged from upstream (GitHub Copilot, ChatGPT sign-in, xAI, Azure,
+  DigitalOcean, Snowflake, NVIDIA billing) keep the opencode identity.
 - Supervisors delegate through nested subagents three levels deep by default (main agent,
   coordinating supervisor, workers, helpers); `subagent_depth` sets it from 0 to 8. Only
   subagent links count toward the depth; peers do not.

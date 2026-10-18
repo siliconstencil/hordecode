@@ -1230,6 +1230,18 @@ it.instance(
 )
 
 it.instance(
+  "openrouter attribution headers identify Hordecode",
+  Effect.gen(function* () {
+    yield* set("OPENROUTER_API_KEY", "test-api-key")
+    const providers = yield* list
+    expect(providers[ProviderV2.ID.openrouter].options.headers).toEqual({
+      "HTTP-Referer": "https://hordecode.com/",
+      "X-Title": "hordecode",
+    })
+  }),
+)
+
+it.instance(
   "custom model inherits npm package from models.dev provider config",
   Effect.gen(function* () {
     yield* set("OPENAI_API_KEY", "test-api-key")
