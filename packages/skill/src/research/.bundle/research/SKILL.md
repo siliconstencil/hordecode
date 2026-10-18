@@ -1,77 +1,68 @@
 ---
 name: research
-trigger: "Use to run the research pipeline end-to-end: ask -> scope -> gather -> verify -> filter -> synthesize -> decide -> eval"
+description: Run a cited, multi-source investigation with parallel subagents and write one report (and a decision record when the question is a decision). Use for questions that need several independent sources. Not for lookups that one or two searches answer.
 ---
 
-# Research Pipeline -- Root Orchestrator
+# Research
 
-Orchestrate a complete research pipeline run. Mirrors `harness` root skill.
+Gather in parallel, write alone. Subagents collect evidence into files; you write one report from
+those files. Never let several agents write report sections.
 
-## Pipeline Phases
+Paths below (`reference/`, `templates/`) are relative to this skill's base directory.
 
-```
-ASK -> SCOPE -> GATHER -> VERIFY -> FILTER -> SYNTHESIZE -> DECIDE -> EVAL
-```
+## Step 0: always first
 
-## When to Use
+1. Run `date +%Y-%m-%d`. Use that date for freshness; never assume the year.
+2. Triage. If one or two searches answer the question, answer it directly and stop.
+3. Pick a depth (default standard; the user's words "quick" or "thorough" override):
 
-- User asks a research question that needs multiple sources
-- Complex analysis requiring evidence, citation audit, and a decision
-- Any task that needs a structured research document
+| Depth | Subagents, round 1 | Follow-up rounds | Sources target |
+|---|---|---|---|
+| quick | 2-3 | 0 | 8+ |
+| standard | 3-5 | 1 | 15+ |
+| deep | 5-8 | 2 | 25+ |
 
-## Workflow
+These are hard budgets. At most 8 subagents run at once.
 
-1. **ASK**: Clarify user intent via `research:ask`. Never assume. Record verbatim intent.
-2. **SCOPE**: Decompose via `research:scope`. Produce `brief.md` in `findings/<run-id>/`. Get user approval on brief before proceeding.
-3. **PLAN**: Create run manifest via `research:plan`. Assign agents, budgets, gates.
-4. **GATHER**: Execute parallel research via `research:execute` + `research:parallel`. Each sub-agent writes `evidence.md` with source + confidence.
-5. **VERIFY**: Audit evidence via `research:review`. Check citations, flag UNCORROBORATED, surface conflicts.
-6. **FILTER**: Compress via `research:verify`. Keep source+confidence only. Enforce token budget.
-7. **SYNTHESIZE**: Write ONE-SHOT report via `research:report`. Citation table required.
-8. **DECIDE**: Produce decision record via `research:merge`. ADOPT/DEFER/REJECT + reason + milestone.
-9. **EVAL**: Score the run via `research:tdd`. Record metrics.
+## Workspace
 
-## Run ID
+Keep all state on disk, never only in context:
+`<reports directory from the mode prompt>/<YYYY-MM-DD>-<slug>/` with `brief.md`, `findings/F<n>.md`,
+`REPORT.md` and, for decisions, `DECISION.md`. Create `findings/` first. On resume, re-read
+`brief.md`, list `findings/`, skip finished angles.
 
-Format: `<YYYY-MM-DD>-<topic-kebab>-<seq>`. Example: `2026-07-31-db-metadata-taxonomy-01`.
+## 1. Scope
 
-## Findings Directory
+- Unclear audience, time frame, region or decision at stake: load `research:ask`, one round at most.
+  Otherwise write your assumptions into the brief.
+- Write `brief.md` from `templates/brief.md`. The brief, not the conversation, is what every later
+  step is measured against.
+- Split the question into 3-8 independent angles. Lenses: core facts, developments in the last 12
+  months, numbers and benchmarks, counter-arguments and failure cases, practitioner experience,
+  academic work, alternatives, and what could be wrong with the question itself.
+- Deep depth or a contested topic: confirm the angle list with the user before spending budget.
 
-Every run writes to `research/pipeline/findings/<run-id>/`:
-- `brief.md` (SCOPE output)
-- `evidence.md` (GATHER output, per-phase)
-- `report.md` (SYNTHESIZE output)
-- `decision.md` (DECIDE output)
-- `<phase>.gate` (gate pass/fail record)
+## 2. Gather
 
-## Evidence Policy (binding)
+Spawn one subagent per angle in a single message:
+`{"operation":{"action":"spawn","subagent_type":"general","description":"Research F<n>","prompt":"..."}}`
+then `wait` on each `supervisor_id`. Build every prompt from `reference/subagent-prompt.md`,
+replacing only its variables. Search sources and the fallback when `websearch` is missing are in
+`reference/sources.md`; pass the relevant lines to the subagent. A failed or thin angle is noted
+and does not block the others; retry an angle once, not the whole run.
 
-- Sources: academic/official > industry-primary > industry-secondary > blog
-- UNCORROBORATED: any claim without verifiable source is flagged
-- Freshness: web 2026 Q2/Q3; older flagged stale
+## 3. Review
 
-## Parallelism
+Load `research:review`. It reads `findings/`, checks coverage against the brief and flags
+single-source, conflicting and stale claims. If gaps remain and a follow-up round is left, spawn
+narrower subagents with the same template. Otherwise record the gaps for "Open questions".
 
-- Max 5 sub-agents in GATHER phase (isolated context per sub-agent)
-- Sub-agent failure isolated (does not abort siblings)
-- Synthesis is ONE-SHOT, never multi-agent
+## 4. Write
 
-## Gate Ordering
+Alone, in one pass, following `reference/report.md`. Every `[n]` cites a URL that appears in a
+findings file; nothing from memory. The report follows the user's language. If the user asked
+whether to adopt, choose or change something, also write `DECISION.md` from `templates/decision.md`.
 
-Sequential: evidence -> citation -> token. Each gate must pass before next phase.
+## 5. Finish
 
-## Integration
-
-- QUEUE.md: add Decision column per finding
-- ADR-LOG.md: decision records from DECIDE phase
-- MEMORY.md: every run appends timestamped entry
-- Aurelius: per-run decision nodes + task_log
-
-## Scripts
-
-- `research/pipeline/scripts/research-gate.sh` -- evidence check, DRAFT/FINAL
-- `research/pipeline/scripts/research-score.sh` -- per-phase keyword scoring
-- `research/pipeline/scripts/research-aggregate.sh` -- run-level aggregation
-- `research/pipeline/scripts/research-cite.sh` -- citation audit
-- `research/pipeline/scripts/research-index.sh` -- INDEX.md maintenance
-- `research/pipeline/scripts/research-distill.sh` -- monthly distillation
+Tell the user the 5-10 most important conclusions and the report path. Do not paste the report.
