@@ -18,6 +18,12 @@ All notable changes to this project will be documented in this file.
 - Every `HORDECODE_*` environment switch that has an `OPENCODE_*` twin is honored, with the
   `HORDECODE_*` value first; `HORDECODE_DISABLE_AUTOUPDATE` and `HORDECODE_DISABLE_MODELS_FETCH`
   had no effect before.
+- The install script verifies the downloaded archive against the release's `SHA256SUMS`
+  before extracting it, and takes the archive, checksum and version from one release.
+- The memory embedding runtime loads when semantic search first starts instead of at
+  startup.
+- The legacy model catalog loader no longer fetches models.dev at startup; the catalog comes
+  from one source and is cached in one file.
 
 ## [0.1.1] - 2026-10-13
 

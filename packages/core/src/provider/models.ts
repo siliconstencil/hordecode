@@ -150,6 +150,7 @@ export const Data = lazy(async () => {
 })
 
 export async function get() {
+  startBackgroundRefresh()
   const result = await Data()
   return result as Record<string, Provider>
 }
@@ -169,7 +170,14 @@ export async function refresh(force = false) {
   })
 }
 
-if (!Flag.HORDECODE_DISABLE_MODELS_FETCH && !process.argv.includes("--get-yargs-completions")) {
+// The catalog refresh starts on first use, not at import: the runtime reaches this module
+// through static imports without reading the catalog, and the live catalog is
+// core/src/models-dev.ts.
+let started = false
+function startBackgroundRefresh() {
+  if (started) return
+  started = true
+  if (Flag.HORDECODE_DISABLE_MODELS_FETCH || process.argv.includes("--get-yargs-completions")) return
   void refresh()
   setInterval(
     async () => {
