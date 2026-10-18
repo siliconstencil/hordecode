@@ -17,10 +17,8 @@ import { MessageID, SessionID } from "../../src/session/schema"
 import type { Context } from "../../src/tool/tool"
 import { testEffect } from "../lib/effect"
 
-// Hardening: the supervisor tool caps the child's spawn steps at 40 when
-// the agent defines no steps. Ported from the core twin
-// (packages/core/test/tool/supervisor-steps.test.ts) into the live opencode
-// copy when the dead core twin was deleted.
+// The supervisor tool caps the child's spawn steps at the loop default (100) when the agent
+// defines no steps: a guard against runaway loops that leaves room for a worker's task.
 const spawnInputs: Array<{ steps?: number }> = []
 let agentSteps: number | undefined
 
@@ -79,7 +77,7 @@ afterEach(() => {
 })
 
 describe("supervisor tool spawn steps cap (ported from core twin)", () => {
-  it.effect("caps spawn steps at 40 when the agent defines no steps", () =>
+  it.effect("caps spawn steps at the loop default (100) when the agent defines no steps", () =>
     Effect.gen(function* () {
       mockSpawn()
       const info = yield* SupervisorTool
@@ -95,7 +93,7 @@ describe("supervisor tool spawn steps cap (ported from core twin)", () => {
         },
         ctx,
       ).pipe(Effect.catchCause(() => Effect.void))
-      expect(spawnInputs[0]?.steps).toBe(40)
+      expect(spawnInputs[0]?.steps).toBe(100)
     }))
 
   it.effect("uses the agent's own steps when configured", () =>

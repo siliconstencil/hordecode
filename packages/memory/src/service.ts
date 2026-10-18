@@ -155,7 +155,7 @@ export interface Interface {
     problems?: object[]
     next_steps?: string[]
     checkpoint_ref?: string
-  }) => Effect.Effect<{ id: number }>
+  }) => Effect.Effect<{ id: number }, unknown>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Memory") {}
@@ -859,6 +859,11 @@ export const layer: Layer.Layer<Service, never, Database.Service | Config.Servic
       next_steps?: string[]
       checkpoint_ref?: string
     }) {
+      // Same write gate as add() and update(): memory.disable_write refuses episodic writes too.
+      const cfg = yield* config.get()
+      if (!isMemoryWriteEnabled(cfg as MemoryWriteConfig)) {
+        return yield* Effect.fail(new Error("memory writing disabled via memory.disable_write"))
+      }
       const now = Date.now()
       yield* database.db
         .run(

@@ -12,6 +12,7 @@ import { Effect, Layer } from "effect"
 import { Bus } from "@opencode-ai/bus"
 import { Session } from "@opencode-ai/core/session"
 import { Supervisor } from "@opencode-ai/supervisor/spawn"
+import { spawnRef } from "@opencode-ai/supervisor/spawn-ref"
 import { SupervisorRegistryService } from "@opencode-ai/supervisor/registry"
 import { Inbox } from "@opencode-ai/inbox"
 import type { SessionID } from "@opencode-ai/core/session/schema"
@@ -25,6 +26,10 @@ describe("peer terminal notification reaches the parent", () => {
         yield* ensureProject
         const sessions = yield* Session.Service
         const supervisor = yield* Supervisor.Service
+        // The tool reaches the supervisor through the process-wide spawnRef; pin it to this
+        // runtime's supervisor so earlier test files cannot leave it pointing elsewhere.
+        const previousSpawnRef = spawnRef.current
+        spawnRef.current = supervisor
         const registry = yield* SupervisorRegistryService.Service
         const parent = yield* sessions.create({ title: "peer notify parent" })
         const info = yield* SessionTool
@@ -41,6 +46,7 @@ describe("peer terminal notification reaches the parent", () => {
         yield* supervisor.cancel(childID, peer.supervisorID, "forced")
         // Give the terminal notify fiber time to run before reading the inbox.
         yield* Effect.promise(() => sleep(1500))
+        spawnRef.current = previousSpawnRef
         return { parentRows: inboxFor(parent.id) }
       }),
       Layer.mergeAll(Bus.layer, Inbox.layer),
@@ -58,6 +64,10 @@ describe("peer terminal notification reaches the parent", () => {
         yield* ensureProject
         const sessions = yield* Session.Service
         const supervisor = yield* Supervisor.Service
+        // The tool reaches the supervisor through the process-wide spawnRef; pin it to this
+        // runtime's supervisor so earlier test files cannot leave it pointing elsewhere.
+        const previousSpawnRef = spawnRef.current
+        spawnRef.current = supervisor
         const parent = yield* sessions.create({ title: "peer notify control parent" })
         const spawned = yield* supervisor.spawn({
           mode: "peer",
@@ -74,6 +84,7 @@ describe("peer terminal notification reaches the parent", () => {
         } as never)
         yield* supervisor.cancel(spawned.sessionID as SessionID, spawned.supervisorID, "forced")
         yield* Effect.promise(() => sleep(1500))
+        spawnRef.current = previousSpawnRef
         return { parentRows: inboxFor(parent.id) }
       }),
       Layer.mergeAll(Bus.layer, Inbox.layer),

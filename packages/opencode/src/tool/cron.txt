@@ -8,9 +8,15 @@ JSON calls always wrap the action in an `operation` object — see examples belo
 
 - schedule: cadence-driven. `cron` + `prompt` required. recurring by default;
             pass --one-shot for "remind me at X" with pinned minute/hour/dom/month.
+            A recurring job without `permanent: true` is removed once it comes due
+            more than 7 days after it was created; that last run still fires.
+            One-shot jobs are not affected.
 - loop:     self-paced one-shot with keepalive. `delay_seconds` (clamped to
             [60, 3600]) + `prompt` required. Always session-only, always kind=loop.
             Call again each turn to keep the loop alive; omit to end the loop.
+            A loop ends at the first run due more than 7 days after it was first
+            armed; that last run still fires. Arming it again after that starts a
+            new loop. `permanent` does not apply to loops.
 - list:     enumerate active jobs. optional: `kind`, `durable_only`.
 - get:      fetch one job by id.
 - delete:   cancel a job by id.

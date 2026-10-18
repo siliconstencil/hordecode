@@ -1299,7 +1299,7 @@ const layer = Layer.effect(
 
       if (input.noReply === true) return message
       // Ported from MiMo prompt.ts:4776-4777 and :4842 (task_id passed to the loop).
-      return yield* loop({ sessionID: input.sessionID, agentID: input.agentID, task_id: input.task_id })
+      return yield* loop({ sessionID: input.sessionID, agentID: input.agentID, task_id: input.task_id, steps: input.steps })
     })
 
     const lastAssistant = Effect.fnUntraced(function* (sessionID: SessionID) {
@@ -1419,8 +1419,8 @@ const layer = Layer.effect(
     })
 
     // task_id: Ported from MiMo prompt.ts:2675 (runLoop task_id parameter).
-    const runLoop: (sessionID: SessionID, agentID?: string, task_id?: string) => Effect.Effect<SessionV1.WithParts> =
-      Effect.fn("SessionPrompt.run")(function* (sessionID: SessionID, agentID?: string, task_id?: string) {
+    const runLoop: (sessionID: SessionID, agentID?: string, task_id?: string, steps?: number) => Effect.Effect<SessionV1.WithParts> =
+      Effect.fn("SessionPrompt.run")(function* (sessionID: SessionID, agentID?: string, task_id?: string, steps?: number) {
         const ctx = yield* InstanceState.context
         let structured: unknown
         let step = 0
@@ -1715,7 +1715,9 @@ const layer = Layer.effect(
           }
           skipOverflowCheck = false
           // See divergence note above (Infinity vs fork 100): agent.steps ?? Infinity in v0.1.11.
-          const maxSteps = agent.steps ?? 100
+          // steps (subagent cap from spawn) wins over agent.steps. Mirrors core/src/session/prompt.ts:2502
+          // (fork twin); upstream opencode-1.19.0 session/prompt.ts:1178 has only agent.steps.
+          const maxSteps = steps ?? agent.steps ?? 100
           const isLastStep = step >= maxSteps
           msgs = yield* SessionReminders.apply({ messages: msgs, agent, session }).pipe(
             Effect.provideService(RuntimeFlags.Service, flags),
@@ -2229,6 +2231,14 @@ const layer = Layer.effect(
             yield* Effect.logInfo("rl:exit", { "session.id": sessionID, step, site: "outcome:break" })
             break
           }
+          // An explicit step budget (subagent spawn, PromptInput.steps) is a hard cap: once
+          // the last allowed step has run, the loop ends even if the model asked for more
+          // tools. agent.steps stays a soft limit (the last step is only forced to text).
+          // Fork-only: neither upstream nor MiMo 0.1.11 stops a loop on a spawn-level cap.
+          if (steps !== undefined && isLastStep) {
+            yield* Effect.logInfo("rl:exit", { "session.id": sessionID, step, site: "steps:cap" })
+            break
+          }
           continue
         }
 
@@ -2245,7 +2255,7 @@ const layer = Layer.effect(
         input.sessionID,
         input.agentID ?? "main",
         lastAssistant(input.sessionID),
-        runLoop(input.sessionID, input.agentID, input.task_id),
+        runLoop(input.sessionID, input.agentID, input.task_id, input.steps),
       )
     })
 
@@ -2440,6 +2450,8 @@ export const PromptInput = Schema.Struct({
   agentID: Schema.optional(Schema.String),
   // Bound user-task id from the supervisor (spawn.ts:404). Ported from MiMo prompt.ts:4776-4777.
   task_id: Schema.optional(Schema.String),
+  // Step cap for this loop; overrides agent.steps. Mirrors core/src/session/prompt.ts PromptInput.steps.
+  steps: Schema.optional(Schema.Number),
   noReply: Schema.optional(Schema.Boolean),
   tools: Schema.optional(Schema.Record(Schema.String, Schema.Boolean)).annotate({
     description:
@@ -2464,6 +2476,8 @@ export class LoopInput extends Schema.Class<LoopInput>("SessionPrompt.LoopInput"
   agentID: Schema.optional(Schema.String),
   // Ported from MiMo prompt.ts:4842 (LoopInput.task_id).
   task_id: Schema.optional(Schema.String),
+  // Mirrors core/src/session/prompt.ts LoopInput.steps.
+  steps: Schema.optional(Schema.Number),
 }) {}
 
 export const ShellInput = Schema.Struct({

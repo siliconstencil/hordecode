@@ -59,6 +59,9 @@ const scheduleOperation = Schema.Struct({
   durable: Schema.optional(Schema.NullOr(Schema.Boolean)).pipe(
     Schema.annotate({ description: "If true, persist across session restart." }),
   ),
+  permanent: Schema.optional(Schema.NullOr(Schema.Boolean)).pipe(
+    Schema.annotate({ description: "If true, a recurring job is not removed after 7 days." }),
+  ),
   shell: Schema.optional(Schema.NullOr(nonEmptyString)).pipe(
     Schema.annotate({ description: "Shell command to execute instead of sending a prompt." }),
   ),
@@ -206,6 +209,7 @@ export const CronTool = Tool.define(
           prompt: op.prompt,
           recurring: !op.one_shot,
           durable: op.durable ?? false,
+          ...(op.permanent && !op.one_shot ? { permanent: true } : {}),
           ...(op.shell ? { shell: op.shell } : {}),
           ...(op.name ? { name: op.name } : {}),
           ...(tz ? { timezone: tz } : {}),

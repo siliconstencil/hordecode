@@ -44,7 +44,7 @@ const RunOperation = Schema.Struct({
   supervisor_id: Schema.optional(Schema.NullOr(Schema.String.pipe(Schema.annotate({ description: ResumeIdDescription })))),
   timeout_ms: Schema.optional(Schema.NullOr(Schema.Number)),
   command: Schema.optional(Schema.NullOr(Schema.String)),
-  context: Schema.optional(Schema.NullOr(Schema.Literals(["none", "state", "full"]))),
+  context: Schema.optional(Schema.NullOr(Schema.Literals(["none", "state"]))),
   task_id: Schema.optional(Schema.NullOr(Schema.String)),
   output_schema: Schema.optional(Schema.NullOr(Schema.Record(Schema.String, Schema.Unknown))),
 })
@@ -62,7 +62,7 @@ const SpawnOperation = Schema.Struct({
   model: Schema.optional(Schema.NullOr(Schema.String)),
   supervisor_id: Schema.optional(Schema.NullOr(Schema.String.pipe(Schema.annotate({ description: ResumeIdDescription })))),
   command: Schema.optional(Schema.NullOr(Schema.String)),
-  context: Schema.optional(Schema.NullOr(Schema.Literals(["none", "state", "full"]))),
+  context: Schema.optional(Schema.NullOr(Schema.Literals(["none", "state"]))),
   task_id: Schema.optional(Schema.NullOr(Schema.String)),
   output_schema: Schema.optional(Schema.NullOr(Schema.Record(Schema.String, Schema.Unknown))),
 })
@@ -131,7 +131,7 @@ interface Op {
   supervisorID?: string
   timeout_ms?: number
   command?: string
-  context?: "none" | "state" | "full"
+  context?: "none" | "state"
   task_id?: string
   output_schema?: Record<string, unknown>
   to_session_id?: string
@@ -161,6 +161,19 @@ class MissingSupervisorIDError extends Schema.TaggedErrorClass<MissingSupervisor
 
 const id = "supervisor" as const
 const legacyId = "supervisor" as const
+
+// Default nesting covers the supervision chain the pipelines use: the main agent delegates to a
+// coordinating supervisor (depth 1), which assigns workers, possibly on other providers (depth 2),
+// which may run a helper such as explore (depth 3). subagent_depth changes it up to
+// MAX_SUBAGENT_DEPTH, the depth the interrupt cascade (session/prompt.ts) and descendant lookup
+// reach; deeper subagents could not be cancelled or found.
+export const DEFAULT_SUBAGENT_DEPTH = 3
+export const MAX_SUBAGENT_DEPTH = 8
+
+export function subagentDepthLimit(configured: number | undefined) {
+  if (configured === undefined) return DEFAULT_SUBAGENT_DEPTH
+  return Math.min(Math.max(configured, 0), MAX_SUBAGENT_DEPTH)
+}
 
 export const SupervisorTool = Tool.define(
   id,
@@ -421,19 +434,20 @@ export const SupervisorTool = Tool.define(
             }
           }
 
-          // Nesting guard (upstream task.ts:105-117): a spawn is refused before any permission
-          // prompt once the caller's subagent depth reaches subagent_depth (default 1, so a
-          // subagent cannot launch a subagent). Checkpoint writer and workflow spawns do not go
-          // through this tool and are not affected.
+          // Nesting guard (see subagentDepthLimit). Breadth is not limited here. Checkpoint writer
+          // and workflow spawns do not go through this tool and are not affected.
           if (op.action === "run" || op.action === "spawn") {
             const cfg = yield* config.get()
-            const limit = cfg.subagent_depth ?? 1
+            const limit = subagentDepthLimit(cfg.subagent_depth)
             const depth = yield* subagentDepth(limit)
             if (depth >= limit) {
               return yield* Effect.die(
                 new Tool.InvalidArgumentsError({
                   tool: id,
-                  detail: `Subagent depth limit reached (${limit}). Increase "subagent_depth" to allow nested subagents.`,
+                  detail:
+                    limit < MAX_SUBAGENT_DEPTH
+                      ? `Subagent depth limit reached (${limit}). Increase "subagent_depth" to allow deeper nesting.`
+                      : `Subagent depth limit reached (${limit}), the deepest level the supervisor can manage.`,
                 }),
               )
             }
@@ -615,8 +629,9 @@ export const SupervisorTool = Tool.define(
             model,
             background,
             task_id: effectiveTaskId,
-            // Cap: agent config steps, else 40.
-            steps: next.steps ?? 40,
+            // Step cap: the agent's configured steps, else the loop default (100, session/prompt.ts).
+            // It stops runaway loops; it is not meant to cut a worker's task short.
+            steps: next.steps ?? 100,
             format: op.output_schema
               ? { type: "json_schema" as const, schema: op.output_schema, retryCount: 2 }
               : undefined,

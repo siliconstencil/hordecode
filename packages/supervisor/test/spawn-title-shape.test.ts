@@ -20,9 +20,14 @@ const footer = await Bun.file(
 
 describe("child session title shape (opencode tool/task.ts:160)", () => {
   it("uses the agent marker at both session.create title sites", () => {
-    const titles = source.match(/title: `[^`]*`/g) ?? []
+    const titles = source.match(/^\s+title: [^\n]*/gm) ?? []
     expect(titles.length).toBe(2)
-    for (const title of titles) expect(title).toBe("title: `${input.task.slice(0, 40)} (@${input.agentType} subagent)`")
+    for (const title of titles) expect(title.trim()).toBe("title: childSessionTitle(input),")
+  })
+
+  it("builds the title from the description (not a task prefix) with the agent marker", () => {
+    expect(source).toContain("`${input.description || input.agentType} (@${input.agentType} subagent)`")
+    expect(source).not.toContain("input.task.slice(0, 40)")
   })
 
   it("no longer produces the `agentType: task` shape the footer regex misses", () => {

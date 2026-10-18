@@ -1,5 +1,5 @@
 import { expect } from "bun:test"
-import { Effect, Layer } from "effect"
+import { Deferred, Effect, Layer } from "effect"
 import { existsSync, readFileSync } from "fs"
 import path from "path"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -282,6 +282,8 @@ it.instance("a supervisor-spawned child runs tools with ctx.supervisorID equal t
       steps: 5,
     } as never)
 
+    // A foreground spawn returns before its child turn ends; wait for the outcome first.
+    yield* Deferred.await(spawned.outcome)
     const rows = yield* tasks.list({ session_id: spawned.sessionID, include_terminal: true })
     expect(rows.length).toBe(1)
     expect(spawned.supervisorID).not.toBe("main")

@@ -71,6 +71,8 @@ export type NewCronTask = {
   timezone?: string
   recurring: boolean
   durable: boolean
+  // Recurring jobs without permanent are removed 7 days after creation (recurringMaxAgeMs).
+  permanent?: boolean
   kind?: "loop"
   shell?: string
 }
@@ -493,6 +495,7 @@ const makeImpl = (): Interface => {
         ...(input.kind ? { kind: input.kind } : {}),
         ...(input.session_id ? { createdBySessionId: input.session_id } : {}),
         durable: input.durable,
+        ...(input.permanent ? { permanent: true } : {}),
         ...(input.shell ? { shell: input.shell } : {}),
       }
 

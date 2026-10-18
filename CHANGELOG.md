@@ -28,12 +28,31 @@ All notable changes to this project will be documented in this file.
   from one source and is cached in one file.
 - `horde github run` uses the token broker set in `OIDC_BASE_URL`, or `GITHUB_TOKEN` with
   `use_github_token: true`; `horde github install` explains that setup and changes no files.
-- Subagent nesting in the `supervisor` tool follows the `subagent_depth` setting (default 1, so a
-  subagent cannot start a subagent). Only subagent links count toward the depth; peers do not.
-  Raise `subagent_depth` to allow nested subagents.
+- Supervisors delegate through nested subagents three levels deep by default (main agent,
+  coordinating supervisor, workers, helpers); `subagent_depth` sets it from 0 to 8. Only
+  subagent links count toward the depth; peers do not. The number of parallel subagents is not
+  limited.
+- A subagent's step limit is applied: the agent's `steps`, else 100. The loop ends after the
+  last allowed step even if the model asks for more tools.
+- The supervisor tool's `context` option accepts `none` and `state`. `full` is rejected: it
+  never worked, so it is no longer offered.
+- Recurring cron jobs are removed once they come due more than 7 days after creation, unless
+  the job is created with `permanent: true`; the last run still fires. Loop jobs end the same
+  way, 7 days after they were first armed. The cron tool description now says so.
 
 ### Fixed
 
+- `supervisor run` honors its `timeout_ms` and a cancelled parent: the call returns when the
+  timeout or the cancel comes, instead of waiting for the subagent to finish.
+- Cancelling a subagent resolves its result as cancelled, also when the cancel arrives before
+  the subagent's first step has started.
+- `supervisor wait` returns the subagent's final result, after its preStop and completion
+  checks, not the output of its first turn.
+- A subagent's child session is titled with its task description (or its agent name when the
+  description is empty) and the agent marker; long tasks are no longer cut mid-word.
+- `memory_session` respects `memory.disable_write`, like the other memory writes.
+- The `memory_recall` description, the session `list` description and the supervisor tool's
+  operation list match what the tools do (the list now includes `models`).
 - Subagent notifications and messages reach the right supervisor: tools know the calling
   supervisor's id, so a peer's or nested subagent's completion notice, a workflow's terminal
   notice and a subagent's `send` without a target go to the caller instead of being dropped

@@ -6,6 +6,8 @@ import { Session } from "@opencode-ai/core/session"
 import type { SessionID } from "@opencode-ai/core/session/schema"
 import { SupervisorStatusChanged } from "./events"
 import { parseReturnHeader, type ReturnStatus } from "./return-header"
+import { lookupOutcome } from "./outcome-ref"
+import type { AgentOutcome } from "./spawn"
 
 export interface WaitResult {
   status: Supervisor["status"] | "timeout" | "unknown"
@@ -28,6 +30,12 @@ export interface WaitResult {
 }
 
 const DEFAULT_TIMEOUT_MS = 600_000
+
+// Fallback for supervisors this process does not run (no in-process outcome): an idle
+// row is only trusted if it is still idle after this delay. The turn runner writes
+// idle after every turn, including the turns that a preStop or gate re-entry starts
+// on the same row, so a single idle event is not the final outcome.
+const OUTCOME_SETTLE_MS = 250
 
 // Persistent supervisors stay idle without a lastOutcome before their first turn
 // runs. We only resolve wait once they've completed at least one turn AND
@@ -81,6 +89,45 @@ export const layer: Layer.Layer<Service, never, Bus.Service | SupervisorRegistry
         return { result: textPart?.text, structured: undefined }
       })
 
+    // Builds the wait result from the work's final outcome (the same value `run`
+    // returns), with the registry row supplying the descriptive fields.
+    const fromOutcome = (supervisorID: string, row: Supervisor | undefined, outcome: AgentOutcome): WaitResult => {
+      const base: WaitResult = {
+        status: "idle",
+        supervisor_id: supervisorID,
+        description: row?.description,
+        agent: row?.agent,
+        background: row?.background,
+        turnCount: row?.turnCount,
+        lastTurnTime: row?.lastTurnTime,
+        time: row?.time,
+      }
+      switch (outcome.status) {
+        case "success": {
+          const reported = parseReturnHeader(outcome.finalText)
+          return {
+            ...base,
+            lastOutcome: "success",
+            ...(outcome.structured !== undefined
+              ? { structured: outcome.structured }
+              : outcome.finalText !== undefined
+                ? { result: outcome.finalText }
+                : {}),
+            ...(outcome.reportedStatus ?? reported.status ? { reportedStatus: outcome.reportedStatus ?? reported.status } : {}),
+            ...(outcome.reportedSummary ?? reported.summary
+              ? { reportedSummary: outcome.reportedSummary ?? reported.summary }
+              : {}),
+          }
+        }
+        case "failure":
+          return { ...base, lastOutcome: "failure", error: outcome.error }
+        case "cancelled":
+          return { ...base, lastOutcome: "cancelled" }
+        case "timeout":
+          return { ...base, status: "timeout" }
+      }
+    }
+
     const snapshot = (sessionID: SessionID, entry: Supervisor): Effect.Effect<WaitResult> =>
       Effect.gen(function* () {
         const extracted =
@@ -114,10 +161,25 @@ export const layer: Layer.Layer<Service, never, Bus.Service | SupervisorRegistry
       // Fast path: registry already in a wait-resolving state.
       const entry = yield* reg.get(input.sessionID, input.supervisor_id)
       if (!entry) return { status: "unknown" as const, supervisor_id: input.supervisor_id }
+      const timeoutMs = input.timeout_ms ?? DEFAULT_TIMEOUT_MS
+
+      // Ephemeral work running in this process: resolve on its final outcome. This must come
+      // before the row check, because between turns the row can already read idle. Persistent
+      // peers keep the row rule (they resolve only on failure or cancel).
+      const owned = entry.lifecycle === "ephemeral" ? lookupOutcome(input.sessionID, input.supervisor_id) : undefined
+      if (owned) {
+        const outcome = yield* Deferred.await(owned).pipe(
+          Effect.timeout(timeoutMs),
+          Effect.catchTag("TimeoutError", () => Effect.succeed(null)),
+        )
+        if (outcome === null) return { status: "timeout" as const, supervisor_id: input.supervisor_id }
+        const row = yield* reg.get(input.sessionID, input.supervisor_id)
+        return fromOutcome(input.supervisor_id, row, outcome)
+      }
+
       if (isWaitResolving(entry)) return yield* snapshot(input.sessionID, entry)
 
       const resolved = yield* Deferred.make<WaitResult>()
-      const timeoutMs = input.timeout_ms ?? DEFAULT_TIMEOUT_MS
 
       return yield* Effect.acquireUseRelease(
         bus.subscribeCallback(SupervisorStatusChanged, (evt) => {
@@ -127,6 +189,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | SupervisorRegistry
           // Re-read the row to get lifecycle (the missing predicate input).
           Effect.runFork(
             Effect.gen(function* () {
+              yield* Effect.sleep(OUTCOME_SETTLE_MS)
               const fresh = yield* reg.get(input.sessionID, input.supervisor_id)
               if (!fresh) return
               if (!isWaitResolving(fresh)) return

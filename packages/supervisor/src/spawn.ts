@@ -16,6 +16,7 @@ import type { SpawnMode, ContextMode, ToolWhitelist, Lifecycle, Supervisor } fro
 import { deriveLiveness, WATCHDOG_SCAN_INTERVAL_MS } from "./schema"
 import { runTurn } from "./turn"
 import { spawnRef } from "./spawn-ref"
+import { lookupFiber, lookupOutcome, trackFiber, trackOutcome, untrackOutcome } from "./outcome-ref"
 import { Bus } from "@opencode-ai/bus"
 import { SupervisorStalled } from "./events"
 import { TuiEvent } from "@opencode-ai/cli/cmd/tui/event"
@@ -45,6 +46,11 @@ export const MAX_POST_REACT = 3
 /** Supervisors whose cancel() has begun, keyed sessionID:supervisorID -- populated before the fiber is interrupted so forkWork's notify suppresses its own emit (T41 parity). */
 const cancelling = new Set<string>()
 const cancelKey = (sessionID: SessionID, supervisorID: string) => `${sessionID}:${supervisorID}`
+// Child session title: the spawn description (the caller's short summary of the
+// task), else the agent type, followed by the agent marker. Mirrors opencode
+// tool/task.ts:160 (params.description + " (@name subagent)"). Not truncated.
+const childSessionTitle = (input: { description?: string; agentType: string }) =>
+  `${input.description || input.agentType} (@${input.agentType} subagent)`
 const RETURN_FORMAT_INSTRUCTION = `
 
 ---
@@ -270,7 +276,7 @@ export interface SpawnInput {
    */
   onSupervisorID?: (supervisorID: string) => void
   /**
-   * Fired as an Effect BEFORE Fiber.join (for non-background spawns). Lets the
+   * Fired as an Effect before spawn returns (for non-background spawns). Lets the
    * caller emit metadata (sessionId/supervisorId) to the tool part state while the
    * tool is still "running" -- critical for the TUI to navigate into a running
    * subagent. The callback receives the allocated supervisorID and sessionID.
@@ -826,16 +832,28 @@ export const layer = Layer.effect(
               }),
           }),
         )
+        // matchCauseEffect (above) does not see an interrupt of this fiber itself, so an
+        // interrupt that arrives from cancel resolves the outcome here instead.
+        const interruptible = work.pipe(
+          Effect.onInterrupt(() => Deferred.succeed(outcome, { status: "cancelled" as const }).pipe(Effect.ignore)),
+        )
         const boundWork = input.instanceRef
-          ? work.pipe(Effect.provideService(InstanceRef, input.instanceRef))
-          : work
+          ? interruptible.pipe(Effect.provideService(InstanceRef, input.instanceRef))
+          : interruptible
+        trackOutcome(input.sessionID, input.supervisorID, outcome)
         // Drop the cancelling mark when the fiber is done. ensuring runs after
         // onSuccess/onFailure have read the mark, so notify suppression still holds.
         // Without this the key leaked for the process lifetime.
         const fiber = yield* boundWork.pipe(
-          Effect.ensuring(Effect.sync(() => cancelling.delete(cancelKey(input.sessionID, input.supervisorID)))),
+          Effect.ensuring(
+            Effect.sync(() => {
+              cancelling.delete(cancelKey(input.sessionID, input.supervisorID))
+              untrackOutcome(input.sessionID, input.supervisorID, outcome)
+            }),
+          ),
           Effect.forkIn(scope),
         )
+        trackFiber(input.sessionID, input.supervisorID, outcome, fiber)
         return { fiber, outcome }
       })
 
@@ -856,7 +874,7 @@ export const layer = Layer.effect(
         contextFrom: input.context === "full" ? input.sessionID : undefined,
         // Child session title carries the agent marker the TUI footer reads
         // (opencode tool/task.ts:160, consumed at tui subagent-footer.tsx:20).
-        title: `${input.task.slice(0, 40)} (@${input.agentType} subagent)`,
+        title: childSessionTitle(input),
         ...(input.cwd ? { directory: input.cwd } : {}),
         ...(input.forkContext?.parentPermission
           ? {
@@ -889,7 +907,7 @@ export const layer = Layer.effect(
         yield* persistForkContext(child.id, input.forkContext, child.id).pipe(Effect.ignore)
         if (input.task_id) yield* linkSupervisorTask(child.id, child.id, input.task_id, "peer").pipe(Effect.ignore)
       }
-      const { fiber, outcome } = yield* forkWork({
+      const { outcome } = yield* forkWork({
         sessionID: child.id,
         parentSessionID: input.sessionID,
         parentSupervisorID: input.parentSupervisorID,
@@ -905,7 +923,8 @@ export const layer = Layer.effect(
         format: input.format,
         ...(instanceRef ? { instanceRef } : {}),
       })
-      if (!input.background) yield* Fiber.join(fiber).pipe(Effect.ignore)
+      // Foreground callers await `outcome` themselves, so their timeout and abort
+      // apply; spawn does not join the work fiber here.
       return { supervisorID: child.id, sessionID: child.id, outcome }
     })
 
@@ -945,7 +964,7 @@ export const layer = Layer.effect(
             contextFrom: input.context === "full" ? input.sessionID : undefined,
             // Child session title carries the agent marker the TUI footer reads
             // (opencode tool/task.ts:160, consumed at tui subagent-footer.tsx:20).
-            title: `${input.task.slice(0, 40)} (@${input.agentType} subagent)`,
+            title: childSessionTitle(input),
             ...(input.cwd ? { directory: input.cwd } : {}),
             ...(inheritedPermission ? { permission: inheritedPermission } : {}),
           })
@@ -1006,7 +1025,7 @@ export const layer = Layer.effect(
         (agentInfo.completionGate === true || (!agentInfo.prompt && input.agentType !== "checkpoint-writer"))
       const taskWithFormat = gateEligible ? input.task + RETURN_FORMAT_INSTRUCTION : input.task
 
-      const { fiber, outcome } = yield* forkWork({
+      const { outcome } = yield* forkWork({
         sessionID: child.id,
         parentSessionID: input.parentSessionID ?? input.sessionID,
         parentSupervisorID: input.parentSupervisorID,
@@ -1025,7 +1044,8 @@ export const layer = Layer.effect(
         ...(instanceRef ? { instanceRef } : {}),
       })
       if (input.onReady) yield* Effect.ignore(input.onReady({ supervisorID, sessionID: child.id }))
-      if (!input.background) yield* Fiber.join(fiber).pipe(Effect.ignore)
+      // Foreground callers await `outcome` themselves, so their timeout and abort
+      // apply; spawn does not join the work fiber here.
       return { supervisorID, sessionID: child.id, outcome }
     })
 
@@ -1091,6 +1111,20 @@ export const layer = Layer.effect(
         // authoritative "cancelled" notification is emitted below instead.
         yield* Effect.sync(() => cancelling.add(cancelKey(sessionID, supervisorID)))
         yield* state.cancelSupervisor(sessionID, supervisorID)
+        // The turn runner registers only once the work fiber has started, so a cancel that
+        // arrives earlier finds no runner. Interrupt the work fiber directly as well.
+        const work = lookupFiber(sessionID, supervisorID)
+        if (work) yield* Fiber.interrupt(work)
+        // A work fiber that has not started yet runs none of its own finalizers when it is
+        // interrupted, so its outcome and index entry are settled here.
+        const pendingOutcome = lookupOutcome(sessionID, supervisorID)
+        if (pendingOutcome) {
+          yield* Deferred.succeed(pendingOutcome, { status: "cancelled" as const }).pipe(Effect.ignore)
+          yield* Effect.sync(() => {
+            untrackOutcome(sessionID, supervisorID, pendingOutcome)
+            cancelling.delete(cancelKey(sessionID, supervisorID))
+          })
+        }
         yield* supervisorReg
           .updateStatus(sessionID, supervisorID, { status: "idle", lastOutcome: "cancelled" })
           .pipe(Effect.ignore)

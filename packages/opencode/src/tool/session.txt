@@ -25,7 +25,7 @@ JSON calls always wrap the action in an `operation` object — see examples belo
             Use after `list` to resolve which child the user meant in natural
             language, then switch to it. (Orchestrator-only — a child cannot
             switch back; the user returns manually via the session-parent keybind.)
-- list:     enumerate this Orchestrator's child sessions (id, title, mode, status).
+- list:     enumerate this Orchestrator's child sessions (one line each: id -- title).
 - status:   report a child session's derived liveness. `sessionID` required.
             Returns `progressing` / `stalled` / `terminal` (derived from supervisor
             status, last outcome, and turn telemetry), plus the raw status and

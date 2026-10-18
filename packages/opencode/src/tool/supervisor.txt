@@ -29,6 +29,8 @@ Examples:
           required: to_supervisor_id, content.
           optional: to_session_id, type (default "text").
           Receiver sees wrapped in <inbox from="..." sent_at="...">...</inbox> at next iteration.
+- models: list configured models that can be passed as `model` to run/spawn.
+          optional: vision (true limits the list to vision-capable models), limit (default 50).
 
 ## When to use supervisor
 
@@ -50,7 +52,6 @@ You are the subagent's only briefing — it hasn't seen this conversation.
 
 ## Context inheritance
 
-- `context="full"`: subagent sees your full conversation history (for state writers, evaluators).
 - `context="state"`: subagent gets checkpoint summaries injected (background knowledge, no full detail).
 - `context="none"` (default): clean context, only the prompt.
 
@@ -80,7 +81,7 @@ postStop check then becomes a no-op.
 - **`wait` on persistent peers caveat**: `wait` is designed for ephemeral subagents you spawned via `run`/`spawn`. Persistent peers idle between turns and never produce a "done" outcome on success — `wait` on a peer will block until that peer fails or is cancelled. Use `send` + `status` to coordinate with peers instead.
 - **`send` semantics**: fire-and-forget; returns within ~5 ms regardless of receiver load. The receiver picks the message up at the head of its next runLoop iteration. On unknown `to_supervisor_id`, `send` returns `{inboxID: null, error: "receiver not found"}` rather than throwing — handle the error path.
 - **No `ask` action**: the valid actions are `run`, `spawn`, `status`, `wait`, `cancel`, `send`, `models` — there is no `ask` action. Do not invent it; `ctx.ask` is an internal permission gate, not a tool action.
-- Trust the subagent's outputs generally, but the subagent doesn't see your full context (unless you pass `context="full"`); brief it accordingly.
+- Trust the subagent's outputs generally, but the subagent doesn't see your full context; brief it accordingly.
 
 
 ## Examples

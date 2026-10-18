@@ -1,8 +1,8 @@
-// The supervisor tool refuses a spawn once the caller's subagent nesting depth reaches
-// `subagent_depth` (default 1), as the task tool does (packages/opencode/src/tool/task.ts,
-// "Subagent depth limit reached"). Depth counts subagent links on the caller's parent chain:
-// a link counts only when the child session hosts a subagent row, so peer links never count.
-import { afterEach, beforeEach, describe, expect } from "bun:test"
+// The supervisor tool refuses a spawn once the caller's subagent nesting depth reaches the
+// limit: `subagent_depth` when set (capped at MAX_SUBAGENT_DEPTH), otherwise
+// DEFAULT_SUBAGENT_DEPTH. Depth counts subagent links on the caller's parent chain: a link
+// counts only when the child session hosts a subagent row, so peer links never count.
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { Deferred, Effect, Exit, Layer } from "effect"
 import { SupervisorRegistryService } from "@opencode-ai/supervisor/registry"
 import { SupervisorWaiter } from "@opencode-ai/supervisor/waiter"
@@ -17,7 +17,7 @@ import { Session } from "@/session/session"
 import { Truncate } from "@/tool/truncate"
 import { Provider } from "@/provider/provider"
 import { SessionCheckpoint } from "@opencode-ai/core/session/checkpoint"
-import { SupervisorTool } from "../../src/tool/supervisor"
+import { DEFAULT_SUBAGENT_DEPTH, MAX_SUBAGENT_DEPTH, SupervisorTool, subagentDepthLimit } from "../../src/tool/supervisor"
 import { MessageID, SessionID } from "../../src/session/schema"
 import type { Context } from "../../src/tool/tool"
 import { testEffect } from "../lib/effect"
@@ -50,7 +50,7 @@ const rowsBySession = new Map<string, Supervisor[]>([
 ])
 
 let spawnCallCount = 0
-let configuredDepth = 1
+let configuredDepth: number | undefined = undefined
 
 const layer = Layer.mergeAll(
   Layer.mock(SupervisorRegistryService.Service, {
@@ -124,18 +124,30 @@ beforeEach(() => {
 afterEach(() => {
   spawnRef.current = savedSpawnRef
   spawnCallCount = 0
-  configuredDepth = 1
+  configuredDepth = undefined
 })
 
 describe("subagent depth limit (subagent_depth)", () => {
-  it.live("refuses a spawn from a depth-1 subagent with the default subagent_depth", () =>
+  it.live("by default a subagent may delegate to its own subagents", () =>
     Effect.gen(function* () {
       const outcome = yield* Deferred.make<AgentOutcome>()
       mockSpawn(outcome)
       yield* Deferred.succeed(outcome, { status: "success", finalText: "ok" })
       const def = yield* (yield* SupervisorTool).init()
+      yield* def.execute(runArgs, ctxFor(DEPTH1, "explore"))
+      yield* def.execute(runArgs, ctxFor(DEPTH2, "explore"))
+      expect(spawnCallCount).toBe(2)
+    }),
+  )
+
+  it.live("subagent_depth 1 keeps subagents from delegating", () =>
+    Effect.gen(function* () {
+      configuredDepth = 1
+      const outcome = yield* Deferred.make<AgentOutcome>()
+      mockSpawn(outcome)
+      yield* Deferred.succeed(outcome, { status: "success", finalText: "ok" })
+      const def = yield* (yield* SupervisorTool).init()
       const exit = yield* Effect.exit(def.execute(runArgs, ctxFor(DEPTH1, "explore")))
-      // Refused before any spawn: depth 1 >= subagent_depth 1.
       expect(Exit.isFailure(exit)).toBe(true)
       expect(spawnCallCount).toBe(0)
     }),
@@ -193,5 +205,15 @@ describe("subagent depth limit (subagent_depth)", () => {
         expect(spawnCallCount).toBe(1)
       }),
     )
+  })
+})
+
+describe("subagentDepthLimit", () => {
+  test("defaults to three levels and caps configured values at the runtime bound", () => {
+    expect(DEFAULT_SUBAGENT_DEPTH).toBe(3)
+    expect(subagentDepthLimit(undefined)).toBe(DEFAULT_SUBAGENT_DEPTH)
+    expect(subagentDepthLimit(2)).toBe(2)
+    expect(subagentDepthLimit(50)).toBe(MAX_SUBAGENT_DEPTH)
+    expect(subagentDepthLimit(-1)).toBe(0)
   })
 })

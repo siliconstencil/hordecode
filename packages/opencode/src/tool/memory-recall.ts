@@ -24,7 +24,7 @@ export const MemoryRecallTool = Tool.define(
     const memory = yield* Memory.Service
     return {
       description:
-        "Hybrid recall v2 (ADF-RRF + MMR + entity boost + distance gate + context +/-1). Lexical BM25 via FTS5 + semantic cosine + adaptive IDF via fts5vocab + MMR L=0.5 diversity + entity-boost +0.15 + distance abstention. Alias for memory search with hybrid defaults. Discoverable as memory_recall.\n\nQuery guidelines: OR-joined, BM25-ranked; prefer 1-3 distinctive terms; punctuation stripped; widen scope session->project->global->history on 0 hits.",
+        "Hybrid recall v2 (RRF + MMR + entity boost + distance gate + context +/-1). Lexical BM25 via FTS5 + semantic cosine, fused by RRF with flat term weighting (fts5vocab is not available in this build) + MMR L=0.5 diversity + entity-boost +0.15 + distance abstention. Alias for memory search with hybrid defaults. Discoverable as memory_recall.\n\nQuery guidelines: OR-joined, BM25-ranked; prefer 1-3 distinctive terms; punctuation stripped; widen scope session->project->global->history on 0 hits.",
       parameters: Parameters,
       execute: (input: Schema.Schema.Type<typeof Parameters>) =>
         Effect.gen(function* () {
