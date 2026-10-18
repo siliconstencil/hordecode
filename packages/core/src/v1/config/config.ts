@@ -140,6 +140,14 @@ export const Info = Schema.Struct({
       }),
     }),
   ).annotate({ description: "Dynamic workflow runtime settings." }),
+  supervisor: Schema.optional(
+    Schema.Struct({
+      max_subagents: Schema.optional(PositiveInt).annotate({
+        description:
+          "Subagents the supervisor tool runs at once in one session tree (the session and every session under it). Default: 8. Values above 16 are capped at 16. Workflow agents have their own limit (workflow.maxConcurrentAgents).",
+      }),
+    }),
+  ).annotate({ description: "Supervisor tool settings." }),
   provider: Schema.optional(Schema.Record(Schema.String, ConfigProviderV1.Info)).annotate({
     description: "Custom provider configurations and model overrides",
   }),

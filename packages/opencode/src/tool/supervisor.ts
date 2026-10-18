@@ -1,9 +1,10 @@
-import { Effect, Schema, Deferred } from "effect"
+import { Effect, Exit, Schema, Deferred } from "effect"
 import * as Tool from "./tool"
 import DESCRIPTION from "./supervisor.txt"
 import { SupervisorRegistryService } from "@opencode-ai/supervisor/registry"
 import { SupervisorWaiter } from "@opencode-ai/supervisor/waiter"
 import { spawnRef } from "@opencode-ai/supervisor/spawn-ref"
+import { lookupOutcome } from "@opencode-ai/supervisor/outcome-ref"
 import type { Interface as SupervisorInterface, AgentOutcome } from "@opencode-ai/supervisor/spawn"
 import { TaskRegistry } from "@opencode-ai/task/registry"
 import { Inbox } from "@opencode-ai/inbox"
@@ -175,6 +176,55 @@ export function subagentDepthLimit(configured: number | undefined) {
   return Math.min(Math.max(configured, 0), MAX_SUBAGENT_DEPTH)
 }
 
+// Subagents this tool runs at once in one session tree (a root session and every session under
+// it). The default covers the research skills' fan-out (at most 5 concurrent sub-agents,
+// skill/src/research/.bundle/research/SKILL.md) plus a coordinator's workers on other providers.
+// supervisor.max_subagents raises it up to MAX_SUBAGENTS, the workflow runtime's default cap
+// (workflow/src/runtime.ts DEFAULT_MAX_CONCURRENT). Workflow, checkpoint and peer spawns do not
+// go through this tool and are not counted.
+export const DEFAULT_MAX_SUBAGENTS = 8
+export const MAX_SUBAGENTS = 16
+
+export function maxSubagentsLimit(configured: number | undefined) {
+  if (configured === undefined) return DEFAULT_MAX_SUBAGENTS
+  return Math.min(Math.max(configured, 1), MAX_SUBAGENTS)
+}
+
+// Slots held by running subagents, keyed by root session id. Process-wide, like the supervisor
+// scope the subagents run in. A slot is taken synchronously before spawn, so parallel spawns in
+// one assistant message cannot all pass the check, and released when the outcome resolves. Once
+// the subagent exists its slot records the subagent's ids, so a slot whose subagent is no longer
+// running can be freed even if its outcome was never delivered.
+type SubagentSlot = { sessionID?: SessionID; supervisorID?: string }
+const subagentSlots = new Map<string, Map<symbol, SubagentSlot>>()
+
+export function runningSubagents(rootSessionID: string) {
+  return subagentSlots.get(rootSessionID)?.size ?? 0
+}
+
+function freeSubagentSlot(rootSessionID: string, slot: symbol) {
+  const slots = subagentSlots.get(rootSessionID)
+  if (!slots) return
+  slots.delete(slot)
+  if (slots.size === 0) subagentSlots.delete(rootSessionID)
+}
+
+function takeSubagentSlot(rootSessionID: string, limit: number) {
+  const slots = subagentSlots.get(rootSessionID) ?? new Map<symbol, SubagentSlot>()
+  if (slots.size >= limit) return undefined
+  const slot = Symbol(rootSessionID)
+  const held: SubagentSlot = {}
+  slots.set(slot, held)
+  subagentSlots.set(rootSessionID, slots)
+  return {
+    bind: (sessionID: SessionID, supervisorID: string) => {
+      held.sessionID = sessionID
+      held.supervisorID = supervisorID
+    },
+    release: Effect.sync(() => freeSubagentSlot(rootSessionID, slot)),
+  }
+}
+
 export const SupervisorTool = Tool.define(
   id,
   Effect.gen(function* () {
@@ -250,6 +300,35 @@ export const SupervisorTool = Tool.define(
           // chain from ctx.sessionID. A link counts only when the child session hosts a subagent
           // row, so peers do not count (upstream task.ts:105-110 counts every parent link).
           // Walk stops at `limit`, at a root session, or after 64 hops.
+          // At the limit, free the slots of subagents that are no longer working. A row reads idle
+          // between a subagent's first turn and its final outcome, so a slot whose work fiber is
+          // still tracked (outcome-ref) is kept whatever its row says. A slot reserved for a spawn
+          // still in progress has no ids yet and is kept too.
+          const freeFinishedSlots = Effect.fn("SupervisorTool.freeFinishedSlots")(function* (rootSessionID: string) {
+            for (const [slot, held] of [...(subagentSlots.get(rootSessionID) ?? [])]) {
+              if (!held.sessionID || !held.supervisorID) continue
+              if (lookupOutcome(held.sessionID, held.supervisorID)) continue
+              const row = yield* supervisorReg
+                .get(held.sessionID, held.supervisorID)
+                .pipe(Effect.catch(() => Effect.succeed(undefined)))
+              if (row?.status === "pending" || row?.status === "running") continue
+              freeSubagentSlot(rootSessionID, slot)
+            }
+          })
+
+          // Root of the caller's session tree: the topmost session on its parent chain.
+          const rootSessionOf = Effect.fn("SupervisorTool.rootSessionOf")(function* (sessionID: SessionID) {
+            let current = sessionID
+            for (let hop = 0; hop < 64; hop++) {
+              const session: { parentID?: SessionID | null } | undefined = yield* sessions
+                .get(current)
+                .pipe(Effect.catch(() => Effect.succeed(undefined)))
+              if (!session?.parentID) break
+              current = session.parentID
+            }
+            return current
+          })
+
           const subagentDepth = Effect.fn("SupervisorTool.subagentDepth")(function* (limit: number) {
             let depth = 0
             let current: SessionID | undefined = ctx.sessionID
@@ -441,14 +520,13 @@ export const SupervisorTool = Tool.define(
             const limit = subagentDepthLimit(cfg.subagent_depth)
             const depth = yield* subagentDepth(limit)
             if (depth >= limit) {
+              // A capacity refusal, not an argument error: the model should not retry with other input.
               return yield* Effect.die(
-                new Tool.InvalidArgumentsError({
-                  tool: id,
-                  detail:
-                    limit < MAX_SUBAGENT_DEPTH
-                      ? `Subagent depth limit reached (${limit}). Increase "subagent_depth" to allow deeper nesting.`
-                      : `Subagent depth limit reached (${limit}), the deepest level the supervisor can manage.`,
-                }),
+                new Error(
+                  limit < MAX_SUBAGENT_DEPTH
+                    ? `Subagent depth limit reached (${limit}). Increase "subagent_depth" to allow deeper nesting.`
+                    : `Subagent depth limit reached (${limit}), the deepest level the supervisor can manage.`,
+                ),
               )
             }
           }
@@ -618,6 +696,23 @@ export const SupervisorTool = Tool.define(
                 parentSupervisorID: resumeTarget.parentSupervisorID,
               }
             : { sessionID: ctx.sessionID, parentSupervisorID: ctx.supervisorID }
+          // Breadth limit (see maxSubagentsLimit), per session tree.
+          const rootSessionID = yield* rootSessionOf(ctx.sessionID)
+          const slotLimit = maxSubagentsLimit((yield* config.get()).supervisor?.max_subagents)
+          let subagentSlot = takeSubagentSlot(rootSessionID, slotLimit)
+          if (!subagentSlot) {
+            yield* freeFinishedSlots(rootSessionID)
+            subagentSlot = takeSubagentSlot(rootSessionID, slotLimit)
+          }
+          if (!subagentSlot) {
+            return yield* Effect.die(
+              new Error(
+                slotLimit < MAX_SUBAGENTS
+                  ? `${slotLimit} subagents are already running in this session (limit ${slotLimit}). Wait for one to finish, or raise "supervisor.max_subagents" (up to ${MAX_SUBAGENTS}).`
+                  : `${slotLimit} subagents are already running in this session, the most the supervisor runs at once. Wait for one to finish.`,
+              ),
+            )
+          }
           const spawnResult = yield* supervisor.spawn({
             mode: "subagent",
             ...spawnTarget,
@@ -651,7 +746,19 @@ export const SupervisorTool = Tool.define(
                   } as unknown as Metadata,
                 })
                 .pipe(Effect.ignore),
-          })
+          }).pipe(
+            // A failed spawn frees its slot at once; a started subagent frees it when its outcome
+            // resolves (success, failure, cancel or interrupt all resolve it, supervisor/src/spawn.ts).
+            Effect.onExit((exit) => {
+              if (!Exit.isSuccess(exit)) return subagentSlot.release
+              subagentSlot.bind(exit.value.sessionID, exit.value.supervisorID)
+              return Deferred.await(exit.value.outcome).pipe(
+                Effect.ensuring(subagentSlot.release),
+                Effect.forkDetach,
+                Effect.asVoid,
+              )
+            }),
+          )
 
           if (op.action === "spawn") {
             return {

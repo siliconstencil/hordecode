@@ -30,8 +30,10 @@ All notable changes to this project will be documented in this file.
   `use_github_token: true`; `horde github install` explains that setup and changes no files.
 - Supervisors delegate through nested subagents three levels deep by default (main agent,
   coordinating supervisor, workers, helpers); `subagent_depth` sets it from 0 to 8. Only
-  subagent links count toward the depth; peers do not. The number of parallel subagents is not
-  limited.
+  subagent links count toward the depth; peers do not.
+- The supervisor tool runs up to 8 subagents at once in a session and the sessions under it;
+  `supervisor.max_subagents` raises this up to 16. Workflow agents keep their own limit
+  (`workflow.maxConcurrentAgents`).
 - A subagent's step limit is applied: the agent's `steps`, else 100. The loop ends after the
   last allowed step even if the model asks for more tools.
 - The supervisor tool's `context` option accepts `none` and `state`. `full` is rejected: it
