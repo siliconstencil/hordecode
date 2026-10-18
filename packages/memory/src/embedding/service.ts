@@ -16,22 +16,26 @@ interface ProcessWithDlopen extends NodeJS.Process {
 // Pre-load onnxruntime native binding from runtime dir (exe-relative).
 // Build vendoring places the binding at <exe-dir>/runtime/onnxruntime/onnxruntime_binding.node
 // Missing dir is graceful degrade (BM25-only).
-const _RT_DIR = (() => {
+// Loaded lazily from tryInit (first model start), never at module load, so
+// importing this module (e.g. the CLI --version path) does not dlopen the binding.
+let runtimeDir: string | null = null
+const loadRuntimeBinding = (): string => {
+  if (runtimeDir !== null) return runtimeDir
+  runtimeDir = ""
   try {
     const exeDir = process.execPath ? path.dirname(process.execPath) : ""
-    if (!exeDir) return ""
+    if (!exeDir) return runtimeDir
     const rt = path.resolve(exeDir, "runtime", "onnxruntime")
     const bind = path.join(rt, "onnxruntime_binding.node")
     if (fs.existsSync(bind)) {
       ;(process as ProcessWithDlopen).dlopen({ exports: {} } as NodeJS.Module, bind)
-      return rt
+      runtimeDir = rt
     }
-    return ""
   } catch {
-    return ""
+    runtimeDir = ""
   }
-})()
-void _RT_DIR
+  return runtimeDir
+}
 
 export type EmbeddingState = "disabled" | "idle" | "loading" | "ready" | "unavailable"
 
@@ -60,6 +64,8 @@ export const layer: Layer.Layer<Service> = Layer.effect(
       initAttempted = true
       state = "loading"
       log.debug("tryInit start")
+      // Native binding must be in place before the transformers pipeline loads.
+      loadRuntimeBinding()
       // ORT_WASM_DIR stays exe-relative (shipped runtime artifact).
       process.env.ORT_WASM_DIR ??= path.join(path.dirname(process.execPath), "vendor")
       // HF_HOME is intentionally NOT set: the @huggingface/transformers node
