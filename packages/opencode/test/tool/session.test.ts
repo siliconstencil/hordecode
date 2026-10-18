@@ -43,6 +43,7 @@ const layer = Layer.mergeAll(
   Layer.mock(SupervisorRegistryService.Service, {
     get: (sessionID, supervisorID) =>
       Effect.succeed(registryRows.find((row) => row.sessionID === sessionID && row.supervisorID === supervisorID)),
+    listBySession: (sessionID) => Effect.succeed(registryRows.filter((row) => row.sessionID === sessionID)),
   }),
   Layer.mock(Inbox.Service, {
     send: () => inboxSendResult,

@@ -442,6 +442,10 @@ export interface Interface {
     metadata?: typeof Metadata.Type
     permission?: PermissionV1.Ruleset
     workspaceID?: WorkspaceV2.ID
+    // In-process only, not part of the HTTP CreateInput. Set by a caller that places a
+    // child in its own directory (supervisor spawnPeer / spawnSubagent with cwd). Mirrors
+    // packages/core/src/session/session.ts:579-598 (create honors input.directory).
+    directory?: string
   }) => Effect.Effect<Info>
   readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info, NotFound>
   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
@@ -857,13 +861,18 @@ const layer = Layer.effect(
       metadata?: typeof Metadata.Type
       permission?: PermissionV1.Ruleset
       workspaceID?: WorkspaceV2.ID
+      directory?: string
     }) {
       const ctx = yield* InstanceState.context
       const workspace = yield* InstanceState.workspaceID
+      // An in-process directory overrides the instance directory, as the core twin does
+      // (packages/core/src/session/session.ts:588, `input?.directory ?? instance dir`).
+      // Upstream opencode-1.19.0 has no such input and always uses ctx.directory.
+      const directory = input?.directory ?? ctx.directory
       return yield* createNext({
         parentID: input?.parentID,
-        directory: ctx.directory,
-        path: sessionPath(ctx.worktree, ctx.directory),
+        directory,
+        path: sessionPath(ctx.worktree, directory),
         title: input?.title,
         agent: input?.agent,
         model: input?.model,

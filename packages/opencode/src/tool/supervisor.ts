@@ -16,6 +16,8 @@ import { Provider, sortVisionModels } from "@/provider/provider"
 import { toLegacyProviderID, toLegacyModelID } from "@opencode-ai/core/provider/bridge"
 import { SessionCheckpoint } from "@opencode-ai/core/session/checkpoint"
 import type { SupervisorPromptOps } from "@opencode-ai/core/session/supervisor-prompt-ops"
+import { Config } from "@/config/config"
+import { findTaskInParents } from "./task"
 
 const ResumeIdDescription =
   "(optional) Existing subagent supervisor_id to resume. The new prompt runs as a new turn in that subagent's own session, so it keeps its prior messages and tool outputs. Errors if the id is unknown, still running, or a peer (use send). Omit to start a new supervisor."
@@ -171,6 +173,7 @@ export const SupervisorTool = Tool.define(
     const sessions = yield* Session.Service
     const provider = yield* Provider.Service
     const checkpoint = yield* SessionCheckpoint.Service
+    const config = yield* Config.Service
 
     return {
       description: DESCRIPTION,
@@ -228,6 +231,25 @@ export const SupervisorTool = Tool.define(
             if (!rows.some((row) => row.supervisorID !== "main" && row.mode === "subagent")) return undefined
             const session = yield* sessions.get(ctx.sessionID).pipe(Effect.catch(() => Effect.succeed(undefined)))
             return session?.parentID ?? undefined
+          })
+
+          // Subagent nesting depth of the caller: the number of subagent links on the parent
+          // chain from ctx.sessionID. A link counts only when the child session hosts a subagent
+          // row, so peers do not count (upstream task.ts:105-110 counts every parent link).
+          // Walk stops at `limit`, at a root session, or after 64 hops.
+          const subagentDepth = Effect.fn("SupervisorTool.subagentDepth")(function* (limit: number) {
+            let depth = 0
+            let current: SessionID | undefined = ctx.sessionID
+            for (let hop = 0; current !== undefined && depth < limit && hop < 64; hop++) {
+              const rows = yield* supervisorReg.listBySession(current)
+              const hostsSubagent = rows.some((row) => row.supervisorID !== "main" && row.mode === "subagent")
+              const session: { parentID?: SessionID | null } | undefined = yield* sessions
+                .get(current)
+                .pipe(Effect.catch(() => Effect.succeed(undefined)))
+              if (hostsSubagent) depth++
+              current = session?.parentID ?? undefined
+            }
+            return depth
           })
 
           const unknownResponse = (label: string, supervisorID: string) => ({
@@ -399,6 +421,24 @@ export const SupervisorTool = Tool.define(
             }
           }
 
+          // Nesting guard (upstream task.ts:105-117): a spawn is refused before any permission
+          // prompt once the caller's subagent depth reaches subagent_depth (default 1, so a
+          // subagent cannot launch a subagent). Checkpoint writer and workflow spawns do not go
+          // through this tool and are not affected.
+          if (op.action === "run" || op.action === "spawn") {
+            const cfg = yield* config.get()
+            const limit = cfg.subagent_depth ?? 1
+            const depth = yield* subagentDepth(limit)
+            if (depth >= limit) {
+              return yield* Effect.die(
+                new Tool.InvalidArgumentsError({
+                  tool: id,
+                  detail: `Subagent depth limit reached (${limit}). Increase "subagent_depth" to allow nested subagents.`,
+                }),
+              )
+            }
+          }
+
           // --- Worktree resume: restore original supervisor's workdir ---
           // If caller passed supervisor_id/supervisor_id, try to locate the original supervisor
           // and derive its workdir from the registry entry (entry.workdir) or the
@@ -540,9 +580,12 @@ export const SupervisorTool = Tool.define(
           let effectiveTaskId = op.task_id
           let taskNotice = ""
           if (op.task_id) {
-            const existing = yield* tasks.get({ session_id: ctx.sessionID, id: op.task_id }).pipe(
+            const own = yield* tasks.get({ session_id: ctx.sessionID, id: op.task_id }).pipe(
               Effect.catch(() => Effect.succeed(undefined)),
             )
+            // A nested subagent may bind a task owned by an ancestor session; resolve it through
+            // the parent chain, as the task tool does (tool/task.ts findTaskInParents).
+            const existing = own ?? (yield* findTaskInParents(tasks, sessions, op.task_id, ctx.sessionID, 0))
             if (!existing) {
               effectiveTaskId = undefined
               taskNotice = `note: task_id "${op.task_id}" does not exist in this session; ran ad-hoc. Create it with the \`task\` tool first, or omit task_id.`

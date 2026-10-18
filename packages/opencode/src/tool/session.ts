@@ -606,6 +606,19 @@ export const SessionTool = Tool.define<
         return children.filter((_, i) => verdicts[i])
       })
 
+    // The supervisor row a child session hosts. A peer row is keyed (session, session id); a
+    // subagent row is keyed (child session, "<agent>-N") by spawnSubagent, so both are read with
+    // listBySession. Among several subagent rows the most recently updated one wins.
+    const childSupervisorRow = (sessionID: SessionID) =>
+      supervisorReg.listBySession(sessionID).pipe(
+        Effect.map((rows): Supervisor | undefined => {
+          const peer = rows.find((row) => row.supervisorID === sessionID)
+          if (peer) return peer
+          const subagents = rows.filter((row) => row.mode === "subagent" && row.supervisorID !== "main")
+          return subagents.sort((a, b) => b.time.updated - a.time.updated)[0]
+        }),
+      )
+
     const requireSupervisor = () => {
       const a = spawnRef.current
       if (!a) return Effect.fail(new Error("Supervisor service unavailable"))
@@ -636,7 +649,7 @@ export const SessionTool = Tool.define<
             const topic = createOp.topic
             const children = yield* sessions.children(ctx.sessionID as SessionID)
             const enriched = yield* Effect.forEach(children, (child: { id: string; title: string }) =>
-              supervisorReg.get(child.id as SessionID, child.id).pipe(Effect.map((sup: Supervisor | undefined) => ({ child, sup }))),
+              childSupervisorRow(child.id as SessionID).pipe(Effect.map((sup: Supervisor | undefined) => ({ child, sup }))),
             )
             const match = enriched.find(({ child, sup }: { child: { id: string; title: string }; sup: Supervisor | undefined }) => {
               if (sup?.mode === "subagent") return false
@@ -757,7 +770,7 @@ export const SessionTool = Tool.define<
         if (action === "dashboard") {
           const children = yield* conversationChildren(ctx.sessionID as SessionID)
           const enriched = yield* Effect.forEach(children, (child: { id: string; title: string; directory: string }) =>
-            supervisorReg.get(child.id as SessionID, child.id).pipe(Effect.map((sup: Supervisor | undefined) => ({ child, sup }))),
+            childSupervisorRow(child.id as SessionID).pipe(Effect.map((sup: Supervisor | undefined) => ({ child, sup }))),
           )
           const peers = enriched.filter(({ sup }: { sup: Supervisor | undefined }) => sup?.mode !== "subagent")
           if (peers.length === 0) return { title: "Fleet: 0", output: "No child sessions.", metadata: {} as Metadata }
@@ -779,7 +792,8 @@ export const SessionTool = Tool.define<
         if (action === "cancel") {
           const s = yield* requireSid("cancel")
           const supervisor = yield* requireSupervisor()
-          yield* supervisor.cancel(s as SessionID, s, "graceful")
+          const cancelRow = yield* childSupervisorRow(s as SessionID)
+          yield* supervisor.cancel(s as SessionID, cancelRow?.supervisorID ?? s, "graceful")
           // Remove the child's worktree only when this session tool created it
           // with `isolate` (see ownsWorktree / removeOwnedWorktree). A child in a
           // plain directory, including a subdirectory of a git repo, owns no
@@ -885,7 +899,7 @@ export const SessionTool = Tool.define<
 
         if (action === "status") {
           const sid = yield* requireSid("status")
-          const entry = yield* supervisorReg.get(SessionID.make(sid), sid)
+          const entry = yield* childSupervisorRow(SessionID.make(sid))
           if (!entry) {
             return {
               title: `session status ${sid}`,

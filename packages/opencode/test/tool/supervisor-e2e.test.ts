@@ -13,7 +13,9 @@ import { SessionTable } from "@opencode-ai/core/session/sql"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { Agent } from "@/agent/agent"
 import { Session } from "@/session/session"
+import { Config } from "@/config/config"
 import { Truncate } from "@/tool/truncate"
+import { TestConfig } from "../fixture/config"
 import { Provider } from "@/provider/provider"
 import { SessionCheckpoint } from "@opencode-ai/core/session/checkpoint"
 import { SupervisorTool } from "../../src/tool/supervisor"
@@ -43,6 +45,7 @@ const dbPath = process.env.HORDECODE_DB!
 // strips the reactivity layer's type-level `unknown` requirement (runtime
 // no-op; Database.layerFromPath builds standalone in core tests).
 const layer = Layer.mergeAll(
+  TestConfig.layer(),
   Database.layerFromPath(dbPath),
   SupervisorRegistryService.defaultLayer,
   // The registry's bus publish path reads InstanceState.context; without an
@@ -79,7 +82,8 @@ const layer = Layer.mergeAll(
   | Agent.Service
   | Truncate.Service
   | Provider.Service
-  | SessionCheckpoint.Service,
+  | SessionCheckpoint.Service
+  | Config.Service,
   never
 >
 

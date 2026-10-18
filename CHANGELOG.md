@@ -28,6 +28,9 @@ All notable changes to this project will be documented in this file.
   from one source and is cached in one file.
 - `horde github run` uses the token broker set in `OIDC_BASE_URL`, or `GITHUB_TOKEN` with
   `use_github_token: true`; `horde github install` explains that setup and changes no files.
+- Subagent nesting in the `supervisor` tool follows the `subagent_depth` setting (default 1, so a
+  subagent cannot start a subagent). Only subagent links count toward the depth; peers do not.
+  Raise `subagent_depth` to allow nested subagents.
 
 ### Fixed
 
@@ -37,6 +40,13 @@ All notable changes to this project will be documented in this file.
   or landing in the subagent's own session; tasks a subagent creates are owned by that
   subagent.
 - The stuck-subagent notice goes to the parent session instead of the stuck subagent.
+- An interrupt cancels running subagents at every nesting level, not only direct children.
+- A nested subagent can bind a task owned by an ancestor session with `task_id`.
+- The session tool reports a subagent child's status, lists it as a subagent in the
+  dashboard, and cancels its row.
+- Supervisor ids are unique per project (`general-1`, `general-2`, ...), so two root
+  sessions no longer hand out the same id.
+- A child session created with an explicit directory records that directory.
 
 ## [0.1.1] - 2026-10-13
 

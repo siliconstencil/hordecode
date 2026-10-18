@@ -10,6 +10,7 @@ import type { Supervisor } from "@opencode-ai/supervisor/schema"
 import { Agent } from "@/agent/agent"
 import { Session } from "@/session/session"
 import { Truncate } from "@/tool/truncate"
+import { TestConfig } from "../fixture/config"
 import { Provider } from "@/provider/provider"
 import { SessionCheckpoint } from "@opencode-ai/core/session/checkpoint"
 import { SupervisorTool } from "../../src/tool/supervisor"
@@ -35,10 +36,13 @@ let checkpointContent: string | undefined
 let cancelCalls: Array<{ sessionID: string; supervisorID: string; mode: "graceful" | "forced" }> = []
 
 const layer = Layer.mergeAll(
+  TestConfig.layer(),
   Layer.mock(SupervisorRegistryService.Service, {
     // Registry lookup result is mutable per-test; undefined by default so
     // the resume block's findSupervisor yields no parent.
     get: () => Effect.succeed(registryGetResult),
+    // A top-level caller owns no subagent row, so the nesting depth stays 0.
+    listBySession: () => Effect.succeed([]),
   }),
   Layer.mock(SupervisorWaiter.Service, {}),
   Layer.mock(TaskRegistry.Service, {}),
@@ -289,6 +293,7 @@ describe("supervisor_id continuation (identity/session reuse)", () => {
 let lastSendInput: { receiverSessionID: string; receiverSupervisorID: string } | undefined
 
 const sendLayer = Layer.mergeAll(
+  TestConfig.layer(),
   Layer.mock(SupervisorRegistryService.Service, {
     // findSupervisor("main") resolves via reg.get(sessionID, "main"); the main
     // agent's supervisor is registered under the literal id "main".

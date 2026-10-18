@@ -111,9 +111,10 @@ A port is complete only when all three land together: the code, the `hordecodeBa
   both move users to OpenCode 2; their files show as LAGGING or UPSTREAM_ONLY in the map.
 - `publish.yml` version bumping depends on upstream's API; releases are built locally with
   `packages/opencode/script/build.ts` until that is replaced.
-- Fork-only subagent nesting has no limit and the upstream `subagent_depth` setting (upstream
-  task tool) has no effect; listed in CHANGELOG. MiMo 0.1.12 added a no-nested-delegation guard
-  (MiMo 0.1.11 had none); whether to adopt a limit is a maintainer decision for 0.1.2.
+- The supervisor tool applies the upstream `subagent_depth` limit (default 1, upstream task.ts:105-117;
+  peers and system spawns do not count). MiMo 0.1.12 refuses all nested delegation instead (MiMo
+  0.1.11 had none). Open: nesting through `session ask`, `session create` and the workflow runtime
+  is not checked by this limit.
 - Fork packages `agent`, `control-plane`, `project`, `shared`, `task`, `team`, `worktree` have
   no tests; `memory` has tests but no `test` script; `global` has no scripts at all.
 - `packages/docs` is untouched upstream scaffolding; the fork subsystems are undocumented there.

@@ -314,17 +314,29 @@ const layer = Layer.effect(
       // overwrite it and send a contradictory "cancelled" notification after "completed".
       // Matches the tool-level cancel, which skips idle rows (packages/opencode/src/tool/supervisor.ts
       // cancel branch), and upstream run-state.ts:111-142, which cancels only running background jobs.
-      const children = yield* sessions.children(sessionID)
-      yield* Effect.forEach(children, (child) =>
+      // The walk covers every descendant session, not only direct children: a subagent can
+      // spawn a nested subagent in its own child session (supervisor tool), and that row has
+      // no parent link to the root row. Bounded at depth 8, the same bound as the supervisor
+      // tool's searchDescendants (packages/opencode/src/tool/supervisor.ts). MiMo 0.1.11 needs no
+      // walk here: its subagents share the session, so state.cancel(sessionID) at line 355 of
+      // mimocode-v0.1.11 packages/opencode/src/session/prompt.ts already covers every level.
+      const cancelDescendants = (sessionID: SessionID, depth: number): Effect.Effect<void> =>
         Effect.gen(function* () {
-          const supers = yield* supervisorRegistry.listBySession(child.id)
-          const live = supers.filter((sup) => sup.status === "pending" || sup.status === "running")
-          yield* Effect.forEach(
-            live,
-            (sup) => spawnRef.current?.cancel(child.id, sup.supervisorID, "graceful") ?? Effect.void,
-            { concurrency: "unbounded", discard: true },
-          )
-        }), { concurrency: "unbounded", discard: true })
+          if (depth >= 8) return
+          const children = yield* sessions.children(sessionID)
+          yield* Effect.forEach(children, (child) =>
+            Effect.gen(function* () {
+              const supers = yield* supervisorRegistry.listBySession(child.id)
+              const live = supers.filter((sup) => sup.status === "pending" || sup.status === "running")
+              yield* Effect.forEach(
+                live,
+                (sup) => spawnRef.current?.cancel(child.id, sup.supervisorID, "graceful") ?? Effect.void,
+                { concurrency: "unbounded", discard: true },
+              )
+              yield* cancelDescendants(child.id, depth + 1)
+            }), { concurrency: "unbounded", discard: true })
+        })
+      yield* cancelDescendants(sessionID, 0)
     })
 
     const resolvePromptParts = Effect.fn("SessionPrompt.resolvePromptParts")(function* (template: string) {

@@ -643,6 +643,22 @@ export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
       return ids
     }
 
+    // Id scope for allocation: every session of the caller's project, so an id such as
+    // "general-1" is unique per project rather than per root tree (F-008). The lineage
+    // is the fallback when the caller's session row is not found.
+    const allocationScope = (db: Db, sessionID: SessionID) => {
+      const project = db
+        .select({ project_id: SessionTable.project_id })
+        .from(SessionTable)
+        .where(eq(SessionTable.id, sessionID))
+        .get()
+      if (!project) return collectLineageIds(db, sessionID)
+      return db
+        .select({ id: SessionTable.id })
+        .from(SessionTable)
+        .where(eq(SessionTable.project_id, project.project_id))
+    }
+
     const allocateSupervisorID = Effect.fn("SupervisorRegistryService.allocateSupervisorID")(function* (
       sessionID: SessionID,
       agentType: string,
@@ -651,12 +667,12 @@ export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
       // spawns can compute the same max+1 before either INSERT lands (PK is
       // per-session, so both INSERTs succeed under different session_id with
       // the same bare supervisor_id, later surfacing as ambiguous). Each
-      // attempt re-scans the lineage; if the first register landed between
+      // attempt re-scans the project; if the first register landed between
       // iterations the second attempt sees it and bumps to N+1.
       for (let attempt = 0; attempt < 8; attempt++) {
         const candidate: string | null = yield* Effect.sync(() =>
           Database.use((db): string | null => {
-            const ids = collectLineageIds(db, sessionID)
+            const ids = allocationScope(db, sessionID)
             const rows = db
               .select({ supervisor_id: SupervisorRegistryTable.supervisor_id })
               .from(SupervisorRegistryTable)
@@ -685,7 +701,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
         )
         if (candidate !== null) return candidate
       }
-      return yield* Effect.fail(new Error(`allocateSupervisorID: exhausted retries for ${agentType} in lineage of ${sessionID}`))
+      return yield* Effect.fail(new Error(`allocateSupervisorID: exhausted retries for ${agentType} in project of ${sessionID}`))
     })
 
     // Mandatory guard for Bug#1: if a bare supervisorID resolves to >1 row across

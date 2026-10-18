@@ -9,6 +9,7 @@ import type { AgentOutcome, SpawnInput } from "@opencode-ai/supervisor/spawn"
 import { Agent } from "@/agent/agent"
 import { Session } from "@/session/session"
 import { Truncate } from "@/tool/truncate"
+import { TestConfig } from "../fixture/config"
 import { Provider } from "@/provider/provider"
 import { SessionCheckpoint } from "@opencode-ai/core/session/checkpoint"
 import { SupervisorTool } from "../../src/tool/supervisor"
@@ -24,7 +25,8 @@ const spawnInputs: Array<{ steps?: number }> = []
 let agentSteps: number | undefined
 
 const layer = Layer.mergeAll(
-  Layer.mock(SupervisorRegistryService.Service, {}),
+  TestConfig.layer(),
+  Layer.mock(SupervisorRegistryService.Service, { listBySession: () => Effect.succeed([]) }),
   Layer.mock(SupervisorWaiter.Service, {}),
   Layer.mock(TaskRegistry.Service, {}),
   Layer.mock(Inbox.Service, {}),

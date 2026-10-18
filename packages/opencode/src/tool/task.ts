@@ -324,7 +324,9 @@ function arityError(verb: string, expected: string, args: string[], line: number
 // other parent tasks. Depth is bounded.
 const MAX_PARENT_DEPTH = 8
 
-const findTaskInParents = (
+// Exported for the supervisor tool's task_id check (tool/supervisor.ts), which needs the same
+// parent-chain lookup at depth >= 2 (fork-only; no MiMo equivalent).
+export const findTaskInParents = (
   reg: TaskRegistry.Interface,
   sessions: Session.Interface,
   id: string,

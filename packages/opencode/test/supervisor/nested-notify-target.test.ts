@@ -19,6 +19,7 @@ import { TaskRegistry } from "@opencode-ai/task/registry"
 import { SessionCheckpoint } from "@opencode-ai/core/session/checkpoint"
 import { Inbox } from "@opencode-ai/inbox"
 import { Agent } from "../../src/agent/agent"
+import { Config } from "@/config/config"
 import type { SessionID } from "@opencode-ai/core/session/schema"
 import { SupervisorTool } from "../../src/tool/supervisor"
 import { run, ensureProject, ctxFor, inboxFor, sleep } from "./supervisor-harness"
@@ -79,6 +80,10 @@ describe("nested subagent notification target", () => {
         Layer.mock(SupervisorWaiter.Service, {}) as Layer.Layer<any, never, never>,
         Layer.mock(TaskRegistry.Service, {}) as Layer.Layer<any, never, never>,
         Layer.mock(SessionCheckpoint.Service, {}) as Layer.Layer<any, never, never>,
+        // A subagent spawning a leaf needs one level of nesting beyond the default subagent_depth.
+        Layer.mock(Config.Service, {
+          get: () => Effect.succeed({ subagent_depth: 2 } as never),
+        }) as Layer.Layer<any, never, never>,
       ),
     )
     expect(out.childRows.filter((r) => r.receiver_supervisor_id === "main")).toEqual([])
