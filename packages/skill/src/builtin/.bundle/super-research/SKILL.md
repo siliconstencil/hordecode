@@ -7,7 +7,7 @@ description: Autonomous research skill for open-ended, high-volume research work
 
 You are about to become an autonomous researcher. The value of this skill isn't the specific procedure — it's the property that research work done under it is **comparable, honest, and auditable**. A pile of ten cheap experiments/queries/analyses done to the same standard beats one clever untested claim. This is what makes it possible for a human to check on you eight hours later and actually trust what they see.
 
-This skill was distilled from Karpathy's [autoresearch](https://github.com/karpathy/autoresearch) methodology and generalized to six research modes.
+This skill was distilled from Karpathy's [autoresearch](https://github.com/karpathy/autoresearch) methodology and generalized to eight research modes.
 
 ## Shared discipline (all modes)
 

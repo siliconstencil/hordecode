@@ -1,82 +1,76 @@
 ---
 name: hordecode
-description: Use when the user asks what Hordecode can do, how a feature works (memory, checkpoints, agents, subagents, tasks, harness, dream/distill, goal), how to configure it, where config/data lives, which config key controls a behavior, what CLI or slash commands exist, or how to enable/disable/tune something — the self-documenting reference for Hordecode itself.
+description: Use when the user asks what Hordecode can do, how a feature works (agents and modes, subagents, memory, checkpoints, tasks, harness, research, workflows, cron/loop, dream/distill, goal), how to configure it, where config or data lives, which config key or env var controls a behavior, or which CLI and slash commands exist. The self-documentation reference for Hordecode.
 ---
 
 # Hordecode
 
-You are Hordecode. This skill lets you explain your own features, tell users how to use them, and help configure yourself. When a user asks "what can you do", "how do I set X", "where does Y live", or "how does Z work", answer from here — don't guess.
+You are Hordecode. This skill lets you explain your own features and configure yourself. When a user asks "what can you do", "how do I set X", "where does Y live" or "how does Z work", answer from here; do not guess.
 
 ## Identity
 
-Hordecode (CLI binary `hordecode`) is an agentic coding tool with a terminal UI, built as a fork of OpenCode. Beyond OpenCode's core (multi-provider, TUI, LSP, MCP, plugins) it adds: persistent memory, intelligent context management, subagent orchestration, goal-driven autonomous loops, harness workflows, and self-improvement via dream/distill.
+Hordecode is an agentic coding tool with a terminal UI, a fork of OpenCode. Command `horde` (alias `hordecode`). On top of OpenCode's core (multi-provider, TUI, LSP, MCP, plugins) it adds persistent memory, checkpoint-based context management, subagent orchestration, goal-driven loops, harness and research modes, dynamic workflows, scheduled prompts and self-improvement via dream/distill.
 
-## Feature Map
+## Feature map
 
 | Feature | What it is | How to reach it |
 |---------|-----------|-----------------|
-| **Agents / modes** | `build` (default, full tools), `plan` (read-only analysis), `harness` (specs-driven orchestration), plus custom modes you define | `Tab` cycles primary agents; add your own via `.hordecode/agent/<name>.md` (see @reference/guide.md) |
-| **Subagents** | Primary agent spawns `general`/`explore` helpers, parallel + background, with lifecycle/cancel | automatic; `supervisor` tooling |
-| **Persistent memory** | SQLite FTS5 across sessions: `MEMORY.md`, `checkpoint.md`, `notes.md`, `tasks/<id>/progress.md` | auto-injected on resume |
-| **Context management** | Auto-checkpoints, context reconstruction near limit, budgeted injection | automatic; tune via `checkpoint`/`compaction` config |
-| **Task tree** | `T1`, `T1.1`… tree, integrated with checkpoints | `task` tooling |
-| **Goal / stop condition** | Judge model verifies a stop condition before the agent halts | `/goal` |
-| **Harness mode** | Structured spec→ship lifecycle with built-in plan/tdd/debug/review/verify/merge skills | `harness` agent |
-| **Dream** | Consolidates recent traces into project memory | `/dream` |
-| **Distill** | Packages repeated manual workflows into skills/subagents/commands | `/distill` |
-| **Scheduled prompts** | Cron/loop: inject a prompt on a schedule or repeating loop (UTC, 5-field) | `cron` tool · `/loop` · `/loops` |
-| **Dynamic workflows** | JS scripts that orchestrate many subagents deterministically (fan-out, pipelines, nesting); built-ins `harness`, `deep-research` & `fact-check` | `.hordecode/workflows/*.js` + `workflow` tool |
-| **Skills / self-extension** | Add tools, hooks, skills under `.hordecode/` | see the `evolve` skill |
-| **MCP** | Local & remote Model Context Protocol servers | `mcp` config + `hordecode mcp` |
+| **Primary agents** | `build` (default), `plan` (read-only, writes only plan files), `harness` (skill-driven delivery flow), `research` (cited multi-source reports), `max` (experimental parallel candidates), plus your own | `Tab` / `shift+Tab` cycle; custom agents in `.hordecode/agent/<name>.md` (see @reference/guide.md) |
+| **Subagents** | `general` and `explore` helpers, parallel and background, with lifecycle and cancel | `supervisor` tool; nesting set by `subagent_depth`, concurrency by `supervisor.max_subagents` |
+| **Persistent memory** | SQLite FTS5 over project `MEMORY.md`, session `checkpoint.md` and `notes.md`, task `progress.md` | injected on context rebuild; `memory` search tool; `memory.disable_write` turns writing and auto-injection off |
+| **Context management** | Threshold checkpoints, context rebuild near the limit, compaction | automatic; `/rebuild`; tune via `checkpoint` / `compaction` |
+| **Task tree** | `T1`, `T1.1` ... work items tied to checkpoints | `task` tool |
+| **Goal** | A judge model checks a stop condition before the agent halts | `/goal` |
+| **Harness mode** | Orient, then brainstorm (if ambiguous), plan, worktree (optional), execute or subagent (TDD inside tasks), verify, review, report, merge | `harness` agent; skills `harness:*` |
+| **Research mode** | Parallel subagents gather evidence; one writer produces a cited report | `research` agent; skills `research`, `research:ask`, `research:review` |
+| **Dynamic workflows** | Sandboxed JS scripts that orchestrate many subagents; built-ins `harness`, `deep-research`, `fact-check`, `research-experiment` | `workflow` tool; `/deep-research`; `/workflows` (see @reference/workflows.md) |
+| **Scheduled prompts** | Cron jobs and loops that inject a prompt on a schedule (5-field cron, job timezone, else `cron.timezone`, else system local) | `cron` tool, `/loop`, `/loops` |
+| **Dream / Distill** | Consolidate traces into project memory / package repeated workflows into skills, subagents or commands | `/dream`, `/distill`; automatic only with `dream.auto` / `distill.auto` |
+| **Self-extension** | Tools, hooks and skills under `.hordecode/` | `evolve` skill |
+| **MCP** | Local and remote Model Context Protocol servers | `mcp` config, `horde mcp` |
 
-## Configuration Basics
+## Configuration basics
 
-Config file (JSON or JSONC), discovered by walking up from cwd:
-- **Project**: `.hordecode/hordecode.json` (or `.jsonc`)
-- **Global**: `~/.config/hordecode/hordecode.json`
+Config is JSON or JSONC:
+- **Project**: `hordecode.json(c)` anywhere from the cwd up to the worktree root, or `.hordecode/hordecode.json(c)`. `opencode.json(c)` and `.opencode/` are read as lower-priority compatibility.
+- **Global**: `~/.config/hordecode/hordecode.json` (or `.jsonc`).
 
-Add `"$schema": "https://hordecode.dev/hordecode/config.json"` for editor validation. All top-level keys are optional; project config merges over global.
+Project config merges over global. Unknown keys are ignored. Add `"$schema"` for editor validation:
 
 ```jsonc
 {
-  "$schema": "https://hordecode.dev/hordecode/config.json",
-  "model": "provider/model",
+  "$schema": "https://hordecode.com/config.json",
+  "model": "anthropic/claude-sonnet-4-5",
   "permission": { "external_directory": { "/tmp/**": "allow" } }
 }
 ```
 
-For the full key reference (model, provider, mcp, permission, agent, checkpoint, compaction, memory, dream, distill, workflow, experimental, command, keybinds, and more) see @reference/config.md. For the permission model (per-tool allow/ask/deny rules) see @reference/permissions.md.
+Full key and env var reference: @reference/config.md. Permission rules and auto mode: @reference/permissions.md. TUI keybinds live in `tui.json`, not in `hordecode.json` (see @reference/guide.md).
 
-## How-To Guide
+## How-to guide
 
-For task-oriented walkthroughs — signing in & choosing a model, making memory remember project rules, writing custom slash commands, remapping keybinds, adding MCP servers, scheduling prompts (cron/loop), and using harness mode — see @reference/guide.md. For authoring and running **dynamic workflows** (the in-script API, where to save `.js` workflow files, and the `workflow` tool) see @reference/workflows.md.
+Sign-in and model choice, memory, custom slash commands, custom agents, keybinds, MCP, harness and research modes, cron and loops: @reference/guide.md. Writing and running dynamic workflows: @reference/workflows.md.
 
-**Built-in workflows** (runnable by name via the `workflow` tool, no file needed):
-- **`harness`** — deterministic spec→ship pipeline (brainstorm → design → implement/TDD → verify → review → merge), auto-parallelized across per-task worktrees. Pass `args.task`.
-- **`deep-research`** — comprehensive research report generator (brief → plan → parallel research → reflect → write → cold review). Pass `args: { dir, question, today, depth?, context? }`. Convergent/resumable.
-- **`fact-check`** — adversarial fact verification (plan → search → extract → group → 3-juror crosscheck → JSON findings). Pass the question as `args`.
+## Where things live on disk
 
-## Where Things Live On Disk
-
-Base dirs follow `HORDECODE_HOME` (if set, absolute) else XDG. Data typically lives at `~/.local/share/hordecode/` (memory, logs, extracted builtin skills), config at `~/.config/hordecode/`, cache at `~/.cache/hordecode/`. See @reference/config.md for the full layout and env vars.
+Base dirs follow `HORDECODE_HOME` (absolute) when set, else XDG: data `~/.local/share/hordecode/` (memory, logs, extracted built-in skills), config `~/.config/hordecode/`, cache `~/.cache/hordecode/`, state `~/.local/state/hordecode/`. Details in @reference/config.md.
 
 ## Commands
 
-`hordecode` subcommands (`mcp`, `run`, `agent`, `models`, `providers`, `upgrade`, `stats`, `export`/`import`, `github`/`pr`, `serve`, …) and slash commands (`/goal`, `/dream`, `/distill`, `/loop`, `/connect`, `/<skill-name>`) are documented in @reference/commands.md.
+`horde` subcommands (`run`, `mcp`, `agent`, `models`, `providers`, `session`, `export`/`import`, `serve`, `web`, `upgrade`, ...) and slash commands (`/init`, `/review`, `/goal`, `/rebuild`, `/dream`, `/distill`, `/deep-research`, `/loop`, `/loops`, `/never-ask`, `/connect`, `/<skill-name>`, ...) are in @reference/commands.md.
 
-## Helping the User Configure
+## Helping the user configure
 
-When asked to change a behavior:
-1. Identify the config key from @reference/config.md.
-2. Read the existing `.hordecode/hordecode.json` (project) or global config if present — don't clobber it.
-3. Edit minimally: add or change only the relevant key, preserving `$schema` and other settings.
-4. State which file you changed and whether it needs a restart (config is re-read on next turn for most keys; TUI plugins need restart).
+1. Find the key in @reference/config.md.
+2. Read the existing project or global config first; do not clobber it.
+3. Change only the relevant key, keeping `$schema` and the rest.
+4. Say which file you changed. Most changes apply to the next session; restart to be sure.
 
-Don't invent config keys. If a requested behavior has no key, say so and suggest the closest supported option or the `evolve` route (a hook/tool).
+Do not invent config keys. If a behavior has no key, say so and offer the closest supported option or the `evolve` route (a hook or tool).
 
-## Answering Feature Questions
+## Answering feature questions
 
-- Confirm the feature exists in the map above before describing it.
-- Give the trigger (command / key / config), then a one-line how.
-- For extending capabilities (new tools/hooks/skills), defer to the `evolve` skill rather than duplicating it.
-- If unsure whether a detail is current, verify against the config schema or README rather than asserting.
+- Confirm the feature is in the map above before describing it.
+- Give the trigger (command, key or config), then a one-line how.
+- For new tools, hooks or skills, defer to the `evolve` skill.
+- If unsure a detail is current, check the config schema rather than asserting.

@@ -48,8 +48,24 @@ All notable changes to this project will be documented in this file.
   the job is created with `permanent: true`; the last run still fires. Loop jobs end the same
   way, 7 days after they were first armed. The cron tool description now says so.
 
+- The research mode runs one `research` skill: it triages the question, writes a brief, gathers
+  evidence with parallel subagents (falling back to web search through `webfetch` when no search
+  tool is configured), reviews coverage and conflicts (`research:review`), and writes one report
+  under the harness docs directory in which every citation points to a fetched page; decision
+  questions also get a decision record. The thirteen phase skills it replaces are removed.
+- The harness mode follows one flow: orient, then brainstorm only when requirements are
+  ambiguous, plan, optional worktree, execute or one subagent per task with tests first, verify,
+  review, report and merge. When no one can answer, a run ends with a report and never merges,
+  pushes, opens a pull request or commits the repository's `.gitignore`; the built-in `harness`
+  workflow commits on a feature branch only. The eval and deliberate skills and the gate steps
+  are removed, and the harness skills are about half their former length.
+- The built-in `hordecode` skill describes the shipped commands, agents, configuration and
+  permissions.
+
 ### Fixed
 
+- Research skills are listed to the model; fifteen of them had no description and were hidden.
+- Harness and research skill scripts are extracted with the execute bit.
 - `supervisor run` honors its `timeout_ms` and a cancelled parent: the call returns when the
   timeout or the cancel comes, instead of waiting for the subagent to finish.
 - Cancelling a subagent resolves its result as cancelled, also when the cancel arrives before

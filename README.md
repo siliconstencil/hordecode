@@ -39,8 +39,9 @@ plugin process.
   commands in scheduled jobs run only after you approve them.
 - **Memory that stays local.** Seven memory tools keep project knowledge across sessions.
   Keyword search (BM25) works out of the box; semantic search is opt-in and runs on-device.
-- **Skill pipelines ship with the binary.** A harness set of 16 skills (plan, tdd, debug,
-  review, verify, ...) and a separate research set of 16 skills.
+- **Skill pipelines ship with the binary.** A harness set of 14 skills (plan, tdd, debug,
+  verify, review, ...) and a research pipeline that gathers with parallel subagents and writes
+  one cited report.
 - **Visible, not a black box.** Running agents, subagents and scheduled jobs show in the
   sidebar with status and elapsed time.
 - **A maintained base.** The core, CLI, server and TUI track the opencode 1.x line, so
@@ -151,12 +152,15 @@ two primary agents, **harness** and **research**. Switch agents with `Tab`.
 Pick **build** for a direct change, **harness** for build work that should go through a
 fixed discipline, and **research** for a question that needs sources and a decision.
 
-- **harness** loads the 16 `harness:*` skills: ask, brainstorm, debug, deliberate, eval,
-  execute, feedback, merge, parallel, plan, report, review, subagent, tdd, verify, worktree.
-- **research** loads the 16 `research:*` skills and runs ask, scope, gather, verify, filter,
-  synthesize, decide and eval. Gathering runs up to five sub-agents in parallel, each with
-  its own context; the report is written once from the verified evidence, with a citation
-  table, and every run ends with a decision record.
+- **harness** runs plan, worktree, execute (or one subagent per task), verify, review,
+  report and merge, with test-driven steps inside each task. Its 14 `harness:*` skills are
+  ask, brainstorm, debug, execute, feedback, merge, parallel, plan, report, review, subagent,
+  tdd, verify and worktree. When no one is there to answer, a run ends with a report; it never
+  merges or pushes on its own.
+- **research** loads the `research` skill: it scopes the question, gathers evidence with up to
+  eight parallel subagents, reviews coverage and conflicts (`research:review`), and writes one
+  report in which every citation points to a page that was fetched. A decision question also
+  gets a decision record.
 
 ### Memory search: keyword by default, semantic opt-in
 

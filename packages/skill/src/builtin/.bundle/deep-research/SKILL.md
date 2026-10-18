@@ -1,6 +1,6 @@
 ---
 name: deep-research
-description: Deep research on any topic using parallel sub-agents and built-in tools only (WebSearch/WebFetch + free APIs, no keys). Use when the user asks for a thorough multi-source investigation with a cited report — "深度调研X"、"deep research"、"帮我全面研究一下"、"多方求证"、"写一份调研报告". NOT for simple lookups (single WebSearch suffices) and NOT for academic literature surveys (use auto-research skill instead).
+description: Deep research on any topic using parallel sub-agents and built-in tools only (WebSearch/WebFetch + free APIs, no keys). Use when the user asks for a thorough multi-source investigation with a cited report — "深度调研X"、"deep research"、"帮我全面研究一下"、"多方求证"、"写一份调研报告". NOT for simple lookups (single WebSearch suffices) and NOT for academic literature surveys (use the `super-research` skill, topic-survey mode, instead).
 ---
 
 # Deep Research
@@ -78,29 +78,3 @@ You alone write `REPORT.md` in one pass, following [reference/report.md](referen
 For deep mode, before finalizing do one critique pass: reread the report as a skeptical reviewer (unsupported claims? stale data? missing counter-view?) and fix in place.
 
 Finally, give the user a 5-10 line summary of key conclusions and the report path.
-
-## Alternative: scripted workflow (unattended runs)
-
-The same pipeline exists as a deterministic workflow script at `/Users/mi/claude-workspace/.hordecode/workflows/deep-research-pro.js` — use it instead of the manual phases above when the run should be fully autonomous, resumable, or batch-invoked. It is convergent: re-running with the same `dir` skips completed phases (brief.md / plan.json / findings/F*.md / reflect.json / REPORT.md act as checkpoints).
-
-Invocation (workflow tool; custom scripts must be passed inline via `script`, not `name`):
-
-```
-workflow({
-  operation: "run",
-  script: <full text of deep-research-pro.js, Read it first>,
-  workspace: "<ABS_DIR>",            # same value as args.dir
-  args: {
-    dir: "<ABS_DIR>",                # e.g. /path/to/research/<slug> — mkdir -p <ABS_DIR>/findings first
-    question: "<refined research question>",
-    today: "<YYYY-MM-DD>",           # REQUIRED — run `date +%Y-%m-%d` first; sandbox has no Date
-    depth: "standard",               # quick | standard | deep
-    context: "<audience/language notes, optional>"
-  }
-})
-```
-
-Notes:
-- Do HITL clarification BEFORE invoking (the script never asks the user); fold answers into `question`/`context`.
-- Interrupted or failed run? Re-invoke with identical args — it resumes from the last checkpoint. `workflow({operation:"resume", run_id})` also works.
-- Returns `{ angles, deltaAngles, findingsFiles, reviewCritical, report }`.
