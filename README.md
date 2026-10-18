@@ -50,13 +50,14 @@ plugin process.
 
 | Part | Follows | Notes |
 | --- | --- | --- |
-| core, CLI, server, TUI, SDK and the small packages | opencode 1.19.0 | ported as a whole at each base bump |
+| core, CLI, server, TUI, SDK and the small packages | opencode 1.19.3 | ported as a whole at each base bump |
 | web, desktop and shared UI packages | opencode 1.17.18 | ported in their own step |
 | supervisor, harness, memory, inbox, cron, workflow, skill, task and the other fork packages | Hordecode | fork-only; supervisor and harness are customized ports of the MiMo Code designs (parity 0.1.11) |
 
 Hordecode 0.1.x stays on the opencode 1.x line; each base bump ports a newer 1.x release
-whole. The file-level ownership map is in [docs/UPSTREAM-MAP.md](docs/UPSTREAM-MAP.md): 1,132
-files are Hordecode's own and 690 upstream files carry Hordecode changes.
+whole. The file-level ownership map is in [docs/UPSTREAM-MAP.md](docs/UPSTREAM-MAP.md): 1,161
+files are Hordecode's own and 691 upstream files carry Hordecode changes.
+How Hordecode follows upstream releases is in [ROADMAP.md](ROADMAP.md).
 
 ---
 

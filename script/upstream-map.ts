@@ -2,7 +2,7 @@
 // Classify every tracked file against the upstream git base and the upstream parity checkout.
 // Writes docs/upstream-map-files.tsv and docs/UPSTREAM-MAP.md.
 //
-//   bun run script/upstream-map.ts [--base v1.17.18] [--ref ../repos/opencode-1.19.0]
+//   bun run script/upstream-map.ts [--base v1.17.18] [--ref ../repos/opencode-1.19.3]
 //
 // Classes:
 //   PARITY                       identical to the parity checkout
@@ -24,7 +24,7 @@ const opt = (name: string, fallback: string) => {
 }
 const root = path.resolve(import.meta.dir, "..")
 const base = opt("--base", "v1.17.18")
-const ref = path.resolve(root, opt("--ref", "../repos/opencode-1.19.0"))
+const ref = path.resolve(root, opt("--ref", "../repos/opencode-1.19.3"))
 const parityLabel = path.basename(ref).replace(/^opencode-/, "")
 const skip = (p: string) => p.startsWith("node_modules") || p === "bun.lock"
 // Directories in the parity checkout that are not part of upstream (residue in the local copy).

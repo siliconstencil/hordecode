@@ -13,7 +13,7 @@ and adds its own features. Primary command `horde`, alias `hordecode`, npm packa
 GitHub `siliconstencil/hordecode`. Not affiliated with either upstream.
 
 - Starting bases: opencode 1.17.18 (git ancestor tag `v1.17.18`) and MiMo Code 0.1.5.
-- Current parity: opencode 1.19.0 for `core`, `opencode`, `tui`, `cli`, `server` and the small
+- Current parity: opencode 1.19.3 for `core`, `opencode`, `tui`, `cli`, `server` and the small
   packages; the UI packages (`app`, `desktop`, `ui`, `session-ui`, `web`) still lag. MiMo Code
   parity 0.1.11; from 0.1.12 MiMo changed its orchestrator, so MiMo updates are selective.
 - MiMo "actor" is Hordecode `supervisor`; MiMo "compose" is the Hordecode `harness` pipeline.
@@ -35,8 +35,8 @@ measured against those five words.
 Read-only checkouts next to the repository under `../repos/`, from
 https://github.com/anomalyco/opencode and https://github.com/XiaomiMiMo/MiMo-Code:
 
-- `opencode-1.19.0/` (tag `v1.19.0`) parity reference (latest 1.x, 2026-10-11);
-  `opencode-1.18.34/` (tag `v1.18.34`) previous parity. Upstream develops 1.x on branch `v1`;
+- `opencode-1.19.3/` (tag `v1.19.3`) parity reference (latest 1.x, 2026-10-16);
+  `opencode-1.19.0/` (tag `v1.19.0`) previous parity. Upstream develops 1.x on branch `v1`;
   the 2.x line (`v2.0.x` tags, the upstream mainline since 2026-09) is a restructured product,
   not a port target. Hordecode 0.1.x follows the latest 1.x release.
 - `mimocode-v0.1.5/` (commit `b3a8063b`) starting base; `mimocode-v0.1.11/` (tag `v0.1.11`)
@@ -44,9 +44,9 @@ https://github.com/anomalyco/opencode and https://github.com/XiaomiMiMo/MiMo-Cod
   change.
 
 Create one with, for example,
-`git clone --depth 1 --branch v1.19.0 https://github.com/anomalyco/opencode ../repos/opencode-1.19.0`.
+`git clone --depth 1 --branch v1.19.3 https://github.com/anomalyco/opencode ../repos/opencode-1.19.3`.
 Regenerate the ownership map with
-`bun run script/upstream-map.ts --base v1.17.18 --ref ../repos/opencode-1.19.0`.
+`bun run script/upstream-map.ts --base v1.17.18 --ref ../repos/opencode-1.19.3`.
 
 Never cite a folder by its label alone; check `package.json` version or the git tag first.
 
@@ -105,10 +105,13 @@ A port is complete only when all three land together: the code, the `hordecodeBa
 
 ## Known open items
 
-- `hordecodeBase` is 1.19.0 for the root and the non-UI packages; the UI packages keep 1.17.18
-  until their own port. Marker commits for `v1.18.34` and `v1.19.0` are recorded. Two v1.19.0
-  commits are not carried on purpose (c28b6a0a3b `upgrade --major`, 9c97b807d0 update dialog):
-  both move users to OpenCode 2; their files show as LAGGING or UPSTREAM_ONLY in the map.
+- `hordecodeBase` is 1.19.3 for the root and the non-UI packages; the UI packages keep 1.17.18
+  until their own port. Marker commits for `v1.18.34`, `v1.19.0` and `v1.19.3` are recorded.
+  Upstream tracking policy is in ROADMAP.md: every opencode 1.x release is ported before the
+  next Hordecode release. Not carried on purpose: c28b6a0a3b (`upgrade --major`), 9c97b807d0
+  (update dialog) and 3be039593a (1.x update discovery through opencode's npm package and
+  Homebrew Core); all three belong to opencode's own update path. Their files show as LAGGING,
+  UPSTREAM_ONLY or FORK_DELTA (`cli/upgrade.ts`, `script/raw-changelog.ts`) in the map.
 - `publish.yml` version bumping depends on upstream's API; releases are built locally with
   `packages/opencode/script/build.ts` until that is replaced.
 - Supervisor nesting: default DEFAULT_SUBAGENT_DEPTH 3 (main agent -> coordinating supervisor ->

@@ -96,6 +96,7 @@ FORK_ONLY	CODE_OF_CONDUCT.md
 PARITY	CONTEXT.md
 FORK_DELTA	CONTRIBUTING.md
 FORK_ONLY	docs/FORK-RULES.md
+FORK_ONLY	docs/NETWORK.md
 FORK_ONLY	docs/upstream-map-files.tsv
 FORK_ONLY	docs/UPSTREAM-MAP.md
 PARITY	flake.lock
@@ -673,7 +674,7 @@ PARITY	packages/app/src/pages/session/terminal-panel.test.ts
 LAGGING	packages/app/src/pages/session/terminal-panel.tsx
 PARITY	packages/app/src/pages/session/timeline/measure.test.ts
 PARITY	packages/app/src/pages/session/timeline/measure.ts
-LAGGING	packages/app/src/pages/session/timeline/message-timeline.tsx
+FORK_DELTA	packages/app/src/pages/session/timeline/message-timeline.tsx
 LAGGING	packages/app/src/pages/session/timeline/model.test.ts
 LAGGING	packages/app/src/pages/session/timeline/model.ts
 UPSTREAM_ONLY	packages/app/src/pages/session/timeline/observe-element-offset.test.ts
@@ -689,7 +690,7 @@ PARITY	packages/app/src/pages/session/timeline/timeline-row.ts
 PARITY	packages/app/src/pages/session/timeline/virtual-items.ts
 PARITY	packages/app/src/pages/session/usage-exceeded-dialogs.tsx
 LAGGING	packages/app/src/pages/session/use-composer-commands.tsx
-LAGGING	packages/app/src/pages/session/use-session-commands.tsx
+FORK_DELTA	packages/app/src/pages/session/use-session-commands.tsx
 PARITY	packages/app/src/pages/session/use-session-hash-scroll.test.ts
 PARITY	packages/app/src/pages/session/use-session-hash-scroll.ts
 PARITY	packages/app/src/pages/session/v2/review-diff-kinds.test.ts
@@ -1568,6 +1569,7 @@ PARITY	packages/core/test/fixture/git.ts
 PARITY	packages/core/test/fixture/location.ts
 PARITY	packages/core/test/fixture/tmpdir.ts
 PARITY	packages/core/test/fixtures/recordings/session-runner/openai-chat-streams-text.json
+FORK_ONLY	packages/core/test/flag-twin.test.ts
 PARITY	packages/core/test/git.test.ts
 PARITY	packages/core/test/github-copilot/convert-to-copilot-messages.test.ts
 PARITY	packages/core/test/github-copilot/copilot-chat-model.test.ts
@@ -2369,6 +2371,7 @@ FORK_ONLY	packages/memory/src/add.test.ts
 FORK_ONLY	packages/memory/src/dump.test.ts
 FORK_ONLY	packages/memory/src/embedding-gate.test.ts
 FORK_ONLY	packages/memory/src/embedding/index.ts
+FORK_ONLY	packages/memory/src/embedding/lazy-runtime.test.ts
 FORK_ONLY	packages/memory/src/embedding/service.test.ts
 FORK_ONLY	packages/memory/src/embedding/service.ts
 FORK_ONLY	packages/memory/src/embedding/single-model.test.ts
@@ -2391,6 +2394,7 @@ FORK_ONLY	packages/memory/src/rrf.test.ts
 FORK_ONLY	packages/memory/src/rrf.ts
 FORK_ONLY	packages/memory/src/service.ts
 FORK_ONLY	packages/memory/src/session-episodic.test.ts
+FORK_ONLY	packages/memory/src/session-write-gate.test.ts
 FORK_ONLY	packages/memory/src/status.test.ts
 FORK_ONLY	packages/memory/src/update.test.ts
 FORK_ONLY	packages/memory/src/util/vendor-require.ts
@@ -2560,7 +2564,7 @@ PARITY	packages/opencode/src/cli/tui/layer.ts
 PARITY	packages/opencode/src/cli/tui/validate-session.ts
 FORK_DELTA	packages/opencode/src/cli/tui/worker.ts
 FORK_DELTA	packages/opencode/src/cli/ui.ts
-LAGGING	packages/opencode/src/cli/upgrade.ts
+FORK_DELTA	packages/opencode/src/cli/upgrade.ts
 FORK_DELTA	packages/opencode/src/command/index.ts
 PARITY	packages/opencode/src/command/template/initialize.txt
 FORK_ONLY	packages/opencode/src/command/template/loops.txt
@@ -2791,7 +2795,6 @@ FORK_DELTA	packages/opencode/src/session/tools.ts
 FORK_ONLY	packages/opencode/src/session/try-best-detector.test.ts
 FORK_ONLY	packages/opencode/src/session/try-best-detector.ts
 PARITY	packages/opencode/src/share/session.ts
-FORK_DELTA	packages/opencode/src/share/share-next.ts
 FORK_DELTA	packages/opencode/src/skill/discovery.ts
 FORK_DELTA	packages/opencode/src/skill/index.ts
 FORK_ONLY	packages/opencode/src/skill/localized-alias.ts
@@ -3333,7 +3336,6 @@ FORK_ONLY	packages/opencode/test/session/title-timeout-log.test.ts
 FORK_ONLY	packages/opencode/test/session/tool-allowlist.test.ts
 FORK_DELTA	packages/opencode/test/session/tools.test.ts
 FORK_ONLY	packages/opencode/test/session/turn-heartbeat.test.ts
-FORK_DELTA	packages/opencode/test/share/share-next.test.ts
 PARITY	packages/opencode/test/skill/discovery.test.ts
 FORK_ONLY	packages/opencode/test/skill/localized-alias.test.ts
 FORK_ONLY	packages/opencode/test/skill/search.test.ts
@@ -3341,6 +3343,26 @@ FORK_DELTA	packages/opencode/test/skill/skill.test.ts
 PARITY	packages/opencode/test/snapshot/snapshot.test.ts
 PARITY	packages/opencode/test/storage/storage.test.ts
 FORK_ONLY	packages/opencode/test/stress-supervisor-inbox.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/cancel-cascade-depth.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/child-session-directory.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/child-session-title.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/context-modes.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/cron-tool-contract.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/depth-harness.ts
+FORK_ONLY	packages/opencode/test/supervisor/max-subagents.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/nested-notify-target.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/nested-task-binding.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/peer-notify-target.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/run-timeout-abort.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/subagent-depth-limit.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/subagent-send-target.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/subagent-steps-cap.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/supervisor-harness.ts
+FORK_ONLY	packages/opencode/test/supervisor/supervisor-id-allocation.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/supervisor-test-harness.ts
+FORK_ONLY	packages/opencode/test/supervisor/tool-context-supervisor-id.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/tool-description-contracts.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/workflow-notify-target.test.ts
 FORK_DELTA	packages/opencode/test/tool/__snapshots__/parameters.test.ts.snap
 PARITY	packages/opencode/test/tool/__snapshots__/tool.test.ts.snap
 FORK_ONLY	packages/opencode/test/tool/abort.test.ts
@@ -3366,6 +3388,7 @@ FORK_DELTA	packages/opencode/test/tool/registry.test.ts
 FORK_ONLY	packages/opencode/test/tool/session-cancel-worktree.test.ts
 FORK_ONLY	packages/opencode/test/tool/session-tool-end-to-end.test.ts
 FORK_ONLY	packages/opencode/test/tool/session-tool-parity.test.ts
+FORK_ONLY	packages/opencode/test/tool/session-tool-subagent-rows.test.ts
 FORK_ONLY	packages/opencode/test/tool/session.test.ts
 FORK_DELTA	packages/opencode/test/tool/shell.test.ts
 FORK_DELTA	packages/opencode/test/tool/skill.test.ts
@@ -3373,6 +3396,7 @@ FORK_ONLY	packages/opencode/test/tool/supervisor-e2e.test.ts
 FORK_ONLY	packages/opencode/test/tool/supervisor-resume.test.ts
 FORK_ONLY	packages/opencode/test/tool/supervisor-steps.test.ts
 FORK_ONLY	packages/opencode/test/tool/supervisor.test.ts
+FORK_ONLY	packages/opencode/test/tool/task-owner.test.ts
 FORK_DELTA	packages/opencode/test/tool/task.test.ts
 FORK_DELTA	packages/opencode/test/tool/tool-define.test.ts
 PARITY	packages/opencode/test/tool/truncation.test.ts
@@ -4112,6 +4136,7 @@ FORK_ONLY	packages/supervisor/src/events.ts
 FORK_ONLY	packages/supervisor/src/fork-context.sql.ts
 FORK_ONLY	packages/supervisor/src/group.ts
 FORK_ONLY	packages/supervisor/src/index.ts
+FORK_ONLY	packages/supervisor/src/outcome-ref.ts
 FORK_ONLY	packages/supervisor/src/registry.ts
 FORK_ONLY	packages/supervisor/src/return-header.ts
 FORK_ONLY	packages/supervisor/src/schema.ts
@@ -4132,8 +4157,10 @@ FORK_ONLY	packages/supervisor/test/return-header.test.ts
 FORK_ONLY	packages/supervisor/test/schema.test.ts
 FORK_ONLY	packages/supervisor/test/spawn-title-shape.test.ts
 FORK_ONLY	packages/supervisor/test/stuck-event.test.ts
+FORK_ONLY	packages/supervisor/test/stuck-notice-receiver.test.ts
 FORK_ONLY	packages/supervisor/test/task-link.test.ts
 FORK_ONLY	packages/supervisor/test/turn.test.ts
+FORK_ONLY	packages/supervisor/test/wait-final-outcome.test.ts
 FORK_ONLY	packages/supervisor/test/waiter-result.test.ts
 FORK_ONLY	packages/supervisor/tsconfig.json
 FORK_ONLY	packages/task/package.json
@@ -7008,8 +7035,10 @@ PARITY	script/generate.ts
 PARITY	script/github/close-issues.ts
 PARITY	script/github/close-prs.ts
 PARITY	script/hooks
+UPSTREAM_ONLY	script/install.test.ts
 FORK_DELTA	script/publish.ts
-PARITY	script/raw-changelog.ts
+UPSTREAM_ONLY	script/raw-changelog.test.ts
+LAGGING	script/raw-changelog.ts
 PARITY	script/release
 PARITY	script/sign-windows.ps1
 PARITY	script/stats.ts
