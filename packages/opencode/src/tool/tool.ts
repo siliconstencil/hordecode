@@ -41,6 +41,9 @@ export type Context<M extends Metadata = Metadata> = {
   // Task row this call is bound to (supervisor task_id). Ported from MiMo
   // tool.ts:21-22 (taskId). memory-path-guard uses it to allow tasks/<taskId>/*.md.
   taskId?: string
+  // Supervisor id of the calling session's own registry row ("main" for a top-level agent).
+  // Ported from MiMo tool.ts:21 (actorID).
+  supervisorID?: string
   abort: AbortSignal
   callID?: string
   extra?: { [key: string]: unknown }

@@ -370,7 +370,8 @@ export const TaskTool = Tool.define<typeof parameters, Metadata, TaskRegistry.Se
           session_id: sessionID,
           summary: op.summary ?? "",
           parent_id: op.parent_id || undefined,
-          owner: ctx.agent,
+          // Ported from MiMo task.ts:343 (owner: ctx.actorID ?? ctx.agent).
+          owner: ctx.supervisorID ?? ctx.agent,
         })
         return {
           title: `Task created: ${t.id}`,
@@ -415,9 +416,10 @@ export const TaskTool = Tool.define<typeof parameters, Metadata, TaskRegistry.Se
       }
 
       if (op.action === "start") {
-        const caller = ctx.agent
+        // Ported from MiMo task.ts:395-396 (isSubagent and keepOwner on actorID).
+        const caller = ctx.supervisorID ?? ctx.agent
         const existing = yield* reg.get({ session_id: sessionID, id: (op as { id: string }).id })
-        const isSubagent = ctx.agent !== "main" && ctx.agent !== undefined
+        const isSubagent = ctx.supervisorID !== "main" && ctx.supervisorID !== undefined
         const keepOwner = isSubagent && existing?.owner != null && existing.owner !== caller
         const result = yield* reg.start({
           session_id: sessionID,

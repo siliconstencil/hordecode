@@ -298,6 +298,8 @@ const sendLayer = Layer.mergeAll(
           ? makeSupervisor("main", { supervisorID: "main", agent: "main" })
           : undefined,
       ),
+    // A top-level caller owns no subagent row, so the default target stays "main".
+    listBySession: () => Effect.succeed([]),
   }),
   Layer.mock(SupervisorWaiter.Service, {}),
   Layer.mock(TaskRegistry.Service, {}),

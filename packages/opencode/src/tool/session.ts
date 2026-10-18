@@ -650,7 +650,7 @@ export const SessionTool = Tool.define<
                   receiverSessionID: SessionID.make(childID),
                   receiverSupervisorID: childID,
                   senderSessionID: ctx.sessionID,
-                  senderSupervisorID: ctx.agent ?? "main",
+                  senderSupervisorID: ctx.supervisorID ?? "main",
                   content: createOp.task ?? "",
                 })
                 .pipe(
@@ -721,7 +721,7 @@ export const SessionTool = Tool.define<
             context: "none" as const,
             tools: "INHERIT" as const,
             background: true,
-            parentSupervisorID: ctx.agent,
+            parentSupervisorID: ctx.supervisorID,
             lifecycle: "persistent" as const,
             cwd: effectiveDir,
             ...(model ? { model } : {}),
@@ -864,7 +864,7 @@ export const SessionTool = Tool.define<
               receiverSessionID: SessionID.make(sid),
               receiverSupervisorID: sid,
               senderSessionID: ctx.sessionID,
-              senderSupervisorID: ctx.agent ?? "main",
+              senderSupervisorID: ctx.supervisorID ?? "main",
               content: input.operation.task ?? "",
             })
             .pipe(

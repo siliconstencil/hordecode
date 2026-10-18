@@ -174,7 +174,7 @@ export const WorkflowTool = Tool.define<typeof Parameters, Metadata, Config.Serv
           const started = yield* runtime.start({
             script,
             sessionID: ctx.sessionID as SessionID,
-            parentSupervisorID: ctx.agent ?? "main",
+            parentSupervisorID: ctx.supervisorID ?? "main",
             args:
               input.name === "harness"
                 ? yield* enrichHarnessArgs(input.args)

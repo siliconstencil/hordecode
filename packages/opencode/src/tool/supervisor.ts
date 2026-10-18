@@ -221,6 +221,15 @@ export const SupervisorTool = Tool.define(
             return yield* searchDescendants(ctx.sessionID, supervisorID, 0)
           })
 
+          // Parent session of the calling session when the caller is a subagent (it owns a
+          // non-"main" subagent row); undefined for top-level callers.
+          const callerSubagentParent = Effect.fn("SupervisorTool.callerSubagentParent")(function* () {
+            const rows = yield* supervisorReg.listBySession(ctx.sessionID)
+            if (!rows.some((row) => row.supervisorID !== "main" && row.mode === "subagent")) return undefined
+            const session = yield* sessions.get(ctx.sessionID).pipe(Effect.catch(() => Effect.succeed(undefined)))
+            return session?.parentID ?? undefined
+          })
+
           const unknownResponse = (label: string, supervisorID: string) => ({
             title: `${id} ${label}`,
             metadata: {} as Metadata,
@@ -237,8 +246,13 @@ export const SupervisorTool = Tool.define(
             // Fall back to the main-agent's supervisor id ("main") when omitted so
             // the send reaches the main agent's inbox instead of passing undefined
             // into inbox.send (which rejects it as InboxReceiverNotFound).
-            const toSupervisorID = op.to_supervisor_id ?? op.toSupervisorID ?? "main"
-            const found = yield* findSupervisor(toSupervisorID)
+            const explicitSupervisorID = op.to_supervisor_id ?? op.toSupervisorID
+            const toSupervisorID = explicitSupervisorID ?? "main"
+            // A subagent's default target is its parent session, not its own "main" row
+            // (same parent link spawn.ts notifyTerminal resolves through).
+            const subagentParent =
+              explicitSupervisorID === undefined ? yield* callerSubagentParent() : undefined
+            const found = subagentParent ? { sessionID: subagentParent } : yield* findSupervisor(toSupervisorID)
             const targetSid = found
               ? found.sessionID
               : op.to_session_id !== undefined
@@ -249,7 +263,7 @@ export const SupervisorTool = Tool.define(
                 receiverSessionID: targetSid,
                 receiverSupervisorID: toSupervisorID ?? "main",
                 senderSessionID: ctx.sessionID,
-                senderSupervisorID: ctx.agent ?? "main",
+                senderSupervisorID: ctx.supervisorID ?? "main",
                 content: op.content!,
                 ...(op.type !== undefined ? { type: op.type } : {}),
               })
@@ -546,7 +560,7 @@ export const SupervisorTool = Tool.define(
                 resumeSupervisorID: resumeTarget.supervisorID,
                 parentSupervisorID: resumeTarget.parentSupervisorID,
               }
-            : { sessionID: ctx.sessionID }
+            : { sessionID: ctx.sessionID, parentSupervisorID: ctx.supervisorID }
           const spawnResult = yield* supervisor.spawn({
             mode: "subagent",
             ...spawnTarget,

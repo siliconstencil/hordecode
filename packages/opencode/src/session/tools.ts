@@ -55,6 +55,8 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   askSupervisor?: { agent: string; background: boolean; mode: string; parentSupervisorID?: string }
   /** Task row this turn is bound to (supervisor task_id). Carried to Tool.Context.taskId. Ported from MiMo prompt.ts:1298. */
   taskId?: string
+  /** Supervisor id of this turn's registry row ("main" for a top-level session). Carried to Tool.Context.supervisorID. */
+  supervisorID?: string
   /** Per-supervisor tool allowlist from the supervisor row (undefined = full access). Ported from MiMo prompt.ts:1234-1244. */
   toolWhitelist?: readonly string[]
 }) {
@@ -83,6 +85,8 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
       agent: input.agent.name,
       // Ported from MiMo prompt.ts:1298 (taskId: input.task_id).
       taskId: input.taskId,
+      // Ported from MiMo prompt.ts:1297 (actorID: input.agentID).
+      supervisorID: input.supervisorID,
       messages: input.messages,
       interactive: routing.interactive,
       metadata: (val) =>

@@ -29,6 +29,15 @@ All notable changes to this project will be documented in this file.
 - `horde github run` uses the token broker set in `OIDC_BASE_URL`, or `GITHUB_TOKEN` with
   `use_github_token: true`; `horde github install` explains that setup and changes no files.
 
+### Fixed
+
+- Subagent notifications and messages reach the right supervisor: tools know the calling
+  supervisor's id, so a peer's or nested subagent's completion notice, a workflow's terminal
+  notice and a subagent's `send` without a target go to the caller instead of being dropped
+  or landing in the subagent's own session; tasks a subagent creates are owned by that
+  subagent.
+- The stuck-subagent notice goes to the parent session instead of the stuck subagent.
+
 ## [0.1.1] - 2026-10-13
 
 First version on npm (`npm install -g hordecode`). 0.1.0 was published

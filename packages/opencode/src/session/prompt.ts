@@ -1781,6 +1781,8 @@ const layer = Layer.effect(
               askSupervisor,
               // Ported from MiMo prompt.ts:1298 (taskId) and :1234-1244 (toolWhitelist).
               taskId: task_id,
+              // Ported from MiMo prompt.ts:1297 (actorID: input.agentID); "main" for a top-level session.
+              supervisorID: lastUser.agentID ?? "main",
               toolWhitelist,
             }).pipe(
               Effect.provideService(Plugin.Service, plugin),

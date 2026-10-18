@@ -890,6 +890,16 @@ export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
           // Leg 3: model-visible signal -- inbox to parent supervisor (or session main if no parent), deduped
           const parentSupervisorID = entry.parentSupervisorID
           const receiverSupervisorID = parentSupervisorID ?? "main"
+          // The stuck child's parent session (same link spawn.ts stalled notifier uses);
+          // the child itself when it has no parent.
+          const receiverSessionID = yield* Effect.sync(() =>
+            Database.use((db) =>
+              db.select({ parent_id: SessionTable.parent_id }).from(SessionTable).where(eq(SessionTable.id, entry.sessionID as SessionID)).get(),
+            ),
+          ).pipe(
+            Effect.map((row) => (row?.parent_id ?? entry.sessionID) as SessionID),
+            Effect.catch(() => Effect.succeed(entry.sessionID as SessionID)),
+          )
           const inboxText = `Supervisor "${entry.description}" (supervisor_id: ${entry.supervisorID}) has not reported activity in ${mins} minute(s) (last activity ${new Date(effectiveLastActivity).toISOString()}, stuck ${mins}m). Still registered as ${entry.status}. Consider checking its status with supervisor status (compat: supervisor status ${entry.supervisorID}.`
           const inboxID = crypto.randomUUID()
           yield* Effect.sync(() =>
@@ -898,7 +908,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
                 .insert(InboxTable)
                 .values({
                   id: inboxID,
-                  receiver_session_id: entry.sessionID as SessionID,
+                  receiver_session_id: receiverSessionID,
                   receiver_supervisor_id: receiverSupervisorID,
                   sender_session_id: entry.sessionID as SessionID,
                   sender_supervisor_id: entry.supervisorID,
@@ -917,7 +927,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
           // for the next drain turn to pick it up.
           yield* bus
             .publish(InboxArrived, {
-              receiverSessionID: entry.sessionID as SessionID,
+              receiverSessionID,
               receiverSupervisorID,
               senderSessionID: entry.sessionID as SessionID,
               senderSupervisorID: entry.supervisorID,
