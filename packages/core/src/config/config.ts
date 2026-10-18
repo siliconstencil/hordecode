@@ -1028,10 +1028,6 @@ export const layer = Layer.effect(
           result.share = "auto"
         }
 
-        // Without a share server there is nowhere to share to (see ShareNext.request); "disabled"
-        // is upstream's own value and hides the share command in the TUI.
-        if (!result.enterprise?.url) result.share = "disabled"
-
         if (Flag.HORDECODE_DISABLE_AUTOCOMPACT) {
           result.compaction = { ...result.compaction, auto: false }
         }

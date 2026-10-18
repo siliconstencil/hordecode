@@ -30,7 +30,6 @@ value wins when both are set.
 | npm registry, GitHub releases | Language servers (`lsp`) and formatters (`formatter`) you enable, installed on first use | Package and archive downloads; `HORDECODE_DISABLE_LSP_DOWNLOAD=1` stops language server downloads |
 | URLs in `instructions`, `skills.urls` and remote `references` | Loading the config, skills or references you list | Plain GETs |
 | Your MCP servers and remote workspaces | When configured | MCP and workspace traffic |
-| Your share server (`enterprise.url`) | `/share` or `share: "auto"` with a configured share server | The shared session |
 | Your GitHub token broker (`OIDC_BASE_URL`) | `horde github run` in GitHub Actions, when configured | The Actions OIDC token |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | When you set it | Logs and traces |
 

@@ -6,12 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- The core, CLI, server, TUI and support packages follow opencode 1.19.0 (from 1.18.34 via
-  1.18.35): Copilot reasoning handling, C++ module file highlighting, the OpenAI ultrafast
-  service tier, the pty connect order, @ai-sdk/xai 3.0.139 and gitlab-ai-provider 6.19.0.
+- The core, CLI, server, TUI and support packages follow opencode 1.19.3 (from 1.18.34 via
+  1.18.35, 1.19.0, 1.19.1 and 1.19.2): Copilot reasoning handling, C++ module file
+  highlighting, the OpenAI ultrafast service tier, the pty connect order, model variants built
+  from configured reasoning options, @ai-sdk/xai 3.0.139 and gitlab-ai-provider 6.19.0.
   Hordecode keeps its own update flow.
-- Session sharing uses the share server you configure with `enterprise.url`; the share
-  command appears in the TUI once one is set.
+- Session sharing is removed, as upstream discontinued it: `/share`, `/unshare` and
+  `horde run --share` are gone, and `horde import` reads session JSON files.
 - Update checks never install anything: a newer version shows the update notice and installs
   only when you confirm it or run `horde upgrade` (previously a newer patch release installed
   itself in the background).

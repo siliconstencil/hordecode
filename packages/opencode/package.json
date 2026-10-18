@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "version": "0.1.1",
-  "hordecodeBase": "1.19.0",
+  "hordecodeBase": "1.19.3",
   "name": "hordecode",
   "type": "module",
   "license": "MIT",

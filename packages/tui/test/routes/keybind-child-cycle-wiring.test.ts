@@ -32,12 +32,10 @@ const ROUTE_PATH = join(import.meta.dir, "..", "..", "src", "routes", "session",
 // line-by-line. Any future divergence must be re-verified against that
 // reference and this map updated.
 const EXPECTED: Record<string, string> = {
-  "session.share": "session_share",
   "session.rename": "session_rename",
   "session.timeline": "session_timeline",
   "session.fork": "session_fork",
   "session.compact": "session_compact",
-  "session.unshare": "session_unshare",
   "session.undo": "messages_undo",
   "session.redo": "messages_redo",
   "session.sidebar.toggle": "sidebar_toggle",
