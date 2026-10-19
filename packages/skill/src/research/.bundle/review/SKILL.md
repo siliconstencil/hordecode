@@ -13,6 +13,12 @@ Audit all evidence from GATHER phase. Check citations, flag UNCORROBORATED claim
 - Before FILTER phase compresses evidence
 - The lab differentiator: first-class evidence audit (not post-hoc)
 
+## Dispatch
+
+Run the audit in an `explore` subagent (read-only) via the `supervisor` tool with the
+`../subagent/research-auditor-prompt.md` template, then write the audit it returns to
+`findings/<run-id>/verified-evidence.md`.
+
 ## Audit Checklist
 
 For each evidence file `findings/<run-id>/evidence-*.md`:

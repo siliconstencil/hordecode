@@ -15,11 +15,15 @@ Define how research sub-agents are invoked. Ensures context isolation, evidence 
 
 ## Sub-Agent Types
 
-| Role | subagent_type | temp | Read-only | Purpose |
-|------|---------------|------|-----------|---------|
-| gather-researcher | explore | 0.2 | Yes | Source collection + evidence rows |
-| evidence-auditor | auditor | 0.0 | Yes | Citation check + UNCORROBORATED flags |
-| filter-revisor | general | 0.0 | No | Compression + dedup |
+| Role | subagent_type | Prompt template | Read-only | Purpose |
+|------|---------------|-----------------|-----------|---------|
+| gather-researcher | general | `researcher-prompt.md` | No (writes its own evidence file) | Source collection + evidence rows |
+| evidence-auditor | explore | `research-auditor-prompt.md` | Yes | Citation check + UNCORROBORATED flags |
+| filter-revisor | general | `research-revise-prompt.md` | No | Compression + dedup |
+
+The templates live in this skill's directory. Dispatch each role through the `supervisor` tool
+with its `subagent_type`; the evidence-auditor returns its audit and the controller writes
+`verified-evidence.md`.
 
 ## Invocation Contract
 
@@ -46,7 +50,7 @@ Each sub-agent receives:
 
 ## Context Isolation
 
-Sub-agents run via the `task` tool. Each invocation gets a fresh context. The sub-agent:
+Sub-agents run via the `supervisor` tool. Each invocation gets a fresh context. The sub-agent:
 - Receives the task description + evidence policy
 - Performs research (web search, codebase lookup, etc.)
 - Returns a compact summary (NOT raw tokens)

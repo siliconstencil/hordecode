@@ -25,10 +25,10 @@ Decompose the brief into subtopics and run parallel research with isolated conte
 Brief subtopics: [S1, S2, S3, S4]
   |
   v
-[task(subagent_type=explore, prompt=S1+evidence_policy)] -> evidence-S1.md
-[task(subagent_type=explore, prompt=S2+evidence_policy)] -> evidence-S2.md
-[task(subagent_type=explore, prompt=S3+evidence_policy)] -> evidence-S3.md
-[task(subagent_type=explore, prompt=S4+evidence_policy)] -> evidence-S4.md
+[supervisor(subagent_type=general, prompt=researcher-prompt+S1+evidence_policy)] -> evidence-S1.md
+[supervisor(subagent_type=general, prompt=researcher-prompt+S2+evidence_policy)] -> evidence-S2.md
+[supervisor(subagent_type=general, prompt=researcher-prompt+S3+evidence_policy)] -> evidence-S3.md
+[supervisor(subagent_type=general, prompt=researcher-prompt+S4+evidence_policy)] -> evidence-S4.md
   |
   v (all complete)
 VERIFY phase audits all evidence files

@@ -23,9 +23,10 @@ Each gather sub-agent receives:
 
 ## Isolation Mechanism
 
-Each sub-agent runs via `task` tool with `subagent_type: explore` or `general`. This gives:
+Each sub-agent is a `general` subagent dispatched via the `supervisor` tool with the
+`../subagent/researcher-prompt.md` template. This gives:
 - Fresh context (no cross-contamination between subtopics)
-- Read-only for explorer agents (source collection)
+- Writes limited to its own `findings/<run-id>/evidence-<subtopic>.md`
 - Summaries returned (not raw tokens), preserving context budget
 
 ## Parallelism

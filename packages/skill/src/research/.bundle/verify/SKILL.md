@@ -13,6 +13,11 @@ Compress verified evidence: keep source + confidence + flags only. Deduplicate o
 - Before SYNTHESIZE writes the report
 - Goal: reduce token cost for the synthesizer while preserving signal
 
+## Dispatch
+
+Run the compression in a `general` subagent via the `supervisor` tool with the
+`../subagent/research-revise-prompt.md` template; it writes `findings/<run-id>/filtered-evidence.md`.
+
 ## Compression Rules
 
 1. **Keep**: source reference, confidence level, UNCORROBORATED flag, conflict flag
