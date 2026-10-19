@@ -1,20 +1,20 @@
 # Hordecode Permissions Reference
 
-Permissions decide what the agent may do without asking. Configure them under the top-level `permission` key.
+Permissions gate what the agent may do without asking. Configure them under the top-level `permission` key.
 
 ## Actions
+
+Every rule resolves to one of three actions:
 
 | Action | Meaning |
 |--------|---------|
 | `allow` | Run without prompting |
-| `ask` | Prompt the user for confirmation |
+| `ask` | Prompt the user for confirmation (default for risky ops) |
 | `deny` | Block entirely |
-
-Defaults allow most tools. Hordecode asks for `external_directory` (paths outside the project, except its own temp, skill and reference dirs), `doom_loop` (the same call repeating) and reading `.env` files. Shell commands that delete files always ask (`bash_delete`): no `allow` rule pre-approves them, only `deny` blocks them.
 
 ## Two shapes
 
-A rule is **either** a single action string, **or** a glob-keyed map of actions (for tools whose argument is a path or command):
+A permission rule is **either** a single action string, **or** a glob-keyed map of action strings (for tools whose argument is a path or command):
 
 ```jsonc
 {
@@ -32,15 +32,15 @@ A rule is **either** a single action string, **or** a glob-keyed map of actions 
 }
 ```
 
-A bare string at the top level (`"permission": "allow"`) becomes `{ "*": action }`, a blanket default for everything.
+A bare string at the top level (`"permission": "allow"`) becomes `{ "*": action }` — a blanket default for everything.
 
 ## Configurable tools
 
-Path/command-keyed (accept the glob-map form): `read`, `edit` (covers every file-writing tool), `glob`, `grep`, `list`, `bash`, `task`, `external_directory`, `lsp`, `skill`, `supervisor` (patterns match the subagent type).
+Path/command-keyed (accept the glob-map form): `read`, `edit`, `glob`, `grep`, `list`, `bash`, `task`, `supervisor`, `external_directory`, `lsp`, `skill`.
 
-Action-only: `todowrite`, `question`, `webfetch`, `websearch`, `doom_loop`.
+Simple action-only: `question`, `webfetch`, `websearch`, `codesearch`, `doom_loop`.
 
-Other keys are accepted too, so custom and MCP tools can be named.
+Unknown keys fall through to a catch-all record, so future/custom tools can be named too.
 
 ## Common recipes
 
@@ -49,7 +49,7 @@ Auto-allow read-only git and block destructive shell:
 { "permission": { "bash": { "git status": "allow", "git log *": "allow", "git diff *": "allow", "rm -rf *": "deny" } } }
 ```
 
-Allow the system temp dir (opt-in; temp is world-writable):
+Allow the system temp dir (opt-in; has known risks — temp is world-writable):
 ```jsonc
 { "permission": { "external_directory": { "/tmp/**": "allow" } } }
 ```
@@ -59,23 +59,25 @@ Ask before every file edit:
 { "permission": { "edit": "ask" } }
 ```
 
-## Auto mode (skipping permission prompts)
+## Skipping permission prompts
 
-For trusted, disposable environments (containers, sandboxes, CI):
+For trusted, disposable environments (containers, sandboxes, CI) you can auto-approve everything the agent does.
 
 | Surface | How |
 |---------|-----|
-| TUI | `horde --auto`, or "Enable auto-approve permissions" in the command palette (`ctrl+p`) |
-| Headless | `horde run --auto "<prompt>"` |
+| TUI (`hordecode`) | `hordecode --dangerously-skip-permissions` |
+| Headless (`hordecode run`) | `hordecode run --dangerously-skip-permissions "<prompt>"` |
+| Any surface (env) | `HORDECODE_PERMISSION='"allow"'` or `HORDECODE_DANGEROUSLY_SKIP_PERMISSIONS=1` |
 
-Auto mode answers every permission prompt with allow-once, including `ask` rules and `bash_delete`. `deny` rules still block, because a denied call never prompts. Without `--auto`, `horde run` rejects every permission prompt, so a headless run needs `--auto` or `allow` rules for what it must do.
+Semantics: an **allow-all base is injected UNDER your config**, so a tool with *no* rule auto-approves. Because the injected `*: allow` sits before your rules and the last matching rule wins, **any explicit rule you wrote still takes precedence** — a `deny` blocks, and a leftover `ask` will still prompt. Two consequences worth knowing:
 
-`HORDECODE_PERMISSION` (JSON) is a different mechanism: it is merged into the `permission` config, and keys your config does not already have are appended last. With last-match-wins, `HORDECODE_PERMISSION='{"*":"allow"}'` therefore overrides earlier rules, including `deny` rules, when your config has no `*` key.
+- A top-level catch-all like `"permission": { "*": "ask" }` makes the TUI/env form a no-op (your `*: ask` outranks the injected `*: allow`). Remove it, or use `hordecode run --dangerously-skip-permissions`, which auto-replies at the event layer and overrides `ask` too.
+- A tool disabled via the `tools` key (`"tools": { "codesearch": false }`) is re-enabled by allow-all, since that toggle is weaker than a real `permission` rule. Use `permission: { codesearch: "deny" }` if you need it to stay off.
 
-Auto mode is dangerous: a malicious prompt, file or plugin can then run commands without confirmation. Use it only where you fully trust the workspace.
+In the TUI the flag is gated by a one-time red confirmation on startup (you must explicitly accept the risk); the prompt is skipped when there is no TTY, so in CI / piped-stdin the dangerous mode activates with no confirmation. This is dangerous — a malicious prompt, file, or plugin can then run arbitrary commands without confirmation. Only use it where you fully trust the workspace.
 
 ## Notes
 
-- Rules keep your insertion order and **the last matching rule wins**. Put the `*` catch-all **first**; a trailing `"*": "ask"` overrides every rule above it.
-- `tools: { "<id>": false }` in config is the same as a `deny` rule for that tool.
-- Never-ask (`/never-ask`) is separate: it makes the agent answer its own questions; permission prompts still ask.
+- Rules are evaluated in your original insertion order and **the last matching rule wins**. Put the `*` catch-all **first** and more specific patterns after it — a `*` placed last would shadow everything above it (e.g. a trailing `"*": "ask"` makes preceding `allow`/`deny` rules dead code).
+- `external_directory` governs reads/writes outside the project working directory — by default these prompt, so Hordecode never silently widens scope.
+- Permissions cannot be modified by custom tools/hooks — they are the one system the self-extension surface can't override.

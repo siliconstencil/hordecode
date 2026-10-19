@@ -59,8 +59,7 @@ export const extractHarnessBundle = Effect.fn("Skill.extractHarnessBundle")(func
   for (const [skillName, files] of Object.entries(HARNESS_BUNDLE)) {
     const harnessDir = path.join(harnessRoot, "skills", skillName)
     for (const [relPath, content] of Object.entries(files)) {
-      // Scripts are run by path, so they need the execute bit.
-      yield* fsys.writeWithDirs(path.join(harnessDir, relPath), content, relPath.endsWith(".sh") ? 0o755 : undefined)
+      yield* fsys.writeWithDirs(path.join(harnessDir, relPath), content)
     }
   }
   yield* fsys.writeWithDirs(marker, InstallationVersion)

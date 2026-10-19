@@ -8,9 +8,9 @@ Bugs often manifest deep in the call stack (git init in wrong directory, file cr
 
 ## When to Use
 
-1. Bug appears deep in stack? - No -> fix at symptom point
-2. Can trace backwards? - No (dead end) -> fix at symptom point (last resort)
-3. Trace to original trigger -> **fix at source**
+1. Bug appears deep in stack? — No → fix at symptom point
+2. Can trace backwards? — No (dead end) → fix at symptom point (last resort)
+3. Trace to original trigger → **fix at source + add defense-in-depth**
 
 **Use when:**
 - Error happens deep in execution (not at entry point)
@@ -34,9 +34,9 @@ await execFileAsync('git', ['init'], { cwd: projectDir });
 ### 3. Ask: What Called This?
 ```typescript
 WorktreeManager.createSessionWorktree(projectDir, sessionId)
-  -> called by Session.initializeWorkspace()
-  -> called by Session.create()
-  -> called by test at Project.create()
+  → called by Session.initializeWorkspace()
+  → called by Session.create()
+  → called by test at Project.create()
 ```
 
 ### 4. Keep Tracing Up
@@ -85,14 +85,22 @@ npm test 2>&1 | grep 'DEBUG git init'
 
 ## Finding Which Test Causes Pollution
 
-If something appears during tests but you don't know which test: run the candidate test files one at a time (or halve the set repeatedly), checking for the artifact after each run, and stop at the first file that produces it.
+If something appears during tests but you don't know which test:
+
+Use the bisection script `find-polluter.sh` in this directory:
+
+```bash
+./find-polluter.sh '.git' 'src/**/*.test.ts'
+```
+
+Runs tests one-by-one, stops at first polluter. See script for usage.
 
 ## Real Example: Empty projectDir
 
 **Symptom:** `.git` created in `packages/core/` (source code)
 
 **Trace chain:**
-1. `git init` runs in `process.cwd()` <- empty cwd parameter
+1. `git init` runs in `process.cwd()` ← empty cwd parameter
 2. WorktreeManager called with empty projectDir
 3. Session.create() passed empty string
 4. Test accessed `context.tempDir` before beforeEach
@@ -102,14 +110,21 @@ If something appears during tests but you don't know which test: run the candida
 
 **Fix:** Made tempDir a getter that throws if accessed before beforeEach
 
+**Also added defense-in-depth:**
+- Layer 1: Project.create() validates directory
+- Layer 2: WorkspaceManager validates not empty
+- Layer 3: NODE_ENV guard refuses git init outside tmpdir
+- Layer 4: Stack trace logging before git init
+
 ## Key Principle
 
-1. Found immediate cause -> can trace one level up?
-   - No -> **NEVER fix just the symptom** (you haven't found root cause yet)
-   - Yes -> trace backwards
+1. Found immediate cause → can trace one level up?
+   - No → **NEVER fix just the symptom** (you haven't found root cause yet)
+   - Yes → trace backwards
 2. Is this the source?
-   - No (keeps going) -> trace backwards again (repeat)
-   - Yes -> fix at source
+   - No (keeps going) → trace backwards again (repeat)
+   - Yes → fix at source
+3. Add validation at each layer it passed through → bug becomes impossible
 
 **NEVER fix just where the error appears.** Trace back to find the original trigger.
 
@@ -119,3 +134,11 @@ If something appears during tests but you don't know which test: run the candida
 **Before operation:** Log before the dangerous operation, not after it fails
 **Include context:** Directory, cwd, environment variables, timestamps
 **Capture stack:** `new Error().stack` shows complete call chain
+
+## Real-World Impact
+
+From debugging session (2025-10-03):
+- Found root cause through 5-level trace
+- Fixed at source (getter validation)
+- Added 4 layers of defense
+- 1847 tests passed, zero pollution

@@ -31,7 +31,7 @@ tool's own description. Use a title like "Review plan document" with this prompt
     An implementer building the wrong thing or getting stuck is an issue.
     Minor wording, stylistic preferences, and "nice to have" suggestions are not.
 
-    Approve unless there are serious gaps - missing requirements from the spec,
+    Approve unless there are serious gaps — missing requirements from the spec,
     contradictory steps, placeholder content, or tasks so vague they can't be acted on.
 
     ## Output Format

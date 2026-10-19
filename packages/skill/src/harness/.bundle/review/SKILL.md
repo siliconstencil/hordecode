@@ -1,63 +1,118 @@
 ---
 name: harness:review
-description: Use after verification passes and before reporting or merging, or after a subagent task - dispatches an independent reviewer with the diff, the requirements, and a compact verification summary
+description: Use when completing tasks, implementing major features, or before merging to verify work meets requirements
 ---
 
 # Requesting Code Review
 
-Dispatch a fresh reviewer subagent with precisely crafted context, never your session history and never an implementer-authored narrative. This keeps the reviewer on the work product and keeps your own context free.
+Dispatch a code reviewer subagent to catch issues before they cascade. The reviewer gets precisely crafted context for evaluation — never your session's history. This keeps the reviewer focused on the work product, not your thought process, and preserves your own context for continued work.
 
-## When
+**Core principle:** Review early, review often.
 
-- **Required:** after each task in `harness:subagent` (its own two-stage gate), and once for the whole change after `harness:verify` and before `harness:report`.
-- **Useful:** when stuck, before a risky refactor, after a complex bug fix.
+## When to Request Review
 
-Start only after every verification command has exited; never overlap review with a heavy test or app process.
+**Mandatory:**
+- After each task in subagent-driven development
+- After completing major feature
+- Before merge to main
 
-## Choose the Methodology
+**Optional but valuable:**
+- When stuck (fresh perspective)
+- Before refactoring (baseline check)
+- After fixing complex bug
 
-- **Code changes in the diff:** code review.
-- **No code changes** (`git diff --stat` empty or only non-code files; pure investigation or analysis): methodology review. Do not skip review.
-- **Mixed or unclear:** ask through `harness:ask`:
-  - header: `Review Type`
-  - question: `This change mixes code and investigation. What review should run?`
-  - options: `Both (Recommended)` / `Code review` / `Methodology review`
+## How to Request
 
-  No user available: both.
+**1. Get git SHAs:**
+```bash
+BASE_SHA=$(git rev-parse HEAD~1)  # or origin/main
+HEAD_SHA=$(git rev-parse HEAD)
+```
 
-## Code Review
+**2. Dispatch code reviewer subagent:**
 
-1. **Get the range:**
-   ```bash
-   git merge-base HEAD <base-branch>
-   git rev-parse HEAD
-   ```
-2. **Dispatch** a `general` subagent with the `supervisor` tool, building its prompt from `code-reviewer.md` in this skill's directory. Fill:
-   - `{DESCRIPTION}`: what was built, in one or two sentences of fact, not a narrative
-   - `{PLAN_OR_REQUIREMENTS}`: the applicable spec sections and acceptance criteria
-   - `{BASE_SHA}`, `{HEAD_SHA}`: the range
-   - `{VERIFICATION_SUMMARY}`: the compact summary from `harness:verify`, one line per command with PASS / FAIL / PRE-EXISTING and test counts; no full output unless a specific failure needs it
+Use the `supervisor` tool to dispatch a `general` subagent (follow that tool's own description for the call syntax), building its prompt from the `code-reviewer.md` template
 
-   If a worktree is in use and the session did not switch into it, include its absolute path for `workdir`.
+**Placeholders:**
+- `{DESCRIPTION}` - Brief summary of what you built
+- `{PLAN_OR_REQUIREMENTS}` - What it should do
+- `{BASE_SHA}` - Starting commit
+- `{HEAD_SHA}` - Ending commit
 
-The reviewer gives separate conclusions for spec compliance, correctness, and codebase consistency. It must not rerun a command reported as passing unless the result is stale or concretely suspect.
+**3. Act on feedback:**
+- Fix Critical issues immediately
+- Fix Important issues before proceeding
+- Note Minor issues for later
+- Push back if reviewer is wrong (with reasoning)
 
-## Methodology Review
+## Example
 
-Use the same dispatch with a prompt that checks:
-1. **Assumption accuracy:** did plan assumptions match reality?
-2. **Command correctness:** were the right commands run, with the expected output?
-3. **Reasoning chain:** is the path from question to evidence to conclusion sound?
-4. **Evidence quality:** is every claim backed by fresh, verifiable evidence?
-5. **Completeness:** are all questions in the plan answered?
+```
+[Just completed Task 2: Add verification function]
 
-## Act on Findings
+You: Let me request code review before proceeding.
 
-- **Critical** (unmet or unverifiable acceptance criteria, correctness bugs): fix, re-verify with `harness:verify`, then re-review the affected area.
-- **Important:** fix before proceeding.
-- **Minor:** note for the report.
-- **Wrong findings:** reject with technical evidence (code, tests, output). See `harness:feedback`.
+BASE_SHA=$(git log --oneline | grep "Task 1" | head -1 | awk '{print $1}')
+HEAD_SHA=$(git rev-parse HEAD)
 
-**Non-convergence:** if the fix-and-re-review loop stops converging (repeated findings on the same area, or fixes that introduce new criticals), stop looping and report the impasse with the remaining findings instead of forcing a pass.
+[Dispatch code reviewer subagent]
+  DESCRIPTION: Added verifyIndex() and repairIndex() with 4 issue types
+  PLAN_OR_REQUIREMENTS: Task 2 from plans/deployment-plan.md
+  BASE_SHA: a7981ec
+  HEAD_SHA: 3df7661
 
-**Next step:** `harness:report`.
+[Subagent returns]:
+  Strengths: Clean architecture, real tests
+  Issues:
+    Important: Missing progress indicators
+    Minor: Magic number (100) for reporting interval
+  Assessment: Ready to proceed
+
+You: [Fix progress indicators]
+[Continue to Task 3]
+```
+
+## Integration with Workflows
+
+**Subagent-Driven Development:**
+- Review after EACH task
+- Catch issues before they compound
+- Fix before moving to next task
+
+**Executing Plans:**
+- Review after each task or at natural checkpoints
+- Get feedback, apply, continue
+
+**Ad-Hoc Development:**
+- Review before merge
+- Review when stuck
+
+## Red Flags
+
+**Never:**
+- Skip review because "it's simple"
+- Skip review because "no code changes" -- diagnostic tasks need methodology review, not code review (see Diagnostic Mode below)
+- Ignore Critical issues
+- Proceed with unfixed Important issues
+- Argue with valid technical feedback
+
+**If reviewer wrong:**
+- Push back with technical reasoning
+- Show code/tests that prove it works
+- Request clarification
+
+### Diagnostic Mode (No Code Changes)
+
+When the pipeline produced NO code changes (pure investigation, analysis, or verification):
+- `git diff --stat` is empty or shows only non-code files
+- Do NOT skip review. Dispatch a **methodology reviewer** instead of a code reviewer.
+- Review checklist:
+  1. **Assumption accuracy** — Did plan assumptions match reality? Flag wrong assumptions.
+  2. **Command correctness** — Were the right commands used? Did they produce expected output?
+  3. **Reasoning chain** — Was the logical chain from question to evidence to conclusion sound?
+  4. **Evidence quality** — Are claims backed by fresh, verifiable evidence?
+  5. **Completeness** — Did the task answer all questions in the plan?
+- Use the same `supervisor` dispatch pattern but replace the reviewer prompt with methodology-focused questions.
+- If diagnostic mode is unclear (mixed code + diagnostic), ask user: "Code review, methodology review, or both?"
+
+See template at: `<harness:review>/code-reviewer.md`

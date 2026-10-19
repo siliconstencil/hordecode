@@ -1,25 +1,26 @@
 # Code Quality Reviewer Prompt Template
 
-Use this template when dispatching a code quality reviewer subagent for one task.
+Use this template when dispatching a code quality reviewer subagent.
 
-**Purpose:** Verify the implementation is well built (clean, tested, maintainable, consistent with the codebase).
+**Purpose:** Verify implementation is well-built (clean, tested, maintainable)
 
-**Only dispatch after the spec-compliance gate passes.**
+**Only dispatch after spec compliance review passes.**
 
-Dispatch a `general` subagent with the `supervisor` tool (`run`). Build its prompt from `../review/code-reviewer.md` (relative to this skill's base directory), filling in:
+Dispatch a `general` subagent via the `supervisor` tool, following the syntax in that
+tool's own description. Build the prompt from
+`<harness:review>/code-reviewer.md`, filling in:
 
-- DESCRIPTION: [task summary, from the implementer's report]
-- PLAN_OR_REQUIREMENTS: Task N from [plan file], with its covered spec sections
-- BASE_SHA: [commit before the task]
+- DESCRIPTION: [task summary, from implementer's report]
+- PLAN_OR_REQUIREMENTS: Task N from [plan-file]
+- BASE_SHA: [commit before task]
 - HEAD_SHA: [current commit]
-- VERIFICATION_SUMMARY: [one line per command the implementer or you ran: PASS / FAIL / PRE-EXISTING, with test counts]
 
-If the work was done in an isolated worktree the session did not switch into, add the `workdir` line described in the Git Range section of `../review/code-reviewer.md`.
+If the work was done in an isolated worktree, also tell the reviewer to `cd` there before running git/tests (see `code-reviewer.md`'s Git Range note). Skip this if there's no separate worktree.
 
-**In addition to the standard checks, the reviewer should check:**
+**In addition to standard code quality concerns, the reviewer should check:**
 - Does each file have one clear responsibility with a well-defined interface?
 - Are units decomposed so they can be understood and tested independently?
-- Does the implementation follow the file structure from the plan?
-- Did this change create new large files or significantly grow existing ones? (Don't flag pre-existing file sizes; focus on what this change contributed.)
+- Is the implementation following the file structure from the plan?
+- Did this implementation create new files that are already large, or significantly grow existing files? (Don't flag pre-existing file sizes — focus on what this change contributed.)
 
-**Code reviewer returns:** Strengths, Issues (Critical/Important/Minor), Assessment.
+**Code reviewer returns:** Strengths, Issues (Critical/Important/Minor), Assessment

@@ -1,32 +1,64 @@
 ---
 name: research:review
-description: Audit research findings against the brief before writing - coverage gaps, single-source claims, conflicts, stale and weak sources. Use from the research skill after the gather step.
+trigger: "Use during VERIFY phase to audit evidence: check citations, flag UNCORROBORATED, surface conflicts"
 ---
 
-# Review the evidence
+# Research:Review -- Evidence Audit
 
-Read `brief.md` and every `findings/F<n>.md` in the workspace. Do not search in this step.
+Audit all evidence from GATHER phase. Check citations, flag UNCORROBORATED claims, surface source conflicts. Mirrors `harness:review`.
 
-Check:
-1. Coverage: which questions and angles in the brief have no findings, or only weak ones?
-2. Single source: a major claim backed by one source only gets `[single source]`.
-3. Conflict: two sources disagree on a fact. Mark both `CONFLICT`; prefer the newer primary source
-   and keep both in the report.
-4. Freshness: a source older than the brief's time frame gets `STALE` unless it is the original
-   or a standard reference.
-5. Weak support: a claim whose quote does not support it, or whose source is a blog, forum or
-   content farm with no primary backing, gets `UNCORROBORATED`.
-6. Source rank: official or primary > peer-reviewed or reputable press > forums and blogs.
+## When to Use
 
-Write the result to `<workspace>/review.md`:
+- After GATHER phase produces evidence files
+- Before FILTER phase compresses evidence
+- The lab differentiator: first-class evidence audit (not post-hoc)
 
+## Audit Checklist
+
+For each evidence file `findings/<run-id>/evidence-*.md`:
+
+### 1. Citation Existence
+- Every claim has a source reference (URL, file:line, or paper ID)
+- Source is accessible (not broken link, not retracted paper)
+- Source date is within freshness window (web 2026 Q2/Q3; academic 2025+)
+
+### 2. UNCORROBORATED Flagging
+- Any claim without a verifiable source is flagged `[x] UNCORROBORATED`
+- Count: total claims vs uncorroborated claims
+- Rate: UNCORROBORATED / total < 20% threshold
+
+### 3. Source Reliability
+- Academic/official sources: highest reliability
+- Industry-primary (company blog, official docs): high
+- Industry-secondary (tech press, analyst): medium
+- Blog/social media: low (flag as `[ ] UNVERIFIED`)
+
+### 4. Conflict Detection
+- Two sources disagree on a factual claim -> flag as conflict
+- Conflict rate: conflicts / total claims
+- If conflict rate > 30%, escalate to HITL before proceeding
+
+### 5. Freshness
+- Web sources older than 6 months: flag `[x] STALE`
+- Academic sources older than 2 years: flag `[x] STALE` (unless seminal)
+
+## Output
+
+Write `findings/<run-id>/verified-evidence.md`:
 ```markdown
-# Review
-- Findings files: <n>; claims: <n>; sources: <n>
-- Gaps: <angle or question, one line each, or "none">
-- Flags: <claim -> flag, one line each>
-- Follow-up angles: <narrower questions for another round, or "none">
+# Verified Evidence -- Run <run-id>
+## Summary: N sources, M claims, X UNCORROBORATED, Y conflicts, Z stale
+## UNCORROBORATED Claims:
+<list of flagged claims>
+## Conflicts:
+<list of source disagreements>
+## Stale Sources:
+<list of outdated sources>
+## Gate: <PASS|FAIL> -- UNCORROBORATED rate X% (< 20% threshold)
 ```
 
-Then return to the research skill: spawn the follow-up angles if a round is left in the budget,
-otherwise carry the gaps into "Open questions".
+## Gate
+
+- UNCORROBORATED rate < 20%: PASS
+- Conflict rate > 30%: FAIL (escalate to HITL)
+- Exit code: 0 (pass) or 1 (fail)

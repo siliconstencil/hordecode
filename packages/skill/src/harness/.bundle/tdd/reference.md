@@ -1,6 +1,6 @@
 # TDD Reference
 
-Worked examples and troubleshooting for harness:tdd. SKILL.md holds the core process and the short rationalization table.
+Detailed examples, rationalizations, and troubleshooting for harness:tdd. Read SKILL.md for the core process.
 
 ## RED - Write Failing Test (Examples)
 
@@ -105,6 +105,22 @@ TDD IS pragmatic: finds bugs before commit, prevents regressions, documents beha
 No. Tests-after answer "What does this do?" Tests-first answer "What should this do?"
 Tests-after are biased by your implementation. Tests-first force edge case discovery before implementing.
 
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "Too simple to test" | Simple code breaks. Test takes 30 seconds. |
+| "I'll test after" | Tests passing immediately prove nothing. |
+| "Tests after achieve same goals" | Tests-after = "what does this do?" Tests-first = "what should this do?" |
+| "Already manually tested" | Ad-hoc != systematic. No record, can't re-run. |
+| "Deleting X hours is wasteful" | Sunk cost fallacy. Keeping unverified code is technical debt. |
+| "Keep as reference, write tests first" | You'll adapt it. That's testing after. Delete means delete. |
+| "Need to explore first" | Fine. Throw away exploration, start with TDD. |
+| "Test hard = design unclear" | Listen to test. Hard to test = hard to use. |
+| "TDD will slow me down" | TDD faster than debugging. Pragmatic = test-first. |
+| "Manual test faster" | Manual doesn't prove edge cases. You'll re-test every change. |
+| "Existing code has no tests" | You're improving it. Add tests for existing code. |
+
 ## Example: Bug Fix
 
 **Bug:** Empty email accepted
@@ -166,7 +182,7 @@ Can't check all boxes? You skipped TDD. Start over.
 
 ## Testing Anti-Patterns
 
-When adding mocks or test utilities, read `testing-anti-patterns.md` in this directory to avoid common pitfalls:
+When adding mocks or test utilities, read @testing-anti-patterns.md to avoid common pitfalls:
 - Testing mock behavior instead of real behavior
 - Adding test-only methods to production classes
 - Mocking without understanding dependencies

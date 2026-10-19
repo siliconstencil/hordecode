@@ -32,8 +32,7 @@ export const extractResearchBundle = Effect.fn("Skill.extractResearchBundle")(fu
   for (const [skillName, files] of Object.entries(RESEARCH_BUNDLE)) {
     const dir = path.join(researchRoot, "skills", skillName)
     for (const [relPath, content] of Object.entries(files)) {
-      // Scripts are run by path, so they need the execute bit.
-      yield* fsys.writeWithDirs(path.join(dir, relPath), content, relPath.endsWith(".sh") ? 0o755 : undefined)
+      yield* fsys.writeWithDirs(path.join(dir, relPath), content)
     }
   }
   yield* fsys.writeWithDirs(marker, InstallationVersion)

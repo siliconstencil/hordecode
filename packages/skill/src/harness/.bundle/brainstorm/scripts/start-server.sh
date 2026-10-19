@@ -6,16 +6,13 @@
 # Each session gets its own directory to avoid conflicts.
 #
 # Options:
-#   --project-dir <path>  Store session files under <path>/.hordecode/harness/brainstorm/
-#                         instead of /tmp. Files persist after server stops; a
-#                         .gitignore containing '*' keeps them out of git.
+#   --project-dir <path>  Store session files under <path>/.harness/brainstorm/
+#                         instead of /tmp. Files persist after server stops.
 #   --host <bind-host>    Host/interface to bind (default: 127.0.0.1).
 #                         Use 0.0.0.0 in remote/containerized environments.
 #   --url-host <host>     Hostname shown in returned URL JSON.
 #   --foreground          Run server in the current terminal (no backgrounding).
-#   --background          Force background mode (overrides Windows auto-foreground).
-#
-# Requires node on PATH.
+#   --background          Force background mode (overrides Codex auto-foreground).
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -62,25 +59,18 @@ if [[ -z "$URL_HOST" ]]; then
   fi
 fi
 
-if ! command -v node >/dev/null 2>&1; then
-  echo '{"error": "node is required on PATH to run the brainstorm server"}'
-  exit 1
+# Some environments reap detached/background processes. Auto-foreground when detected.
+if [[ -n "${CODEX_CI:-}" && "$FOREGROUND" != "true" && "$FORCE_BACKGROUND" != "true" ]]; then
+  FOREGROUND="true"
 fi
 
-# Windows/Git Bash reaps nohup background processes. A foreground server would block the
-# agent's own shell call until the idle timeout, so report the command for the user to run
-# in their own terminal instead (explicit --foreground still runs in place).
+# Windows/Git Bash reaps nohup background processes. Auto-foreground when detected.
 if [[ "$FOREGROUND" != "true" && "$FORCE_BACKGROUND" != "true" ]]; then
-  WINDOWS_SHELL="false"
   case "${OSTYPE:-}" in
-    msys*|cygwin*|mingw*) WINDOWS_SHELL="true" ;;
+    msys*|cygwin*|mingw*) FOREGROUND="true" ;;
   esac
   if [[ -n "${MSYSTEM:-}" ]]; then
-    WINDOWS_SHELL="true"
-  fi
-  if [[ "$WINDOWS_SHELL" == "true" ]]; then
-    echo "{\"error\": \"Background servers do not survive in this shell. Ask the user to run in their own terminal: bash $SCRIPT_DIR/start-server.sh${PROJECT_DIR:+ --project-dir $PROJECT_DIR} --host $BIND_HOST --url-host $URL_HOST --foreground\"}"
-    exit 1
+    FOREGROUND="true"
   fi
 fi
 
@@ -88,12 +78,7 @@ fi
 SESSION_ID="$$-$(date +%s)"
 
 if [[ -n "$PROJECT_DIR" ]]; then
-  BRAINSTORM_ROOT="${PROJECT_DIR}/.hordecode/harness/brainstorm"
-  mkdir -p "$BRAINSTORM_ROOT"
-  if [[ ! -f "${BRAINSTORM_ROOT}/.gitignore" ]]; then
-    echo '*' > "${BRAINSTORM_ROOT}/.gitignore"
-  fi
-  SESSION_DIR="${BRAINSTORM_ROOT}/${SESSION_ID}"
+  SESSION_DIR="${PROJECT_DIR}/.harness/brainstorm/${SESSION_ID}"
 else
   SESSION_DIR="/tmp/brainstorm-${SESSION_ID}"
 fi
@@ -114,9 +99,9 @@ fi
 
 cd "$SCRIPT_DIR"
 
-# Resolve the owner PID (grandparent of this script).
-# $PPID is the ephemeral shell the agent host spawned to run us; it dies
-# when this script exits. The host process itself is $PPID's parent.
+# Resolve the harness PID (grandparent of this script).
+# $PPID is the ephemeral shell the harness spawned to run us — it dies
+# when this script exits. The harness itself is $PPID's parent.
 OWNER_PID="$(ps -o ppid= -p "$PPID" 2>/dev/null | tr -d ' ')"
 if [[ -z "$OWNER_PID" || "$OWNER_PID" == "1" ]]; then
   OWNER_PID="$PPID"
@@ -149,7 +134,7 @@ for i in {1..50}; do
       sleep 0.1
     done
     if [[ "$alive" != "true" ]]; then
-      echo "{\"error\": \"Server started but was killed. Retry in a persistent terminal with: bash $SCRIPT_DIR/start-server.sh${PROJECT_DIR:+ --project-dir $PROJECT_DIR} --host $BIND_HOST --url-host $URL_HOST --foreground\"}"
+      echo "{\"error\": \"Server started but was killed. Retry in a persistent terminal with: $SCRIPT_DIR/start-server.sh${PROJECT_DIR:+ --project-dir $PROJECT_DIR} --host $BIND_HOST --url-host $URL_HOST --foreground\"}"
       exit 1
     fi
     grep "server-started" "$LOG_FILE" | head -1

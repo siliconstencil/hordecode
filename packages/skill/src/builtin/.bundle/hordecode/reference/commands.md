@@ -1,57 +1,53 @@
 # Hordecode Commands Reference
 
-## CLI (`horde <command>`, alias `hordecode`)
+## CLI (`hordecode <command>`)
 
-`horde` with no command opens the TUI in the current directory (`horde <path>` opens it there).
+Invoked from the shell. `hordecode` with no command opens the TUI.
 
 | Command | Purpose |
 |---------|---------|
-| `horde run "<prompt>"` | Headless, non-interactive run (scripting, CI) |
-| `horde mcp` | Manage MCP servers: `list`, `add`, `auth`, `logout`, `debug` |
-| `horde agent` | `create` a new agent file, `list` loaded agents |
-| `horde models [provider]` | List available models (`--refresh` updates the models cache) |
-| `horde providers` (alias `auth`) | `list`, `login`, `logout` providers and credentials |
-| `horde session` | List, delete and import sessions (including imports from Claude Code, Codex and opencode) |
-| `horde export` / `horde import` | Export a session as JSON / import one |
-| `horde serve` | Run the headless server |
-| `horde web` | Start the server and open the web interface |
-| `horde attach <url>` | Attach the TUI to a running server |
-| `horde acp` | Run as an Agent Client Protocol server |
-| `horde github` | `install` / `run` the GitHub agent |
-| `horde pr <number>` | Check out a GitHub PR branch, then start Hordecode |
-| `horde plugin <module>` (alias `plug`) | Install a plugin and add it to config |
-| `horde stats` | Token and cost statistics |
-| `horde db` | Open the SQLite database shell, run a query, or print its `path` |
-| `horde debug` | Debugging and troubleshooting tools |
-| `horde upgrade` / `horde uninstall` | Update / remove Hordecode |
-| `horde completion` | Generate a shell completion script |
+| `hordecode` | Launch the interactive TUI |
+| `hordecode run` | Headless, non-interactive run (scripting/eval) |
+| `hordecode mcp` | Manage / inspect MCP servers |
+| `hordecode agent` | Manage agents |
+| `hordecode models` | List available models |
+| `hordecode providers` | List / manage providers |
+| `hordecode account` (console) | Account / login console |
+| `hordecode upgrade` | Update to the latest version |
+| `hordecode uninstall` | Uninstall Hordecode |
+| `hordecode serve` | Run the server |
+| `hordecode stats` | Usage statistics |
+| `hordecode export` / `hordecode import` | Export / import sessions |
+| `hordecode session` | Manage sessions |
+| `hordecode github` / `hordecode pr` | GitHub / pull-request integration |
+| `hordecode generate` | Code generation entry |
+| `hordecode plugin` (plug) | Manage plugins |
+| `hordecode db` | Database utilities |
+| `hordecode acp` / `hordecode attach` | ACP / attach to a running session |
+| `hordecode debug` | Debug utilities |
+| `hordecode completion` | Generate shell completion script |
 
-Run `horde <command> --help` for the flags of any command.
+Run `hordecode <command> --help` for flags on any command.
 
-Notable TUI flags: `--continue`/`-c` (resume the last session), `--session`/`-s <id>`, `--fork` (with `-c`/`-s`), `--prompt`, `--model`/`-m provider/model`, `--agent`, `--trust` (skip the workspace trust prompt), `--mini` (minimal interface), and `--auto` (approve permission prompts; explicit `deny` rules still block; see @permissions.md). `horde run` accepts `--auto` too.
+Notable TUI flags: `--continue`/`-c` (resume last session), `--session`/`-s`, `--model`/`-m`, `--agent`, `--never-ask`, `--trust`, and `--dangerously-skip-permissions` (auto-approve everything not explicitly denied; prompts once for confirmation — see permissions.md).
 
 ## Slash commands (inside the TUI)
 
 | Command | Purpose |
 |---------|---------|
-| `/init` | Guided `AGENTS.md` setup |
-| `/review` | Review changes (`commit`, `branch` or `pr`; defaults to uncommitted) |
-| `/goal` | Set a stop condition; a judge model checks it before the agent halts. `/goal clear` aborts |
-| `/rebuild` | Rebuild context now from the latest checkpoint (frees context, keeps recent messages) |
-| `/dream` | Consolidate project memory from memory files and recent traces |
-| `/distill` | Find repeated workflows and package them into skills, subagents or commands |
-| `/deep-research` | Multi-source, fact-checked research report (runs the `deep-research` workflow) |
-| `/loop` | `[interval] <prompt>`: schedule a repeating prompt (also runs once now) |
-| `/loops` | List scheduled jobs; `/loops cancel <id>` deletes one |
-| `/workflows` | Open the workflow runs page |
-| `/never-ask` | Toggle never-ask: the agent picks the best option instead of asking questions (permission prompts still ask) |
-| `/connect` | Connect a provider (API key or OAuth) |
-| `/models`, `/agents`, `/sessions`, `/new`, `/mcps`, `/themes`, `/help`, `/exit` | Pickers and session basics |
-| `/<skill-name>` | Invoke any available skill by name |
-
-The command palette (`ctrl+p`) lists every command, including "Enable auto-approve permissions".
+| `/goal` | Set a stop condition; a judge model verifies it's truly met before the agent halts (prevents premature stops in autonomous work) |
+| `/dream` | Scan recent traces, extract durable knowledge into project memory, prune stale entries |
+| `/distill` | Detect repeated manual workflows and package high-confidence ones into skills/subagents/commands |
+| `/loop` | `[interval] <prompt>` — schedule a repeating prompt (also runs once now); maps the interval to a cron job |
+| `/loops` | List scheduled cron/loop jobs; `/loops cancel <id>` stops one |
+| `/connect` | Sign in to a provider (e.g. OpenRouter) |
+| `/<skill-name>` | Invoke any available skill directly by name |
 
 ## Keybindings
 
-- `Tab` / `shift+Tab`: cycle primary agents (build, plan, harness, research, max, plus custom primary agents).
-- Leader key `ctrl+x`. Remap any binding under `keybinds` in `tui.json` (see @guide.md).
+- `Tab` — cycle primary agents (build → plan → harness).
+- Other keybinds are configurable; the keybinds config module governs them.
+
+## Notes
+
+- The web command is currently disabled; TUI is the supported interface.

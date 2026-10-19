@@ -1,93 +1,273 @@
 ---
 name: harness:merge
-description: Use when implementation is verified, reviewed, and reported - presents finishing options (local merge, pull request, keep, discard) through the question tool; never auto-finishes when no user is available
+description: Use when implementation is complete, all tests pass, and you need to decide how to integrate the work - guides completion of development work by presenting structured options for merge, PR, or cleanup
 ---
 
 # Finishing a Development Branch
 
-**Core principle:** verify, detect the environment, offer options, execute only the choice the user made. **Never auto-finish.**
+## Overview
 
-**Announce at start:** "I'm using the harness:merge skill to finish this work."
+Guide completion of development work by presenting clear options and handling chosen workflow.
 
-## Step 1: Confirm Fresh Verification
+**Core principle:** Verify tests → Detect environment → Present options → Execute choice → Clean up.
 
-The latest `harness:verify` summary must postdate the last change. If anything changed since, run `harness:verify` again. If tests fail (other than PRE-EXISTING), stop: report the failures; do not offer merge or PR.
+**Announce at start:** "I'm using the harness:merge skill to complete this work."
 
-## Step 2: Detect the Environment
+## The Process
+
+### Step 0: Verify Eval Actually Ran (do not skip, do not assume)
+
+This pipeline has skipped harness:eval and harness:merge itself, repeatedly, across many prior
+runs — a recurring pattern, not a one-off. harness:report's own prose ("MANDATORY, do not skip")
+did not stop that. This step is the mechanical backstop: merge refuses to proceed on trust alone.
 
 ```bash
-git rev-parse --git-dir
-git rev-parse --git-common-dir
-git branch --show-current
-git worktree list
+bash tools/harness-gate.sh <run-id> eval  # lab pipeline gate — skip on standard installs
 ```
 
-| State | Options |
-|-------|---------|
-| Normal checkout (git-dir equals git-common-dir) | Merge locally, Create PR, Keep, Discard |
-| Linked worktree on a named branch | Merge locally, Create PR, Keep, Discard |
-| Linked worktree, detached HEAD | Create PR, Keep, Discard |
+- **Exit 0:** eval evidence is real (file exists, non-empty, has score/metric content). Proceed to
+  Step 1.
+- **Non-zero exit:** eval did NOT actually happen (or happened without real evidence). STOP.
+  Do not present merge options. Go run harness:eval for real, write
+  `.hordecode/harness/evidence/<run-id>/eval.evidence`, then re-run this gate before returning here.
+  A pipeline that reaches merge without a passing eval gate is not done, regardless of what any
+  earlier step claimed.
 
-Find the base branch with `git merge-base HEAD main` (or `master`, or the branch the user named). The main checkout is the first entry of `git worktree list`; call it MAIN_ROOT.
+After this gate passes, write the passing gate output (or the merge decision itself) to
+`.hordecode/harness/evidence/<run-id>/merge.evidence` before Step 4 (Execute Choice) — this is the same
+mechanical-evidence discipline, applied to merge's own completion, not just eval's.
 
-## Step 3: No User Available: Report and Stop
+### Step 1: Verify Tests
 
-If the `question` tool is absent or returns `[Never-Ask]`, do not merge, pull, push, open a pull request, delete anything, or commit the repository's `.gitignore`. Committing the feature work itself on the feature branch is fine. Report and stop:
+**Before presenting options, verify tests pass:**
 
+```bash
+# Run project's test suite
+npm test / cargo test / pytest / go test ./...
 ```
-Branch: <branch>   Base: <base>   Head: <sha>
-Worktree: <path or "none">   Report: <report path>
-Verification: <one-line summary>
-Suggested closing action: <merge locally | open PR | keep>, because <reason>
+
+**If tests fail:**
+```
+Tests failing (<N> failures). Must fix before completing:
+
+[Show failures]
+
+Cannot proceed with merge/PR until tests pass.
 ```
 
-## Step 4: Offer Options (user available)
+Stop. Don't proceed to Step 2.
 
-Ask through `harness:ask`:
+**If tests pass:** Continue to Step 2.
+
+### Step 2: Detect Environment
+
+**Determine workspace state before presenting options:**
+
+```bash
+GIT_DIR=$(cd "$(git rev-parse --git-dir)" 2>/dev/null && pwd -P)
+GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P)
+```
+
+This determines which menu to show and how cleanup works:
+
+| State | Menu | Cleanup |
+|-------|------|---------|
+| `GIT_DIR == GIT_COMMON` (normal repo) | Standard 4 options | No worktree to clean up |
+| `GIT_DIR != GIT_COMMON`, named branch | Standard 4 options | Provenance-based (see Step 6) |
+| `GIT_DIR != GIT_COMMON`, detached HEAD | Reduced 3 options (no merge) | No cleanup (externally managed) |
+
+### Step 3: Determine Base Branch
+
+```bash
+# Try common base branches
+git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null
+```
+
+If the base branch is ambiguous, confirm through `harness:ask`:
+- header: `Base Branch`
+- question: `This branch appears to have split from <detected>. Correct?`
+- options:
+  - label: `Yes, <detected>`, description: `Use <detected> as merge target`
+  - label: `Different branch`, description: `I'll specify the correct base branch`
+
+If no user is available, use the detected base branch and proceed.
+
+### Step 4: Present Options
+
+**Normal repo / named-branch worktree — use `harness:ask`:**
 - header: `Complete Work`
-- question: `Implementation complete on <branch>. What would you like to do?`
-- options: `Merge locally` (merge into <base>) / `Create PR` (push the branch and open a pull request) / `Keep as-is` (leave branch and worktree) / `Discard` (delete branch and commits)
+- question: `Implementation complete. What would you like to do?`
+- options:
+  - label: `Merge locally`, description: `Merge back to <base-branch>`
+  - label: `Create PR`, description: `Push branch and open a Pull Request`
+  - label: `Keep as-is`, description: `Leave the branch — I'll handle it later`
+  - label: `Discard`, description: `Delete branch and all commits`
 
-Omit `Merge locally` for detached HEAD. If the base branch is uncertain, settle it in the same call with a second question (header `Base Branch`, options for the candidates).
+If no user is available, merge locally and proceed.
 
-## Step 5: Execute the Choice
+**Detached HEAD — use `harness:ask`:**
+- header: `Complete Work`
+- question: `Implementation complete (detached HEAD, externally managed). What would you like to do?`
+- options:
+  - label: `Create PR`, description: `Push as new branch and open a PR`
+  - label: `Keep as-is`, description: `Leave as-is — I'll handle it later`
+  - label: `Discard`, description: `Delete this work permanently`
 
-Run git commands against MAIN_ROOT with `bash` `workdir` set to it (or `git -C <MAIN_ROOT>`). The base branch cannot be checked out while another worktree holds it, so local merges happen in the main checkout.
+If no user is available, create a PR and proceed.
 
-**Merge locally**
+### Step 5: Execute Choice
+
+#### Option 1: Merge Locally
+
 ```bash
-git checkout <base>
-git merge <branch>
+# Get main repo root for CWD safety
+MAIN_ROOT=$(git -C "$(git rev-parse --git-common-dir)/.." rev-parse --show-toplevel)
+cd "$MAIN_ROOT"
+
+# Merge first — verify success before removing anything
+git checkout <base-branch>
+git pull
+git merge <feature-branch>
+
+# Verify tests on merged result
 <test command>
-```
-Only after the merge and tests succeed: clean up the worktree (Step 6), then `git branch -d <branch>`.
 
-**Create PR**
+# Only after merge succeeds: cleanup worktree (Step 6), then delete branch
+```
+
+Then: Cleanup worktree (Step 6), then delete branch:
+
 ```bash
-git push -u origin <branch>
-gh pr create --title "<title>" --body "<summary and test plan>"
+git branch -d <feature-branch>
 ```
-Keep the worktree; the user needs it for review feedback.
 
-**Keep as-is**
-Report "Keeping branch <branch>. Worktree preserved at <path>." No cleanup.
+#### Option 2: Push and Create PR
 
-**Discard**
-Confirm with a second `question`: header `Confirm Discard`, question `This permanently deletes branch <branch>, its commits, and the worktree at <path>.`, options `Cancel (Recommended)` / `Discard permanently`. Proceed only on `Discard permanently`; on `Cancel`, return to Step 4. Then clean up (Step 6) and `git branch -D <branch>`.
+```bash
+# Push branch
+git push -u origin <feature-branch>
 
-## Step 6: Clean Up the Worktree (Merge or Discard only)
+# Create PR
+gh pr create --title "<title>" --body "$(cat <<'EOF'
+## Summary
+<2-3 bullets of what changed>
 
-- No linked worktree: nothing to do.
-- Worktree under `.worktrees/` or the path the user or AGENTS.md scoped: run from MAIN_ROOT (`workdir`), never from inside the worktree:
-  ```bash
-  git worktree remove <worktree-path>
-  git worktree prune
-  ```
-  If the session was switched into the worktree, call `change_directory` with `~` first.
-- Any other worktree was created by something else: leave it in place.
+## Test Plan
+- [ ] <verification steps>
+EOF
+)"
+```
 
-## Rules
+**Do NOT clean up worktree** — user needs it alive to iterate on PR feedback.
 
-- Never proceed with new failing tests; verify the merged result.
-- Never force-push unless the user asks.
-- Remove the worktree before deleting its branch.
+#### Option 3: Keep As-Is
+
+Report: "Keeping branch <name>. Worktree preserved at <path>."
+
+**Don't cleanup worktree.**
+
+#### Option 4: Discard
+
+**Confirm through `harness:ask`:**
+- header: `Confirm Discard`
+- question: `This will permanently delete branch <name>, all commits, and worktree at <path>. Are you sure?`
+- options:
+  - label: `Cancel`, description: `Keep branch and worktree intact`
+  - label: `Discard permanently`, description: `Cannot be undone`
+
+If no user is available, do NOT discard — keep the branch as-is. (Destructive actions never auto-approve; see `harness:ask`.)
+
+Only proceed if user selected "Discard permanently". If "Cancel", return to Step 4.
+
+If confirmed:
+```bash
+MAIN_ROOT=$(git -C "$(git rev-parse --git-common-dir)/.." rev-parse --show-toplevel)
+cd "$MAIN_ROOT"
+```
+
+Then: Cleanup worktree (Step 6), then force-delete branch:
+```bash
+git branch -D <feature-branch>
+```
+
+### Step 6: Cleanup Workspace
+
+**Only runs for Options 1 and 4.** Options 2 and 3 always preserve the worktree.
+
+```bash
+GIT_DIR=$(cd "$(git rev-parse --git-dir)" 2>/dev/null && pwd -P)
+GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P)
+WORKTREE_PATH=$(git rev-parse --show-toplevel)
+```
+
+**If `GIT_DIR == GIT_COMMON`:** Normal repo, no worktree to clean up. Done.
+
+**If worktree path is under `.worktrees/`, `worktrees/`, or `~/.config/harness/worktrees/`:** Harness created this worktree — we own cleanup.
+
+```bash
+MAIN_ROOT=$(git -C "$(git rev-parse --git-common-dir)/.." rev-parse --show-toplevel)
+cd "$MAIN_ROOT"
+git worktree remove "$WORKTREE_PATH"
+git worktree prune  # Self-healing: clean up any stale registrations
+```
+
+**Otherwise:** The host environment (harness) owns this workspace. Do NOT remove it. If your platform provides a workspace-exit tool, use it. Otherwise, leave the workspace in place.
+
+## Quick Reference
+
+| Option | Merge | Push | Keep Worktree | Cleanup Branch |
+|--------|-------|------|---------------|----------------|
+| 1. Merge locally | yes | - | - | yes |
+| 2. Create PR | - | yes | yes | - |
+| 3. Keep as-is | - | - | yes | - |
+| 4. Discard | - | - | - | yes (force) |
+
+## Common Mistakes
+
+**Skipping test verification**
+- **Problem:** Merge broken code, create failing PR
+- **Fix:** Always verify tests before offering options
+
+**Open-ended questions**
+- **Problem:** "What should I do next?" is ambiguous
+- **Fix:** Present exactly 4 structured options (or 3 for detached HEAD)
+
+**Cleaning up worktree for Option 2**
+- **Problem:** Remove worktree user needs for PR iteration
+- **Fix:** Only cleanup for Options 1 and 4
+
+**Deleting branch before removing worktree**
+- **Problem:** `git branch -d` fails because worktree still references the branch
+- **Fix:** Merge first, remove worktree, then delete branch
+
+**Running git worktree remove from inside the worktree**
+- **Problem:** Command fails silently when CWD is inside the worktree being removed
+- **Fix:** Always `cd` to main repo root before `git worktree remove`
+
+**Cleaning up harness-owned worktrees**
+- **Problem:** Removing a worktree the harness created causes phantom state
+- **Fix:** Only clean up worktrees under `.worktrees/`, `worktrees/`, or `~/.config/harness/worktrees/`
+
+**No confirmation for discard**
+- **Problem:** Accidentally delete work
+- **Fix:** Require typed "discard" confirmation
+
+## Red Flags
+
+**Never:**
+- Proceed with failing tests
+- Merge without verifying tests on result
+- Delete work without confirmation
+- Force-push without explicit request
+- Remove a worktree before confirming merge success
+- Clean up worktrees you didn't create (provenance check)
+- Run `git worktree remove` from inside the worktree
+
+**Always:**
+- Verify tests before offering options
+- Detect environment before presenting menu
+- Present exactly 4 options (or 3 for detached HEAD)
+- Get typed confirmation for Option 4
+- Clean up worktree for Options 1 & 4 only
+- `cd` to main repo root before worktree removal
+- Run `git worktree prune` after removal

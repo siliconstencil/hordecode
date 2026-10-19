@@ -1,22 +1,22 @@
 ---
 name: harness:ask
-description: "Use whenever you need a decision, clarification, or approval from the user - covers how to ask with the question tool, and how to resolve the decision yourself when no user is available (question tool absent, or a [Never-Ask] response)"
+description: "Use whenever you need a decision, clarification, or approval from the user — covers how to ask with the question tool, and how to resolve the decision yourself when no user is available (question tool absent, or a [Never-Ask] response)"
 ---
 
 # Asking the User
 
 ## The Rule
 
-Every time you need the user to decide, clarify, or approve something, call the `question` tool. **Never** stop the loop with a natural-language question ("Does this look right?", "Should I proceed?"). A prose question ends your turn without finishing the task; a `question` call does not. The loop ends only when the task is complete.
+Every time you need the user to decide, clarify, or approve something, route it through the `question` tool. **Never** stop the loop with a natural-language question ("Does this look right?", "Should I proceed?", "Which would you prefer?"). A natural-language question ends your turn without finishing the task; a `question` tool call does not.
 
-Do not ask for facts the repository or environment already answers, and do not ask for permission to continue when no decision remains.
+This means: **the loop only ends when the task is actually complete** — never because you paused to ask in prose.
 
 ## How to Ask
 
-- **Structured options:** when the decision has known choices, list them as `options`, each with a short `label` and a `description` of the consequence. Put your recommendation first and end its label with `(Recommended)`.
-- **Open-ended:** when choices cannot be enumerated, pass `options: []`; the user types a free-text answer.
-- **One decision per question:** a single decision may bundle dependent fields; unrelated decisions are separate questions.
-- **Don't repeat the question in prose:** the tool renders it.
+- **Structured options** — when the decision has known choices, list them as `options` (each with a short `label` and a `description`).
+- **Open-ended** — when you can't enumerate good options, pass **empty `options`**. An empty options list renders as a free-text prompt: the user types whatever they want. So anything you'd normally ask in prose can be asked through `question` instead.
+- **One question per concern** — don't bundle unrelated decisions; ask them as separate questions (or separate calls).
+- **Don't repeat the question in prose** — the tool already renders it. Just call the tool.
 
 ```
 question({
@@ -24,7 +24,7 @@ question({
     question: "Which auth strategy should I use?",
     header: "Auth",
     options: [
-      { label: "Session cookies (Recommended)", description: "Server-side sessions, simplest" },
+      { label: "Session cookies", description: "Server-side sessions, simplest" },
       { label: "JWT", description: "Stateless, good for multiple services" },
     ],
   }],
@@ -33,26 +33,25 @@ question({
 
 ## When No User Is Available
 
-Two situations give no human answer; the decision behavior is the same in both:
+There are two situations where you won't get a human answer. **The decision behavior is identical in both** — you pick the best option for unattended/headless execution yourself and keep going. They differ only in *whether the question tool is reached this turn*:
 
-1. **Question tool absent** (for example in an unattended run): decide and proceed directly.
-2. **`[Never-Ask]` response:** you called `question`, and it returned a directive instead of an answer.
-
-In both cases resolve **this one decision** yourself, state the option you chose and why in your response, and continue.
+1. **Question tool absent** (e.g. `run`/eval, where `question` is denied) — the tool isn't in your list. You never call it; decide and proceed directly.
+2. **`[Never-Ask]` response** (never-ask is on) — you *do* call `question`, but instead of a user answer the tool returns a `[Never-Ask]` directive. Re-pick from the options you proposed, **explicitly state your choice and reasoning in your response text**, and continue.
 
 ### How to decide autonomously
 
-The best option for a present user is often not the best for unattended execution:
+The best option for a human is often **not** the best option for headless execution. Re-evaluate your own options through this lens:
 
-1. Choose the `(Recommended)` option when repository evidence still supports it and it can run unattended.
-2. Otherwise choose the closest **minimal-scope** option the evidence supports; prefer **text-only** and **non-interactive** paths (no browser companion, no GUI).
-3. When approval is the only thing requested for ordinary work (a design, a plan, a spec), treat it as granted and continue.
-4. **Never auto-approve finishing or destructive actions:** merging into the base branch, pulling, pushing, opening a pull request, committing the repository's `.gitignore`, deleting branches, commits, worktrees or data, force-pushing. Choose the non-destructive path that preserves progress (keep things as they are), report the suggested action, and continue with the rest of the task.
+- Prefer **text-only** over visual/interactive paths (e.g. don't launch a GUI companion, don't open a browser — produce the same content as text).
+- Prefer **non-interactive** over anything needing the user present.
+- Prefer the **minimal-scope** path — don't expand the work to cover speculative edge cases just because no one is gating it.
+- When approval is the only thing being requested, treat it as **granted** and proceed to implementation.
+- **Exception — destructive, irreversible actions** (deleting a branch/commits, dropping data, force-pushing) never auto-approve. When you can't get explicit confirmation, choose the non-destructive path (keep things as-is) and continue with the rest of the task.
 
-### Only this turn
+### Only this turn — keep asking later
 
-Autonomous resolution applies only to the current question. At the next decision point, call `question` again; the user may have returned.
+Autonomous resolution applies **only to the current question**. Do **not** infer "I should stop using the question tool from now on." never-ask can be turned off at any moment, and the question tool may reappear — at the next decision point, ask normally again. The user may have returned.
 
 ## Why this skill exists
 
-This is the single source of truth for asking and for the autonomous fallback. Other harness skills point here at their decision points instead of repeating the rules.
+This is the single source of truth for asking and autonomous fallback. Other harness skills reference it at their decision points instead of repeating fallback text, so the rules stay consistent and the prompts stay small.

@@ -1,45 +1,48 @@
 # Hordecode Usage Guide
 
-How-to for the features users most often ask about. Config keys: @config.md. Permissions: @permissions.md. Commands: @commands.md.
+How-to for the features users most often ask about. For config keys see @config.md; for permissions see @permissions.md; for commands see @commands.md.
 
 ## Getting started & auth
 
-1. **Connect a provider**: `/connect` in the TUI, or `horde providers login` (alias `horde auth login`) in the shell. Provider API keys in environment variables are detected automatically.
-2. **Pick a model**: set `"model": "provider/model"` in config, pass `-m provider/model`, or switch live with `/models`.
-3. **List what's available**: `horde models`, `horde providers list`.
+1. **Sign in** — `hordecode account login <url>` runs a device flow: it prints a URL + code and opens your browser. `/connect` does the same from inside the TUI (e.g. to add OpenRouter). Other account subcommands: `logout`, `switch`, `orgs`, `open`, `console`.
+2. **Pick a model** — set `"model": "provider/model"` in config, or switch live in the TUI model dialog. Provider API keys are auto-detected from environment variables (unless `HORDECODE_CORE_ONLY=1`).
+3. **List what's available** — `hordecode models`, `hordecode providers`.
 
 ## Memory: making Hordecode remember
 
-Memory persists across sessions and is brought back when context is rebuilt, so the agent does not relearn the project.
+Memory persists across sessions and is auto-injected on resume, so the agent doesn't relearn project context.
 
-- **Project rules / architecture**: project memory is `~/.local/share/hordecode/memory/projects/<project-id>/MEMORY.md`. Durable rules go under `## Rules`, design decisions under `## Architecture decisions`. The quickest way: tell the agent the rule; it can write it there.
-- **`/dream`**: promotes durable knowledge from recent traces into `MEMORY.md` and prunes stale entries. It runs automatically only with `dream.auto: true`, at most every `dream.interval_days` (default 7).
-- **Checkpoints** (`checkpoint.md`) are written only by the checkpoint-writer subagent; do not hand-edit them. `/rebuild` rebuilds context from the latest checkpoint.
+- **Project rules / architecture** — edit `MEMORY.md` (project memory). Durable rules go under `## Rules`, design decisions under `## Architecture decisions`. The agent may also write here at checkpoint time.
+- **`/dream`** — scans recent session traces, promotes durable knowledge into `MEMORY.md`, and prunes stale entries. Runs automatically per `dream.interval_days` (default 7).
+- **Checkpoints** (`checkpoint.md`) are maintained *only* by the checkpoint-writer subagent — don't hand-edit them.
 - **Scratch notes** (`notes.md`) are the agent's free-form scratchpad.
-- The `memory` tool searches all of it.
+- To make a rule stick immediately without waiting for a checkpoint, just tell the agent — it can edit `MEMORY.md` directly.
 
-Tune with `checkpoint.*`, `compaction.*` and `memory.*` (see @config.md).
+Tune memory behavior with `checkpoint.*`, `compaction.*`, and `memory.cc_index` (see @config.md).
 
 ## Custom slash commands
 
-Drop a markdown file at `.hordecode/command/<name>.md` (or `commands/`; `~/.config/hordecode/command/` for global). The frontmatter configures it; the body is the prompt template.
+Drop a markdown file at `.hordecode/command/<name>.md` (or `.hordecode/commands/`, `.claude/command(s)/` are also read). The frontmatter configures it; the body is the prompt template.
 
 ```markdown
 ---
 description: Review the current diff for security issues
 agent: build
+model: standard
 subtask: false
 ---
 Review the staged diff. Focus on: $ARGUMENTS
 ```
 
 - Invoke with `/name your args here`.
-- Placeholders: `$ARGUMENTS` (all args), `$1`, `$2`, ... (positional; the highest one takes the rest). With no placeholder, args are appended.
-- Frontmatter: `description`, `agent` (which agent runs it), `model` (a literal `provider/model`), `variant`, `subtask: true` (run as a subagent).
+- Placeholders: `$ARGUMENTS` (all args), `$1`, `$2`, … (positional). If none are present, args are appended.
+- `agent` picks which agent runs it; `model` accepts a `provider/model` or a group name; `subtask: true` runs it as a subagent.
 
-## Custom agents & modes
+Commands hot-reload on the next turn.
 
-A "mode" is a **primary agent** with its own system prompt. Drop a markdown file; the frontmatter is config and the **body becomes the system prompt**.
+## Custom agents & modes (file-based system prompts)
+
+A "mode" is just a **primary agent** with its own system prompt. To give Hordecode a custom mode (e.g. a `general` chat mode alongside the coding-focused `build`), drop a markdown file — no code, no server changes. The frontmatter is config; the **markdown body becomes the agent's system prompt**.
 
 ```markdown
 ---
@@ -47,48 +50,51 @@ description: A friendly general-purpose assistant for everyday chat and Q&A
 mode: primary
 temperature: 0.7
 ---
-You are "Chat", a warm, concise, general-purpose assistant.
+You are "General" — a warm, concise, general-purpose assistant.
 Keep replies short unless asked to elaborate; you are not focused on coding.
 ```
 
+Where to put the file (all hot-reloaded on the next turn; `.claude/agent(s)` are also read):
+
 | Path | Scope |
 |------|-------|
-| `.hordecode/agent/<name>.md` (or `agents/`) | project agent, most common |
-| `.hordecode/mode/<name>.md` (or `modes/`) | project mode: an agent forced to `mode: primary` |
+| `.hordecode/agent/<name>.md` (or `agents/`) | project agent — most common |
+| `.hordecode/mode/<name>.md` (or `modes/`) | project mode — same as an agent forced to `mode: primary` |
 | `~/.config/hordecode/agent/<name>.md` | global agent, available in every project |
 
-Frontmatter fields (all optional):
+Frontmatter fields (all optional except that the body should be non-empty):
 
-- `mode`: `primary` (selectable with `Tab`), `subagent` (launched through the `supervisor` tool, listed in `@` autocomplete), or `all`.
-- `model`: a literal `provider/model`; `variant`, `temperature`, `top_p` tune generation.
-- `description`: when to use it.
-- `permission` (rules as in @permissions.md), `steps` (max agentic iterations), `color`, `hidden`, `disable`, `options`.
+- `mode` — `primary` (selectable with `Tab`, replaces the base prompt for the session), `subagent` (spawnable by a primary via the `supervisor`/`task` tools), or `all`. Files under `mode/` are always primary.
+- `model` — a `provider/model` or a group name (`ultra`/`standard`/`lite`); `variant`, `temperature`, `top_p` tune generation.
+- `description` — when to use it (shown in the `@` autocomplete for subagents).
+- `permission`, `tool_allowlist`, `tools`, `steps`, `color`, `hidden` — see @config.md.
 
-For a primary agent the body replaces the default base prompt; environment, skills and instruction blocks are still appended. The selection is per session: the TUI `Tab` picker, `--agent <name>`, or the `agent` field on `session.prompt` over the SDK.
+**How it reaches the model:** for a primary agent the body is used as the base system prompt in place of the model's default prompt; the usual environment/skills/instructions blocks are still appended. Selecting the mode is session-scoped — the TUI `Tab` picker or, over the SDK, the `agent` field on `session.prompt`. So a desktop/SDK client switches modes by sending `agent: "general"` vs `agent: "build"` per session; the prompt itself lives in the file, server-side.
 
-Check it loaded with `horde agent list` (shows `(primary)` / `(subagent)`). Short overrides can go inline under the `agent` config key (`agent.<name>.prompt`, `model`, `mode`, ...).
+Verify a file loaded with `hordecode agent list` — your agent shows up with its `(primary)` / `(subagent)` mode.
+
+Config-file alternative: instead of a `.md` file you can inline an agent under the `agent` config key (`agent.<name>.prompt`, plus `model`, `mode`, …); the markdown form is preferred for anything beyond a couple of lines.
 
 ## Keybinds
 
-Keybinds live in `tui.json` (project tree or `.hordecode/`) or `~/.config/hordecode/tui.json`, under `keybinds`. The leader key is `ctrl+x`, so `<leader>n` means "press ctrl+x, then n".
+All TUI keybinds are remappable under the `keybinds` config. The leader key defaults to `ctrl+x`, so `<leader>` in a binding means "press ctrl+x then …".
 
-Defaults include: `Tab` / `shift+Tab` cycle agents, `ctrl+p` command palette, `<leader>n` new session, `<leader>l` list sessions, `<leader>c` compact, `<leader>e` external editor, `<leader>t` themes, `<leader>b` toggle sidebar, `ctrl+r` rename session. Set a binding to `"none"` to disable it.
+Common defaults: `Tab` cycle agents · `<leader>n` new session · `<leader>l` list sessions · `<leader>e` open external editor · `<leader>t` themes · `<leader>b` toggle sidebar · `ctrl+r` rename session. Set a binding to `"none"` to disable it.
 
 ```jsonc
-// ~/.config/hordecode/tui.json
-{ "keybinds": { "session_new": "<leader>o", "sidebar_toggle": "none" } }
+{ "keybinds": { "session_new": "<leader>c", "sidebar_toggle": "none" } }
 ```
 
 ## MCP servers
 
-Add servers under the `mcp` key:
+Add servers under the `mcp` key. Two kinds:
 
 ```jsonc
 {
   "mcp": {
     // local: spawn a process over stdio
     "fs": { "type": "local", "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "."] },
-    // remote: HTTP endpoint (OAuth auto-detected; set "oauth": false to turn it off)
+    // remote: connect to an HTTP endpoint (OAuth auto-detected; set "oauth": false to disable)
     "docs": { "type": "remote", "url": "https://mcp.example.com", "headers": { "Authorization": "Bearer ..." } },
     // disable one without deleting it
     "old": { "enabled": false }
@@ -96,58 +102,43 @@ Add servers under the `mcp` key:
 }
 ```
 
-Manage with `horde mcp` (`list`, `add`, `auth`, `logout`, `debug`) or `/mcps` in the TUI. Connecting times out after 30 s by default; set `timeout` per server, and `experimental.mcp_timeout` for a default request timeout.
+Inspect/manage with `hordecode mcp`. Request timeout defaults to 5000ms (`timeout` per server, or `experimental.mcp_timeout` globally).
 
 ## Harness mode
 
-The `harness` agent (`Tab` to it) runs a skill-driven delivery flow. It orients first (repository, instructions, recent changes), then runs only the stages the work needs:
+Harness is a specs-driven orchestration agent: it coordinates built-in skills (plan, tdd, debug, review, verify, merge) across the full spec→ship lifecycle. Switch to it with `Tab`.
 
-1. `harness:brainstorm` (only when requirements are ambiguous)
-2. `harness:plan`
-3. `harness:worktree` (optional isolation)
-4. `harness:execute` inline, or `harness:subagent` (fresh subagent per task), with `harness:tdd` inside each task
-5. `harness:verify`, then `harness:review`
-6. `harness:report`, then `harness:merge` (offers finishing options)
+Artifacts land under `docs/harness/` by default (`specs/`, `plans/`, `reports/`).
 
-`harness:debug`, `harness:feedback`, `harness:parallel` and `harness:ask` are loaded when needed. Decisions go through the `question` tool. Unattended (no user, or `/never-ask`), it picks options itself and ends with a report: it never merges, pushes, opens a PR or deletes work.
-
-Specs, plans and reports go to `specs/`, `plans/`, `reports/` under the harness docs dir (`harness.docs`, default `docs/harness`).
-
-For a fire-and-forget run, the `harness` built-in workflow drives the same flow non-interactively (see @workflows.md).
-
-## Research mode
-
-The `research` agent answers questions that need several independent sources with a cited report. It loads the `research` skill: triage, scope (one clarifying question at most, via `research:ask`), parallel subagent gathering, evidence audit (`research:review`), then a single-writer report and a short summary. Simple lookups get a direct, sourced answer instead.
-
-The workspace is `<harness docs dir>/reports/<YYYY-MM-DD>-<slug>/` (brief, findings, report). `/deep-research` runs the `deep-research` workflow instead.
+For well-defined tasks that split into independent subtasks, prefer the deterministic **`harness` workflow** (fire-and-forget, auto-parallelized) over the agent — see @workflows.md.
 
 ## Jupyter notebooks
 
-The `notebook_edit` tool edits `.ipynb` cells directly (replace, insert or delete one cell) and keeps the surrounding JSON, outputs and metadata; prefer it over raw text edits on notebooks.
+The `notebook-edit` tool edits `.ipynb` cells directly (replace / insert / delete a single cell) while preserving the surrounding JSON, outputs, and metadata — prefer it over raw text edits on notebooks.
 
 ## Scheduled prompts (cron) & loops
 
-**Cron** injects a prompt into a session on a recurring or one-shot schedule, driven by the `cron` tool. `HORDECODE_DISABLE_CRON=1` stops jobs from firing.
+**Cron** schedules a prompt to be injected into a session on a recurring or one-shot basis. It is driven by the `cron` tool (no `/cron` slash command); `HORDECODE_EXPERIMENTAL_CRON` is **on by default** (kill switch: `HORDECODE_DISABLE_CRON`).
+
+The `cron` tool has six verbs:
 
 | Verb | Purpose |
 |------|---------|
-| `schedule` | Add a job: `cron` (5-field), `prompt`; optional `name`, `timezone`, `one_shot`, `durable`, `permanent`, `shell` (run a command instead of a prompt), `session_id` |
-| `loop` | Arm a repeating loop: `delay_seconds` (clamped 60-3600), `prompt`; optional `name`, `reason`, `shell` |
+| `schedule` | Add a job: `cron` (5-field expression), `prompt`, optional `one_shot`, `durable`, `session_id` |
+| `loop` | Arm a repeating loop by `delay_seconds` (clamped 60–3600) + `prompt` |
 | `list` | List jobs (filter by `kind`, `durable_only`) |
-| `get` | Show one job by `id` or `name` |
+| `get` | Show one job by `id` |
 | `rename` | Replace a job's prompt body |
-| `setName` | Set a job's display name |
-| `delete` (alias `cancel`) | Remove a job by `id` or `name` |
+| `delete` (alias `cancel`) | Remove a job by `id` |
 
-- **Expressions** are 5-field (`minute hour dom month dow`), evaluated in the job `timezone`, else `cron.timezone`, else the system local timezone.
-- **Durable** jobs persist to `<project>/.hordecode/scheduled_tasks.json` and survive restart; others live only for the session.
-- **Lifetime**: loops and recurring jobs stop after 7 days; a recurring `schedule` job with `permanent: true` keeps running.
-- A fired prompt arrives with a `[cron fire @ <ISO>]` prefix, and the TUI shows a cron-fire row before the reply.
+- **Expressions are 5-field** (`minute hour dom month dow`) and evaluated in **UTC** — there is no timezone config.
+- **Durable** jobs persist to `<project>/.hordecode/scheduled_tasks.json` and survive restart; non-durable jobs live only for the session.
+- When a job fires, the prompt is injected with an `[cron fire @ <ISO>]` prefix; the TUI shows a `🕒 cron fire` clock-row before the reply.
 
-**Loop**: `/loop [interval] <prompt>` (a built-in skill) parses an interval (`30m`, `2h`), maps it to a recurring job and also runs the prompt once now. `/loops` lists jobs; `/loops cancel <id>` stops one.
+**Loop** — `/loop [interval] <prompt>` (a built-in skill) is a friendly front end: it parses an interval (e.g. `30m`, `2h`), maps it to a recurring cron job, and also runs the prompt once immediately. Manage loops with `/loops` (lists jobs; `/loops cancel <id>` stops one). Loops auto-stop after a keepalive budget of missed turns or a 7-day max age.
 
-`/loop` (cadence) and `/goal` (stop condition) are independent: `/goal` decides *whether* the agent may stop; `/loop` decides *how often* it runs.
+`/loop` (cadence) and `/goal` (stop condition) are complementary and independent: `/goal` decides *whether* an autonomous agent may stop; `/loop` decides *how often* it runs.
 
 ## Extending Hordecode
 
-To add tools, hooks or skills, use the `evolve` skill: it covers `.hordecode/tools/*.ts`, `.hordecode/hooks/*.ts` and `.hordecode/skills/<name>/SKILL.md`.
+To add tools, hooks, or skills, use the `evolve` skill — it covers writing `.hordecode/tools/*.ts`, `.hordecode/hooks/*.ts`, and `.hordecode/skills/*/SKILL.md`, all hot-reloaded on the next turn.

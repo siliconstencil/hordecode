@@ -123,7 +123,7 @@ describe("applyHarnessInjection", () => {
 
     const text = firstPart.text
     // Research-specific content must be present
-    expect(text).toContain("load the `research` skill first")
+    expect(text).toContain("Research Pipeline Sequence")
     expect(text).toContain("research:ask")
     // Harness-specific content must NOT be present
     expect(text).not.toContain("Pipeline Stage Sequence")

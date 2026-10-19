@@ -1,11 +1,17 @@
 ---
 name: harness:verify
-description: Use when about to claim work is complete, fixed, or passing, before review, commits, or reports - requires running verification commands fresh and reading the output; evidence before assertions always
+description: Use when about to claim work is complete, fixed, or passing, before committing or creating PRs - requires running verification commands and confirming output before making any success claims; evidence before assertions always
 ---
 
 # Verification Before Completion
 
-**Core principle:** evidence before claims, always. Claiming work is complete without verification is dishonesty, not efficiency.
+## Overview
+
+Claiming work is complete without verification is dishonesty, not efficiency.
+
+**Core principle:** Evidence before claims, always.
+
+**Violating the letter of this rule is violating the spirit of this rule.**
 
 ## The Iron Law
 
@@ -13,60 +19,163 @@ description: Use when about to claim work is complete, fixed, or passing, before
 NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
 ```
 
-If you have not run the verification command after your last change, you cannot claim it passes.
+If you haven't run the verification command in this message, you cannot claim it passes.
 
-## The Gate
+## The Gate Function
 
-Before claiming any status:
+```
+BEFORE claiming any status or expressing satisfaction:
 
-1. **Identify** the command that proves the claim (tests, typecheck, build, reproduction).
-2. **Run** the full command, fresh, from the correct directory (`bash` with `workdir` when it is not the session directory).
-3. **Read** the full output: exit code, failure count, warnings.
-4. **Compare** against the baseline: a failure recorded as PRE-EXISTING before your change (see `harness:worktree`) stays marked `PRE-EXISTING <id>`; every other failure is yours.
-5. **Record** each command and its result.
-6. **Only then** state the claim, with the evidence.
+1. IDENTIFY: What command proves this claim?
+2. RUN: Execute the FULL command (fresh, complete)
+3. READ: Full output, check exit code, count failures
+4. VERIFY: Does output confirm the claim?
+   - If NO: State actual status with evidence
+   - If YES: State claim WITH evidence
+5. ONLY THEN: Make the claim
 
-Do not substitute earlier output or a subagent's report for fresh evidence.
+Skip any step = lying, not verifying
+```
 
-## What Counts as Evidence
+## Step 6 (mechanical, when running inside a harness pipeline run-id): Write the Gate File
 
-| Claim | Requires | Not sufficient |
+The steps above are self-discipline; self-discipline alone has not held (recurring
+skip/skip-claim pattern this pipeline has hit repeatedly). When this skill runs as part of a
+tracked pipeline run, close it with a real artifact, not just a stated claim:
+
+1. Write the full command output from step 2/3 above to
+   `.hordecode/harness/evidence/<run-id>/verify.evidence` — the actual stdout/exit code, not a summary.
+2. Run `bash tools/harness-gate.sh <run-id> verify` (lab pipeline gate — skip on standard installs where the gate script is not present).
+3. Non-zero exit means the evidence file is missing, empty, or doesn't contain real
+   output markers — that means step 5 above ("make the claim") did not earn its evidence.
+   Fix the evidence file, don't argue with the gate.
+
+## Common Failures
+
+| Claim | Requires | Not Sufficient |
 |-------|----------|----------------|
-| Tests pass | Test output: 0 new failures | Previous run, "should pass" |
-| Build succeeds | Build command: exit 0 | Linter passing |
-| Bug fixed | Original symptom reproduced, now passes | Code changed, assumed fixed |
-| Regression test works | Red-green: passes, fails with the fix reverted, passes again | Passes once |
-| Subagent completed | Diff shows the changes, checks rerun by you | Subagent says "success" |
-| Requirements met | Line-by-line check against spec or plan | Tests passing |
+| Tests pass | Test command output: 0 failures | Previous run, "should pass" |
+| Linter clean | Linter output: 0 errors | Partial check, extrapolation |
+| Build succeeds | Build command: exit 0 | Linter passing, logs look good |
+| Bug fixed | Test original symptom: passes | Code changed, assumed fixed |
+| Regression test works | Red-green cycle verified | Test passes once |
+| Agent completed | VCS diff shows changes | Agent reports "success" |
+| Requirements met | Line-by-line checklist | Tests passing |
 
-**Stale results:** any file edit, dependency change, or config change after a run invalidates it. Re-run before claiming.
+### Stale Verification Detection
 
-## Plan Assumption Check
+A verification result becomes STALE when any of these occur after the verification:
+- **Any file edit** in the relevant scope (edit/write/bash that modifies files)
+- **Any dependency change** (install/uninstall/update)
+- **Any config change** (tsconfig, package.json, env vars)
 
-When verifying against a plan, compare each task's **Assumptions** with observed behavior. A wrong assumption is not a task failure if the work handled it; flag it ("Assumption X was wrong: Y did Z, not W"). Two or more wrong assumptions: recommend a plan revision before continuing.
+**Rule:** If you edited ANY file after the last verification run, that verification is INVALID. Re-run before claiming success.
 
-## Red Flags
+**Common trap:** "I fixed the bug, tests passed before, so they still pass." No. Re-run.
 
-Stop and run the verification when you catch yourself:
+### Plan Assumption Check (when executing from a plan)
+
+When verifying task completion against a plan:
+
+1. **Re-read plan's Assumptions section** for this task
+2. **Compare each assumption against actual observed behavior**
+3. If an assumption was WRONG:
+   - Do NOT mark the task as FAILED -- the implementer may have worked around it correctly
+   - DO flag it: "Assumption X was wrong. Command Y did Z instead of expected W."
+   - This feeds back to the planner for the NEXT pipeline run (prevents repeat errors)
+4. **If 2+ assumptions were wrong:** recommend plan revision before next task
+
+**Example:**
+- Plan assumption: `bun run dev -- --version` triggers boot phases
+- Actual: `--version` bypasses boot, prints `local` only
+- Verdict: Task PASS (claim was verified), but ASSUMPTION FAIL (plan's command expectation was wrong)
+- Action: Flag in stage summary, planner sees this in next session
+
+## Red Flags - STOP
+
 - Using "should", "probably", "seems to"
-- Expressing satisfaction ("Done!", "Perfect!") before running anything
-- About to commit, report, or hand to review without fresh output
-- Trusting a subagent's success report
-- Relying on a partial check ("linter passed" is not a build)
+- Expressing satisfaction before verification ("Great!", "Perfect!", "Done!", etc.)
+- About to commit/push/PR without verification
+- Trusting agent success reports
+- Relying on partial verification
 - Thinking "just this once"
+- Tired and wanting work over
+- **ANY wording implying success without having run verification**
 
-## Output
+## Rationalization Prevention
 
-Produce a compact verification summary for `harness:review`, one line per command:
+| Excuse | Reality |
+|--------|---------|
+| "Should work now" | RUN the verification |
+| "I'm confident" | Confidence ≠ evidence |
+| "Just this once" | No exceptions |
+| "Linter passed" | Linter ≠ compiler |
+| "Agent said success" | Verify independently |
+| "I'm tired" | Exhaustion ≠ excuse |
+| "Partial check is enough" | Partial proves nothing |
+| "Different words so rule doesn't apply" | Spirit over letter |
 
+## Key Patterns
+
+**Tests:**
 ```
-bun test (packages/foo): PASS 142/142
-bun run typecheck (packages/foo): PASS
-bun test (packages/bar): FAIL 1/37 PRE-EXISTING flaky-timeout-T12
+✅ [Run test command] [See: 34/34 pass] "All tests pass"
+❌ "Should pass now" / "Looks correct"
 ```
 
-## Sequencing
+**Regression tests (TDD Red-Green):**
+```
+✅ Write → Run (pass) → Revert fix → Run (MUST FAIL) → Restore → Run (pass)
+❌ "I've written a regression test" (without red-green verification)
+```
 
-Verification and review are strictly sequential. Wait for every verification command to exit before dispatching a reviewer. Never overlap review with a resource-heavy test or application process in the same environment.
+**Build:**
+```
+✅ [Run build] [See: exit 0] "Build passes"
+❌ "Linter passed" (linter doesn't check compilation)
+```
 
-**Next step:** `harness:review`, with the summary above as reviewer input.
+**Requirements:**
+```
+✅ Re-read plan → Create checklist → Verify each → Report gaps or completion
+❌ "Tests pass, phase complete"
+```
+
+**Agent delegation:**
+```
+✅ Agent reports success → Check VCS diff → Verify changes → Report actual state
+❌ Trust agent report
+```
+
+## Why This Matters
+
+From 24 failure memories:
+- your human partner said "I don't believe you" - trust broken
+- Undefined functions shipped - would crash
+- Missing requirements shipped - incomplete features
+- Time wasted on false completion → redirect → rework
+- Violates: "Honesty is a core value. If you lie, you'll be replaced."
+
+## When To Apply
+
+**ALWAYS before:**
+- ANY variation of success/completion claims
+- ANY expression of satisfaction
+- ANY positive statement about work state
+- Committing, PR creation, task completion
+- Moving to next task
+- Delegating to agents
+
+**Rule applies to:**
+- Exact phrases
+- Paraphrases and synonyms
+- Implications of success
+- ANY communication suggesting completion/correctness
+
+## The Bottom Line
+
+**No shortcuts for verification.**
+
+Run the command. Read the output. THEN claim the result.
+
+This is non-negotiable.

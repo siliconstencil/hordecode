@@ -1,51 +1,78 @@
 ---
 name: harness:execute
-description: Use when executing a written implementation plan inline in this session, task by task, with TDD inside each task and verification checkpoints
+description: Use when you have a written implementation plan to execute in a separate session with review checkpoints
 ---
 
-# Executing Plans Inline
+# Executing Plans
 
 ## Overview
 
-Load the plan, review it critically, execute every task in dependency order in this session, then hand off to verification.
+Load plan, review critically, execute all tasks, report when complete.
 
 **Announce at start:** "I'm using the harness:execute skill to implement this plan."
 
-For more than 3 independent tasks, `harness:subagent` (fresh subagent per task with two-stage review) usually gives higher quality.
+**Note:** Harness works much better with access to subagents. If subagents are available, use harness:subagent instead of this skill for significantly higher quality.
 
-## Step 1: Load and Review the Plan
+## The Process
 
-1. Read the plan file.
-2. Review it critically: contradictions, gaps, unclear instructions, wrong assumptions.
-3. If there are concerns, raise them through `harness:ask` before starting. No user available: resolve conservatively (strictest reading) and note it.
-4. Create one task per plan task with the `task` tool, for example `{"operation":{"action":"create","summary":"Task 1: Parser"}}`.
+### Step 1: Load and Review Plan
+1. Read plan file
+2. Review critically - identify any questions or concerns about the plan
+3. If concerns: Raise them with your human partner before starting
+4. If no concerns: Create a task per plan task with the `task` tool and proceed
 
-Never start implementation on `main` or `master` without explicit user consent.
+### Step 2: Execute Tasks
 
-## Step 2: Execute Tasks
+For each task:
+1. Mark as in_progress
+2. Follow each step exactly (plan has bite-sized steps)
+3. Run verifications as specified
+4. Mark as completed
 
-For each task, in dependency order:
-1. Start it: `{"operation":{"action":"start","id":"T1"}}`
-2. Follow each step exactly. Behavior changes go test-first (`harness:tdd`): failing test, see it fail for the intended reason, minimal code, see it pass.
-3. Run the verifications the task specifies and read the output.
-4. Commit as the plan says.
-5. Finish it: `{"operation":{"action":"done","id":"T1","event_summary":"3 tests pass, committed abc123"}}`. Only mark `done` when the work is fully accomplished; otherwise keep it in progress or `block` it with an `event_summary`.
+### Step 3: Complete Development
 
-Continue through tasks without routine approval pauses.
+After all tasks complete and verified:
+- Use harness:report to write the final report (summarizes what was built in human-readable form)
+- Report skill will transition to harness:merge on completion
 
-## When to Stop
+## When to Stop and Ask for Help
 
-Stop and use `harness:ask` (blocker plus options, not free text) when:
-- A blocker cannot be worked around (missing dependency, unclear instruction, plan gap)
-- An unresolved product decision appears
-- A destructive action needs consent
+**STOP executing immediately when:**
+- Hit a blocker (missing dependency, test fails, instruction unclear)
+- Plan has critical gaps preventing starting
+- You don't understand an instruction
+- Verification fails repeatedly
 
-No user available: take the best non-destructive path, document it, and continue.
+**Use `harness:ask` to present the blocker and options rather than describing it in free text.** If no user is available, resolve the blocker with your best judgment and continue.
 
-**Failed fixes:** when a task's verification fails, use `harness:debug`. After two failed fixes, stop patching and re-derive the cause from the evidence before trying again. If the re-derived approach also fails, present the attempts and outcomes through `harness:ask`; no user available: `block` the task with a summary and continue with independent tasks.
+**3-Strike Rule:**
+If the same task fails 3 times with the same approach:
+1. **Strike 1:** Fix the error, re-verify
+2. **Strike 2:** Try a different approach, re-verify
+3. **Strike 3:** STOP. Use `harness:ask` to present the blocker with all 3 attempts and their outcomes. Do NOT attempt a 4th approach without user guidance.
 
-**Plan wrong:** if 2 or more plan assumptions prove false, revise the plan (update the plan file) before continuing.
+If no user is available after Strike 3: pivot to a fundamentally different strategy and document the failed attempts.
 
-## Step 3: Hand Off
+## When to Revisit Earlier Steps
 
-When all tasks are done, go to `harness:verify` (full verification), then `harness:review`, then `harness:report`, then `harness:merge`.
+**Return to Review (Step 1) when:**
+- Partner updates the plan based on your feedback
+- Fundamental approach needs rethinking
+
+**Don't force through blockers** - stop and ask.
+
+## Remember
+- Review plan critically first
+- Follow plan steps exactly
+- Don't skip verifications
+- Reference skills when plan says to
+- Stop when blocked, don't guess
+- Never start implementation on main/master branch without explicit user consent
+
+## Integration
+
+**Required workflow skills:**
+- **harness:worktree** - Ensures isolated workspace (creates one or verifies existing)
+- **harness:plan** - Creates the plan this skill executes
+- **harness:report** - Write final report after all tasks complete
+- **harness:merge** - Complete development (invoked by report skill)
