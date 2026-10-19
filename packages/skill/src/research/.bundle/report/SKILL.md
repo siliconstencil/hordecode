@@ -1,5 +1,6 @@
 ---
 name: research:report
+description: "Use during SYNTHESIZE phase to write the ONE-SHOT research report"
 trigger: "Use during SYNTHESIZE phase to write the ONE-SHOT research report"
 ---
 

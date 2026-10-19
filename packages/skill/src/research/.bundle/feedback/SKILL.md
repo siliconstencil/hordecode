@@ -1,5 +1,6 @@
 ---
 name: research:feedback
+description: "Use when receiving user feedback on a research brief, report, or decision"
 trigger: "Use when receiving user feedback on a research brief, report, or decision"
 ---
 

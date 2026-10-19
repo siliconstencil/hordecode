@@ -1,5 +1,6 @@
 ---
 name: research
+description: "Use to run the research pipeline end-to-end: ask -> scope -> gather -> verify -> filter -> synthesize -> decide -> eval"
 trigger: "Use to run the research pipeline end-to-end: ask -> scope -> gather -> verify -> filter -> synthesize -> decide -> eval"
 ---
 

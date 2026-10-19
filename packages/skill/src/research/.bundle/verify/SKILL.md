@@ -1,5 +1,6 @@
 ---
 name: research:verify
+description: "Use during FILTER phase to compress and deduplicate verified evidence"
 trigger: "Use during FILTER phase to compress and deduplicate verified evidence"
 ---
 

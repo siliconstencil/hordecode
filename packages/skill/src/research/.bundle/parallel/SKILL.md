@@ -1,5 +1,6 @@
 ---
 name: research:parallel
+description: "Use during GATHER to decompose subtopics and run parallel research"
 trigger: "Use during GATHER to decompose subtopics and run parallel research"
 ---
 

@@ -1,5 +1,6 @@
 ---
 name: research:tdd
+description: "Use during EVAL phase to verify report quality: every claim traces to evidence"
 trigger: "Use during EVAL phase to verify report quality: every claim traces to evidence"
 ---
 

@@ -1,5 +1,6 @@
 ---
 name: research:ask
+description: "Use at the start of a research run to clarify user intent before scope decomposition"
 trigger: "Use at the start of a research run to clarify user intent before scope decomposition"
 ---
 

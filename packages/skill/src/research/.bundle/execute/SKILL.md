@@ -1,5 +1,6 @@
 ---
 name: research:execute
+description: "Use during the GATHER phase to dispatch parallel research sub-agents on subtopics"
 trigger: "Use during the GATHER phase to dispatch parallel research sub-agents on subtopics"
 ---
 

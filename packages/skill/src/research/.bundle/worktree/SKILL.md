@@ -1,5 +1,6 @@
 ---
 name: research:worktree
+description: "Use at the start of a research run to create an isolated workspace"
 trigger: "Use at the start of a research run to create an isolated workspace"
 ---
 

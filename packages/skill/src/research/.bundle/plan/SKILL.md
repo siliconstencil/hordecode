@@ -1,5 +1,6 @@
 ---
 name: research:plan
+description: "Use after scope to create the run manifest: phases, agents, budgets, gates"
 trigger: "Use after scope to create the run manifest: phases, agents, budgets, gates"
 ---
 

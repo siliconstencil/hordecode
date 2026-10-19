@@ -1,5 +1,6 @@
 ---
 name: research:subagent
+description: "Use to invoke a research sub-agent with the correct contract and context isolation"
 trigger: "Use to invoke a research sub-agent with the correct contract and context isolation"
 ---
 

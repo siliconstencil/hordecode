@@ -1,5 +1,6 @@
 ---
 name: research:review
+description: "Use during VERIFY phase to audit evidence: check citations, flag UNCORROBORATED, surface conflicts"
 trigger: "Use during VERIFY phase to audit evidence: check citations, flag UNCORROBORATED, surface conflicts"
 ---
 

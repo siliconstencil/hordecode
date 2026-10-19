@@ -1,5 +1,6 @@
 ---
 name: research:debug
+description: "Use when a research run fails or produces unexpected results"
 trigger: "Use when a research run fails or produces unexpected results"
 ---
 

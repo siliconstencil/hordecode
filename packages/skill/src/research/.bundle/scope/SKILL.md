@@ -1,5 +1,6 @@
 ---
 name: research:scope
+description: "Use after ask to decompose the research question into perspectives and produce the brief"
 trigger: "Use after ask to decompose the research question into perspectives and produce the brief"
 ---
 

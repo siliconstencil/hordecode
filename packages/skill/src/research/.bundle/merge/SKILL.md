@@ -1,5 +1,6 @@
 ---
 name: research:merge
+description: "Use during DECIDE phase to produce the decision record: ADOPT/DEFER/REJECT + reason + milestone"
 trigger: "Use during DECIDE phase to produce the decision record: ADOPT/DEFER/REJECT + reason + milestone"
 ---
 
