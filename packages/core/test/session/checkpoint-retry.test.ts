@@ -17,6 +17,12 @@ process.env.HORDECODE_HOME = ISOLATED_HOME
 const retry = await import("../../src/session/checkpoint-retry")
 const paths = await import("../../src/session/checkpoint-paths")
 const { ProjectID } = await import("@opencode-ai/project/schema")
+const { Global } = await import("@opencode-ai/global")
+
+// HORDECODE_HOME only isolates this file when it loads first; in the package suite Global is
+// already frozen to the real home, so point the memory root checkpoint-paths reads at the temp dir.
+const originalMemory = Global.Path.memory
+;(Global.Path as { memory: string }).memory = path.join(ISOLATED_HOME, "data", "memory")
 
 const quarantineCheckpoint = retry.quarantineCheckpoint
 const buildReflectionMessage = retry.buildReflectionMessage
@@ -29,6 +35,7 @@ const memoryPath = paths.memoryPath
 const metaDir = paths.metaDir
 
 afterAll(async () => {
+  ;(Global.Path as { memory: string }).memory = originalMemory
   await fs.rm(ISOLATED_HOME, { recursive: true, force: true })
 })
 

@@ -24,7 +24,7 @@ import { afterAll, describe, expect, test } from "bun:test"
 import fs from "fs/promises"
 import os from "os"
 import path from "path"
-import { Global } from "@opencode-ai/core/global"
+import { Global } from "@opencode-ai/global"
 import { checkpointPath, tasksDir, progressPath } from "@opencode-ai/core/session/checkpoint-paths"
 import { SessionID } from "@opencode-ai/core/session/schema"
 import {
@@ -35,7 +35,7 @@ import {
   buildProgressDiff,
 } from "@opencode-ai/core/session/checkpoint-progress-reconcile"
 
-// Redirect Global.Path.memory to a tmpdir so progress.md files written
+// Redirect Global.Path.memory (the @opencode-ai/global copy checkpoint-paths reads) to a tmpdir so progress.md files written
 // under <tmp>/sessions/<sid>/tasks/<tid>/progress.md don't leak into the
 // real hordecode state. Object.assign mutates in place (Global.Path.memory
 // is a frozen object but its `memory` property is not -- per Global
@@ -49,6 +49,8 @@ async function withTmpHome<T>(fn: (sid: SessionID) => Promise<T>): Promise<T> {
   tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), "p795-progress-reconcile-"))
   ;(Global.Path as { memory: string }).memory = tmpHome
   const sid = SessionID.make(`ses_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`)
+  // Guard: the redirect must reach the module checkpoint-paths reads, or files land in the real home.
+  expect(tasksDir(sid).startsWith(tmpHome)).toBe(true)
   await fs.mkdir(tasksDir(sid), { recursive: true })
   try {
     return await fn(sid)
