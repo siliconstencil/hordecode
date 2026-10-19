@@ -45,6 +45,12 @@ Every run writes to `findings/<run-id>/`, relative to the project root where the
 - `decision.md` (DECIDE output)
 - `<phase>.gate` (gate pass/fail record)
 
+## Methodology
+
+A multi-report research series on one topic follows the six-phase standard in `METHODOLOGY.md`
+(DETAILED-REPORT, INDUSTRY-EQUIVALENTS, DEEP-DIVE, CONCLUSION, VALIDATION, COMPARISON). Read it
+before starting a series; FINAL promotion of a series is blocked until its mandatory phases exist.
+
 ## Evidence Policy (binding)
 
 - Sources: academic/official > industry-primary > industry-secondary > blog
