@@ -234,7 +234,7 @@ does not count as Phase 5. The research gate's `validation` phase checks this on
 |------|-------------|-------------|
 | Sources | min 5 per report (Phase 1 exempt) | Check before FINAL |
 | Confidence | every claim has a source or an UNCORROBORATED flag | Check before FINAL |
-| Freshness | recent web sources preferred | Flag STALE if older |
+| Freshness | web sources 2026 Q2/Q3 preferred | Flag STALE if older |
 | No fabrication | if a source is not found, say so | Never approximate |
 | Status | DRAFT -> FINAL after user approval | INDEX.md update |
 

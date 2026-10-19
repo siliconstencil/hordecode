@@ -154,7 +154,7 @@ case "${PHASE}" in
         echo "FAIL: scope evidence has Decision Axes but missing CONFIRMED: marker (S1 grill-me gate)" >&2
         exit 1
       fi
-      if grep -q "CONFIRMED:.*<.*>" "${EVIDENCE_FILE}"; then
+      if grep -q "CONFIRMED:.*<.*>" "${EVIDENCE_FILE}" || grep -qi "explicit user confirmation marker" "${EVIDENCE_FILE}"; then
         echo "FAIL: scope CONFIRMED marker still placeholder (fill with date, S1)" >&2
         exit 1
       fi
@@ -377,8 +377,10 @@ if [[ "${PHASE}" == "gather" || "${PHASE}" == "verify" ]]; then
       exit 1
     fi
   fi
-  if grep -qi "hypothes.*If .* then" "${EVIDENCE_FILE}"; then
-    HYP2=$(grep -ci "If .* then" "${EVIDENCE_FILE}" || true)
+  # The evidence template's own label "Hypotheses (If X then Y, ...)" is not a hypothesis:
+  # leave it out of both the trigger and the count, or a template filled with "na" fails.
+  if grep -i "hypothes.*If .* then" "${EVIDENCE_FILE}" | grep -qvi "If X then Y"; then
+    HYP2=$(grep -i "If .* then" "${EVIDENCE_FILE}" | grep -vci "If X then Y" || true)
     if [[ ${HYP2} -lt 2 ]]; then
       echo "FAIL: ${PHASE} hypotheses need >=2 If X then Y (found ${HYP2}, S1)" >&2
       exit 1
