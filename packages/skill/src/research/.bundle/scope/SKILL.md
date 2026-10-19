@@ -33,6 +33,19 @@ Write `findings/<run-id>/brief.md` using the template at `../research/templates/
 
 Brief must be approved before GATHER starts. In non-interactive mode, proceed with the brief as-is.
 
+Mechanical gate (run it; the checks above are not self-enforcing): write
+`findings/<run-id>/scope.evidence` from `../research/templates/evidence.md` and carry the approved brief: the research questions, the scope boundary, the evidence policy, and the Decision Axes with a filled `CONFIRMED:` line (the approval date).
+Delete or mark `na` the conditional slots you do not use. Then, from the project root (the gate
+reads `findings/` relative to the working directory), run the gate script, resolving its path
+against this skill's base directory:
+
+```bash
+bash ../research/scripts/research-gate.sh <run-id> scope
+```
+
+Non-zero exit means this phase did not earn its evidence: STOP, fix the evidence file and re-run
+the gate. Do not start the next phase until it exits 0.
+
 ## Anti-Patterns
 
 - Accepting the user's question at face value without decomposition

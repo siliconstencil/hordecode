@@ -20,6 +20,8 @@ Guide completion of development work by presenting clear options and handling ch
 This pipeline has skipped harness:eval and harness:merge itself, repeatedly, across many prior
 runs — a recurring pattern, not a one-off. harness:report's own prose ("MANDATORY, do not skip")
 did not stop that. This step is the mechanical backstop: merge refuses to proceed on trust alone.
+Run both gate calls in this skill from the project root; the gate reads
+`.hordecode/harness/evidence/` relative to the working directory.
 
 ```bash
 bash <harness:eval>/scripts/harness-gate.sh <run-id> eval

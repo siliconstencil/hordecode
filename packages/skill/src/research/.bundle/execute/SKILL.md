@@ -44,3 +44,16 @@ Before moving to VERIFY:
 - [ ] At least 1 evidence file per subtopic
 - [ ] Each evidence file has at least 1 source
 - [ ] Total evidence files = total subtopics from brief
+
+Mechanical gate (run it; the checks above are not self-enforcing): write
+`findings/<run-id>/gather.evidence` from `../research/templates/evidence.md` and consolidate the sources and claims of every `evidence-<subtopic>.md` and fill the Tooling Preamble section.
+Delete or mark `na` the conditional slots you do not use. Then, from the project root (the gate
+reads `findings/` relative to the working directory), run the gate script, resolving its path
+against this skill's base directory:
+
+```bash
+bash ../research/scripts/research-gate.sh <run-id> gather
+```
+
+Non-zero exit means this phase did not earn its evidence: STOP, fix the evidence file and re-run
+the gate. Do not start the next phase until it exits 0.

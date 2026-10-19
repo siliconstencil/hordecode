@@ -48,7 +48,7 @@ Standard step after implementation is complete and verified — write a final re
    "MANDATORY" is not self-enforcing — prove it happened:
    - Write real eval output (scores, recurring_failures JSON) to
      `.hordecode/harness/evidence/<run-id>/eval.evidence`.
-   - Run `bash <harness:eval>/scripts/harness-gate.sh <run-id> eval`. Non-zero exit = eval did not
+   - From the project root, run `bash <harness:eval>/scripts/harness-gate.sh <run-id> eval`. Non-zero exit = eval did not
      actually produce evidence — STOP, do not proceed to step 10, re-run eval for real.
    After eval completes, check the eval JSON `recurring_failures`:
    - Any failure_type with occurrence_count >= 3: APPLY the recommended fix to the

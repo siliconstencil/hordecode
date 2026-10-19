@@ -319,8 +319,11 @@ case "${PHASE}" in
       echo "FAIL: eval evidence missing metrics" >&2
       exit 1
     fi
-    # S4 conditional TDD gates: only when tdd/seam/one-slice marker present (code runs only)
-    if grep -qi "tdd\|seam\|one-slice" "${EVIDENCE_FILE}"; then
+    # S4 conditional TDD gates: only when the Seam: slot is present (code runs only). A bare "tdd"
+    # match fires on the phase's own skill name (research:tdd), and "one-slice" appears in the
+    # evidence template's Phase Gate checklist, so either would fail valid eval evidence; the
+    # harness gate narrowed its trigger for the same reason.
+    if grep -qi "Seam:" "${EVIDENCE_FILE}"; then
       if ! grep -q "Seam:" "${EVIDENCE_FILE}"; then
         echo "FAIL: eval TDD marker present but missing Seam: slot (S4 seam-first)" >&2
         exit 1

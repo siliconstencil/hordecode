@@ -53,3 +53,16 @@ wall_clock_s: <seconds>
 - Source verification: PASS if no broken links in top-5 sources
 - Metrics recorded: PASS
 - Exit code: 0 (pass) or 1 (fail)
+
+Mechanical gate (run it; the checks above are not self-enforcing): write
+`findings/<run-id>/eval.evidence` from `../research/templates/evidence.md` and record the run metrics: claims traced, source count, scores, token use.
+Delete or mark `na` the conditional slots you do not use. Then, from the project root (the gate
+reads `findings/` relative to the working directory), run the gate script, resolving its path
+against this skill's base directory:
+
+```bash
+bash ../research/scripts/research-gate.sh <run-id> eval
+```
+
+Non-zero exit means this phase did not earn its evidence: STOP, fix the evidence file and re-run
+the gate. Do not start the next phase until it exits 0.
