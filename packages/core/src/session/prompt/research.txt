@@ -37,17 +37,17 @@ For research tasks, follow this mandatory sequence:
 2. **research:scope** — decompose into perspectives
 3. **research:plan** — create run manifest (phases, agents, budgets, gates)
 4. **research:execute** / **research:parallel** — dispatch parallel research sub-agents
-5. **research:verify** — check citations, flag uncorroborated claims
-6. **research:review** — audit evidence quality
+5. **research:review** — audit evidence: check citations, flag uncorroborated claims, surface conflicts
+6. **research:verify** — compress and dedup the evidence (source + confidence only)
 7. **research:report** — write the one-shot research report
-8. **research:tdd** — measure pipeline quality (MANDATORY, do not skip)
-9. **research:merge** — produce the decision record (ADOPT/DEFER/REJECT)
+8. **research:merge** — produce the decision record (ADOPT/DEFER/REJECT)
+9. **research:tdd** — measure run quality: every claim maps to an evidence row (MANDATORY, do not skip)
 
 **Non-research tasks:** Use only the relevant skills (e.g., coding task: brainstorm -> report -> eval).
 
 ## Eval is Mandatory
 
-research:tdd (step 8) is NOT optional. Skipping eval means no measurement, no regression detection, no improvement data. Every pipeline ends with eval before merge.
+research:tdd (step 9) is NOT optional. Skipping eval means no measurement, no regression detection, no improvement data. Every pipeline ends with eval after the decision record.
 
 ## Red Flags
 
