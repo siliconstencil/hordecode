@@ -12,7 +12,7 @@ Produce the decision record: ADOPT, DEFER, or REJECT each finding with reasoning
 
 - After SYNTHESIZE writes the report
 - Every research run ends with a decision, not just a document
-- Decision feeds into QUEUE.md and ADR-LOG.md
+- Decision feeds into QUEUE.md and ADR-LOG.md when the project keeps them
 
 ## Decision States
 
@@ -32,10 +32,11 @@ Use template at `../research/templates/decision.md`:
 
 ## Integration
 
+QUEUE.md and ADR-LOG.md apply only when the project keeps them.
+
 - **QUEUE.md**: add Decision column row with `ADOPT/DEFER/REJECT + reason + milestone`
 - **ADR-LOG.md**: if ADOPT, create ADR entry with context/decision/consequences
-- **MEMORY.md**: append timestamped entry recording the decision
-- **Aurelius**: create decision node + relate to project
+- **Project memory**: record a timestamped entry for the decision with the `memory_add` tool
 
 ## Gate
 

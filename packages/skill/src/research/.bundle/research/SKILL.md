@@ -69,10 +69,9 @@ Sequential: evidence -> citation -> token. Each gate must pass before next phase
 
 ## Integration
 
-- QUEUE.md: add Decision column per finding
-- ADR-LOG.md: decision records from DECIDE phase
-- MEMORY.md: every run appends timestamped entry
-- Aurelius: per-run decision nodes + task_log
+- QUEUE.md: add Decision column per finding (when the project keeps a QUEUE.md)
+- ADR-LOG.md: decision records from DECIDE phase (when the project keeps an ADR log)
+- Project memory: every run records a timestamped decision entry with the `memory_add` tool
 
 ## Scripts
 
