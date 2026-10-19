@@ -7,6 +7,7 @@
 set -euo pipefail
 
 REPORT="pipeline/distill-report.md"
+mkdir -p "$(dirname "${REPORT}")"
 ARCH_DIR="architecture"
 NOW=$(date +%s)
 THIRTY_DAYS=$((30 * 86400))

@@ -37,7 +37,7 @@ Format: `<YYYY-MM-DD>-<topic-kebab>-<seq>`. Example: `2026-07-31-db-metadata-tax
 
 ## Findings Directory
 
-Every run writes to `research/pipeline/findings/<run-id>/`:
+Every run writes to `findings/<run-id>/`, relative to the project root where the research scripts run:
 - `brief.md` (SCOPE output)
 - `evidence.md` (GATHER output, per-phase)
 - `report.md` (SYNTHESIZE output)

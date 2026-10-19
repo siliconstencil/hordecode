@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# research-budget-check.sh -- mechanical enforcement of research/pipeline/conf/phase-budgets.conf
+# research-budget-check.sh -- mechanical enforcement of conf/phase-budgets.conf (research skill bundle)
 # Until now phase-budgets.conf was documentation only -- nothing read it. This script closes
 # that gap the same way harness-gate.sh closed the equivalent gap for harness (2026-07-31).
 #

@@ -15,7 +15,7 @@ Create an isolated workspace for the research run. NOT a git worktree -- directo
 ## Workspace Structure
 
 ```
-research/pipeline/findings/<run-id>/
+findings/<run-id>/
   brief.md           # SCOPE output
   intent.md          # ASK output (optional)
   manifest.yaml      # PLAN output
