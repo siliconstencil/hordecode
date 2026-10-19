@@ -69,9 +69,9 @@ Sequential: evidence -> citation -> token. Each gate must pass before next phase
 
 ## Scripts
 
-- `research/pipeline/scripts/research-gate.sh` -- evidence check, DRAFT/FINAL
-- `research/pipeline/scripts/research-score.sh` -- per-phase keyword scoring
-- `research/pipeline/scripts/research-aggregate.sh` -- run-level aggregation
-- `research/pipeline/scripts/research-cite.sh` -- citation audit
-- `research/pipeline/scripts/research-index.sh` -- INDEX.md maintenance
-- `research/pipeline/scripts/research-distill.sh` -- monthly distillation
+- `scripts/research-gate.sh` -- evidence check, DRAFT/FINAL
+- `scripts/research-score.sh` -- per-phase keyword scoring
+- `scripts/research-aggregate.sh` -- run-level aggregation
+- `scripts/research-cite.sh` -- citation audit
+- `scripts/research-index.sh` -- INDEX.md maintenance
+- `scripts/research-distill.sh` -- monthly distillation

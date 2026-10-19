@@ -21,7 +21,7 @@ Produce the decision record: ADOPT, DEFER, or REJECT each finding with reasoning
 
 ## Decision Record Structure
 
-Use template at `research/pipeline/templates/decision.md`:
+Use template at `../research/templates/decision.md`:
 
 1. **Decision**: ADOPT / DEFER / REJECT
 2. **Reasoning**: evidence-based rationale

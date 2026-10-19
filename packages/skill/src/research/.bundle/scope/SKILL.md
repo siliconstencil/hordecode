@@ -27,7 +27,7 @@ Based on Shao et al. (arXiv:2402.14207):
 
 ## Output
 
-Write `findings/<run-id>/brief.md` using the template at `research/pipeline/templates/brief.md`.
+Write `findings/<run-id>/brief.md` using the template at `../research/templates/brief.md`.
 
 ## Gate
 

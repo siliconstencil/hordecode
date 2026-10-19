@@ -40,14 +40,14 @@ For research tasks, follow this mandatory sequence:
 5. **research:verify** — check citations, flag uncorroborated claims
 6. **research:review** — audit evidence quality
 7. **research:report** — write the one-shot research report
-8. **research:eval** — measure pipeline quality (MANDATORY, do not skip)
+8. **research:tdd** — measure pipeline quality (MANDATORY, do not skip)
 9. **research:merge** — produce the decision record (ADOPT/DEFER/REJECT)
 
 **Non-research tasks:** Use only the relevant skills (e.g., coding task: brainstorm -> report -> eval).
 
 ## Eval is Mandatory
 
-research:eval (step 8) is NOT optional. Skipping eval means no measurement, no regression detection, no improvement data. Every pipeline ends with eval before merge.
+research:tdd (step 8) is NOT optional. Skipping eval means no measurement, no regression detection, no improvement data. Every pipeline ends with eval before merge.
 
 ## Red Flags
 

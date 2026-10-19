@@ -16,7 +16,7 @@ Dispatch parallel research sub-agents, each in isolated context, on subtopics fr
 
 Each gather sub-agent receives:
 1. **Subtopic**: the specific question from the brief
-2. **Evidence template**: `research/pipeline/templates/evidence.md`
+2. **Evidence template**: `../research/templates/evidence.md`
 3. **Evidence policy**: academic/official > industry-primary > industry-secondary > blog
 4. **Output path**: `findings/<run-id>/evidence-<subtopic>.md`
 5. **Budget**: per manifest (default 15min / 40K tokens total across all sub-agents)

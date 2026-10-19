@@ -55,7 +55,7 @@ gates:
 
 ## Budget Defaults
 
-Per `research/pipeline/conf/phase-budgets.conf` (when available). Override in manifest if needed.
+Per `../research/conf/phase-budgets.conf` (when available). Override in manifest if needed.
 
 ## Gate
 

@@ -29,7 +29,7 @@ Triage failed research runs. Diagnose which phase failed, why, and what to fix. 
 
 ## Failure Patterns
 
-Maintained in `research/pipeline/conf/failure-patterns.md`. Add new patterns as discovered.
+Maintained in `../research/conf/failure-patterns.md`. Add new patterns as discovered.
 
 ## Anti-Patterns
 

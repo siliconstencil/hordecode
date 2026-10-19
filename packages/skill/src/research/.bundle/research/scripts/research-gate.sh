@@ -2,7 +2,7 @@
 # research-gate.sh -- per-phase evidence gate for research runs
 # Usage: ./research-gate.sh <run-id> <phase>
 # Exit 0 = gate pass, exit 1 = gate fail
-# Phases: scope gather verify filter synthesize decide eval
+# Phases: scope gather verify filter synthesize decide eval validation
 
 set -euo pipefail
 
@@ -109,8 +109,8 @@ EVIDENCE_FILE="${FINDINGS_DIR}/${PHASE}.evidence"
 
 # Validate phase name (S1: ask/debug added as any-phase gates, Section 21)
 case "${PHASE}" in
-  scope|ask|debug|gather|verify|filter|synthesize|decide|eval) ;;
-  *) echo "ERROR: unknown phase '${PHASE}'. Valid: scope ask debug gather verify filter synthesize decide eval" >&2; exit 2 ;;
+  scope|ask|debug|gather|verify|filter|synthesize|decide|eval|validation) ;;
+  *) echo "ERROR: unknown phase '${PHASE}'. Valid: scope ask debug gather verify filter synthesize decide eval validation" >&2; exit 2 ;;
 esac
 
 # Check findings dir exists
@@ -345,6 +345,18 @@ case "${PHASE}" in
         echo "FAIL: eval Stub check slot still placeholder (S4)" >&2
         exit 1
       fi
+    fi
+    ;;
+  validation)
+    # Phase 5 is mandatory: its evidence must carry measurements (test results, pass/fail,
+    # duration or cost metrics) and a decision. Evidence without measurement is a plan.
+    if ! grep -qi "pass@\|pass/fail\|pass fail\|duration\|cost\|metric\|measure\|test result\|baseline\|sure\|maliyet\|metrik\|olcum\|test sonuc" "${EVIDENCE_FILE}"; then
+      echo "FAIL: validation evidence missing measurement content (pass/fail, duration/cost, or metric -- a plan is not validation)" >&2
+      exit 1
+    fi
+    if ! grep -qi "ADOPT\|DEFER\|REJECT\|UYGULA\|ERTELE\|REDDET" "${EVIDENCE_FILE}"; then
+      echo "FAIL: validation evidence missing decision (ADOPT/DEFER/REJECT)" >&2
+      exit 1
     fi
     ;;
 esac

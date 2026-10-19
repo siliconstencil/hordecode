@@ -24,4 +24,4 @@ Handle user feedback on research artifacts. Mirrors `harness:feedback`.
 ## Integration
 
 - Feedback becomes part of the evidence chain (what was challenged, why, what changed)
-- If feedback reveals a systemic issue, add to `research/pipeline/conf/failure-patterns.md`
+- If feedback reveals a systemic issue, add to `../research/conf/failure-patterns.md`

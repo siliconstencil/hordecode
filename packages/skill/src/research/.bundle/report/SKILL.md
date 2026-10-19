@@ -15,7 +15,7 @@ Write the research report in ONE-SHOT. No parallel section-writing (Cognition wa
 
 ## Report Structure
 
-Use template at `research/pipeline/templates/report.md`:
+Use template at `../research/templates/report.md`:
 
 1. **Executive Summary** (1-3 paragraphs, answers the user's original question)
 2. **Method** (how research was conducted, phases, tools)

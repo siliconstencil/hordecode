@@ -26,7 +26,7 @@ Define how research sub-agents are invoked. Ensures context isolation, evidence 
 Each sub-agent receives:
 1. **Task description**: specific question or audit scope
 2. **Evidence policy**: academic/official > industry-primary > industry-secondary > blog
-3. **Output format**: evidence template (`research/pipeline/templates/evidence.md`)
+3. **Output format**: evidence template (`../research/templates/evidence.md`)
 4. **Output path**: `findings/<run-id>/evidence-<subtopic>.md` or `verified-evidence.md`
 5. **Budget**: per manifest (time + token cap) -- state it as a CONCRETE number in the dispatch
    prompt itself, not just "per manifest" (the sub-agent never reads the manifest file):
@@ -37,7 +37,7 @@ Each sub-agent receives:
      combined). If the cap is hit before the task is done, write what you have with an explicit
      `INCOMPLETE: hit tool-call cap` note in the evidence file -- do not silently keep going.
    - After the run, verify the declared budget was respected:
-     `bash research/pipeline/scripts/research-budget-check.sh <run-id>` (checks output word count
+     `bash ../research/scripts/research-budget-check.sh <run-id>` (checks output word count
      against `phase-budgets.conf` and each `manifest.yaml` `gather_agents[].budget` entry against
      that agent's own `evidence-<id>.md`). This does not catch tool-call-count overruns directly
      (that's the sub-agent's own discipline per the caps above) -- it catches the output-size
