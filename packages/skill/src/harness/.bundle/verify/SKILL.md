@@ -45,7 +45,7 @@ tracked pipeline run, close it with a real artifact, not just a stated claim:
 
 1. Write the full command output from step 2/3 above to
    `.hordecode/harness/evidence/<run-id>/verify.evidence` — the actual stdout/exit code, not a summary.
-2. Run `bash tools/harness-gate.sh <run-id> verify` (lab pipeline gate — skip on standard installs where the gate script is not present).
+2. Run `bash <harness:eval>/scripts/harness-gate.sh <run-id> verify`.
 3. Non-zero exit means the evidence file is missing, empty, or doesn't contain real
    output markers — that means step 5 above ("make the claim") did not earn its evidence.
    Fix the evidence file, don't argue with the gate.

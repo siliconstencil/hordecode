@@ -22,7 +22,7 @@ runs — a recurring pattern, not a one-off. harness:report's own prose ("MANDAT
 did not stop that. This step is the mechanical backstop: merge refuses to proceed on trust alone.
 
 ```bash
-bash tools/harness-gate.sh <run-id> eval  # lab pipeline gate — skip on standard installs
+bash <harness:eval>/scripts/harness-gate.sh <run-id> eval
 ```
 
 - **Exit 0:** eval evidence is real (file exists, non-empty, has score/metric content). Proceed to
