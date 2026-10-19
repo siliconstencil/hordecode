@@ -11,4 +11,4 @@ Identical contract to `research:deliberate`; map phases:
 - research SYNTHESIZE -> harness:report synthesis section
 - research DECIDE -> harness:merge decision consolidation
 
-Trigger, artifact (`findings/<run-id>/seqthink-evidence.md` with Branch/Revision + hypotheses + reversal), and budget (2 min / 3K carved from stage-budgets.conf synthesize/report) identical. Gate: `harness-gate.sh report`/`merge` conditional check (same regex as research-gate).
+Trigger, artifact content (Branch/Revision + hypotheses + reversal), and budget (2 min / 3K carved from stage-budgets.conf synthesize/report) identical. The artifact lives in the harness evidence dir, `.hordecode/harness/evidence/<run-id>/seqthink-evidence.md` (research keeps it in `findings/<run-id>/`). Gate: `harness-gate.sh report`/`merge` conditional check (same regex as research-gate).

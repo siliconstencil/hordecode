@@ -33,9 +33,21 @@ bash <harness:eval>/scripts/harness-gate.sh <run-id> eval
   A pipeline that reaches merge without a passing eval gate is not done, regardless of what any
   earlier step claimed.
 
-After this gate passes, write the passing gate output (or the merge decision itself) to
+After this gate passes, write the passing gate output and the merge decision (the commit SHA it
+applies to, or `keep-as-is`) to
 `.hordecode/harness/evidence/<run-id>/merge.evidence` before Step 4 (Execute Choice) — this is the same
-mechanical-evidence discipline, applied to merge's own completion, not just eval's.
+mechanical-evidence discipline, applied to merge's own completion, not just eval's. Then run:
+
+```bash
+bash <harness:eval>/scripts/harness-gate.sh <run-id> merge
+```
+
+- **Exit 0:** proceed to Step 4.
+- **Non-zero exit:** merge.evidence lacks a commit SHA or merge decision, or eval recorded a
+  recurring failure at the escalation threshold (occurrence_count >= 5 or consecutive=true,
+  harness:report step 9). STOP. Escalate to the user through harness:ask with the eval evidence,
+  record the answer in merge.evidence as `ESCALATED: <failure_type> x<N>, user decision: <decision>`,
+  then re-run this gate. Do not execute any merge option until it passes.
 
 ### Step 1: Verify Tests
 
