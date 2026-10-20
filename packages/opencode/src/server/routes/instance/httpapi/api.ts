@@ -16,6 +16,7 @@ import { FileApi } from "./groups/file"
 import { InstanceApi } from "./groups/instance"
 import { McpApi } from "./groups/mcp"
 import { PermissionApi } from "./groups/permission"
+import { PermissionRuntimeApi } from "./groups/permission-runtime"
 import { ProjectApi } from "./groups/project"
 import { ProjectCopyApi } from "./groups/project-copy"
 import { ProviderApi } from "./groups/provider"
@@ -70,6 +71,7 @@ export const InstanceHttpApi = HttpApi.make("opencode-instance")
   .addHttpApi(PtyApi)
   .addHttpApi(QuestionApi)
   .addHttpApi(PermissionApi)
+  .addHttpApi(PermissionRuntimeApi)
   .addHttpApi(ProviderApi)
   .addHttpApi(SessionApi)
   .addHttpApi(SyncApi)

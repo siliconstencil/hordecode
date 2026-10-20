@@ -450,6 +450,44 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
     })()
   })
 
+  // permission.mode "auto" answers the asks this TUI sees. A background subagent never publishes
+  // an ask (its asks are decided server-side), so mirror the mode to the instance-wide skip-all
+  // switch (MiMo Code 0.1.11 tui context/local.tsx:470-490, permission.setSkipAll). Same narrowed
+  // client plus fetch fallback as never-ask until the SDK is regenerated.
+  const persistSkipAll = async (enabled: boolean) => {
+    try {
+      const workspace = project.workspace.current() || undefined
+      const anyClient = sdk.client as unknown as {
+        permission?: { setSkipAll?: (args: unknown) => Promise<boolean> }
+      }
+      if (anyClient.permission?.setSkipAll) {
+        const params: Record<string, unknown> = { enabled }
+        if (workspace) params.workspace = workspace
+        if (sdk.directory) params.directory = sdk.directory
+        await anyClient.permission.setSkipAll(params)
+        return
+      }
+      const sp = new URLSearchParams()
+      if (workspace) sp.set("workspace", workspace)
+      if (sdk.directory) sp.set("directory", sdk.directory)
+      const qs = sp.toString() ? `?${sp.toString()}` : ""
+      const res = await sdk.fetch(`${sdk.url.replace(/\/$/, "")}/permission/skip-all${qs}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(sdk.directory ? { "x-opencode-directory": encodeURIComponent(sdk.directory) } : {}),
+        },
+        body: JSON.stringify({ enabled }),
+      })
+      if (!res.ok) throw new Error(`setSkipAll failed ${res.status}`)
+    } catch {
+      toast.show({ variant: "error", message: "Failed to persist auto-approve for background agents", duration: 4000 })
+    }
+  }
+  onMount(() => {
+    if (permission.mode === "auto") void persistSkipAll(true)
+  })
+
   // Auto-approve permission requests when permission.mode === "auto"
   event.on("permission.asked", (evt) => {
     if (permission.mode !== "auto") return
@@ -1194,9 +1232,12 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         run: () => {
           permission.toggle()
           const enabled = permission.mode === "auto"
+          void persistSkipAll(enabled)
           toast.show({
             variant: enabled ? "warning" : "info",
-            message: enabled ? "Auto-approve enabled" : "Auto-approve disabled",
+            message: enabled
+              ? "Auto-approve enabled, background agents included (deny rules and bash_delete still apply)"
+              : "Auto-approve disabled",
             duration: 3000,
           })
           dialog.clear()
