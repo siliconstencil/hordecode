@@ -342,6 +342,25 @@ for (const item of targets) {
     },
   })
 
+  // Bun inlines the source tree's absolute path into the compiled bundle (import.meta.dir,
+  // __dirname of bundled modules). Overwrite every occurrence with a fixed placeholder of the
+  // same length so the binary carries no build-machine path and the build can run from any
+  // directory. Nothing resolves files through that path at run time: the executable's own
+  // directory (process.execPath) and the embedded $bunfs root are used instead.
+  {
+    const file = `dist/${name}/bin/hordecode`
+    const needle = Buffer.from(path.resolve(dir, "../.."))
+    const placeholder = Buffer.from("/hordecode-build".padEnd(needle.length, "/").slice(0, needle.length))
+    const buf = fs.readFileSync(file)
+    let count = 0
+    for (let at = buf.indexOf(needle); at !== -1; at = buf.indexOf(needle, at + needle.length)) {
+      placeholder.copy(buf, at)
+      count++
+    }
+    if (count > 0) fs.writeFileSync(file, buf)
+    console.log(`  -> build path scrubbed: ${count} occurrence(s) of the source tree path replaced`)
+  }
+
   // Embedding the bundle invalidates the linker's ad-hoc signature, and macOS 27+
   // SIGKILLs binaries with invalid pages. Re-sign ad-hoc; release CI re-signs with Developer ID.
   if (item.os === "darwin" && process.platform === "darwin") {
