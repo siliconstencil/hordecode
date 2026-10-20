@@ -38,13 +38,11 @@ Report with branch state:
 
 **If `GIT_DIR == GIT_COMMON` (or in a submodule):** You are in a normal repo checkout.
 
-1. **Check memory** for a `worktree-consent` preference in the `harness-preferences` memory file
-   (`{Global.Path.memory}/global/harness-preferences.md`, i.e.
-   `<data>/memory/global/harness-preferences.md` (`<data>` is the Hordecode data directory: `$HORDECODE_HOME/data` when HORDECODE_HOME is set, otherwise `~/.local/share/hordecode`) -- `global` scope has no
-   `scope_id` segment, per `packages/memory/src/paths.ts`'s `parsePath` regex; the `memory` tool
-   is search-only, this file is written directly with a normal file write, then picked up by the
-   memory indexer on its next pass), or check your instructions for a declared worktree
-   preference. If either exists, honor it silently.
+1. **Check memory** for a `worktree-consent` preference: call the `memory_recall` tool with query
+   `harness-preferences worktree-consent` and scope `global`. Preferences are memories in the global
+   scope (type `preference`), written with `memory_add`; the memory tools need no directory
+   permission, so never read or write a preferences file by path. Also check your instructions for a
+   declared worktree preference. If either exists, honor it silently.
 
 2. **If no saved preference,** use `harness:ask`:
    - header: `Worktree`
@@ -57,7 +55,7 @@ Report with branch state:
 
    If no user is available, create the worktree and proceed.
 
-3. **If "Always" or "Never":** Save to the `harness-preferences` memory file as `worktree-consent: always` or `worktree-consent: never`.
+3. **If "Always" or "Never":** save with `memory_add` (scope `global`, type `preference`, body `harness-preferences worktree-consent: always` or `... never`).
 
 If the user declined (chose "No" or "Never"), work in place and skip to Step 3.
 

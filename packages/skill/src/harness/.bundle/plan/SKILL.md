@@ -168,13 +168,11 @@ If you find issues, fix them inline. No need to re-review — just fix and move 
 
 After saving the plan, determine execution approach:
 
-1. **Check memory** for a saved `execution-style` preference in the `harness-preferences` memory
-   file (`{Global.Path.memory}/global/harness-preferences.md`, i.e.
-   `<data>/memory/global/harness-preferences.md` (`<data>` is the Hordecode data directory: `$HORDECODE_HOME/data` when HORDECODE_HOME is set, otherwise `~/.local/share/hordecode`) -- `global` scope has no
-   `scope_id` segment, per `packages/memory/src/paths.ts`'s `parsePath` regex; the `memory` tool
-   is search-only, this file is written directly with a normal file write, then picked up by the
-   memory indexer on its next pass). If found (`subagent` or `inline`), use it and skip to the
-   handler below.
+1. **Check memory** for a saved `execution-style` preference: call the `memory_recall` tool with
+   query `harness-preferences execution-style` and scope `global`. Preferences are memories in the
+   global scope (type `preference`), written with `memory_add`; the memory tools need no directory
+   permission, so never read or write a preferences file by path. If found (`subagent` or
+   `inline`), use it and skip to the handler below.
 
 2. **If no saved preference,** ask through `harness:ask`:
    - header: `Execution`
@@ -187,7 +185,7 @@ After saving the plan, determine execution approach:
 
    If no user is available, default to Inline for ≤ 3 tasks or tightly coupled tasks, Subagent for > 3 independent tasks.
 
-3. **If "always" variant:** Save to the `harness-preferences` memory file as `execution-style: subagent` or `execution-style: inline`.
+3. **If "always" variant:** save with `memory_add` (scope `global`, type `preference`, body `harness-preferences execution-style: subagent` or `... inline`).
 
 **If Subagent:** Use harness:subagent — fresh subagent per task + two-stage review.
 

@@ -171,12 +171,10 @@ A browser-based companion for showing mockups, diagrams, and visual options duri
 
 **Offering the companion:** When you anticipate visual content (mockups, layouts, diagrams):
 
-1. **Check memory** for a `visual-companion` preference in the `harness-preferences` memory file
-   (`{Global.Path.memory}/global/harness-preferences.md`, i.e.
-   `<data>/memory/global/harness-preferences.md` (`<data>` is the Hordecode data directory: `$HORDECODE_HOME/data` when HORDECODE_HOME is set, otherwise `~/.local/share/hordecode`) -- `global` scope has no
-   `scope_id` segment, per `packages/memory/src/paths.ts`'s `parsePath` regex; the `memory` tool
-   is search-only, this file is written directly with a normal file write, then picked up by the
-   memory indexer on its next pass). If found, honor it.
+1. **Check memory** for a `visual-companion` preference: call the `memory_recall` tool with query
+   `harness-preferences visual-companion` and scope `global`. Preferences are memories in the global
+   scope (type `preference`), written with `memory_add`; the memory tools need no directory
+   permission, so never read or write a preferences file by path. If found, honor it.
 
 2. **If no saved preference,** offer consent using `harness:ask` (this MUST be its own message — do not combine with other content):
    - header: `Visual Companion`
@@ -189,7 +187,7 @@ A browser-based companion for showing mockups, diagrams, and visual options duri
 
    If no user is available, skip the visual companion and use text-only.
 
-3. **If "Yes, always" or "No, never":** Save to the `harness-preferences` memory file.
+3. **If "Yes, always" or "No, never":** save with `memory_add` (scope `global`, type `preference`, body `harness-preferences visual-companion: always` or `... never`).
 
 If declined, proceed with text-only brainstorming.
 
