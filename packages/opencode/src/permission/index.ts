@@ -11,6 +11,22 @@ import { forwardRef } from "@opencode-ai/core/permission/permission-forward-ref"
 
 export const Event = PermissionV1.Event
 
+/**
+ * Raised when a permission needs a human decision but the caller is non-interactive (a
+ * background subagent with no attached human). Subclass of DeniedError so `instanceof
+ * DeniedError` consumers keep treating it as a deny; only the message differs.
+ */
+export class NonInteractiveDeniedError extends PermissionV1.DeniedError {
+  override get message() {
+    return (
+      "This tool call needs a permission that only a human can grant, and this background " +
+      "agent has no human attached to ask. No rule forbids the call. The matching rules are " +
+      `${JSON.stringify(this.ruleset)}. Report the blocked call to the parent instead of retrying ` +
+      "it; the parent can run it or grant approval for this subagent."
+    )
+  }
+}
+
 // A permission ask that no human ever answers resolves as DENY after this bound.
 const DEFAULT_PERMISSION_TIMEOUT = 5 * 60 * 1000
 
@@ -112,6 +128,19 @@ const layer = Layer.effect(
       // every requested pattern. Ordered AFTER the deny loop (explicit deny still
       // wins). A path the parent doesn't hold fails closed — no human wait.
       if (needsAsk && input.inherit) {
+        // An explicit `session grant-approval <child|all>` pre-authorizes this child. The grant
+        // is checked here as well as in the forward path because decideAskRouting routes an
+        // ordinary background subagent to `inherit`, never to `forward`; without this the
+        // command did nothing for subagents and their asks failed closed below. Ported from
+        // MiMo Code 0.1.11 permission/index.ts:281-298.
+        if (forwardRef.grantAllowed(input.inherit.parentSessionID, request.sessionID)) {
+          yield* Effect.logInfo("parent holds an explicit approval grant, auto-allowing", {
+            permission: request.permission,
+            patterns: request.patterns,
+            parentSessionID: input.inherit.parentSessionID,
+          })
+          return
+        }
         const parentSnapshot = forwardRef.getParentGrants(input.inherit.parentSessionID)
         if (parentSnapshot) {
           const allAllowed = request.patterns.every((pattern) => {
@@ -123,9 +152,12 @@ const layer = Layer.effect(
       }
 
       // Non-interactive caller (background agent with no attached human): an
-      // ask that would block instead fails clean with DeniedError.
+      // ask that would block instead fails clean. The error is a DeniedError so every
+      // consumer treats it as a deny, but its message says what happened: nobody could be
+      // asked. The plain DeniedError text claims a user rule forbids the call, which is false
+      // here (only ask/allow rules matched) and led models to give up on allowed work.
       if (needsAsk && input.interactive === false) {
-        return yield* new PermissionV1.DeniedError({
+        return yield* new NonInteractiveDeniedError({
           ruleset: ruleset.filter((rule) => Wildcard.match(request.permission, rule.permission)),
         })
       }

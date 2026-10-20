@@ -5,6 +5,7 @@ import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect"
 import { EventV2Bridge } from "../../src/event-v2-bridge"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Permission } from "../../src/permission"
+import { forwardRef } from "@opencode-ai/core/permission/permission-forward-ref"
 import { InstanceBootstrap } from "../../src/project/bootstrap"
 import { InstanceStore } from "../../src/project/instance-store"
 import { TestInstance, tmpdirScoped } from "../fixture/fixture"
@@ -1169,6 +1170,88 @@ it.instance(
       const exit = yield* Fiber.await(fiber)
       expect(Exit.isFailure(exit)).toBe(true)
       if (Exit.isFailure(exit)) expect(Cause.squash(exit.cause)).toBeInstanceOf(PermissionV1.RejectedError)
+    }),
+  { git: true },
+)
+
+it.instance(
+  "ask - inherit path auto-allows a child the parent explicitly granted approval",
+  () =>
+    Effect.gen(function* () {
+      const parent = SessionID.make("session_grant_parent")
+      const child = SessionID.make("session_grant_child")
+      forwardRef.setGrant(parent, child)
+      try {
+        const result = yield* ask({
+          sessionID: child,
+          permission: "external_directory",
+          patterns: ["/tmp/*"],
+          metadata: {},
+          always: [],
+          ruleset: [{ permission: "external_directory", pattern: "*", action: "ask" }],
+          interactive: false,
+          inherit: { parentSessionID: parent },
+        })
+        expect(result).toBeUndefined()
+        expect(yield* list()).toHaveLength(0)
+      } finally {
+        forwardRef.clearGrantsForParent(parent)
+      }
+    }),
+  { git: true },
+)
+
+it.instance(
+  "ask - inherit path cannot grant past a deny rule",
+  () =>
+    Effect.gen(function* () {
+      const parent = SessionID.make("session_grant_parent_deny")
+      const child = SessionID.make("session_grant_child_deny")
+      forwardRef.setGrant(parent, child)
+      try {
+        const err = yield* fail(
+          ask({
+            sessionID: child,
+            permission: "external_directory",
+            patterns: ["/tmp/*"],
+            metadata: {},
+            always: [],
+            ruleset: [{ permission: "external_directory", pattern: "/tmp/*", action: "deny" }],
+            interactive: false,
+            inherit: { parentSessionID: parent },
+          }),
+        )
+        expect(err).toBeInstanceOf(PermissionV1.DeniedError)
+        expect(err).not.toBeInstanceOf(Permission.NonInteractiveDeniedError)
+      } finally {
+        forwardRef.clearGrantsForParent(parent)
+      }
+    }),
+  { git: true },
+)
+
+it.instance(
+  "ask - non-interactive caller without a grant fails as a DeniedError that says nobody could be asked",
+  () =>
+    Effect.gen(function* () {
+      const err = yield* fail(
+        ask({
+          sessionID: SessionID.make("session_noninteractive"),
+          permission: "external_directory",
+          patterns: ["/tmp/*"],
+          metadata: {},
+          always: [],
+          ruleset: [{ permission: "external_directory", pattern: "*", action: "ask" }],
+          interactive: false,
+          inherit: { parentSessionID: SessionID.make("session_noninteractive_parent") },
+        }),
+      )
+      expect(err).toBeInstanceOf(PermissionV1.DeniedError)
+      expect(err).toBeInstanceOf(Permission.NonInteractiveDeniedError)
+      const message = (err as Error).message
+      expect(message).toContain("no human attached")
+      expect(message).not.toContain("rule which prevents")
+      expect(yield* list()).toHaveLength(0)
     }),
   { git: true },
 )
