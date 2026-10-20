@@ -2174,6 +2174,22 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
   )
 })
 
+describe("HORDECODE_CONFIG_CONTENT", () => {
+  it.instance("applies HORDECODE_CONFIG_CONTENT like its OPENCODE_ twin", () =>
+    withProcessEnv(
+      "HORDECODE_CONFIG_CONTENT",
+      JSON.stringify({
+        $schema: "https://hordecode.com/config.json",
+        username: "from_hordecode_config_content",
+      }),
+      Effect.gen(function* () {
+        const config = yield* Config.use.get()
+        expect(config.username).toBe("from_hordecode_config_content")
+      }),
+    ),
+  )
+})
+
 // parseManagedPlist unit tests — pure function, no OS interaction
 
 test("parseManagedPlist strips MDM metadata keys", async () => {

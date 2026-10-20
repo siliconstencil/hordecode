@@ -502,9 +502,14 @@ const layer = Layer.effect(
           yield* mergePluginOrigins(dir, list)
         }
 
-        if (process.env.OPENCODE_CONFIG_CONTENT) {
+        // HORDECODE_CONFIG_CONTENT first, then OPENCODE_CONFIG_CONTENT (upstream config.ts:482
+        // reads only the OPENCODE_ name). Read from process.env at call time, like upstream, so
+        // a value set after startup is seen; loadGlobal above skips the global files on the
+        // same pair of names.
+        const configContent = process.env.HORDECODE_CONFIG_CONTENT ?? process.env.OPENCODE_CONFIG_CONTENT
+        if (configContent) {
           const source = "OPENCODE_CONFIG_CONTENT"
-          const next = yield* loadConfig(process.env.OPENCODE_CONFIG_CONTENT, {
+          const next = yield* loadConfig(configContent, {
             dir: ctx.directory,
             source,
           })
