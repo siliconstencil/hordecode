@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## [0.1.2] - Unreleased
 
+### Added
+
+- Auto-approve applies to the whole running process: the TUI toggle (**Enable auto-approve
+  permissions**) and `horde --auto` now also cover requests raised by subagents, pending
+  requests are released when the mode is switched on, and the server exposes the switch at
+  `GET`/`POST /permission/skip-all`. Explicit `deny` rules still win. Requests that always
+  ask, such as a deleting shell command, still prompt; when nobody answers within 60 seconds
+  (`HORDECODE_SKIP_ALL_FORCED_ASK_TIMEOUT_MS`) the request is rejected with a message that
+  tells the model to skip that step and continue.
+- The harness skills ship their evidence gate: every harness run mints a run id, each phase
+  writes its evidence under `.hordecode/harness/evidence/<run-id>/`, and the gate script
+  checks that evidence before the next phase, with eval results under `docs/harness/eval/`.
+  The merge skill runs the merge gate and the deliberate skill records its reasoning there.
+- The research skills ship their evidence gate and scoring: each phase (scope, gather,
+  verify, filter, synthesize, decide, eval) writes `<phase>.evidence` under
+  `findings/<run-id>/` and runs the research gate; phase scores measure the structure of the
+  deliverable and its evidence file, not vocabulary. Research subagents are dispatched through
+  the supervisor tool with role templates (researcher, auditor, reviser); research decisions
+  are recorded in project memory with `memory_add`; the research methodology standard is
+  bundled and linked from the research skill.
+
 ### Changed
 
 - The core, CLI, server, TUI and support packages follow opencode 1.19.3 (from 1.18.34 via
@@ -74,6 +95,17 @@ All notable changes to this project will be documented in this file.
 - Supervisor ids are unique per project (`general-1`, `general-2`, ...), so two root
   sessions no longer hand out the same id.
 - A child session created with an explicit directory records that directory.
+
+- Permission prompts raised by a subagent reach the parent TUI instead of being denied as if
+  the subagent ran unattended; an explicit approval granted to a background subagent is
+  honoured, and a request denied because nobody can answer says so in its message.
+- Research mode runs its phases in the order the research skill describes: review, verify,
+  report, merge, then eval.
+- Every research skill carries a description, so the research skills are listed in the skill
+  tool and in the mode's skill list.
+- The harness and research skill bundles are complete: skill paths, the validation phase, the
+  debug example and the research eval skill match their sources, and the harness preferences
+  file is described by the data directory instead of a fixed home path.
 
 ## [0.1.1] - 2026-10-13
 
