@@ -51,6 +51,16 @@ export function getReleaseType(current: string, latest: string): ReleaseType {
   return "patch"
 }
 
+// A release is an update when it is a newer version within the same major line (upstream
+// 1.19.3 installation/index.ts:66-70). Upstream treats an invalid current version as "notify
+// when the latest release is major 1" because its 1.x and 2.x lines are separate packages;
+// Hordecode has one line, so an unparseable current version simply never announces an update.
+export function isUpdate(current: string, latest: string) {
+  if (!semver.valid(latest)) return false
+  if (!semver.valid(current)) return false
+  return semver.major(latest) === semver.major(current) && semver.gt(latest, current)
+}
+
 export const Info = Schema.Struct({
   version: Schema.String,
   latest: Schema.String,

@@ -23,7 +23,9 @@ export async function upgrade() {
     return
   }
 
-  if (InstallationVersion === latest) return
+  // Announce only newer releases in the same major line (upstream 1.19.3 upgrade.ts:17,
+  // Installation.isUpdate); a build ahead of the latest release gets no notice.
+  if (!Installation.isUpdate(InstallationVersion, latest)) return
 
   // Checking never installs anything: a newer version is announced and the user chooses in the
   // update dialog (upstream v1.19.0 packages/opencode/src/cli/upgrade.ts:7,21-36).
