@@ -2001,7 +2001,7 @@ export type Config = {
   share?: "manual" | "auto" | "disabled"
   autoshare?: boolean
   /**
-   * Automatically update to the latest version. Set to true to auto-update, false to disable, or 'notify' to show update notifications
+   * Check for new versions and show an update notice. Updates are never installed automatically; confirm the notice or run `horde upgrade`. Set to false to disable update checks. true and 'notify' behave the same
    */
   autoupdate?: boolean | "notify"
   disabled_providers?: Array<string>
@@ -2018,6 +2018,7 @@ export type Config = {
         }
   }
   default_agent?: string
+  subagent_depth?: number
   username?: string
   mode?: {
     build?: AgentConfig
@@ -2047,6 +2048,9 @@ export type Config = {
      * Wall-clock budget for a whole workflow script, in milliseconds.
      */
     scriptDeadlineMs?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+  supervisor?: {
+    max_subagents?: number
   }
   provider?: {
     [key: string]: ProviderConfig
@@ -2180,7 +2184,9 @@ export type Config = {
   }
   experimental?: {
     disable_paste_summary?: boolean
+    batch_tool?: boolean
     openTelemetry?: boolean
+    primary_tools?: Array<string>
     continue_loop_on_deny?: boolean
     mcp_timeout?: number
     predict_next_prompt?: boolean
@@ -2232,10 +2238,9 @@ export type Model = {
       | "reasoning"
       | "reasoning_content"
       | "reasoning_text"
-      | "reasoning_details"
       | string
       | {
-          field: "reasoning" | "reasoning_content" | "reasoning_text" | "reasoning_details" | string
+          field: "reasoning" | "reasoning_content" | "reasoning_text" | string
         }
   }
   cost: {
@@ -9670,6 +9675,64 @@ export type PermissionReplyResponses = {
 
 export type PermissionReplyResponse = PermissionReplyResponses[keyof PermissionReplyResponses]
 
+export type PermissionSkipAllData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/permission/skip-all"
+}
+
+export type PermissionSkipAllErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type PermissionSkipAllError = PermissionSkipAllErrors[keyof PermissionSkipAllErrors]
+
+export type PermissionSkipAllResponses = {
+  /**
+   * Current skip-all state
+   */
+  200: boolean
+}
+
+export type PermissionSkipAllResponse = PermissionSkipAllResponses[keyof PermissionSkipAllResponses]
+
+export type PermissionSetSkipAllData = {
+  body?: {
+    enabled: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/permission/skip-all"
+}
+
+export type PermissionSetSkipAllErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type PermissionSetSkipAllError = PermissionSetSkipAllErrors[keyof PermissionSetSkipAllErrors]
+
+export type PermissionSetSkipAllResponses = {
+  /**
+   * Updated skip-all state
+   */
+  200: boolean
+}
+
+export type PermissionSetSkipAllResponse = PermissionSetSkipAllResponses[keyof PermissionSetSkipAllResponses]
+
 export type ProviderListData = {
   body?: never
   path?: never
@@ -10241,6 +10304,8 @@ export type SessionPromptData = {
     }
     agent?: string
     agentID?: string
+    task_id?: string
+    steps?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     noReply?: boolean
     tools?: {
       [key: string]: boolean
@@ -10589,6 +10654,8 @@ export type SessionPromptAsyncData = {
     }
     agent?: string
     agentID?: string
+    task_id?: string
+    steps?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     noReply?: boolean
     tools?: {
       [key: string]: boolean

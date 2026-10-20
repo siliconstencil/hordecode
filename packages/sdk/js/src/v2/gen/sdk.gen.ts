@@ -128,6 +128,10 @@ import type {
   PermissionRespondErrors,
   PermissionRespondResponses,
   PermissionRuleset,
+  PermissionSetSkipAllErrors,
+  PermissionSetSkipAllResponses,
+  PermissionSkipAllErrors,
+  PermissionSkipAllResponses,
   PermissionV2Reply,
   PermissionV2Source,
   ProjectCommands,
@@ -3240,6 +3244,77 @@ export class Permission extends HeyApiClient {
   }
 
   /**
+   * Get skip-all state
+   *
+   * Whether permission asks are auto-allowed at runtime. Explicit deny rules and forced-ask permissions are unaffected.
+   */
+  public skipAll<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<PermissionSkipAllResponses, PermissionSkipAllErrors, ThrowOnError>({
+      url: "/permission/skip-all",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Set skip-all state
+   *
+   * Enable or disable runtime auto-allow for permission asks. Applies instance-wide, so subagents inherit it. Explicit deny rules and forced-ask permissions (e.g. bash_delete) still apply.
+   */
+  public setSkipAll<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      enabled?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "enabled" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      PermissionSetSkipAllResponses,
+      PermissionSetSkipAllErrors,
+      ThrowOnError
+    >({
+      url: "/permission/skip-all",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
    * Respond to permission
    *
    * Approve or deny a permission request from the AI assistant.
@@ -3902,6 +3977,8 @@ export class Session2 extends HeyApiClient {
       }
       agent?: string
       agentID?: string
+      task_id?: string
+      steps?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       noReply?: boolean
       tools?: {
         [key: string]: boolean
@@ -3925,6 +4002,8 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "model" },
             { in: "body", key: "agent" },
             { in: "body", key: "agentID" },
+            { in: "body", key: "task_id" },
+            { in: "body", key: "steps" },
             { in: "body", key: "noReply" },
             { in: "body", key: "tools" },
             { in: "body", key: "format" },
@@ -4257,6 +4336,8 @@ export class Session2 extends HeyApiClient {
       }
       agent?: string
       agentID?: string
+      task_id?: string
+      steps?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       noReply?: boolean
       tools?: {
         [key: string]: boolean
@@ -4280,6 +4361,8 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "model" },
             { in: "body", key: "agent" },
             { in: "body", key: "agentID" },
+            { in: "body", key: "task_id" },
+            { in: "body", key: "steps" },
             { in: "body", key: "noReply" },
             { in: "body", key: "tools" },
             { in: "body", key: "format" },
