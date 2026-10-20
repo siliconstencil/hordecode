@@ -469,9 +469,13 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
     if (permission.mode === "auto") void persistSkipAll(true)
   })
 
-  // Auto-approve permission requests when permission.mode === "auto"
+  // Auto-approve permission requests when permission.mode === "auto". Forced-ask permissions
+  // (the server's FORCED_ASK set, opencode/src/permission/index.ts) are left to the user: the
+  // server never pre-approves them and times them out with a skip message under skip-all.
+  const FORCED_ASK = new Set(["bash_delete"])
   event.on("permission.asked", (evt) => {
     if (permission.mode !== "auto") return
+    if (FORCED_ASK.has(evt.properties.permission)) return
     void sdk.client.permission
       .reply({
         requestID: evt.properties.id,
@@ -485,6 +489,7 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
     const all = Object.values(sync.data.permission).flat()
     if (all.length === 0) return
     for (const req of all) {
+      if (FORCED_ASK.has(req.permission)) continue
       void sdk.client.permission
         .reply({
           requestID: req.id,
