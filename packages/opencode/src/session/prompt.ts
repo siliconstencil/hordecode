@@ -1761,16 +1761,25 @@ const layer = Layer.effect(
             })
             .pipe(Effect.onInterrupt(() => finalizeInterruptedAssistant))
 
-          // KNOWN GAP: mode is hardcoded to "subagent". The real supervisor mode
-          // (peer/subagent/main) lives in the SupervisorRegistryService DB table
-          // (supervisor_registry.mode) and SupervisorRegistryService.Service cannot be yielded in
-          // runLoop without corrupting its Effect type (runLoop is typed
-          // Effect<WithParts, never, never>). HORDECODE_EXPERIMENTAL_ORCHESTRATOR is
-          // off by default, so peers never spawn and this default is correct.
-          // db → SupervisorRegistryService.Service + reg.get/reg.listBySession to resolve.
+          // Permission-ask routing reads the supervisor row (ported from MiMo prompt.ts:1253-1270,
+          // askActor): a foreground `run` child is interactive and its asks surface in the parent
+          // TUI, a `spawn` child is background and inherits the parent's grants. Before this the
+          // row was ignored and every child session counted as background, so an `ask` rule in a
+          // `run` subagent ended as a DeniedError with no prompt. A missing row (race, unregistered)
+          // keeps the background default so a system agent cannot slip through as interactive.
+          const supervisorRow = lastUser.agentID
+            ? yield* supervisorRegistry.get(sessionID, lastUser.agentID).pipe(Effect.orElseSucceed(() => undefined))
+            : undefined
           const askSupervisor: { agent: string; background: boolean; mode: string; parentSupervisorID?: string } | undefined =
             lastUser.agent && session.parentID
-              ? { agent: lastUser.agent, background: true, mode: "subagent", parentSupervisorID: undefined }
+              ? supervisorRow
+                ? {
+                    agent: supervisorRow.agent,
+                    background: supervisorRow.background,
+                    mode: supervisorRow.mode,
+                    parentSupervisorID: supervisorRow.parentSupervisorID,
+                  }
+                : { agent: lastUser.agent, background: true, mode: "subagent", parentSupervisorID: undefined }
               : undefined
           const outcome: "break" | "continue" = yield* Effect.gen(function* () {
             const lastUserMsg = msgs.findLast((m) => m.info.role === "user")
@@ -1778,9 +1787,6 @@ const layer = Layer.effect(
             const promptOps = yield* ops()
             // Per-supervisor tool allowlist from the supervisor row. Ported from MiMo
             // prompt.ts:1238-1244 (whitelistFor). A missing row or "INHERIT" means full access.
-            const supervisorRow = lastUser.agentID
-              ? yield* supervisorRegistry.get(sessionID, lastUser.agentID).pipe(Effect.orElseSucceed(() => undefined))
-              : undefined
             const toolWhitelist =
               supervisorRow && Array.isArray(supervisorRow.tools) ? [...supervisorRow.tools] : undefined
 
