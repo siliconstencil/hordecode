@@ -42,7 +42,7 @@ case "${PHASE}" in
     MIN_HITS=4
     ;;
   decide)
-    KEYWORDS="ADOPT\|DEFER\|REJECT|reasoning|evidence|milestone|ADR|decision"
+    KEYWORDS="ADOPT|DEFER|REJECT|reasoning|evidence|milestone|ADR|decision"
     MIN_HITS=3
     ;;
   eval)
