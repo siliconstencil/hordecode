@@ -297,6 +297,32 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
               }
             }
 
+            // Forced-ask delete confirmation (opencode/src/tool/shell.ts askDelete): the ask carries
+            // the full command and the paths it removes, so show both like the bash branch above.
+            if (permission === "bash_delete") {
+              const command = typeof data.command === "string" ? data.command : ""
+              const deletes = Array.isArray(data.deletes)
+                ? data.deletes.filter((p): p is string => typeof p === "string")
+                : []
+              return {
+                icon: "#",
+                title: "Deleting shell command",
+                body: (
+                  <box paddingLeft={1} flexDirection="column" gap={1}>
+                    <Show when={command}>
+                      <text fg={theme.text}>{"$ " + command}</text>
+                    </Show>
+                    <Show when={deletes.length > 0}>
+                      <box flexDirection="column">
+                        <text fg={theme.textMuted}>Removes</text>
+                        <For each={deletes}>{(p) => <text fg={theme.text}>{"- " + p}</text>}</For>
+                      </box>
+                    </Show>
+                  </box>
+                ),
+              }
+            }
+
             if (permission === "task") {
               const type = typeof data.subagent_type === "string" ? data.subagent_type : "Unknown"
               const desc = typeof data.description === "string" ? data.description : ""
