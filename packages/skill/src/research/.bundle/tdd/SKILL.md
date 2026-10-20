@@ -48,6 +48,17 @@ tokens_used: <total across all phases>
 wall_clock_s: <seconds>
 ```
 
+### 5. Phase Scores
+
+Score every phase with `bash ../research/scripts/research-score.sh <run-id> <phase>` (from the
+project root) and aggregate with `research-aggregate.sh <run-id>`. A score is computed from the
+structure of the phase's deliverable plus its `.evidence` file: source table rows, claim rows
+that cite a source, UNCORROBORATED checkboxes, numbered research questions, recorded metric
+keys. The breakdown on stderr names each check. A low score means the deliverable lacks that
+structure: fix the deliverable (add the missing sources, cite the claims, record the metrics).
+Appending expected words to an evidence file does not raise a score; word checks are one
+bounded share of each phase.
+
 ## Gate
 
 - Claim-to-evidence trace: PASS if all claims have sources

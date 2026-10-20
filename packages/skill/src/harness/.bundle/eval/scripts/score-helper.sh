@@ -30,7 +30,9 @@ count_matches() {
   echo "$count" | tr -cd '0-9'
 }
 
-# Keyword-based scoring
+# Keyword-based scoring. Failure and error patterns are anchored to counts and markers
+# ("[1-9] fail", "exit code: [1-9]", "error:") so that a passing run's own summary
+# ("0 fail", "error handling") is not read as a failure.
 SCORES=""
 
 case "$STAGE" in
@@ -54,8 +56,8 @@ case "$STAGE" in
     ;;
   tdd)
     HAS_TESTS=$(count_matches "test\|spec\|assert\|expect")
-    HAS_RED=$(count_matches "fail\|RED\|expected.*error")
-    HAS_GREEN=$(count_matches "pass\|GREEN\|success")
+    HAS_RED=$(count_matches "[1-9][0-9]* fail\|\bRED\b\|FAIL\b\|expected.*error")
+    HAS_GREEN=$(count_matches "[1-9][0-9]* pass\|0 fail\|\bGREEN\b\|success")
     if [ "$HAS_TESTS" -gt 2 ] && [ "$HAS_RED" -gt 0 ] && [ "$HAS_GREEN" -gt 0 ]; then
       SCORES="test_quality:0.85,coverage:0.80"
     else
@@ -65,7 +67,7 @@ case "$STAGE" in
   execute)
     HAS_IMPL=$(count_matches "implement\|code\|function\|class")
     HAS_VERIFY=$(count_matches "verify\|test\|pass")
-    HAS_ERROR=$(count_matches "error\|fail\|exception")
+    HAS_ERROR=$(count_matches "error:\|[1-9][0-9]* fail\|exception\|exit code: [1-9]\|Traceback")
     if [ "$HAS_IMPL" -gt 2 ] && [ "$HAS_VERIFY" -gt 0 ] && [ "$HAS_ERROR" -eq 0 ]; then
       SCORES="completion:0.85,correctness:0.80"
     else
@@ -73,8 +75,8 @@ case "$STAGE" in
     fi
     ;;
   verify)
-    HAS_PASS=$(count_matches "PASS\|pass\|0 failures\|exit 0")
-    HAS_FAIL=$(count_matches "FAIL\|fail\|error")
+    HAS_PASS=$(count_matches "PASS\|[1-9][0-9]* pass\|0 fail\|exit code: 0\|exit 0")
+    HAS_FAIL=$(count_matches "FAIL:\|[1-9][0-9]* fail\|error:\|exit code: [1-9]")
     HAS_EVIDENCE=$(count_matches "output\|result\|evidence")
     if [ "$HAS_PASS" -gt 0 ] && [ "$HAS_FAIL" -eq 0 ] && [ "$HAS_EVIDENCE" -gt 0 ]; then
       SCORES="freshness:0.90,completeness:0.85"
@@ -85,7 +87,7 @@ case "$STAGE" in
   review)
     HAS_STRENGTHS=$(count_matches "strength\|good\|clean")
     HAS_ISSUES=$(count_matches "issue\|concern\|improve")
-    HAS_CRITICAL=$(count_matches "critical\|blocker\|must fix")
+    HAS_CRITICAL=$(count_matches "[1-9][0-9]* critical\|critical:\|blocker\|must fix")
     if [ "$HAS_STRENGTHS" -gt 0 ] && [ "$HAS_CRITICAL" -eq 0 ]; then
       SCORES="thoroughness:0.85,actionability:0.80"
     else
@@ -103,7 +105,7 @@ case "$STAGE" in
     ;;
   merge)
     HAS_CLEAN=$(count_matches "clean\|pass\|success\|ready")
-    HAS_CONFLICT=$(count_matches "conflict\|error\|fail")
+    HAS_CONFLICT=$(count_matches "conflict\|error:\|[1-9][0-9]* fail\|exit code: [1-9]")
     if [ "$HAS_CLEAN" -gt 0 ] && [ "$HAS_CONFLICT" -eq 0 ]; then
       SCORES="readiness:0.90,cleanliness:0.85"
     else
