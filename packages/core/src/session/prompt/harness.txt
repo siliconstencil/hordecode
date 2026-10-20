@@ -115,6 +115,8 @@ For code implementation tasks, follow this mandatory sequence:
 8. **harness:eval** -- measure pipeline quality (MANDATORY, do not skip)
 9. **harness:merge** -- integrate changes
 
+**Run id:** every pipeline run has one. Mint it at step 1 as `<YYYYMMDD>-<HHMMSS>-<random4>` (the eval JSON file name uses the same id) and create `.hordecode/harness/evidence/<run-id>/`. harness:verify, harness:report and harness:merge write their evidence there and run `harness-gate.sh <run-id> <phase>` as they go; the gate steps belong to every run, not only to runs that were handed an id. `<pipeline-id>` in stage summaries and eval files is the same id.
+
 **Non-code tasks:** Use only the relevant skills (e.g., research task: brainstorm -> report -> eval).
 
 ## Eval is Mandatory

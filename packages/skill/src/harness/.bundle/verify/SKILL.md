@@ -37,11 +37,13 @@ BEFORE claiming any status or expressing satisfaction:
 Skip any step = lying, not verifying
 ```
 
-## Step 6 (mechanical, when running inside a harness pipeline run-id): Write the Gate File
+## Step 6 (mechanical): Write the Gate File
 
 The steps above are self-discipline; self-discipline alone has not held (recurring
-skip/skip-claim pattern this pipeline has hit repeatedly). When this skill runs as part of a
-tracked pipeline run, close it with a real artifact, not just a stated claim:
+skip/skip-claim pattern this pipeline has hit repeatedly). Every harness pipeline run has a
+run id (minted at step 1 of the pipeline; if none was recorded yet, mint it now and create
+`.hordecode/harness/evidence/<run-id>/`). Close this step with a real artifact, not just a
+stated claim:
 
 1. Write the full command output from step 2/3 above to
    `.hordecode/harness/evidence/<run-id>/verify.evidence` — the actual stdout/exit code, not a summary.
