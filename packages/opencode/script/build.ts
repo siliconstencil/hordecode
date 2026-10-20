@@ -87,7 +87,15 @@ function copyOnnxDlls(targetDir: string, os: string, arch: string) {
     }
     const vendorNative = path.join(onnxNmDir, `bin/napi-v6/${os}/${arch}`)
     fs.mkdirSync(vendorNative, { recursive: true })
-    if (fs.existsSync(nativeDir)) for (const f of fs.readdirSync(nativeDir)) fs.cpSync(path.join(nativeDir, f), path.join(vendorNative, f))
+    // The binding (.node) is required by onnxruntime-node/dist/binding.js from this vendor path.
+    // libonnxruntime.so.1 is loaded once from runtime/onnxruntime/ (DT_NEEDED of the binding
+    // dlopen'd by memory/src/embedding/service.ts) and the dynamic linker resolves the soname to
+    // that copy; a second copy here was never opened (strace, 2026-10-20) and cost 35 MB per package.
+    if (fs.existsSync(nativeDir))
+      for (const f of fs.readdirSync(nativeDir)) {
+        if (f.startsWith("libonnxruntime")) continue
+        fs.cpSync(path.join(nativeDir, f), path.join(vendorNative, f))
+      }
     fs.cpSync(path.join(onnxNodeDir, "package.json"), path.join(onnxNmDir, "package.json"))
   }
   const commonDir = resolveCache("onnxruntime-common@1.24.3")
