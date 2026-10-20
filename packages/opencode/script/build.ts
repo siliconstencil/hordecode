@@ -348,7 +348,7 @@ for (const item of targets) {
   // directory. Nothing resolves files through that path at run time: the executable's own
   // directory (process.execPath) and the embedded $bunfs root are used instead.
   {
-    const file = `dist/${name}/bin/hordecode`
+    const file = `dist/${name}/bin/hordecode${item.os === "win32" ? ".exe" : ""}`
     const needle = Buffer.from(path.resolve(dir, "../.."))
     const placeholder = Buffer.from("/hordecode-build".padEnd(needle.length, "/").slice(0, needle.length))
     const buf = fs.readFileSync(file)
