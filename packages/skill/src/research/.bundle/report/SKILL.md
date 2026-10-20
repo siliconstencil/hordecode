@@ -44,7 +44,7 @@ Required. Every finding must reference a source row. `research:tdd` checks this.
 
 ## Output
 
-Write `findings/<run-id>/report.md`. When promoted to final: `research/architecture/<DIR>-<TOPIC>-<TYPE>.md`.
+Write `findings/<run-id>/report.md`; that file is the final report and the only copy. Do not write it anywhere else (no `docs/`, no path outside the project). Promote it to a `research/<topic>/` directory (METHODOLOGY.md) only when the user asks for it.
 
 ## Gate
 
