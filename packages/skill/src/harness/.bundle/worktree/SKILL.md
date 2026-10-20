@@ -40,7 +40,7 @@ Report with branch state:
 
 1. **Check memory** for a `worktree-consent` preference in the `harness-preferences` memory file
    (`{Global.Path.memory}/global/harness-preferences.md`, i.e.
-   `~/.local/share/hordecode/memory/global/harness-preferences.md` -- `global` scope has no
+   `<data>/memory/global/harness-preferences.md` (`<data>` is the Hordecode data directory: `$HORDECODE_HOME/data` when HORDECODE_HOME is set, otherwise `~/.local/share/hordecode`) -- `global` scope has no
    `scope_id` segment, per `packages/memory/src/paths.ts`'s `parsePath` regex; the `memory` tool
    is search-only, this file is written directly with a normal file write, then picked up by the
    memory indexer on its next pass), or check your instructions for a declared worktree
