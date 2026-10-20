@@ -140,7 +140,7 @@ const EmbeddingCheckCommand = effectCmd({
         dim = vec.length
         console.error("[embedding-check] embed dim", dim)
       }
-      const addRes = yield* memory.add({ scope: "project", type: "test", body: `embedding-check ${Date.now()} hello` }).pipe(Effect.orDie)
+      const addRes = yield* memory.add({ scope: "global", type: "test", body: `embedding-check ${Date.now()} hello` }).pipe(Effect.orDie)
       console.error("[embedding-check] memory_add id", addRes.id)
       const status = yield* memory.status()
       console.error("[embedding-check] status", JSON.stringify(status))
