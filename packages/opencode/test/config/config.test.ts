@@ -338,6 +338,30 @@ it.effect("does not create global config when OPENCODE_CONFIG_DIR is set", () =>
   }),
 )
 
+it.effect("reads hordecode.json from HORDECODE_CONFIG_DIR", () =>
+  Effect.gen(function* () {
+    const custom = yield* tmpdirScoped()
+    yield* FSUtil.use.writeWithDirs(
+      path.join(custom, "hordecode.json"),
+      JSON.stringify({ $schema: "https://hordecode.com/config.json", username: "from_config_dir_hordecode" }),
+    )
+    yield* FSUtil.use.writeWithDirs(
+      path.join(custom, "opencode.json"),
+      JSON.stringify({ $schema: "https://opencode.ai/config.json", username: "from_config_dir_opencode" }),
+    )
+    yield* withGlobalConfig({}, ({ dir }) =>
+      withProcessEnv(
+        "HORDECODE_CONFIG_DIR",
+        custom,
+        Effect.gen(function* () {
+          const config = yield* Config.use.get().pipe(provideInstanceEffect(dir))
+          expect(config.username).toBe("from_config_dir_hordecode")
+        }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(LayerNode.compile(CrossSpawnSpawner.node))),
+      ),
+    )
+  }),
+)
+
 it.effect("does not create global config when HORDECODE_CONFIG_DIR is set", () =>
   Effect.gen(function* () {
     const custom = yield* tmpdirScoped()

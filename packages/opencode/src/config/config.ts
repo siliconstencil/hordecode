@@ -448,8 +448,8 @@ const layer = Layer.effect(
         const deps: Fiber.Fiber<void>[] = []
 
         for (const dir of directories) {
-          if (dir.endsWith(".hordecode")) {
-            for (const file of ["hordecode.json", "hordecode.jsonc"]) {
+          if (dir.endsWith(".opencode") || dir === (Flag.HORDECODE_CONFIG_DIR ?? Flag.OPENCODE_CONFIG_DIR)) {
+            for (const file of ["opencode.json", "opencode.jsonc"]) {
               const source = path.join(dir, file)
               yield* Effect.logDebug(`loading config from ${source}`)
               yield* merge(source, yield* loadFile(source, authEnv))
@@ -459,8 +459,11 @@ const layer = Layer.effect(
             }
           }
 
-          if (dir.endsWith(".opencode") || dir === (Flag.HORDECODE_CONFIG_DIR ?? Flag.OPENCODE_CONFIG_DIR)) {
-            for (const file of ["opencode.json", "opencode.jsonc"]) {
+          // A directory given through HORDECODE_CONFIG_DIR / OPENCODE_CONFIG_DIR is read like a
+          // project config directory. The opencode files above are compat and merge first; the
+          // hordecode files merge last so they take priority, as in the global loader.
+          if (dir.endsWith(".hordecode") || dir === (Flag.HORDECODE_CONFIG_DIR ?? Flag.OPENCODE_CONFIG_DIR)) {
+            for (const file of ["hordecode.json", "hordecode.jsonc"]) {
               const source = path.join(dir, file)
               yield* Effect.logDebug(`loading config from ${source}`)
               yield* merge(source, yield* loadFile(source, authEnv))
