@@ -32,6 +32,8 @@ export async function resetDatabase() {
   try {
     const db = new BunSqlite(dbPath, { readonly: false })
     try {
+      // The product connections wait up to 5 s for a write lock (core database.ts:29); this raw connection would give up at once.
+      db.exec("PRAGMA busy_timeout = 5000")
       db.exec("PRAGMA foreign_keys = OFF")
       // Enumerate user tables (skip SQLite internals: sqlite_*, FTS shadow
       // tables, and the FTS virtual tables themselves — content-table DELETEs
