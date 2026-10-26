@@ -18,16 +18,17 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
     const [store, setStore] = createStore<{ mode: PermissionMode }>({
       mode: args.auto ? "auto" : "normal",
     })
-    // Set when the stored per-project toggle turned auto-accept on after the state file was read.
-    const [restored, setRestored] = createSignal(false)
+    // Set to the stored per-project profile (auto or careful) when it was applied after the state file was read.
+    const [restored, setRestored] = createSignal<PermissionMode | undefined>(undefined)
     let done = false
     createEffect(() => {
       if (!kv.ready || done) return
       done = true
-      if (store.mode === "auto") return
-      if (restoredMode(kv, projectDirectory(), false) === "auto") {
-        setStore("mode", "auto")
-        setRestored(true)
+      if (store.mode !== "normal") return
+      const stored = restoredMode(kv, projectDirectory(), false)
+      if (stored !== "normal") {
+        setStore("mode", stored)
+        setRestored(stored)
       }
     })
     return {

@@ -1488,6 +1488,9 @@ export function Prompt(props: PromptProps) {
                       <Show when={store.mode === "normal" && permission.mode === "auto"}>
                         <text fg={fadeColor(theme.error, agentMetaAlpha())}>auto</text>
                       </Show>
+                      <Show when={store.mode === "normal" && permission.mode === "careful"}>
+                        <text fg={fadeColor(theme.warning, agentMetaAlpha())}>careful</text>
+                      </Show>
                       <Show when={store.mode === "normal"}>
                         <box flexDirection="row" gap={1}>
                           <text fg={fadeColor(theme.textMuted, modelMetaAlpha())}>·</text>

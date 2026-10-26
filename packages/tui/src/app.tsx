@@ -40,7 +40,7 @@ import { SyncProvider, useSync } from "./context/sync"
 import { DataProvider } from "./context/data"
 import { LocalProvider, useLocal } from "./context/local"
 import { KeybindProvider } from "./context/keybind"
-import { PermissionProvider, usePermission } from "./context/permission"
+import { PermissionProvider, usePermission, type PermissionMode } from "./context/permission"
 import { DialogModel } from "./component/dialog-model"
 import { useConnected } from "./component/use-connected"
 import { DialogMcp } from "./component/dialog-mcp"
@@ -90,6 +90,7 @@ import { DialogWorktree } from "./component/dialog-worktree"
 import { DialogImageList } from "./component/dialog-image-list"
 import { DialogContextLimit } from "./component/dialog-context-limit"
 import { DialogSwitches } from "./component/dialog-switches"
+import { DialogSelect } from "./ui/dialog-select"
 import { CommandProvider } from "./component/dialog-command"
 import { createTuiAttention } from "./attention"
 import * as TuiAudio from "./audio"
@@ -464,12 +465,42 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
       toast.show({ variant: "error", message: "Failed to persist auto-approve for background agents", duration: 4000 })
     }
   }
+  // permission.mode "careful" (guardrail profile) is mirrored to the instance-wide careful switch the
+  // same way; the server clears skip-all when careful is enabled and the reverse, so the two never overlap.
+  const persistCareful = async (enabled: boolean) => {
+    try {
+      const result = await sdk.client.permission.setCareful({
+        enabled,
+        workspace: project.workspace.current() || undefined,
+        directory: sdk.directory,
+      })
+      if (result.error) throw result.error
+    } catch {
+      toast.show({ variant: "error", message: "Failed to persist careful mode for background agents", duration: 4000 })
+    }
+  }
+  // Applies a profile chosen from the guardrail dialog and mirrors the change to the server.
+  const applyProfile = (mode: PermissionMode) => {
+    const previous = permission.mode
+    permission.set(mode)
+    if (mode === "auto") void persistSkipAll(true)
+    else if (mode === "careful") void persistCareful(true)
+    else if (previous === "auto") void persistSkipAll(false)
+    else if (previous === "careful") void persistCareful(false)
+  }
   onMount(() => {
     if (permission.mode === "auto") void persistSkipAll(true)
+    if (permission.mode === "careful") void persistCareful(true)
   })
-  // The stored per-project toggle is read after startup; mirror it to background agents and say so.
+  // The stored per-project profile is read after startup; mirror it to background agents and say so.
   createEffect(() => {
-    if (!permission.restored) return
+    const restored = permission.restored
+    if (!restored) return
+    if (restored === "careful") {
+      void persistCareful(true)
+      toast.show({ variant: "warning", message: "Careful mode restored for this project", duration: 3000 })
+      return
+    }
     void persistSkipAll(true)
     toast.show({ variant: "warning", message: "Auto-approve restored for this project", duration: 3000 })
   })
@@ -1209,6 +1240,46 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
             duration: 3000,
           })
           dialog.clear()
+        },
+      },
+      {
+        name: "permission.profile",
+        title: "Guardrail profile",
+        category: "Agent",
+        run: () => {
+          dialog.replace(() => (
+            <DialogSelect<PermissionMode>
+              title="Guardrail profile"
+              flat={true}
+              current={permission.mode}
+              options={[
+                {
+                  value: "careful",
+                  title: "Careful - ask before edits, shell commands and web fetches",
+                  onSelect: () => {
+                    dialog.clear()
+                    applyProfile("careful")
+                  },
+                },
+                {
+                  value: "normal",
+                  title: "Normal - follow your permission rules",
+                  onSelect: () => {
+                    dialog.clear()
+                    applyProfile("normal")
+                  },
+                },
+                {
+                  value: "auto",
+                  title: "Auto - approve permission requests (deny rules still apply)",
+                  onSelect: () => {
+                    dialog.clear()
+                    applyProfile("auto")
+                  },
+                },
+              ]}
+            />
+          ))
         },
       },
     ].map((command) => ({
