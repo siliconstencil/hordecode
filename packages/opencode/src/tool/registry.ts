@@ -76,6 +76,7 @@ import { MemorySessionTool } from "./memory-session"
 import { ChangeDirectoryTool } from "./change-directory"
 import { NotebookEditTool } from "./notebook-edit"
 import { MultiEditTool } from "./multiedit"
+import { HashlineReadTool, HashlineEditTool } from "./hashline"
 import { BashInteractive } from "./bash-interactive"
 import { SupervisorTool } from "./supervisor"
 import { CronTool } from "./cron"
@@ -175,6 +176,8 @@ const layer = Layer.effect(
     const crontool = yield* CronTool
     const mcpToolSearchTool = yield* McpToolSearchTool
     const multiedit = yield* MultiEditTool
+    const hashlineRead = yield* HashlineReadTool
+    const hashlineEdit = yield* HashlineEditTool
     const codeMode = flags.experimentalCodeMode ? yield* Effect.promise(() => import("./code-mode")) : undefined
     const codeModeTool = codeMode ? yield* codeMode.CodeModeTool : undefined
 
@@ -309,6 +312,8 @@ const layer = Layer.effect(
           cron: Tool.init(crontool),
           mcp_tool_search: Tool.init(mcpToolSearchTool),
           multiedit: Tool.init(multiedit),
+          hashline_read: Tool.init(hashlineRead),
+          hashline_edit: Tool.init(hashlineEdit),
           ...(codeModeTool ? { execute: Tool.init(codeModeTool) } : {}),
         })
 
@@ -335,6 +340,8 @@ const layer = Layer.effect(
             tool.workflow,
             tool.session,
             ...(tool.execute ? [tool.execute] : []),
+            // Hordecode: opt-in hashline edit tools (HORDECODE_HASHLINE / features switch); list pattern of upstream registry.ts:247
+            ...(flags.experimentalHashline ? [tool.hashline_read, tool.hashline_edit] : []),
             ...(flags.experimentalLspTool ? [tool.lsp] : []),
             ...(flags.experimentalPlanMode && flags.client === "cli" ? [tool.plan, tool.plan_enter] : []),
             tool.memory,

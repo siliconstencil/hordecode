@@ -65,6 +65,26 @@ describe("applySwitchEnv", () => {
     expect(offEnv.HORDECODE_PERMISSION_AUDIT).toBe("false")
   })
 
+  test("hashline writes HORDECODE_HASHLINE true or false", async () => {
+    await using tmp = await tmpdir()
+    await fs.writeFile(
+      path.join(tmp.path, "hordecode.json"),
+      JSON.stringify({ experimental: { switches: { hashline: true } } }),
+    )
+    const env: Record<string, string | undefined> = {}
+    applySwitchEnv(env, tmp.path)
+    expect(env.HORDECODE_HASHLINE).toBe("true")
+
+    await using off = await tmpdir()
+    await fs.writeFile(
+      path.join(off.path, "hordecode.json"),
+      JSON.stringify({ experimental: { switches: { hashline: false } } }),
+    )
+    const offEnv: Record<string, string | undefined> = {}
+    applySwitchEnv(offEnv, off.path)
+    expect(offEnv.HORDECODE_HASHLINE).toBe("false")
+  })
+
   test("an existing HORDECODE_SANDBOX=required stays required", async () => {
     await using tmp = await tmpdir()
     await fs.writeFile(

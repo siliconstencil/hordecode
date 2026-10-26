@@ -13,6 +13,7 @@ export const SWITCH_ENV = {
   cron: "HORDECODE_EXPERIMENTAL_CRON",
   permission_audit: "HORDECODE_PERMISSION_AUDIT",
   sandbox: "HORDECODE_SANDBOX",
+  hashline: "HORDECODE_HASHLINE",
 } as const
 
 type SwitchKey = keyof typeof SWITCH_ENV

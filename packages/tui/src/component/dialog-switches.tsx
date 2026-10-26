@@ -20,6 +20,7 @@ const SWITCH_ENV = {
   cron: "HORDECODE_EXPERIMENTAL_CRON",
   permission_audit: "HORDECODE_PERMISSION_AUDIT",
   sandbox: "HORDECODE_SANDBOX",
+  hashline: "HORDECODE_HASHLINE",
 } as const
 
 type SwitchKey = keyof typeof SWITCH_ENV
@@ -45,6 +46,11 @@ const ROWS: { key: RowKey; label: string; description: string }[] = [
     description: "Shell command sandbox on Linux (bubblewrap, project read-write, no network)",
   },
   {
+    key: "hashline",
+    label: "hashline",
+    description: "Line-number edit tools guarded by a file tag (hashline_read, hashline_edit)",
+  },
+  {
     key: "embedding",
     label: "memory embedding",
     description: "Semantic memory search (downloads a 133 MB model on first use)",
@@ -64,6 +70,7 @@ export function switchesPatch(state: SwitchState) {
         cron: state.cron,
         permission_audit: state.permission_audit,
         sandbox: state.sandbox,
+        hashline: state.hashline,
       },
     },
     memory: { embedding: state.embedding },
@@ -96,6 +103,7 @@ export function DialogSwitches() {
     cron: switches?.cron ?? true,
     permission_audit: switches?.permission_audit ?? false,
     sandbox: switches?.sandbox ?? false,
+    hashline: switches?.hashline ?? false,
     embedding: config.memory?.embedding ?? false,
   } satisfies SwitchState
 
@@ -148,6 +156,7 @@ export function DialogSwitches() {
       cron: store.cron,
       permission_audit: store.permission_audit,
       sandbox: store.sandbox,
+      hashline: store.hashline,
       embedding: store.embedding,
     }
     const res = await sdk.client.global.config.update({ config: switchesPatch(state) as any })

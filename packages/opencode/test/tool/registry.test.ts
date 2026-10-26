@@ -140,6 +140,14 @@ const withEmptyCodeMode = testEffect(
 )
 const withBrokenPlugin = testEffect(AppNodeBuilder.build(root, [...replacements, [Plugin.node, brokenPluginLayer]]))
 
+const withHashline = testEffect(
+  AppNodeBuilder.build(root, [
+    [Config.node, configLayer],
+    [RuntimeFlags.node, RuntimeFlags.layer({ experimentalHashline: true })],
+    [InstanceStore.bootstrapNode, noopBootstrap],
+  ]),
+)
+
 afterEach(async () => {
   await disposeAllInstances()
 })
@@ -160,6 +168,34 @@ describe("tool.registry", () => {
       const ids = yield* registry.ids()
 
       expect(ids).not.toContain("execute")
+    }),
+  )
+
+  it.instance("does not expose hashline tools by default", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const ids = yield* registry.ids()
+
+      expect(ids).not.toContain("hashline_read")
+      expect(ids).not.toContain("hashline_edit")
+    }),
+  )
+
+  withHashline.instance("exposes hashline tools when experimentalHashline is on", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const agents = yield* Agent.Service
+      const ids = yield* registry.ids()
+      const tools = yield* registry.tools({
+        providerID: ProviderV2.ID.opencode,
+        modelID: ModelV2.ID.make("test"),
+        agent: yield* agents.defaultInfo(),
+      })
+
+      expect(ids).toContain("hashline_read")
+      expect(ids).toContain("hashline_edit")
+      expect(tools.map((tool) => tool.id)).toContain("hashline_read")
+      expect(tools.map((tool) => tool.id)).toContain("hashline_edit")
     }),
   )
 

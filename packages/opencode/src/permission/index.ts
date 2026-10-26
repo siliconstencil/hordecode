@@ -478,7 +478,9 @@ export function merge(...rulesets: PermissionV1.Ruleset[]): PermissionV1.Rule[] 
 }
 
 export function disabled(tools: string[], ruleset: PermissionV1.Ruleset): Set<string> {
-  const edits = ["edit", "write", "apply_patch"]
+  // Hordecode: upstream permission/index.ts:205 lists edit, write, apply_patch; the fork edit tools
+  // multiedit and hashline_edit are hidden by the same "edit" deny (core/src/permission/index.ts EDIT_TOOLS).
+  const edits = ["edit", "write", "apply_patch", "multiedit", "hashline_edit"]
   const reads = ["list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"]
   return new Set(
     tools.filter((tool) => {

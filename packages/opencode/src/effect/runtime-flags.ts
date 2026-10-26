@@ -98,6 +98,12 @@ export class Service extends ConfigService.Service<Service>()("@opencode/Runtime
     Config.withDefault(false),
   ),
   experimentalLspTool: enabledByExperimental("OPENCODE_EXPERIMENTAL_LSP_TOOL"),
+  // Hordecode (FORK_DELTA): explicit opt-in. Does not follow OPENCODE_EXPERIMENTAL; only "1" or "true" (any case) enables it.
+  experimentalHashline: Config.string("HORDECODE_HASHLINE").pipe(
+    Config.orElse(() => Config.string("OPENCODE_HASHLINE")),
+    Config.withDefault(""),
+    Config.map((value) => ["1", "true"].includes(value.toLowerCase())),
+  ),
   experimentalOxfmt: enabledByExperimental("OPENCODE_EXPERIMENTAL_OXFMT"),
   experimentalPlanMode: enabledByExperimental("OPENCODE_EXPERIMENTAL_PLAN_MODE"),
   experimentalCodeMode: enabledByExperimental("OPENCODE_EXPERIMENTAL_CODE_MODE"),

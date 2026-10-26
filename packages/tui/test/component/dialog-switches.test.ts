@@ -11,6 +11,7 @@ describe("dialog switches", () => {
         cron: false,
         permission_audit: false,
         sandbox: false,
+        hashline: false,
         embedding: false,
       }),
     ).toEqual({
@@ -22,6 +23,7 @@ describe("dialog switches", () => {
           cron: false,
           permission_audit: false,
           sandbox: false,
+          hashline: false,
         },
       },
       memory: { embedding: false },
@@ -37,6 +39,7 @@ describe("dialog switches", () => {
         cron: false,
         permission_audit: true,
         sandbox: true,
+        hashline: true,
         embedding: true,
       }),
     ).toEqual({
@@ -48,6 +51,7 @@ describe("dialog switches", () => {
           cron: false,
           permission_audit: true,
           sandbox: true,
+          hashline: true,
         },
       },
       memory: { embedding: true },

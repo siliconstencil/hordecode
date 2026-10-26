@@ -386,6 +386,7 @@ export const Info = Schema.Struct({
           cron: Schema.optional(Schema.Boolean),
           permission_audit: Schema.optional(Schema.Boolean),
           sandbox: Schema.optional(Schema.Boolean),
+          hashline: Schema.optional(Schema.Boolean),
         }),
       ).annotate({
         description:

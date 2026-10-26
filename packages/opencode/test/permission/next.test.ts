@@ -482,6 +482,20 @@ test("disabled - disables edit/write/apply_patch when edit denied", () => {
   expect(result.has("bash")).toBe(false)
 })
 
+// Hordecode: the fork edit tools follow the same "edit" deny.
+test("disabled - disables multiedit/hashline_edit when edit denied", () => {
+  const result = Permission.disabled(
+    ["multiedit", "hashline_edit", "hashline_read"],
+    [
+      { permission: "*", pattern: "*", action: "allow" },
+      { permission: "edit", pattern: "*", action: "deny" },
+    ],
+  )
+  expect(result.has("multiedit")).toBe(true)
+  expect(result.has("hashline_edit")).toBe(true)
+  expect(result.has("hashline_read")).toBe(false)
+})
+
 test("disabled - does not disable when partially denied", () => {
   const result = Permission.disabled(
     ["bash"],
