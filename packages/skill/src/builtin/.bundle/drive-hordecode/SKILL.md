@@ -3,7 +3,7 @@ name: drive-hordecode
 description: Programmatically drive another Hordecode process — headless `hordecode run` with JSON events and interactive TUI via tmux for full terminal interaction testing. Covers driving an installed `hordecode` binary or a dev build launched from source with `bun dev` (for debugging hordecode itself).
 version: 1.0.0
 license: MIT
-platforms: [linux, macos, windows]
+platforms: [linux, macos]
 ---
 
 # Driving a Hordecode process
