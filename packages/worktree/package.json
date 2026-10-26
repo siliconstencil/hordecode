@@ -1,7 +1,7 @@
 {
   "name": "@opencode-ai/worktree",
   "version": "0.1.0",
-  "hordecodeBase": "1.19.3",
+  "hordecodeBase": "1.19.4",
   "private": true,
   "type": "module",
   "license": "MIT",

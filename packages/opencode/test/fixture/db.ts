@@ -4,6 +4,10 @@ import { Database as BunSqlite } from "bun:sqlite"
 import { Database } from "@opencode-ai/core/database/database"
 import { disposeAllInstances } from "./fixture"
 
+// Migration bookkeeping survives the reset: emptying it makes the next open re-run every
+// migration against the existing schema ("table already exists").
+const MIGRATION_STATE = new Set(["migration", "data_migration", "runtime_schema_version"])
+
 // resetDatabase clears all rows but keeps the file, schema, WAL and every
 // open connection intact. The old implementation rm'd the shared test.db out
 // from under live connections held by concurrently running test files (bun
@@ -37,6 +41,7 @@ export async function resetDatabase() {
         .all()
       for (const { name } of rows) {
         if (name.startsWith("history_fts_idx") || name.startsWith("memory_fts_idx")) continue
+        if (MIGRATION_STATE.has(name)) continue
         db.run(`DELETE FROM \`${name}\``)
       }
       db.run("DELETE FROM sqlite_sequence")
