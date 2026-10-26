@@ -128,6 +128,26 @@ features** command (Ctrl+P, then System) edits these switches and the `memory.em
 asks for a restart when you save. It shows the environment variable next to any row that an environment
 variable sets.
 
+## Permission audit log
+
+With `HORDECODE_PERMISSION_AUDIT=1` (or the `permission_audit` switch) every permission decision and reply is
+written as one JSON line to `<data>/log/permission.jsonl`. The file rotates at 5 MiB
+(`HORDECODE_PERMISSION_AUDIT_MAX_BYTES`) and keeps three older files.
+
+Each line carries `prev`, the SHA-256 of the line before it, and the chain continues across rotation.
+`horde debug audit-verify [file]` walks the files oldest first and reports the first line that does not match,
+so a line that was edited or removed in the middle of the log is found. Lines written before the chain existed
+are counted as legacy.
+
+The chain is a local integrity check without a secret key, which sets its scope:
+
+- Someone who can write the file can also rewrite the whole chain consistently; keep the log where only you can
+  write, or copy it elsewhere if you need tamper evidence against other users.
+- Lines removed from the end of the newest file leave a shorter, valid chain.
+- When the oldest file rotates out, the first remaining line becomes the start of the chain.
+- Two Hordecode processes writing to the same log at the same time can interleave lines and break the chain;
+  verify reports the first such line.
+
 ## OpenTelemetry
 
 Hordecode sends traces, logs and metrics over OTLP/HTTP when an endpoint is set. Nothing is sent without
