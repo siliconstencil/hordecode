@@ -24,6 +24,8 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { InstanceStore } from "@/project/instance-store"
 import { BashInteractive } from "@/tool/bash-interactive"
 import { Git } from "@/git"
+import { Bwrap } from "../../src/sandbox"
+import { systemDeps } from "../../src/sandbox/system"
 
 const shellLayer = Layer.mergeAll(
   AppNodeBuilder.build(
@@ -243,6 +245,66 @@ describe("tool.shell", () => {
           expect(result.output).toContain("fallback")
         }),
       )
+    }),
+  )
+})
+
+describe("tool.shell sandbox", () => {
+  it.live("required without an available driver fails before running the command", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      const marker = path.join(tmp, "ran")
+      const error = yield* withEnv(
+        { HORDECODE_SANDBOX: "required", HORDECODE_SANDBOX_DRIVER: "landlock" },
+        runIn(tmp, fail({ command: `touch ${squote(marker)}` })),
+      )
+      expect(error.message).toContain("sandbox mode is required but no driver is available")
+      expect(error.message).toContain("landlock: launcher")
+      expect(yield* Effect.promise(() => Filesystem.exists(marker))).toBe(false)
+    }),
+  )
+
+  it.live("auto without an available driver runs the command as before", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      const result = yield* withEnv(
+        { HORDECODE_SANDBOX: "auto", HORDECODE_SANDBOX_DRIVER: "landlock" },
+        runIn(tmp, run({ command: "echo unsandboxed" })),
+      )
+      expect(result.metadata.exit).toBe(0)
+      expect(result.output).toContain("unsandboxed")
+    }),
+  )
+
+  it.live("an unknown mode fails instead of running unsandboxed", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      const error = yield* withEnv({ HORDECODE_SANDBOX: "yes" }, runIn(tmp, fail({ command: "echo hi" })))
+      expect(error.message).toContain("HORDECODE_SANDBOX must be one of off, auto, required")
+    }),
+  )
+
+  it.live("bwrap keeps the worktree writable and hides other host paths", () =>
+    Effect.gen(function* () {
+      const detection = yield* Effect.promise(() => Bwrap.create(systemDeps).detect())
+      if (!detection.available) return
+      const tmp = yield* tmpdirScoped()
+      const other = yield* tmpdirScoped()
+      const secret = path.join(other, "secret.txt")
+      yield* Effect.promise(() => Bun.write(secret, "host-only"))
+      const result = yield* withEnv(
+        { HORDECODE_SANDBOX: "required", HORDECODE_SANDBOX_DRIVER: "bwrap" },
+        runIn(
+          tmp,
+          run({
+            command: `echo inside > written.txt && cat written.txt; cat ${squote(secret)} 2>&1 || echo hidden`,
+          }),
+        ),
+      )
+      expect(result.output).toContain("inside")
+      expect(result.output).toContain("hidden")
+      expect(result.output).not.toContain("host-only")
+      expect(yield* Effect.promise(() => Bun.file(path.join(tmp, "written.txt")).text())).toBe("inside\n")
     }),
   )
 })

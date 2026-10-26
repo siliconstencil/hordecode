@@ -15,6 +15,7 @@ import { Git } from "@/git"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { fileURLToPath } from "url"
 import { Config } from "@/config/config"
+import * as SandboxShell from "@/sandbox/shell"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Shell } from "@opencode-ai/core/shell"
 import { ShellID } from "./shell/id"
@@ -654,6 +655,41 @@ export const ShellTool = Tool.define(
       }
     })
 
+    // Sandbox mode comes from the process environment and defaults to "off", which spawns exactly as before.
+    const launch = Effect.fn("ShellTool.launch")(function* (input: {
+      shell: string
+      command: string
+      cwd: string
+      env: NodeJS.ProcessEnv
+    }) {
+      const instanceCtx = yield* InstanceState.context
+      const prepared = yield* Effect.promise(async () => {
+        try {
+          return {
+            value: await SandboxShell.shared.prepare({
+              settings: SandboxShell.settings(),
+              shell: input.shell,
+              command: input.command,
+              cwd: input.cwd,
+              worktree: instanceCtx.worktree === "/" ? instanceCtx.directory : instanceCtx.worktree,
+            }),
+          }
+        } catch (error) {
+          return { error }
+        }
+      })
+      if ("error" in prepared) throw prepared.error
+      if (prepared.value.warning) yield* Effect.logWarning(prepared.value.warning)
+      const wrapped = prepared.value.command
+      if (!wrapped) return cmd(input.shell, input.command, input.cwd, input.env)
+      return ChildProcess.make(wrapped.file, wrapped.args, {
+        cwd: input.cwd,
+        env: input.env,
+        stdin: "ignore",
+        detached: process.platform !== "win32",
+      })
+    })
+
     const run = Effect.fn("ShellTool.run")(function* (
       input: {
         shell: string
@@ -710,7 +746,7 @@ export const ShellTool = Tool.define(
       const code: number | null = yield* Effect.scoped(
         Effect.gen(function* () {
           yield* Effect.addFinalizer(closeSink)
-          const handle = yield* spawner.spawn(cmd(input.shell, input.command, input.cwd, input.env))
+          const handle = yield* spawner.spawn(yield* launch(input))
 
           yield* Effect.forkScoped(
             Stream.runForEach(Stream.decodeText(handle.all), (chunk) => {
