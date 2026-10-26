@@ -14,7 +14,25 @@
 How a port is done and recorded: [docs/UPSTREAM-MAP.md](docs/UPSTREAM-MAP.md) and
 [docs/FORK-RULES.md](docs/FORK-RULES.md).
 
-## 0.1.2 (in progress)
+## 0.1.4 (in progress)
+
+- Base: opencode 1.19.4, the latest 1.x release.
+- Command palette: every listed command runs; commands that cannot run in the current context
+  stay out of the list.
+- Configuration: model group names in `model`, warnings for unknown keys,
+  `experimental.primary_tools` for subagents, saved workflows by name, `mcp remove`.
+- Proofs on the installed binary: a memory benchmark and a long soak run.
+
+## 0.1.3 (released 2026-10-25)
+
+- Base: opencode 1.19.4, including the web, desktop and shared UI packages.
+- Security: protected credential files, an optional permission audit log and an optional
+  command sandbox on Linux.
+- Cost and cache: the prompt cache state in the sidebar, `cachePromptTTL` and one hour cache
+  write pricing.
+- Memory: on-device embeddings for hybrid search on Linux, Windows and macOS on Apple silicon.
+
+## 0.1.2 (released 2026-10-20)
 
 - Base: opencode 1.19.3.
 - Supervisor: nested subagents to a configurable depth, a configurable number of subagents
@@ -28,5 +46,4 @@ How a port is done and recorded: [docs/UPSTREAM-MAP.md](docs/UPSTREAM-MAP.md) an
 ## Next
 
 - Port each new opencode 1.x release.
-- Port the web, desktop and shared UI packages to the current base.
 - Publish the benchmark method and results in the repository.
