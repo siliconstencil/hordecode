@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { costSuspect, withEstimate } from "../../src/util/cost-estimate"
+import { costSuspect, messagesSuspect, withEstimate } from "../../src/util/cost-estimate"
 
 const providers = [
   { id: "anthropic", models: { "claude-sonnet-5-5": { cost: { suspect: true } }, "claude-sonnet-5": { cost: {} } } },
@@ -16,4 +16,14 @@ test("a model flagged by the price rule is suspect, others and unknown models ar
 test("the estimate suffix is added only for suspect prices", () => {
   expect(withEstimate("$1.20", true)).toBe("$1.20 est.")
   expect(withEstimate("$1.20", false)).toBe("$1.20")
+})
+
+test("a session total is an estimate when any model that answered in it is suspect", () => {
+  const user = { role: "user" }
+  const flagged = { role: "assistant", providerID: "anthropic", modelID: "claude-sonnet-5-5" }
+  const fine = { role: "assistant", providerID: "anthropic", modelID: "claude-sonnet-5" }
+  expect(messagesSuspect(providers, [user, fine])).toBe(false)
+  expect(messagesSuspect(providers, [user, fine, flagged, fine])).toBe(true)
+  expect(messagesSuspect(providers, [{ ...user, providerID: "anthropic", modelID: "claude-sonnet-5-5" }])).toBe(false)
+  expect(messagesSuspect(providers, undefined)).toBe(false)
 })

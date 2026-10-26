@@ -23,7 +23,7 @@ import { Spinner } from "../spinner"
 import { useSDK } from "../../context/sdk"
 import { useRoute } from "../../context/route"
 import { useProject } from "../../context/project"
-import { withEstimate } from "../../util/cost-estimate"
+import { messagesSuspect, withEstimate } from "../../util/cost-estimate"
 import { useSync } from "../../context/sync"
 import { useEvent } from "../../context/event"
 import { editorSelectionKey, useEditorContext, type EditorSelection } from "../../context/editor"
@@ -282,7 +282,7 @@ export function Prompt(props: PromptProps) {
       context: ctx.percent !== null
         ? `${Locale.number(ctx.tokens)} / ${Locale.number(ctx.limit)} (${ctx.percent}%)`
         : Locale.number(ctx.tokens),
-      cost: withEstimate(money.format(cost), model.cost?.suspect === true),
+      cost: withEstimate(money.format(cost), messagesSuspect(sync.data.provider, msg)),
       percent: ctx.percent,
       pressure: ctx.pressure,
     }

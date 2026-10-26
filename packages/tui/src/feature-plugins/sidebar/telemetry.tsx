@@ -4,7 +4,7 @@ import type { BuiltinTuiPlugin } from "../builtins"
 import { createMemo, createSignal, onCleanup, createEffect, Show } from "solid-js"
 import { streamingTPS, completedTPS, formatTPS } from "../../util/tps"
 import { contextUsage } from "../../util/context-usage"
-import { costSuspect, withEstimate } from "../../util/cost-estimate"
+import { messagesSuspect, withEstimate } from "../../util/cost-estimate"
 import { cacheLineFor, type CacheTTL } from "../../util/cache-state"
 
 const id = "internal:sidebar-telemetry"
@@ -58,10 +58,7 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
   const messages = createMemo(() => props.api.state.session.messages(props.session_id) ?? [])
   const session = createMemo(() => props.api.state.session.get(props.session_id))
   const cost = createMemo(() => session()?.cost ?? 0)
-  const costEstimated = createMemo(() => {
-    const last = messages().findLast((m): m is AssistantMessage => m.role === "assistant")
-    return costSuspect(props.api.state.provider, last?.providerID, last?.modelID)
-  })
+  const costEstimated = createMemo(() => messagesSuspect(props.api.state.provider, messages()))
   const [now, setNow] = createSignal(Date.now())
 
   const assistants = createMemo(() =>
