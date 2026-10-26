@@ -30,6 +30,7 @@ manage MCP (Model Context Protocol) servers
 
 Commands:
   horde mcp add [name]     add an MCP server
+  horde mcp remove <name>  remove an MCP server from config                              [aliases: rm]
   horde mcp list           list MCP servers and their status                             [aliases: ls]
   horde mcp auth [name]    authenticate with an OAuth-enabled MCP server
   horde mcp logout [name]  remove OAuth credentials for an MCP server

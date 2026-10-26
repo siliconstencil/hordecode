@@ -17,9 +17,10 @@ import { InstanceRef } from "@/effect/instance-ref"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import path from "path"
 import { Global } from "@opencode-ai/core/global"
-import { modify, applyEdits } from "jsonc-parser"
+import { modify, applyEdits, parse } from "jsonc-parser"
 import { Filesystem } from "@/util/filesystem"
 import { Effect } from "effect"
+import { fail } from "../effect-cmd"
 
 function getAuthStatusIcon(status: MCP.AuthStatus): string {
   switch (status) {
@@ -98,6 +99,7 @@ export const McpCommand = cmd({
   builder: (yargs) =>
     yargs
       .command(McpAddCommand)
+      .command(McpRemoveCommand)
       .command(McpListCommand)
       .command(McpAuthCommand)
       .command(McpLogoutCommand)
@@ -391,8 +393,8 @@ export const McpLogoutCommand = effectCmd({
   }),
 })
 
-async function resolveConfigPath(baseDir: string, global = false) {
-  // Check for existing config files: hordecode.json(c) first, opencode.json(c) as compat,
+function configCandidates(baseDir: string, global = false) {
+  // Config files in priority order: hordecode.json(c) first, opencode.json(c) as compat,
   // then the .hordecode/ and .opencode/ subdirectories.
   const candidates = [
     path.join(baseDir, "hordecode.json"),
@@ -409,6 +411,13 @@ async function resolveConfigPath(baseDir: string, global = false) {
       path.join(baseDir, ".opencode", "opencode.jsonc"),
     )
   }
+
+  return candidates
+}
+
+async function resolveConfigPath(baseDir: string, global = false) {
+  // Check for existing config files; default to the first candidate if none exist.
+  const candidates = configCandidates(baseDir, global)
 
   for (const candidate of candidates) {
     if (await Filesystem.exists(candidate)) {
@@ -427,14 +436,34 @@ async function addMcpToConfig(name: string, mcpConfig: ConfigMCPV1.Info, configP
   }
 
   // Use jsonc-parser to modify while preserving comments
-  const edits = modify(text, ["mcp", name], mcpConfig, {
-    formattingOptions: { tabSize: 2, insertSpaces: true },
-  })
+  const edits = modify(text, ["mcp", name], mcpConfig, jsoncFormat)
   const result = applyEdits(text, edits)
 
   await Filesystem.write(configPath, result)
 
   return configPath
+}
+
+const jsoncFormat = {
+  formattingOptions: { tabSize: 2, insertSpaces: true },
+}
+
+// Fork addition (not in upstream opencode 1.19.4 or MiMo): remove mirrors add's file
+// discovery. Project config is searched first, then global; the first file that holds
+// mcp.<name> is edited.
+async function findMcpInConfig(name: string, paths: string[]) {
+  for (const candidate of paths) {
+    if (!(await Filesystem.exists(candidate))) continue
+    const parsed = parse(await Filesystem.readText(candidate))
+    if (parsed?.mcp?.[name] !== undefined) return candidate
+  }
+  return undefined
+}
+
+async function removeMcpFromConfig(name: string, configPath: string) {
+  const text = await Filesystem.readText(configPath)
+  const edits = modify(text, ["mcp", name], undefined, jsoncFormat)
+  await Filesystem.write(configPath, applyEdits(text, edits))
 }
 
 export const McpAddCommand = effectCmd({
@@ -678,6 +707,31 @@ export const McpAddCommand = effectCmd({
 
       prompts.outro("MCP server added successfully")
     })
+  }),
+})
+
+// Fork addition (not in upstream opencode 1.19.4 or MiMo): mirrors the add command's file discovery.
+export const McpRemoveCommand = effectCmd({
+  command: "remove <name>",
+  aliases: ["rm"],
+  describe: "remove an MCP server from config",
+  builder: (yargs) =>
+    yargs.positional("name", {
+      describe: "name of the MCP server",
+      type: "string",
+      demandOption: true,
+    }),
+  handler: Effect.fn("Cli.mcp.remove")(function* (args) {
+    const maybeCtx = yield* InstanceRef
+    if (!maybeCtx) return yield* Effect.die("InstanceRef not provided")
+    const checked = [...configCandidates(maybeCtx.worktree), ...configCandidates(Global.Path.config, true)]
+    const configPath = yield* Effect.promise(() => findMcpInConfig(args.name, checked))
+    if (!configPath) {
+      return yield* fail(`MCP server "${args.name}" not found. Checked: ${checked.join(", ")}`)
+    }
+    yield* Effect.promise(() => removeMcpFromConfig(args.name, configPath))
+    prompts.log.success(`Removed MCP server "${args.name}" from ${configPath}`)
+    prompts.log.info(`Stored OAuth credentials, if any, are not touched. Remove them with: horde mcp logout ${args.name}`)
   }),
 })
 
