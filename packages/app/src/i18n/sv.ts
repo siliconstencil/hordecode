@@ -704,7 +704,7 @@ export const dict = {
   "home.sessions.group.today": "I dag",
   "home.sessions.group.yesterday": "I går",
   "home.sessions.group.older": "Äldre",
-  "home.providerTip": "Anslut till 75+ leverantörer för att använda andra modeller, inklusive Claude, GPT, Gemini, etc",
+  "home.providerTip": "Anslut till 200+ leverantörer för att använda andra modeller, inklusive Claude, GPT, Gemini, etc",
   "session.tab.session": "Session",
   "session.tab.review": "Granskning",
   "session.tab.context": "Kontext",

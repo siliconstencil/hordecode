@@ -706,7 +706,7 @@ export const dict = {
   "home.sessions.group.yesterday": "vakar",
   "home.sessions.group.older": "Vyresni",
   "home.providerTip":
-    "Prisijunkite prie 75 ir daugiau tiekėjų, kad galėtumėte naudoti kitus modelius, įskaitant Claude, GPT, Gemini ir kt.",
+    "Prisijunkite prie 200 ir daugiau tiekėjų, kad galėtumėte naudoti kitus modelius, įskaitant Claude, GPT, Gemini ir kt.",
   "session.tab.session": "Seansas",
   "session.tab.review": "Apžvalga",
   "session.tab.context": "Kontekstas",

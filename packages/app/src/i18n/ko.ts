@@ -992,7 +992,7 @@ export const dict = {
   "home.sessions.group.today": "오늘",
   "home.sessions.group.yesterday": "어제",
   "home.sessions.group.older": "이전",
-  "home.providerTip": "75개 이상의 공급자에 연결하여 Claude, GPT, Gemini 등의 다른 모델을 사용하세요",
+  "home.providerTip": "200개 이상의 공급자에 연결하여 Claude, GPT, Gemini 등의 다른 모델을 사용하세요",
 
   "session.tab.unknown": "알 수 없는 세션",
   "session.error.notFound": "이 세션을 찾을 수 없습니다",

@@ -702,7 +702,7 @@ export const dict = {
   "home.sessions.group.yesterday": "Дируз",
   "home.sessions.group.older": "калонсолтар",
   "home.providerTip":
-    "Барои истифодаи моделҳои дигар, аз ҷумла Claude, GPT, Gemini ва ғайра ба 75+ провайдерҳо пайваст шавед",
+    "Барои истифодаи моделҳои дигар, аз ҷумла Claude, GPT, Gemini ва ғайра ба 200+ провайдерҳо пайваст шавед",
   "session.tab.session": "Сессия",
   "session.tab.review": "Барраси",
   "session.tab.context": "Контекст",

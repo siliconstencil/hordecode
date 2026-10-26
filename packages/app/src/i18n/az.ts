@@ -709,7 +709,7 @@ export const dict = {
   "home.sessions.group.yesterday": "Dünən",
   "home.sessions.group.older": "Daha əvvəl",
   "home.providerTip":
-    "Claude, GPT, Gemini və s. daxil olmaqla, digər modellərdən istifadə etmək üçün 75+ provayderə qoşulun",
+    "Claude, GPT, Gemini və s. daxil olmaqla, digər modellərdən istifadə etmək üçün 200+ provayderə qoşulun",
   "session.tab.session": "Sessiya",
   "session.tab.review": "İcmal",
   "session.tab.context": "Kontekst",

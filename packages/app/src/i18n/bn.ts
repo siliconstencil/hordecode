@@ -699,7 +699,7 @@ export const dict: Record<string, string> = {
   "home.sessions.group.today": "আজ",
   "home.sessions.group.yesterday": "গতকাল",
   "home.sessions.group.older": "বয়স্ক",
-  "home.providerTip": "Claude, GPT, Gemini, ইত্যাদি সহ অন্যান্য মডেল ব্যবহার করতে 75+ প্রদানকারীর সাথে সংযোগ করুন",
+  "home.providerTip": "Claude, GPT, Gemini, ইত্যাদি সহ অন্যান্য মডেল ব্যবহার করতে 200+ প্রদানকারীর সাথে সংযোগ করুন",
   "session.tab.session": "সেশন",
   "session.tab.review": "পর্যালোচনা",
   "session.tab.context": "প্রসঙ্গ",

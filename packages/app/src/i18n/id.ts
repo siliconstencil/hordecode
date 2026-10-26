@@ -763,7 +763,7 @@ export const dict = {
   "home.sessions.group.yesterday": "Kemarin",
   "home.sessions.group.older": "Lebih lama",
   "home.providerTip":
-    "Hubungkan ke 75+ penyedia untuk menggunakan model lain, termasuk Claude, GPT, Gemini, dan lainnya",
+    "Hubungkan ke 200+ penyedia untuk menggunakan model lain, termasuk Claude, GPT, Gemini, dan lainnya",
 
   "session.tab.session": "Sesi",
   "session.tab.review": "Tinjauan",

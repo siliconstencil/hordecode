@@ -707,7 +707,7 @@ export const dict = {
   "home.sessions.group.yesterday": "မနေ့က",
   "home.sessions.group.older": "အသက်ကြီးသည်။",
   "home.providerTip":
-    "Claude၊ GPT၊ Gemini စသည်တို့အပါအဝင် အခြားမော်ဒယ်များကို အသုံးပြုရန် 75+ ဝန်ဆောင်မှုပေးသူများထံ ချိတ်ဆက်ပါ။",
+    "Claude၊ GPT၊ Gemini စသည်တို့အပါအဝင် အခြားမော်ဒယ်များကို အသုံးပြုရန် 200+ ဝန်ဆောင်မှုပေးသူများထံ ချိတ်ဆက်ပါ။",
   "session.tab.session": "အပိုင်း",
   "session.tab.review": "သုံးသပ်ချက်",
   "session.tab.context": "ဆက်စပ်အကြောင်းအရာ",

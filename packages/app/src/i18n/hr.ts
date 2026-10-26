@@ -707,7 +707,7 @@ export const dict = {
   "home.sessions.group.yesterday": "Jučer",
   "home.sessions.group.older": "Starije",
   "home.providerTip":
-    "Povežite se s više od 75 pružatelja usluga za korištenje drugih modela, uključujući Claude, GPT, Gemini itd.",
+    "Povežite se s više od 200 pružatelja usluga za korištenje drugih modela, uključujući Claude, GPT, Gemini itd.",
   "session.tab.session": "Sesija",
   "session.tab.review": "Pregled",
   "session.tab.context": "Kontekst",

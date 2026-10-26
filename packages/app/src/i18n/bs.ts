@@ -745,7 +745,7 @@ export const dict = {
   "home.sessions.group.yesterday": "Jučer",
   "home.sessions.group.older": "Starije",
   "home.providerTip":
-    "Poveži se s više od 75 provajdera da koristiš druge modele, uključujući Claude, GPT, Gemini i druge",
+    "Poveži se s više od 200 provajdera da koristiš druge modele, uključujući Claude, GPT, Gemini i druge",
 
   "session.tab.session": "Sesija",
   "session.tab.review": "Pregled",

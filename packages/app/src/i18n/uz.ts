@@ -703,7 +703,7 @@ export const dict = {
   "home.sessions.group.yesterday": "Kecha",
   "home.sessions.group.older": "Kattaroq",
   "home.providerTip":
-    "Claude, GPT, Gemini va boshqalar kabi boshqa modellardan foydalanish uchun 75 dan ortiq provayderlarga ulaning.",
+    "Claude, GPT, Gemini va boshqalar kabi boshqa modellardan foydalanish uchun 200 dan ortiq provayderlarga ulaning.",
   "session.tab.session": "Sessiya",
   "session.tab.review": "Koʻrib chiqish",
   "session.tab.context": "Kontekst",

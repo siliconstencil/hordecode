@@ -697,7 +697,7 @@ export const dict: Record<string, string> = {
   "home.sessions.group.today": "අද",
   "home.sessions.group.yesterday": "ඊයේ",
   "home.sessions.group.older": "වැඩිහිටි",
-  "home.providerTip": "Claude, GPT, Gemini, ආදිය ඇතුළුව අනෙකුත් මාදිලි භාවිතා කිරීමට 75+ සපයන්නන් වෙත සම්බන්ධ වන්න",
+  "home.providerTip": "Claude, GPT, Gemini, ආදිය ඇතුළුව අනෙකුත් මාදිලි භාවිතා කිරීමට 200+ සපයන්නන් වෙත සම්බන්ධ වන්න",
   "session.tab.session": "සැසිය",
   "session.tab.review": "සමාලෝචනය කරන්න",
   "session.tab.context": "සන්දර්භය",

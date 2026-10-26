@@ -585,7 +585,7 @@ export const dict = {
   "home.sessions.group.yesterday": "Gestern",
   "home.sessions.group.older": "Älter",
   "home.providerTip":
-    "OpenCode mit über 75 Anbietern verbinden, um weitere Modelle wie Claude, GPT, Gemini und andere zu nutzen",
+    "OpenCode mit über 200 Anbietern verbinden, um weitere Modelle wie Claude, GPT, Gemini und andere zu nutzen",
   "session.tab.session": "Sitzung",
   "session.tab.review": "Überprüfung",
   "session.tab.context": "Kontext",

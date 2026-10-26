@@ -700,7 +700,7 @@ export const dict = {
   "home.sessions.group.yesterday": "გუშინ",
   "home.sessions.group.older": "ძველი",
   "home.providerTip":
-    "დაკავშირება 75+ პროვაიდერთან სხვა მოდელების გამოსაყენებლად, მათ შორის, Claude, GPT, Gemini და ა.შ.",
+    "დაკავშირება 200+ პროვაიდერთან სხვა მოდელების გამოსაყენებლად, მათ შორის, Claude, GPT, Gemini და ა.შ.",
   "session.tab.session": "სესია",
   "session.tab.review": "მიმოხილვა",
   "session.tab.context": "კონტექსტი",

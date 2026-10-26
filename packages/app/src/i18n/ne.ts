@@ -700,7 +700,7 @@ export const dict: Record<string, string> = {
   "home.sessions.group.today": "आज",
   "home.sessions.group.yesterday": "हिजो",
   "home.sessions.group.older": "पुरानो",
-  "home.providerTip": "Claude, GPT, Gemini, आदि सहित अन्य मोडेलहरू प्रयोग गर्न ७५+ प्रदायकहरूसँग जडान गर्नुहोस्",
+  "home.providerTip": "Claude, GPT, Gemini, आदि सहित अन्य मोडेलहरू प्रयोग गर्न २००+ प्रदायकहरूसँग जडान गर्नुहोस्",
   "session.tab.session": "सत्र",
   "session.tab.review": "समीक्षा गर्नुहोस्",
   "session.tab.context": "सन्दर्भ",

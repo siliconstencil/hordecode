@@ -695,7 +695,7 @@ export const dict = {
   "home.sessions.group.today": "ມື້ນີ້",
   "home.sessions.group.yesterday": "ມື້ວານນີ້",
   "home.sessions.group.older": "ເກົ່າ",
-  "home.providerTip": "ເຊື່ອມຕໍ່ກັບຜູ້ໃຫ້ບໍລິການ 75+ ເພື່ອໃຊ້ຮູບແບບອື່ນໆ, ລວມທັງ Claude, GPT, Gemini, ແລະອື່ນໆ.",
+  "home.providerTip": "ເຊື່ອມຕໍ່ກັບຜູ້ໃຫ້ບໍລິການ 200+ ເພື່ອໃຊ້ຮູບແບບອື່ນໆ, ລວມທັງ Claude, GPT, Gemini, ແລະອື່ນໆ.",
   "session.tab.session": "ເຊດຊັນ",
   "session.tab.review": "ການທົບທວນຄືນ",
   "session.tab.context": "ບໍລິບົດ",

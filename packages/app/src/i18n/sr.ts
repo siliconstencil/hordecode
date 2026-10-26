@@ -701,7 +701,7 @@ export const dict = {
   "home.sessions.group.yesterday": "јуче",
   "home.sessions.group.older": "старији",
   "home.providerTip":
-    "Повежите се са 75+ провајдера да бисте користили друге моделе, укључујући Claude, GPT, Gemini итд",
+    "Повежите се са 200+ провајдера да бисте користили друге моделе, укључујући Claude, GPT, Gemini итд",
   "session.tab.session": "Сесија",
   "session.tab.review": "Преглед",
   "session.tab.context": "Контекст",

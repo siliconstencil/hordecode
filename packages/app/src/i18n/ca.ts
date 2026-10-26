@@ -705,7 +705,7 @@ export const dict = {
   "home.sessions.group.yesterday": "Ahir",
   "home.sessions.group.older": "Més vell",
   "home.providerTip":
-    "Connecteu-vos a més de 75 proveïdors per utilitzar altres models, inclosos Claude, GPT, Gemini, etc.",
+    "Connecteu-vos a més de 200 proveïdors per utilitzar altres models, inclosos Claude, GPT, Gemini, etc.",
   "session.tab.session": "Sessió",
   "session.tab.review": "Revisió",
   "session.tab.context": "Context",

@@ -700,7 +700,7 @@ export const dict = {
   "home.sessions.group.yesterday": "Í gjár",
   "home.sessions.group.older": "Eldri",
   "home.providerTip":
-    "Set teg í samband við 75+ veitarar fyri at brúka onnur modell, eitt nú Claude, GPT, Gemini, osfr.",
+    "Set teg í samband við 200+ veitarar fyri at brúka onnur modell, eitt nú Claude, GPT, Gemini, osfr.",
   "session.tab.session": "Seta",
   "session.tab.review": "Ummæli",
   "session.tab.context": "Samanhangur",

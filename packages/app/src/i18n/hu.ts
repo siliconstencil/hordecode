@@ -705,7 +705,7 @@ export const dict = {
   "home.sessions.group.yesterday": "Tegnap",
   "home.sessions.group.older": "Régebbi",
   "home.providerTip":
-    "Csatlakozzon 75+ szolgáltatóhoz más modellek használatához, beleértve a Claude, GPT, Gemini stb.",
+    "Csatlakozzon 200+ szolgáltatóhoz más modellek használatához, beleértve a Claude, GPT, Gemini stb.",
   "session.tab.session": "Munkamenet",
   "session.tab.review": "Tekintse át",
   "session.tab.context": "Kontextus",

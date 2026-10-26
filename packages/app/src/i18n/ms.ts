@@ -698,7 +698,7 @@ export const dict = {
   "home.sessions.group.yesterday": "Semalam",
   "home.sessions.group.older": "Lama",
   "home.providerTip":
-    "Sambung ke lebih 75 penyedia untuk menggunakan model lain, termasuk Claude, GPT, Gemini dan lain-lain",
+    "Sambung ke lebih 200 penyedia untuk menggunakan model lain, termasuk Claude, GPT, Gemini dan lain-lain",
   "session.tab.session": "Sesi",
   "session.tab.review": "Semak",
   "session.tab.context": "Konteks",

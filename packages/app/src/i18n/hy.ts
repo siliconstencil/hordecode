@@ -704,7 +704,7 @@ export const dict = {
   "home.sessions.group.yesterday": "Երեկ",
   "home.sessions.group.older": "Հին",
   "home.providerTip":
-    "Միացեք 75+ մատակարարների՝ այլ մոդելներ օգտագործելու համար, այդ թվում՝ Claude, GPT, Gemini և այլն",
+    "Միացեք 200+ մատակարարների՝ այլ մոդելներ օգտագործելու համար, այդ թվում՝ Claude, GPT, Gemini և այլն",
   "session.tab.session": "Նիստ",
   "session.tab.review": "Վերանայել",
   "session.tab.context": "Համատեքստ",

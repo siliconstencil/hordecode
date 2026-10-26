@@ -707,7 +707,7 @@ export const dict = {
   "home.sessions.group.yesterday": "Gisteren",
   "home.sessions.group.older": "Ouder",
   "home.providerTip":
-    "Maak verbinding met meer dan 75 providers om andere modellen te gebruiken, waaronder Claude, GPT, Gemini, enz.",
+    "Maak verbinding met meer dan 200 providers om andere modellen te gebruiken, waaronder Claude, GPT, Gemini, enz.",
   "session.tab.session": "Sessie",
   "session.tab.review": "Beoordeling",
   "session.tab.context": "Context",

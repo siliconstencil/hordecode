@@ -703,7 +703,7 @@ export const dict = {
   "home.sessions.group.yesterday": "Вчера",
   "home.sessions.group.older": "Постари",
   "home.providerTip":
-    "Поврзете се со над 75 провајдери за да користите други модели, вклучувајќи ги Claude, GPT, Gemini, итн.",
+    "Поврзете се со над 200 провајдери за да користите други модели, вклучувајќи ги Claude, GPT, Gemini, итн.",
   "session.tab.session": "Сесија",
   "session.tab.review": "Преглед",
   "session.tab.context": "Контекст",

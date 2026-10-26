@@ -705,7 +705,7 @@ export const dict = {
   "home.sessions.group.yesterday": "Өчигдөр",
   "home.sessions.group.older": "Хуучин",
   "home.providerTip":
-    "Claude, GPT, Gemini гэх мэт бусад загваруудыг ашиглахын тулд 75+ үйлчилгээ үзүүлэгчтэй холбогдоно уу.",
+    "Claude, GPT, Gemini гэх мэт бусад загваруудыг ашиглахын тулд 200+ үйлчилгээ үзүүлэгчтэй холбогдоно уу.",
   "session.tab.session": "Сесс",
   "session.tab.review": "Хяналт",
   "session.tab.context": "Контекст",

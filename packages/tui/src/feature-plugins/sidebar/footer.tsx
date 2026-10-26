@@ -50,7 +50,7 @@ function View(props: { api: TuiPluginApi }) {
             </box>
             <text fg={theme().textMuted}>Hordecode includes free models so you can start immediately.</text>
             <text fg={theme().textMuted}>
-              Connect from 75+ providers to use other models, including Claude, GPT, Gemini etc
+              Connect from 200+ providers to use other models, including Claude, GPT, Gemini etc
             </text>
             <box flexDirection="row" gap={1} justifyContent="space-between">
               <text fg={theme().text}>Connect provider</text>

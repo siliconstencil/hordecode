@@ -693,7 +693,7 @@ export const dict = {
   "home.sessions.group.yesterday": "Wczoraj",
   "home.sessions.group.older": "Starsze",
   "home.providerTip":
-    "Połącz się z ponad 75 dostawcami, aby korzystać z innych modeli, w tym Claude, GPT, Gemini i innych",
+    "Połącz się z ponad 200 dostawcami, aby korzystać z innych modeli, w tym Claude, GPT, Gemini i innych",
   "session.tab.session": "Sesja",
   "session.tab.review": "Przegląd",
   "session.tab.context": "Kontekst",

@@ -706,7 +706,7 @@ export const dict = {
   "home.sessions.group.yesterday": "Χθες",
   "home.sessions.group.older": "Παλαιότερο",
   "home.providerTip":
-    "Συνδεθείτε σε 75+ παρόχους για να χρησιμοποιήσετε άλλα μοντέλα, συμπεριλαμβανομένων των Claude, GPT, Gemini, κ.λπ.",
+    "Συνδεθείτε σε 200+ παρόχους για να χρησιμοποιήσετε άλλα μοντέλα, συμπεριλαμβανομένων των Claude, GPT, Gemini, κ.λπ.",
   "session.tab.session": "Συνεδρία",
   "session.tab.review": "Επισκόπηση",
   "session.tab.context": "Πλαίσιο",

@@ -699,7 +699,7 @@ export const dict = {
   "home.sessions.group.yesterday": "دیروز",
   "home.sessions.group.older": "قدیمی تر",
   "home.providerTip":
-    "برای استفاده از مدل‌های دیگر، از جمله Claude، GPT، Gemini و غیره به بیش از 75 ارائه‌دهنده متصل شوید.",
+    "برای استفاده از مدل‌های دیگر، از جمله Claude، GPT، Gemini و غیره به بیش از 200 ارائه‌دهنده متصل شوید.",
   "session.tab.session": "جلسه",
   "session.tab.review": "بررسی کنید",
   "session.tab.context": "زمینه",

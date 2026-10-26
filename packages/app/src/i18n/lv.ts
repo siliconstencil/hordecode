@@ -701,7 +701,7 @@ export const dict = {
   "home.sessions.group.yesterday": "Vakar",
   "home.sessions.group.older": "Vecākas",
   "home.providerTip":
-    "Pievienojiet vairāk nekā 75 pakalpojumu sniedzējus, lai izmantotu citus modeļus, tostarp Claude, GPT, Gemini u.c.",
+    "Pievienojiet vairāk nekā 200 pakalpojumu sniedzējus, lai izmantotu citus modeļus, tostarp Claude, GPT, Gemini u.c.",
   "session.tab.session": "Sesija",
   "session.tab.review": "Pārskats",
   "session.tab.context": "Konteksts",
