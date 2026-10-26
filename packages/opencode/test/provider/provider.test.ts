@@ -2169,6 +2169,46 @@ it.instance("resolveModelRef fails for unknown group name", () =>
   }),
 )
 
+it.instance(
+  "defaultModel resolves a top-level model that names a string-shorthand group",
+  Effect.gen(function* () {
+    yield* setProcessEnv("ANTHROPIC_API_KEY", "test-api-key")
+    const model = yield* Provider.use.defaultModel()
+    expect(String(model.providerID)).toBe("anthropic")
+    expect(String(model.modelID)).toBe("claude-sonnet-4-6")
+  }),
+  { config: { model: "standard", model_groups: { standard: "anthropic/claude-sonnet-4-6" } } },
+)
+
+it.instance(
+  "defaultModel resolves a top-level group name to the struct group default",
+  Effect.gen(function* () {
+    yield* setProcessEnv("ANTHROPIC_API_KEY", "test-api-key")
+    const model = yield* Provider.use.defaultModel()
+    expect(String(model.providerID)).toBe("anthropic")
+    expect(String(model.modelID)).toBe("claude-sonnet-4-6")
+  }),
+  {
+    config: {
+      model: "standard",
+      model_groups: {
+        standard: { default: "anthropic/claude-sonnet-4-6", models: ["opencode/gpt-5"] },
+      },
+    },
+  },
+)
+
+it.instance(
+  "defaultModel ignores an unknown top-level group name instead of parsing it as a provider",
+  Effect.gen(function* () {
+    yield* setProcessEnv("ANTHROPIC_API_KEY", "test-api-key")
+    const model = yield* Provider.use.defaultModel()
+    expect(String(model.providerID)).not.toBe("nonexistent-group")
+    expect(String(model.modelID)).not.toBe("")
+  }),
+  { config: { model: "nonexistent-group" } },
+)
+
 it.instance("getSmallModel routes through the configured lite tier group", () =>
   Effect.gen(function* () {
     yield* setProcessEnv("ANTHROPIC_API_KEY", "test-api-key")

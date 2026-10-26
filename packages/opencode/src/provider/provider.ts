@@ -2071,7 +2071,16 @@ const layer = Layer.effect(
 
     const defaultModel = Effect.fn("Provider.defaultModel")(function* () {
       const cfg = yield* config.get()
-      if (cfg.model) return parseModel(cfg.model)
+      if (cfg.model) {
+        if (cfg.model.includes("/")) return parseModel(cfg.model)
+        // Fork addition: a top-level `model` may name a model group (e.g. "standard").
+        // MiMo's defaultModel (provider.ts:1879) has no equivalent; the group is resolved to its default member.
+        const group = cfg.model_groups?.[cfg.model]
+        if (group) return parseModel(typeof group === "string" ? group : group.default)
+        yield* Effect.logWarning("top-level model is neither provider/model nor a configured group, ignoring", {
+          model: cfg.model,
+        })
+      }
 
       const s = yield* InstanceState.get(state)
       const recent = yield* fs.readJson(path.join(Global.Path.state, "model.json")).pipe(

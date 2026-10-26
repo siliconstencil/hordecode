@@ -32,6 +32,19 @@ export function parseModel(model: string) {
   }
 }
 
+// Fork addition: the TUI always sends an explicit model with each prompt, so it
+// resolves `model_groups` names itself. The server resolves them too
+// (provider.resolveModelRef); this keeps the TUI's model choice in step with it.
+export function resolveModelName(
+  name: string,
+  groups: Record<string, string | { default: string; models?: string[] }> | undefined,
+): string | undefined {
+  if (name.includes("/")) return name
+  if (!groups || !Object.hasOwn(groups, name)) return undefined
+  const group = groups[name]
+  return typeof group === "string" ? group : group?.default
+}
+
 export function recentModels(
   model: { providerID: string; modelID: string },
   recent: { providerID: string; modelID: string }[],
@@ -202,21 +215,27 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
       const fallbackModel = createMemo(() => {
         if (args.model) {
-          const { providerID, modelID } = parseModel(args.model)
-          if (isModelValid({ providerID, modelID })) {
-            return {
-              providerID,
-              modelID,
+          const resolved = resolveModelName(args.model, sync.data.config.model_groups)
+          if (resolved) {
+            const { providerID, modelID } = parseModel(resolved)
+            if (isModelValid({ providerID, modelID })) {
+              return {
+                providerID,
+                modelID,
+              }
             }
           }
         }
 
         if (sync.data.config.model) {
-          const { providerID, modelID } = parseModel(sync.data.config.model)
-          if (isModelValid({ providerID, modelID })) {
-            return {
-              providerID,
-              modelID,
+          const resolved = resolveModelName(sync.data.config.model, sync.data.config.model_groups)
+          if (resolved) {
+            const { providerID, modelID } = parseModel(resolved)
+            if (isModelValid({ providerID, modelID })) {
+              return {
+                providerID,
+                modelID,
+              }
             }
           }
         }
