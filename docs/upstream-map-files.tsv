@@ -1303,6 +1303,7 @@ FORK_DELTA	packages/core/src/session/execution/local.ts
 FORK_ONLY	packages/core/src/session/external-import.sql.ts
 FORK_ONLY	packages/core/src/session/external-import.ts
 FORK_ONLY	packages/core/src/session/goal.ts
+FORK_ONLY	packages/core/src/session/harness-injection.ts
 PARITY	packages/core/src/session/history.ts
 FORK_ONLY	packages/core/src/session/index.ts
 PARITY	packages/core/src/session/info.ts
@@ -1559,7 +1560,7 @@ PARITY	packages/core/test/effect/keyed-mutex.test.ts
 PARITY	packages/core/test/effect/layer-node/layer-node-types.test.ts
 FORK_DELTA	packages/core/test/effect/layer-node/layer-node.test.ts
 PARITY	packages/core/test/effect/layer-node/node-build.test.ts
-PARITY	packages/core/test/effect/observability.test.ts
+FORK_DELTA	packages/core/test/effect/observability.test.ts
 PARITY	packages/core/test/event.test.ts
 PARITY	packages/core/test/file-mutation.test.ts
 FORK_ONLY	packages/core/test/filesystem/filesystem-sandbox.test.ts
@@ -2494,7 +2495,7 @@ PARITY	packages/opencode/src/cli/cmd/cmd.ts
 FORK_DELTA	packages/opencode/src/cli/cmd/db.ts
 FORK_DELTA	packages/opencode/src/cli/cmd/debug/agent.handler.ts
 PARITY	packages/opencode/src/cli/cmd/debug/agent.ts
-PARITY	packages/opencode/src/cli/cmd/debug/config.ts
+FORK_DELTA	packages/opencode/src/cli/cmd/debug/config.ts
 PARITY	packages/opencode/src/cli/cmd/debug/file.ts
 FORK_DELTA	packages/opencode/src/cli/cmd/debug/index.ts
 FORK_DELTA	packages/opencode/src/cli/cmd/debug/lsp.ts
@@ -2586,10 +2587,12 @@ PARITY	packages/opencode/src/config/markdown.ts
 PARITY	packages/opencode/src/config/parse.ts
 FORK_DELTA	packages/opencode/src/config/paths.ts
 PARITY	packages/opencode/src/config/plugin.ts
+FORK_ONLY	packages/opencode/src/config/switch-env.ts
 PARITY	packages/opencode/src/config/tui-cwd.ts
 PARITY	packages/opencode/src/config/tui-host-attention.ts
 FORK_DELTA	packages/opencode/src/config/tui-migrate.ts
 FORK_DELTA	packages/opencode/src/config/tui.ts
+FORK_ONLY	packages/opencode/src/config/unknown-keys.ts
 PARITY	packages/opencode/src/config/v2-compat.ts
 PARITY	packages/opencode/src/config/variable.ts
 PARITY	packages/opencode/src/control-plane/adapters/index.ts
@@ -2770,7 +2773,13 @@ PARITY	packages/opencode/src/server/shared/ui.ts
 PARITY	packages/opencode/src/server/shared/workspace-routing.ts
 FORK_ONLY	packages/opencode/src/server/startup-gate.ts
 PARITY	packages/opencode/src/server/tui-event.ts
+FORK_ONLY	packages/opencode/src/session/advisor/emission-guard.ts
+FORK_ONLY	packages/opencode/src/session/advisor/facts.ts
+FORK_ONLY	packages/opencode/src/session/advisor/hook.ts
+FORK_ONLY	packages/opencode/src/session/advisor/run.ts
+FORK_ONLY	packages/opencode/src/session/advisor/trigger.ts
 FORK_ONLY	packages/opencode/src/session/cache-watch.ts
+FORK_ONLY	packages/opencode/src/session/chat-span.ts
 FORK_ONLY	packages/opencode/src/session/compaction-guard.ts
 FORK_DELTA	packages/opencode/src/session/compaction.ts
 FORK_DELTA	packages/opencode/src/session/instruction.ts
@@ -2784,6 +2793,7 @@ FORK_ONLY	packages/opencode/src/session/max-mode.ts
 PARITY	packages/opencode/src/session/message-error.ts
 FORK_DELTA	packages/opencode/src/session/message-v2.ts
 PARITY	packages/opencode/src/session/message.ts
+FORK_ONLY	packages/opencode/src/session/model-value.ts
 FORK_DELTA	packages/opencode/src/session/overflow.ts
 FORK_DELTA	packages/opencode/src/session/processor.ts
 FORK_DELTA	packages/opencode/src/session/prompt.ts
@@ -2847,6 +2857,8 @@ FORK_DELTA	packages/opencode/src/tool/glob.txt
 FORK_ONLY	packages/opencode/src/tool/gpt.ts
 FORK_DELTA	packages/opencode/src/tool/grep.ts
 FORK_DELTA	packages/opencode/src/tool/grep.txt
+FORK_ONLY	packages/opencode/src/tool/hashline-core.ts
+FORK_ONLY	packages/opencode/src/tool/hashline.ts
 FORK_ONLY	packages/opencode/src/tool/history.ts
 FORK_ONLY	packages/opencode/src/tool/history.txt
 PARITY	packages/opencode/src/tool/invalid.ts
@@ -2983,6 +2995,7 @@ FORK_ONLY	packages/opencode/test/cli/help/bin-launchers.test.ts
 FORK_DELTA	packages/opencode/test/cli/help/help-snapshots.test.ts
 PARITY	packages/opencode/test/cli/import.test.ts
 FORK_DELTA	packages/opencode/test/cli/mcp-add.test.ts
+FORK_ONLY	packages/opencode/test/cli/mcp-remove.test.ts
 PARITY	packages/opencode/test/cli/plugin-auth-picker.test.ts
 FORK_DELTA	packages/opencode/test/cli/run/entry.body.test.ts
 PARITY	packages/opencode/test/cli/run/footer.menu.test.ts
@@ -3107,7 +3120,9 @@ FORK_ONLY	packages/opencode/test/config/memory-schema.test.ts
 FORK_ONLY	packages/opencode/test/config/plugin-install-version.test.ts
 PARITY	packages/opencode/test/config/plugin.test.ts
 PARITY	packages/opencode/test/config/snapshot.ts
+FORK_ONLY	packages/opencode/test/config/switch-env.test.ts
 FORK_DELTA	packages/opencode/test/config/tui.test.ts
+FORK_ONLY	packages/opencode/test/config/unknown-keys.test.ts
 PARITY	packages/opencode/test/config/v2-compat.test.ts
 PARITY	packages/opencode/test/control-plane/adapters.test.ts
 FORK_DELTA	packages/opencode/test/control-plane/workspace.test.ts
@@ -3322,7 +3337,13 @@ FORK_ONLY	packages/opencode/test/server/startup-gate.test.ts
 PARITY	packages/opencode/test/server/workspace-proxy.test.ts
 PARITY	packages/opencode/test/server/workspace-routing.test.ts
 PARITY	packages/opencode/test/server/worktree-endpoint-repro.test.ts
+FORK_ONLY	packages/opencode/test/session/advisor/emission-guard.test.ts
+FORK_ONLY	packages/opencode/test/session/advisor/facts.test.ts
+FORK_ONLY	packages/opencode/test/session/advisor/hook.test.ts
+FORK_ONLY	packages/opencode/test/session/advisor/run.test.ts
+FORK_ONLY	packages/opencode/test/session/advisor/trigger.test.ts
 FORK_ONLY	packages/opencode/test/session/cache-watch.test.ts
+FORK_ONLY	packages/opencode/test/session/chat-span.test.ts
 FORK_ONLY	packages/opencode/test/session/checkpoint-child-session.test.ts
 FORK_ONLY	packages/opencode/test/session/checkpoint-drain.test.ts
 FORK_ONLY	packages/opencode/test/session/checkpoint-overflow.test.ts
@@ -3348,6 +3369,7 @@ FORK_ONLY	packages/opencode/test/session/max-mode-status.test.ts
 FORK_DELTA	packages/opencode/test/session/message-v2.test.ts
 PARITY	packages/opencode/test/session/messages-pagination.test.ts
 FORK_ONLY	packages/opencode/test/session/mode-identity.test.ts
+FORK_ONLY	packages/opencode/test/session/model-value.test.ts
 FORK_ONLY	packages/opencode/test/session/preload.ts
 FORK_DELTA	packages/opencode/test/session/processor-effect.test.ts
 FORK_ONLY	packages/opencode/test/session/prompt-bounded-context.test.ts
@@ -3366,6 +3388,7 @@ PARITY	packages/opencode/test/session/structured-output.test.ts
 FORK_DELTA	packages/opencode/test/session/system.test.ts
 FORK_ONLY	packages/opencode/test/session/task-binding-turn.test.ts
 FORK_ONLY	packages/opencode/test/session/task-binding.test.ts
+FORK_ONLY	packages/opencode/test/session/title-clean.test.ts
 FORK_ONLY	packages/opencode/test/session/title-model-selection.test.ts
 FORK_ONLY	packages/opencode/test/session/title-timeout-log.test.ts
 FORK_ONLY	packages/opencode/test/session/tool-allowlist.test.ts
@@ -3415,6 +3438,8 @@ PARITY	packages/opencode/test/tool/fixtures/large-image.png
 PARITY	packages/opencode/test/tool/fixtures/models-api.json
 FORK_DELTA	packages/opencode/test/tool/glob.test.ts
 FORK_DELTA	packages/opencode/test/tool/grep.test.ts
+FORK_ONLY	packages/opencode/test/tool/hashline-core.test.ts
+FORK_ONLY	packages/opencode/test/tool/hashline.test.ts
 FORK_DELTA	packages/opencode/test/tool/lsp.test.ts
 FORK_ONLY	packages/opencode/test/tool/notebook-edit.test.ts
 FORK_DELTA	packages/opencode/test/tool/parameters.test.ts
@@ -3455,6 +3480,7 @@ PARITY	packages/opencode/test/util/timeout.test.ts
 PARITY	packages/opencode/test/util/wildcard.test.ts
 PARITY	packages/opencode/test/v2/session-message-updater.test.ts
 FORK_ONLY	packages/opencode/test/workflow/manifest-permission.test.ts
+FORK_ONLY	packages/opencode/test/workflow/named-lookup.test.ts
 FORK_ONLY	packages/opencode/test/workflow/runtime-wired.test.ts
 FORK_DELTA	packages/opencode/tsconfig.json
 PARITY	packages/plugin/.gitignore
@@ -4200,6 +4226,8 @@ FORK_ONLY	packages/supervisor/test/preload.ts
 FORK_ONLY	packages/supervisor/test/registry.test.ts
 FORK_ONLY	packages/supervisor/test/return-header.test.ts
 FORK_ONLY	packages/supervisor/test/schema.test.ts
+FORK_ONLY	packages/supervisor/test/span-attributes.test.ts
+FORK_ONLY	packages/supervisor/test/spawn-primary-tools.test.ts
 FORK_ONLY	packages/supervisor/test/spawn-title-shape.test.ts
 FORK_ONLY	packages/supervisor/test/stuck-event.test.ts
 FORK_ONLY	packages/supervisor/test/stuck-notice-receiver.test.ts
@@ -4238,6 +4266,7 @@ UPSTREAM_ONLY	packages/tui/src/component/bg-pulse-render.ts
 FORK_DELTA	packages/tui/src/component/bg-pulse.tsx
 FORK_ONLY	packages/tui/src/component/border.tsx
 FORK_DELTA	packages/tui/src/component/command-palette.tsx
+FORK_ONLY	packages/tui/src/component/dialog-advisor.tsx
 PARITY	packages/tui/src/component/dialog-agent.tsx
 FORK_ONLY	packages/tui/src/component/dialog-agreement.tsx
 FORK_ONLY	packages/tui/src/component/dialog-command.tsx
@@ -4255,12 +4284,13 @@ PARITY	packages/tui/src/component/dialog-model.tsx
 FORK_DELTA	packages/tui/src/component/dialog-move-session.tsx
 FORK_DELTA	packages/tui/src/component/dialog-provider.tsx
 UPSTREAM_ONLY	packages/tui/src/component/dialog-retry-action.tsx
-FORK_DELTA	packages/tui/src/component/dialog-session-delete-failed.tsx
+PARITY	packages/tui/src/component/dialog-session-delete-failed.tsx
 FORK_DELTA	packages/tui/src/component/dialog-session-list.tsx
 PARITY	packages/tui/src/component/dialog-session-rename.tsx
 FORK_DELTA	packages/tui/src/component/dialog-skill.tsx
 PARITY	packages/tui/src/component/dialog-stash.tsx
 FORK_DELTA	packages/tui/src/component/dialog-status.tsx
+FORK_ONLY	packages/tui/src/component/dialog-switches.tsx
 PARITY	packages/tui/src/component/dialog-tag.tsx
 PARITY	packages/tui/src/component/dialog-theme-list.tsx
 UPSTREAM_ONLY	packages/tui/src/component/dialog-update.tsx
@@ -4269,7 +4299,7 @@ FORK_ONLY	packages/tui/src/component/dialog-workflows.tsx
 FORK_DELTA	packages/tui/src/component/dialog-workspace-create.tsx
 PARITY	packages/tui/src/component/dialog-workspace-file-changes.tsx
 PARITY	packages/tui/src/component/dialog-workspace-list.tsx
-FORK_DELTA	packages/tui/src/component/dialog-workspace-unavailable.tsx
+PARITY	packages/tui/src/component/dialog-workspace-unavailable.tsx
 FORK_ONLY	packages/tui/src/component/dialog-worktree.tsx
 FORK_DELTA	packages/tui/src/component/error-component.tsx
 FORK_DELTA	packages/tui/src/component/logo.tsx
@@ -4549,10 +4579,12 @@ PARITY	packages/tui/test/cli/tui/prompt-submit-race.test.ts
 PARITY	packages/tui/test/cli/tui/thinking.test.ts
 PARITY	packages/tui/test/cli/tui/use-event.test.tsx
 PARITY	packages/tui/test/clipboard.test.ts
+FORK_ONLY	packages/tui/test/component/dialog-advisor.test.ts
 PARITY	packages/tui/test/component/dialog-session-list.test.ts
+FORK_ONLY	packages/tui/test/component/dialog-switches.test.ts
 UPSTREAM_ONLY	packages/tui/test/component/dialog-update.test.ts
 FORK_DELTA	packages/tui/test/config.test.tsx
-PARITY	packages/tui/test/context/local.test.ts
+FORK_DELTA	packages/tui/test/context/local.test.ts
 FORK_ONLY	packages/tui/test/context/supervisor-self-healing.test.tsx
 PARITY	packages/tui/test/editor.test.ts
 FORK_ONLY	packages/tui/test/feature-plugins/__snapshots__/sidebar-snapshot.test.tsx.snap
