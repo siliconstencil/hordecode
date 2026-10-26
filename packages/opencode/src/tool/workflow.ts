@@ -6,6 +6,7 @@ import { ConfigHarness } from "@opencode-ai/core/config/harness"
 import { InstanceState } from "../effect/instance-state"
 import { workflowRef } from "@opencode-ai/workflow/runtime-ref"
 import { BuiltinWorkflow } from "@opencode-ai/workflow/builtin"
+import { resolveWorkflowScript } from "@opencode-ai/workflow/resolve"
 import type { SessionID } from "../session/schema"
 
 const id = "workflow"
@@ -32,7 +33,7 @@ export const Parameters = Schema.Struct({
   }),
   name: Schema.optional(
     Schema.String.check(Schema.isMinLength(1)).annotate({
-      description: '(optional) Built-in workflow name (e.g. "deep-research").',
+      description: '(optional) Built-in or saved workflow name (e.g. "deep-research"; saved: .hordecode/workflows/<name>.js).',
     }),
   ),
   script: Schema.optional(
@@ -97,6 +98,14 @@ function renderWorkflowCatalog(): string {
   ].join("\n")
 }
 
+// Built-ins win on a name clash. Saved-name lookup reuses the runtime's child-workflow
+// resolver (workflow/src/resolve.ts), so both paths share search order and name rules.
+export async function lookupNamedWorkflow(name: string, start: string, stop: string): Promise<string | null> {
+  const builtin = BuiltinWorkflow.get(name)
+  if (builtin) return builtin.script
+  return resolveWorkflowScript(name, start, stop)
+}
+
 export const WorkflowTool = Tool.define<typeof Parameters, Metadata, Config.Service>(
   id,
   Effect.gen(function* () {
@@ -152,7 +161,13 @@ export const WorkflowTool = Tool.define<typeof Parameters, Metadata, Config.Serv
               new Error("workflow run: provide either `name` or `script`, not both."),
             )
           }
-          const script = input.name ? BuiltinWorkflow.get(input.name)?.script : input.script
+          const instance = yield* InstanceState.context
+          const script = input.name
+            ? yield* Effect.tryPromise({
+                try: () => lookupNamedWorkflow(input.name!, input.workspace ?? instance.worktree, instance.worktree),
+                catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+              })
+            : input.script
           if (!script) {
             const known = BuiltinWorkflow.list()
               .map((w) => w.name)
@@ -160,7 +175,7 @@ export const WorkflowTool = Tool.define<typeof Parameters, Metadata, Config.Serv
             return yield* Effect.fail(
               new Error(
                 input.name
-                  ? `Unknown built-in workflow "${input.name}". Known: ${known || "(none)"}.`
+                  ? `Unknown workflow "${input.name}". Looked for a built-in and for .hordecode/workflows/${input.name}.js and .claude/workflows/${input.name}.js. Known built-ins: ${known || "(none)"}.`
                   : "workflow run requires either `name` or `script`.",
               ),
             )
