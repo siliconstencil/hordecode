@@ -52,4 +52,6 @@ export function applySwitchEnv(env: Record<string, string | undefined>, dir = gl
   return set
 }
 
-applySwitchEnv(process.env)
+// Names set from config are recorded so the TUI can tell them apart from env values the user set.
+const fromConfig = applySwitchEnv(process.env)
+if (fromConfig.length > 0) process.env.HORDECODE_SWITCHES_FROM_CONFIG = fromConfig.join(",")

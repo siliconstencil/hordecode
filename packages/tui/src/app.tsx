@@ -89,6 +89,7 @@ import { DialogWorkflows } from "./component/dialog-workflows"
 import { DialogWorktree } from "./component/dialog-worktree"
 import { DialogImageList } from "./component/dialog-image-list"
 import { DialogContextLimit } from "./component/dialog-context-limit"
+import { DialogSwitches } from "./component/dialog-switches"
 import { CommandProvider } from "./component/dialog-command"
 import { createTuiAttention } from "./attention"
 import * as TuiAudio from "./audio"
@@ -1011,6 +1012,14 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         slashName: "context-limit",
         run: () => {
           DialogContextLimit.show(dialog)
+        },
+        category: "System",
+      },
+      {
+        name: "hordecode.switches",
+        title: "Hordecode features",
+        run: () => {
+          DialogSwitches.show(dialog)
         },
         category: "System",
       },
