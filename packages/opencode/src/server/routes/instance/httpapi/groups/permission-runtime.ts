@@ -39,6 +39,31 @@ export const PermissionRuntimeApi = HttpApi.make("permission-runtime").add(
             "Enable or disable runtime auto-allow for permission asks. Applies instance-wide, so subagents inherit it. Explicit deny rules and forced-ask permissions (e.g. bash_delete) still apply.",
         }),
       ),
+      HttpApiEndpoint.get("careful", `${root}/careful`, {
+        query: WorkspaceRoutingQuery,
+        success: described(Schema.Boolean, "Current careful state"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "permission.careful",
+          summary: "Get careful state",
+          description:
+            "Whether the careful guardrail is on: edit, bash and webfetch ask even when a rule allows them, unless the session approved them. Explicit deny rules still apply.",
+        }),
+      ),
+      HttpApiEndpoint.post("setCareful", `${root}/careful`, {
+        query: WorkspaceRoutingQuery,
+        payload: Schema.Struct({
+          enabled: Schema.Boolean,
+        }),
+        success: described(Schema.Boolean, "Updated careful state"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "permission.setCareful",
+          summary: "Set careful state",
+          description:
+            "Enable or disable the careful guardrail. Mutually exclusive with skip-all: enabling careful disables skip-all and enabling skip-all disables careful.",
+        }),
+      ),
     )
     .annotateMerge(
       OpenApi.annotations({

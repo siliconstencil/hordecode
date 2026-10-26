@@ -1880,6 +1880,7 @@ export type ProviderConfig = {
       }
       experimental?: boolean
       status?: "alpha" | "beta" | "deprecated" | "active"
+      cachePromptTTL?: "5m" | "1h"
       provider?: {
         npm?: string
         api?: string
@@ -2191,6 +2192,14 @@ export type Config = {
     batch_tool?: boolean
     openTelemetry?: boolean
     primary_tools?: Array<string>
+    switches?: {
+      workspaces?: boolean
+      orchestrator?: boolean
+      workflow_tool?: boolean
+      cron?: boolean
+      permission_audit?: boolean
+      sandbox?: boolean
+    }
     continue_loop_on_deny?: boolean
     mcp_timeout?: number
     predict_next_prompt?: boolean
@@ -2293,6 +2302,7 @@ export type Model = {
       [key: string]: unknown
     }
   }
+  cachePromptTTL?: "5m" | "1h"
 }
 
 export type Provider = {
@@ -2545,6 +2555,7 @@ export type Agent = {
     modelID: string
     providerID: string
   }
+  modelRef?: string
   variant?: string
   prompt?: string
   completionGate?: boolean
@@ -9736,6 +9747,64 @@ export type PermissionSetSkipAllResponses = {
 }
 
 export type PermissionSetSkipAllResponse = PermissionSetSkipAllResponses[keyof PermissionSetSkipAllResponses]
+
+export type PermissionCarefulData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/permission/careful"
+}
+
+export type PermissionCarefulErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type PermissionCarefulError = PermissionCarefulErrors[keyof PermissionCarefulErrors]
+
+export type PermissionCarefulResponses = {
+  /**
+   * Current careful state
+   */
+  200: boolean
+}
+
+export type PermissionCarefulResponse = PermissionCarefulResponses[keyof PermissionCarefulResponses]
+
+export type PermissionSetCarefulData = {
+  body?: {
+    enabled: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/permission/careful"
+}
+
+export type PermissionSetCarefulErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type PermissionSetCarefulError = PermissionSetCarefulErrors[keyof PermissionSetCarefulErrors]
+
+export type PermissionSetCarefulResponses = {
+  /**
+   * Updated careful state
+   */
+  200: boolean
+}
+
+export type PermissionSetCarefulResponse = PermissionSetCarefulResponses[keyof PermissionSetCarefulResponses]
 
 export type ProviderListData = {
   body?: never

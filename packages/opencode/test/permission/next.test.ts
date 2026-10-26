@@ -1255,3 +1255,93 @@ it.instance(
     }),
   { git: true },
 )
+
+// Careful guardrail across instances: the parent's careful flag travels in its grant snapshot, so a
+// child whose own instance has careful off still asks for careful permissions the ruleset allows.
+it.instance(
+  "ask - careful parent: a child is not auto-allowed an edit that only the ruleset allows",
+  () =>
+    Effect.gen(function* () {
+      const parent = SessionID.make("session_careful_parent")
+      forwardRef.setParentGrants(parent, {
+        ruleset: [{ permission: "edit", pattern: "*", action: "allow" }],
+        approved: [],
+        careful: true,
+      })
+      try {
+        const err = yield* fail(
+          ask({
+            sessionID: SessionID.make("session_careful_child"),
+            permission: "edit",
+            patterns: ["src/a.ts"],
+            metadata: {},
+            always: [],
+            ruleset: [{ permission: "edit", pattern: "*", action: "allow" }],
+            interactive: false,
+            inherit: { parentSessionID: parent },
+          }),
+        )
+        expect(err).toBeInstanceOf(Permission.NonInteractiveDeniedError)
+      } finally {
+        forwardRef.clearParentGrants(parent)
+      }
+    }),
+  { git: true },
+)
+
+it.instance(
+  "ask - careful parent: a child is allowed an edit the parent session approved",
+  () =>
+    Effect.gen(function* () {
+      const parent = SessionID.make("session_careful_parent_ok")
+      forwardRef.setParentGrants(parent, {
+        ruleset: [{ permission: "edit", pattern: "*", action: "allow" }],
+        approved: [{ permission: "edit", pattern: "*", action: "allow" }],
+        careful: true,
+      })
+      try {
+        const result = yield* ask({
+          sessionID: SessionID.make("session_careful_child_ok"),
+          permission: "edit",
+          patterns: ["src/a.ts"],
+          metadata: {},
+          always: [],
+          ruleset: [{ permission: "edit", pattern: "*", action: "allow" }],
+          interactive: false,
+          inherit: { parentSessionID: parent },
+        })
+        expect(result).toBeUndefined()
+      } finally {
+        forwardRef.clearParentGrants(parent)
+      }
+    }),
+  { git: true },
+)
+
+it.instance(
+  "ask - parent without careful: a child's ruleset allow passes as before",
+  () =>
+    Effect.gen(function* () {
+      const parent = SessionID.make("session_plain_parent")
+      forwardRef.setParentGrants(parent, {
+        ruleset: [{ permission: "edit", pattern: "*", action: "allow" }],
+        approved: [],
+      })
+      try {
+        const result = yield* ask({
+          sessionID: SessionID.make("session_plain_child"),
+          permission: "edit",
+          patterns: ["src/a.ts"],
+          metadata: {},
+          always: [],
+          ruleset: [{ permission: "edit", pattern: "*", action: "allow" }],
+          interactive: false,
+          inherit: { parentSessionID: parent },
+        })
+        expect(result).toBeUndefined()
+      } finally {
+        forwardRef.clearParentGrants(parent)
+      }
+    }),
+  { git: true },
+)

@@ -186,3 +186,126 @@ it.instance(
     }),
   { git: true },
 )
+
+// Careful guardrail (FORK_DELTA design DESIGN-phase5-guardrail-profiles.md, step G1). Allow rules for
+// edit, bash and webfetch do not pass straight through while careful is on; session approval does.
+const allowEdit = [{ permission: "edit", pattern: "*", action: "allow" as const }]
+
+it.instance(
+  "careful - defaults to off",
+  () =>
+    Effect.gen(function* () {
+      const permission = yield* Permission.Service
+      expect(yield* permission.careful()).toBe(false)
+    }),
+  { git: true },
+)
+
+it.instance(
+  "careful off - an allow rule still passes without an ask",
+  () =>
+    Effect.gen(function* () {
+      const permission = yield* Permission.Service
+      const result = yield* ask(request({ ruleset: allowEdit, interactive: false }))
+      expect(result).toBeUndefined()
+      expect(yield* permission.list()).toHaveLength(0)
+    }),
+  { git: true },
+)
+
+it.instance(
+  "careful on - an allow rule for edit creates a pending ask",
+  () =>
+    Effect.gen(function* () {
+      const permission = yield* Permission.Service
+      yield* permission.setCareful(true)
+      const fiber = yield* ask(request({ ruleset: allowEdit })).pipe(Effect.forkScoped)
+      const pending = yield* waitForPending(1)
+      expect(pending[0]!.permission).toBe("edit")
+      yield* Fiber.interrupt(fiber)
+      expect(yield* permission.list()).toHaveLength(0)
+    }),
+  { git: true },
+)
+
+it.instance(
+  "careful on - an allow rule for bash and webfetch also asks",
+  () =>
+    Effect.gen(function* () {
+      const permission = yield* Permission.Service
+      yield* permission.setCareful(true)
+      for (const name of ["bash", "webfetch"]) {
+        const fiber = yield* ask(
+          request({ permission: name, patterns: ["ls -la"], always: [], ruleset: [{ permission: name, pattern: "*", action: "allow" }] }),
+        ).pipe(Effect.forkScoped)
+        const pending = yield* waitForPending(1)
+        expect(pending[0]!.permission).toBe(name)
+        yield* Fiber.interrupt(fiber)
+      }
+    }),
+  { git: true },
+)
+
+it.instance(
+  "careful on - explicit deny rules still win",
+  () =>
+    Effect.gen(function* () {
+      const permission = yield* Permission.Service
+      yield* permission.setCareful(true)
+      const err = yield* fail(ask(request({ ruleset: [{ permission: "edit", pattern: "*", action: "deny" }] })))
+      expect(err).toBeInstanceOf(PermissionV1.DeniedError)
+      expect(yield* permission.list()).toHaveLength(0)
+    }),
+  { git: true },
+)
+
+it.instance(
+  "careful on - a session 'always' approval for the pattern stops the ask",
+  () =>
+    Effect.gen(function* () {
+      const permission = yield* Permission.Service
+      yield* permission.setCareful(true)
+      const path = "/some/careful-approved-path"
+      const fiber = yield* ask(request({ patterns: [path], always: [path], ruleset: allowEdit })).pipe(Effect.forkScoped)
+      const [pending] = yield* waitForPending(1)
+      yield* permission.reply({ requestID: pending!.id, reply: "always" })
+      expect(Exit.isSuccess(yield* Fiber.await(fiber))).toBe(true)
+
+      const result = yield* ask(request({ patterns: [path], always: [path], ruleset: allowEdit, interactive: false }))
+      expect(result).toBeUndefined()
+      expect(yield* permission.list()).toHaveLength(0)
+    }),
+  { git: true },
+)
+
+it.instance(
+  "careful on - a permission outside the careful set is not asked",
+  () =>
+    Effect.gen(function* () {
+      const permission = yield* Permission.Service
+      yield* permission.setCareful(true)
+      const result = yield* ask(
+        request({ permission: "read", patterns: ["/some/file.ts"], always: [], ruleset: [{ permission: "read", pattern: "*", action: "allow" }], interactive: false }),
+      )
+      expect(result).toBeUndefined()
+      expect(yield* permission.list()).toHaveLength(0)
+    }),
+  { git: true },
+)
+
+it.instance(
+  "careful and skip-all are mutually exclusive",
+  () =>
+    Effect.gen(function* () {
+      const permission = yield* Permission.Service
+      yield* permission.setSkipAll(true)
+      yield* permission.setCareful(true)
+      expect(yield* permission.careful()).toBe(true)
+      expect(yield* permission.skipAll()).toBe(false)
+
+      yield* permission.setSkipAll(true)
+      expect(yield* permission.skipAll()).toBe(true)
+      expect(yield* permission.careful()).toBe(false)
+    }),
+  { git: true },
+)

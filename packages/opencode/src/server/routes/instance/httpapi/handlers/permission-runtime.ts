@@ -22,6 +22,23 @@ export const permissionRuntimeHandlers = HttpApiBuilder.group(InstanceHttpApi, "
       return yield* svc.skipAll()
     })
 
-    return handlers.handle("skipAll", skipAll).handle("setSkipAll", setSkipAll)
+    const careful = Effect.fn("PermissionHttpApi.careful")(function* () {
+      return yield* svc.careful()
+    })
+
+    const setCareful = Effect.fn("PermissionHttpApi.setCareful")(function* (ctx: {
+      payload: { enabled: boolean }
+      query: { workspace?: string; directory?: string }
+    }) {
+      void ctx.query
+      yield* svc.setCareful(ctx.payload.enabled)
+      return yield* svc.careful()
+    })
+
+    return handlers
+      .handle("skipAll", skipAll)
+      .handle("setSkipAll", setSkipAll)
+      .handle("careful", careful)
+      .handle("setCareful", setCareful)
   }),
 )

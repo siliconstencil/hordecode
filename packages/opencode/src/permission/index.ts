@@ -49,6 +49,10 @@ export interface Interface {
    *  subagents inherit it. Deny rules and forced-ask permissions still apply. */
   readonly skipAll: () => Effect.Effect<boolean>
   readonly setSkipAll: (enabled: boolean) => Effect.Effect<void>
+  /** Careful guardrail: asks for edit, bash and webfetch even when a ruleset allows them, unless
+   *  this session approved the pattern. Explicit deny rules still apply. Mutually exclusive with skipAll. */
+  readonly careful: () => Effect.Effect<boolean>
+  readonly setCareful: (enabled: boolean) => Effect.Effect<void>
 }
 
 interface PendingEntry {
@@ -60,6 +64,7 @@ interface State {
   pending: Map<PermissionV1.ID, PendingEntry>
   approved: PermissionV1.Rule[]
   skipAll: boolean
+  careful: boolean
 }
 
 export function evaluate(permission: string, pattern: string, ...rulesets: PermissionV1.Ruleset[]): PermissionV1.Rule {
@@ -82,6 +87,12 @@ export function evaluate(permission: string, pattern: string, ...rulesets: Permi
 // blanket rule. Explicit deny still wins; no allow rule silently pre-approves it.
 const FORCED_ASK = new Set(["bash_delete"])
 
+// Permissions that the careful guardrail turns into asks when a ruleset allows them. Names are
+// the ones the tools ask with: edit/write/multiedit/apply_patch all ask "edit"
+// (tool/external-directory.ts:150, tool/apply_patch.ts:222), shell asks "bash"
+// (tool/shell/id.ts:16), and webfetch asks "webfetch" (tool/webfetch.ts:43).
+const CAREFUL = new Set(["edit", "bash", "webfetch"])
+
 export class Service extends Context.Service<Service, Interface>()("@opencode/Permission") {}
 
 const layer = Layer.effect(
@@ -95,6 +106,7 @@ const layer = Layer.effect(
           pending: new Map<PermissionV1.ID, PendingEntry>(),
           approved: [],
           skipAll: false,
+          careful: false,
         }
 
         yield* Effect.addFinalizer(() =>
@@ -119,7 +131,10 @@ const layer = Layer.effect(
 
       // Publish this session's effective grant snapshot so background children
       // in another Instance can inherit it. Kept as two ordered phases.
-      forwardRef.setParentGrants(request.sessionID, { ruleset: [...ruleset], approved: [...approved] })
+      // The careful flag travels with the snapshot: a child in another instance has its own state.
+      const parentGrants = input.inherit ? forwardRef.getParentGrants(input.inherit.parentSessionID) : undefined
+      const careful = s.careful || parentGrants?.careful === true
+      forwardRef.setParentGrants(request.sessionID, { ruleset: [...ruleset], approved: [...approved], careful })
 
       for (const pattern of request.patterns) {
         const rule = evaluate(request.permission, pattern, ruleset, approved)
@@ -133,6 +148,17 @@ const layer = Layer.effect(
         // nor the persisted approvals can pre-authorize them. They always land in
         // the human ask flow below (unless denied above).
         if (forced) {
+          needsAsk = true
+          continue
+        }
+        // Careful guardrail: an allow from the ruleset does not stand for a careful permission
+        // unless this session's approvals also allow the pattern.
+        if (
+          careful &&
+          CAREFUL.has(request.permission) &&
+          rule.action === "allow" &&
+          evaluate(request.permission, pattern, approved).action !== "allow"
+        ) {
           needsAsk = true
           continue
         }
@@ -178,6 +204,10 @@ const layer = Layer.effect(
         if (parentSnapshot) {
           const allAllowed = request.patterns.every((pattern) => {
             if (evaluate(request.permission, pattern, parentSnapshot.ruleset).action === "deny") return false
+            // Under careful, a ruleset allow is not a grant for a careful permission: only an
+            // approval the parent session actually gave counts.
+            if (careful && CAREFUL.has(request.permission))
+              return evaluate(request.permission, pattern, parentSnapshot.approved).action === "allow"
             return evaluate(request.permission, pattern, parentSnapshot.ruleset, parentSnapshot.approved).action === "allow"
           })
           if (allAllowed) return
@@ -375,6 +405,8 @@ const layer = Layer.effect(
     const setSkipAll = Effect.fn("Permission.setSkipAll")(function* (enabled: boolean) {
       const s = yield* InstanceState.get(state)
       s.skipAll = enabled
+      // Skip-all and careful are mutually exclusive: enabling one clears the other.
+      if (enabled) s.careful = false
       yield* Effect.logInfo("skip-all set", { enabled })
       // Flush already-blocked asks so enabling mid-wait unblocks them. Forced-ask pendings
       // stay: they must always be answered by a human (MiMo Code 0.1.11 permission/index.ts:577-595).
@@ -391,7 +423,27 @@ const layer = Layer.effect(
       }
     })
 
-    return Service.of({ ask: PermissionHook.ask(PermissionAudit.ask(ask)), reply: PermissionAudit.reply(reply), list, skipAll, setSkipAll })
+    const careful = Effect.fn("Permission.careful")(function* () {
+      return (yield* InstanceState.get(state)).careful
+    })
+
+    const setCareful = Effect.fn("Permission.setCareful")(function* (enabled: boolean) {
+      const s = yield* InstanceState.get(state)
+      s.careful = enabled
+      // Skip-all and careful are mutually exclusive: enabling careful clears skip-all.
+      if (enabled) s.skipAll = false
+      yield* Effect.logInfo("careful set", { enabled })
+    })
+
+    return Service.of({
+      ask: PermissionHook.ask(PermissionAudit.ask(ask)),
+      reply: PermissionAudit.reply(reply),
+      list,
+      skipAll,
+      setSkipAll,
+      careful,
+      setCareful,
+    })
   }),
 )
 

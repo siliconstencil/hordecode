@@ -26,7 +26,8 @@ type Rule = { permission: string; pattern: string; action: "allow" | "ask" | "de
 // win outright, and only a non-denying ruleset lets an `approved` allow upgrade
 // an ask. Flattening into one array would let `findLast` pick a trailing
 // approved allow over a ruleset deny -- inverting deny precedence.
-type ParentGrantSnapshot = { ruleset: Rule[]; approved: Rule[] }
+// `careful`: the parent's careful guardrail, so a child in another instance applies it too.
+type ParentGrantSnapshot = { ruleset: Rule[]; approved: Rule[]; careful?: boolean }
 
 const grants = new Map<string, Set<string>>()
 const pending = new Map<string, PendingRec>()
@@ -60,7 +61,11 @@ export const forwardRef = {
   // upgrade). Each phase is shallow-copied so later mutation of the parent's live
   // arrays can't retroactively widen a child grant.
   setParentGrants(parentSessionID: string, snapshot: ParentGrantSnapshot) {
-    parentGrants.set(parentSessionID, { ruleset: [...snapshot.ruleset], approved: [...snapshot.approved] })
+    parentGrants.set(parentSessionID, {
+      ruleset: [...snapshot.ruleset],
+      approved: [...snapshot.approved],
+      careful: snapshot.careful,
+    })
   },
   getParentGrants(parentSessionID: string): ParentGrantSnapshot | undefined {
     return parentGrants.get(parentSessionID)

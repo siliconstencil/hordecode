@@ -121,6 +121,8 @@ import type {
   PartUpdateResponses,
   PathGetErrors,
   PathGetResponses,
+  PermissionCarefulErrors,
+  PermissionCarefulResponses,
   PermissionListErrors,
   PermissionListResponses,
   PermissionReplyErrors,
@@ -128,6 +130,8 @@ import type {
   PermissionRespondErrors,
   PermissionRespondResponses,
   PermissionRuleset,
+  PermissionSetCarefulErrors,
+  PermissionSetCarefulResponses,
   PermissionSetSkipAllErrors,
   PermissionSetSkipAllResponses,
   PermissionSkipAllErrors,
@@ -3304,6 +3308,77 @@ export class Permission extends HeyApiClient {
       ThrowOnError
     >({
       url: "/permission/skip-all",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Get careful state
+   *
+   * Whether the careful guardrail is on: edit, bash and webfetch ask even when a rule allows them, unless the session approved them. Explicit deny rules still apply.
+   */
+  public careful<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<PermissionCarefulResponses, PermissionCarefulErrors, ThrowOnError>({
+      url: "/permission/careful",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Set careful state
+   *
+   * Enable or disable the careful guardrail. Mutually exclusive with skip-all: enabling careful disables skip-all and enabling skip-all disables careful.
+   */
+  public setCareful<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      enabled?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "enabled" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      PermissionSetCarefulResponses,
+      PermissionSetCarefulErrors,
+      ThrowOnError
+    >({
+      url: "/permission/careful",
       ...options,
       ...params,
       headers: {
