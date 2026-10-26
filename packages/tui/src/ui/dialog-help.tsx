@@ -1,7 +1,7 @@
 import { TextAttributes } from "@opentui/core"
 import { useTheme } from "../context/theme"
 import { useDialog } from "./dialog"
-import { useKeyboard } from "@opentui/solid"
+import { useBindings } from "../keymap"
 import { useKeybind } from "../context/keybind"
 import { useLanguage } from "../context/language"
 
@@ -11,11 +11,12 @@ export function DialogHelp() {
   const keybind = useKeybind()
   const t = useLanguage().t
 
-  useKeyboard((evt) => {
-    if (evt.name === "return" || evt.name === "escape") {
-      dialog.clear()
-    }
-  })
+  useBindings(() => ({
+    bindings: [
+      { key: "return", desc: "Close help", group: "Dialog", cmd: () => dialog.clear() },
+      { key: "escape", desc: "Close help", group: "Dialog", cmd: () => dialog.clear() },
+    ],
+  }))
 
   return (
     <box paddingLeft={2} paddingRight={2} gap={1}>
