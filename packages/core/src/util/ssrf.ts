@@ -109,8 +109,8 @@ export async function assertSafeUrl(url: string): Promise<void> {
     if (family === 6 && isBlockedIPv6(address)) {
       throw new Error(`SSRF protection: hostname "${hostname}" resolves to blocked IPv6 "${address}"`)
     }
-  } catch (e: any) {
-    if (e.message?.startsWith("SSRF protection:")) throw e
+  } catch (e: unknown) {
+    if (e instanceof Error && e.message.startsWith("SSRF protection:")) throw e
     throw new Error(`SSRF protection: DNS resolution failed for "${hostname}"`)
   }
 }
