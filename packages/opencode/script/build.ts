@@ -6,6 +6,7 @@ import path from "path"
 import { fileURLToPath } from "url"
 import { createSolidTransformPlugin } from "@opentui/solid/bun-plugin"
 import { rehashMachO } from "./macho-rehash"
+import { patchResources } from "./pe-resources"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -368,6 +369,25 @@ for (const item of targets) {
   if (item.os === "darwin") {
     const rehashed = rehashMachO(`dist/${name}/bin/hordecode`)
     if (rehashed) console.log(`  -> code signature page hashes rewritten: ${rehashed.changed} of ${rehashed.pages}`)
+  }
+
+  // Bun sets a Windows icon and version strings only when it runs on Windows, so the Linux release build patches them in.
+  if (item.os === "win32") {
+    const patched = patchResources(`dist/${name}/bin/hordecode.exe`, {
+      ico: path.resolve(dir, "../desktop/icons/prod/icon.ico"),
+      version: {
+        version: /^\d+\.\d+\.\d+$/.test(pkg.version) ? `${pkg.version}.0` : "0.0.0.0",
+        strings: {
+          CompanyName: "Silicon Stencil",
+          FileDescription: "Hordecode",
+          FileVersion: pkg.version,
+          OriginalFilename: "hordecode.exe",
+          ProductName: "Hordecode",
+          ProductVersion: pkg.version,
+        },
+      },
+    })
+    console.log(`  -> windows icon ${patched.icon.width}x${patched.icon.height} (${patched.icon.bytes} of ${patched.icon.slot} bytes), version resource ${patched.version.bytes} of ${patched.version.slot} bytes`)
   }
 
   // Embedding the bundle invalidates the linker's ad-hoc signature, and macOS 27+
