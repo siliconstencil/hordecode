@@ -98,3 +98,143 @@ allow a directory without being asked, list it:
 
 A leading `cd` into a directory inside the project does not change which command rule matches:
 `cd packages/x && bun test` is matched as `bun test`.
+
+## Experimental switches
+
+`experimental.switches` turns on Hordecode features that are off by default. Set them in the global
+config file (the `hordecode.jsonc` in your global config directory):
+
+```json
+{ "experimental": { "switches": { "permission_audit": true, "sandbox": true, "hashline": true } } }
+```
+
+| Key | Environment variable | Default | Effect |
+| --- | --- | --- | --- |
+| `workspaces` | `HORDECODE_EXPERIMENTAL_WORKSPACES` | off | Workspaces and Warp, which moves a session into a git worktree |
+| `orchestrator` | `HORDECODE_EXPERIMENTAL_ORCHESTRATOR` | off | The orchestrator agent |
+| `workflow_tool` | `HORDECODE_EXPERIMENTAL_WORKFLOW_TOOL` | on | Workflow commands |
+| `cron` | `HORDECODE_EXPERIMENTAL_CRON` | on | Cron commands |
+| `permission_audit` | `HORDECODE_PERMISSION_AUDIT` | off | The permission audit log |
+| `sandbox` | `HORDECODE_SANDBOX` | off | The shell sandbox on Linux (`true` sets `auto`) |
+| `hashline` | `HORDECODE_HASHLINE` | off | The `hashline_read` and `hashline_edit` tools |
+
+`workflow_tool` and `cron` stay on unless they are set to `false`. The other switches are on only when
+set to `true`. An environment variable that is set wins over the config value. `HORDECODE_SANDBOX=required`
+is set in the environment only. `HORDECODE_EXPERIMENTAL=true` also turns on `workspaces` and
+`orchestrator`.
+
+The switches are read once at startup, so restart Hordecode after you change one. The **Hordecode
+features** command (Ctrl+P, then System) edits these switches and the `memory.embedding` setting, and
+asks for a restart when you save. It shows the environment variable next to any row that an environment
+variable sets.
+
+## OpenTelemetry
+
+Hordecode sends traces, logs and metrics over OTLP/HTTP when an endpoint is set. Nothing is sent without
+one.
+
+| Variable | Use |
+| --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | The common endpoint. `/v1/traces`, `/v1/logs` and `/v1/metrics` are appended. |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | The full URL for traces, used as given. |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | The full URL for logs, used as given. |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | The full URL for metrics, used as given. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | Comma-separated `key=value` pairs sent with each request. |
+| `OTEL_RESOURCE_ATTRIBUTES` | Comma-separated `key=value` resource attributes. |
+| `OTEL_SDK_DISABLED=true` | Turns every signal off. |
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+```
+
+What is exported:
+
+- Traces: one `chat <model>` span per model step, with the `gen_ai.*` token usage attributes, the reasoning
+  and cache token counts, `hordecode.cost.usd`, `hordecode.latency_ms`, `hordecode.ttft_ms` and the finish
+  reason. Supervisor spawn spans carry `supervisor.mode`, `agent.type`, `context.mode`, `session.id`,
+  `parent.session.id` and `supervisor.background`.
+- Logs: the Hordecode log records.
+- Metrics, exported every 30 seconds: `gen_ai.client.token.usage` (by `gen_ai.token.type`),
+  `hordecode.chat.cost` (US dollars) and `hordecode.chat.duration` (milliseconds). The attributes are the
+  provider and the model only.
+
+Prompt text, task text, file paths, tool arguments and error messages are never added to spans or metrics.
+
+## Hashline edits
+
+Hashline is an opt-in edit mode that addresses lines by number and checks a tag for the whole file, so an
+edit applies only to the text the agent read. Turn it on with `HORDECODE_HASHLINE=1` (or `true`), or with
+the `hashline` switch in `experimental.switches`. Two tools are then available:
+
+- `hashline_read` returns a header `[path#tag]` followed by numbered rows (`n:content`). The tag is a short
+  hash of the whole file. Binary files are refused, and one view is limited to 40 KB. Use `offset` and
+  `limit` to read the rest of a large file.
+- `hashline_edit` applies line operations, using the line numbers from the read and the tag from its
+  header:
+
+| Op | Effect |
+| --- | --- |
+| `replace` | Replaces lines `start` to `end` with `lines`. An empty `lines` deletes them. |
+| `delete` | Removes lines `start` to `end`. |
+| `insert_before` | Inserts `lines` before line `start`. |
+| `insert_after` | Inserts `lines` after line `start`. `0` inserts at the top of the file. |
+
+All operations in one call refer to the original numbering, and overlapping operations are rejected. If the
+file changed after the read, the edit is rejected and the file is left as it was; read it again. A
+successful edit reports a `New tag`, so the next edit can run without another read.
+
+## Advisor
+
+The advisor is an optional second model that reviews the current task when the work looks risky. It is off
+by default. When a trigger fires, the advisor reads a compact transcript of the current turn and returns up
+to a few short notes, each marked `nit`, `concern` or `blocker`. The notes reach the agent in its next model
+call as a reminder, and the cost of the advisor call is added to that step. The advisor runs in primary sessions
+only, cannot change files, and is skipped quietly when its call fails or takes longer than 60 seconds.
+
+The triggers are checked at each step:
+
+- files touched in the current turn
+- failed tool calls, including a shell command that exits with a non-zero code
+- the same error repeated
+- context used, as a percentage of the model's context window
+
+```json
+{
+  "experimental": {
+    "advisor": {
+      "enabled": true,
+      "model": "anthropic/claude-sonnet-5-5",
+      "sensitivity": "default",
+      "min_severity": "concern",
+      "triggers": { "files_touched": 8, "tool_failures": 3, "same_error": 2, "context_percent": 70 },
+      "max_notes": 4,
+      "cooldown_steps": 3
+    }
+  }
+}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `enabled` | `true` turns the advisor on. `model` must be set as well. |
+| `model` | A `provider/model` value or a model group name. |
+| `sensitivity` | `low`, `default` or `high`. Sets the presets below. |
+| `min_severity` | The lowest note that is kept: `nit`, `concern` (the default) or `blocker`. |
+| `triggers` | Thresholds for the four triggers. An explicit value overrides the preset. |
+| `max_notes` | The most non-blocker notes kept per review (default 4). Blockers are always kept. |
+| `cooldown_steps` | Steps to wait after a review before the next one. An explicit value overrides the preset. |
+
+Presets:
+
+| Sensitivity | `files_touched` | `tool_failures` | `same_error` | `context_percent` | `cooldown_steps` |
+| --- | --- | --- | --- | --- | --- |
+| `low` | 12 | 4 | 3 | 85 | 6 |
+| `default` | 8 | 3 | 2 | 70 | 3 |
+| `high` | 5 | 2 | 2 | 60 | 2 |
+
+A threshold of `0` turns that trigger off. Cooldown and repeat suppression reset on each new user message.
+Within a turn, a review does not repeat for the same triggers, only when a new trigger joins them.
+
+The **Advisor** command (palette: Advisor, or `/advisor`) turns the advisor on or off, picks its model from
+the connected providers, sets the sensitivity and switches the notes between all notes and concerns and
+blockers only. Changes apply without a restart.

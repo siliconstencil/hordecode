@@ -2,6 +2,79 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.4] - Unreleased
+
+### Added
+
+- Experimental features are switched on from the config: `experimental.switches` turns on `workspaces`,
+  `orchestrator`, `workflow_tool`, `cron`, `permission_audit`, `sandbox` and `hashline` from the global config
+  file. The **Hordecode features** dialog (Ctrl+P, System) edits these switches and the memory embedding setting
+  together. Changes apply after a restart, and an environment variable that is set still wins over the config.
+- Guardrail profile: Ctrl+P, Agent, **Guardrail profile** switches between `careful`, `normal` and `auto`. Careful
+  asks before edits, shell commands and web fetches even when your rules allow them. A pattern the session has
+  already approved is not asked again, and deny rules still win. The choice is remembered per project and restored
+  on start. Subagents inherit careful mode and only the approvals their parent gave.
+- Hash-chained permission audit log: each line of the permission log carries the SHA-256 of the line before it,
+  and the chain continues across rotation. `horde debug audit-verify` walks the files oldest first and reports the
+  first line that does not match. Lines written before this change are counted as legacy.
+- `model` in the config accepts a model group name such as `standard` and uses that group's default member. An
+  unknown name logs a warning and the normal default applies.
+- Unknown config keys are logged at startup with a did-you-mean suggestion. Loading is unchanged, and
+  `horde debug config` lists them on stderr.
+- `horde mcp remove <name>` (alias `rm`) deletes an MCP server entry from the config file that holds it and keeps
+  the comments in that file. Stored OAuth credentials stay; `horde mcp logout` removes them.
+- Saved workflows run by name: the workflow tool accepts a name that is not a built-in workflow and runs
+  `.hordecode/workflows/<name>.js`, or `.claude/workflows/<name>.js` when that file is absent. Built-in workflows
+  keep their names.
+- OpenTelemetry endpoints are set per signal: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`,
+  `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` and `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` are used as full URLs, the common
+  endpoint gets `/v1/<signal>` appended, and `OTEL_SDK_DISABLED=true` turns every signal off.
+- OpenTelemetry traces and metrics for model calls. Each model step is a `chat <model>` span with token usage,
+  cost, latency, time to first token and the finish reason. Supervisor spawn spans carry the mode, agent type,
+  context mode and session ids. Model-call metrics (`gen_ai.client.token.usage`, `hordecode.chat.cost`,
+  `hordecode.chat.duration`) are attributed by provider and model and exported every 30 seconds. No prompt text,
+  file paths or tool arguments are exported.
+- Hashline edits (opt-in with `HORDECODE_HASHLINE=1` or the `hashline` switch): `hashline_read` returns a tagged,
+  numbered view of a file, and `hashline_edit` applies replace, delete, insert_before and insert_after by line
+  number, guarded by the file tag. A file that changed since the read is rejected with a hint to read it again.
+  Each successful edit reports a New tag, so edits can chain.
+- Advisor (experimental, off by default): `experimental.advisor` enables a second model that reviews the current
+  task when the work looks risky, such as many files touched, failed tool calls (including shell commands that exit
+  non-zero), a repeated error or high context use. It leaves short nit, concern or blocker notes that the agent
+  sees in its next model call, and its cost is added to that step. Primary sessions only. The **Advisor** command
+  (`/advisor`) turns it on or off, picks its model from the connected providers, sets the sensitivity (low,
+  default or high) and chooses whether nits are shown. Changes apply without a restart.
+
+### Changed
+
+- `checkpoint.max_writer_failures` has no effect, and the schema says so. The key is kept so existing configs load.
+
+### Fixed
+
+- Generated session titles drop text up to an unpaired closing think tag, a leading `Title:` label and matching
+  surrounding quotes, so an answer such as `Title: Ready` no longer becomes the session name.
+- `experimental.primary_tools` applies to subagents started through the supervisor tool. System-spawned helpers
+  (checkpoint writer, dream and distill) are exempt.
+- Values from `experimental.switches` take effect in the compiled binary. The switched flags are read when they
+  are used, not at import time.
+- The `HORDECODE_EXPERIMENTAL_*` variables are read by the server as well, and `HORDECODE_` is checked before
+  `OPENCODE_` everywhere. Workspaces (Warp) work on both sides when only the Hordecode variable is set.
+- Enter saves the **Hordecode features** and **modalities** dialogs. Enter also confirms the alert, help,
+  workspace-unavailable and session-delete-failed dialogs.
+- The command palette hides commands that are disabled in the current state, such as Warp without the workspaces
+  switch and Copy worktree path outside a worktree.
+- The **Login** and **Logout** commands are removed. Providers are connected through **Connect provider**. The
+  logo design command is removed too, because it saved a value that nothing read.
+- The generated `.hordecode/.gitignore` lists the cron runtime files (`.cron-lock`, `scheduled_tasks.json` and
+  `session_scheduled_tasks.json`), so they stay out of `git status`. Existing `.gitignore` files are not rewritten.
+- Model group names resolve in agent models, command models (including the command input model), supervisor
+  spawns, compaction and titles. An unknown group logs a warning and falls back instead of failing the prompt or
+  the tool.
+- The last span batch is sent before the CLI exits, so short commands such as `horde run` keep their final spans.
+- A deny rule for `edit` also hides `multiedit` and `hashline_edit` from agents.
+- A non-Error value thrown during the SSRF guard's DNS lookup now produces the DNS failure error instead of a
+  TypeError.
+
 ## [0.1.3] - 2026-10-25
 
 ### Added
