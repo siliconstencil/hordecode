@@ -1960,6 +1960,51 @@ unix(
   30_000,
 )
 
+unix(
+  "command model group name resolves to the group default",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig((url) => ({
+        ...providerCfg(url),
+        model_groups: { standard: "test/test-model" },
+        command: { grouped: { template: "Say hi", model: "standard" } },
+      }))
+
+      const { prompt, chat } = yield* boot()
+      yield* llm.text("done")
+
+      const result = yield* prompt.command({ sessionID: chat.id, command: "grouped", arguments: "" })
+
+      expect(result.info.role).toBe("assistant")
+      if (result.info.role !== "assistant") throw new Error("expected assistant message")
+      expect(String(result.info.providerID)).toBe("test")
+      expect(String(result.info.modelID)).toBe("test-model")
+    }),
+  30_000,
+)
+
+unix(
+  "command unknown model group warns and falls back instead of failing",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig((url) => ({
+        ...providerCfg(url),
+        model_groups: { standard: "test/test-model" },
+        command: { missing: { template: "Say hi", model: "nope" } },
+      }))
+
+      const { prompt, chat } = yield* boot()
+      yield* llm.text("done")
+
+      const result = yield* prompt.command({ sessionID: chat.id, command: "missing", arguments: "" })
+
+      expect(result.info.role).toBe("assistant")
+      if (result.info.role !== "assistant") throw new Error("expected assistant message")
+      expect(result.info.error).toBeUndefined()
+    }),
+  30_000,
+)
+
 unixNoLLMServer(
   "cancel interrupts shell and resolves cleanly",
   () =>

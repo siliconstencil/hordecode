@@ -852,18 +852,30 @@ const layer = Layer.effect(
       return yield* provider.defaultModel().pipe(Effect.orDie)
     })
 
-    // Resolves an agent's model group (agent.modelRef) for this turn. MiMo resolves it the same way:
-    // packages/opencode/src/session/prompt.ts:1899-1904 and :2144-2150. Fork: an unknown group logs one
-    // warning and falls back to the agent's static model (the group default) instead of ending the prompt;
+    // Resolves a model value that may be a `model_groups` name (no "/") or a literal "provider/model".
+    // A literal keeps Provider.parseModel. A group name goes through Provider.resolveModelRef, which MiMo
+    // resolves the same way: packages/opencode/src/session/prompt.ts:1899-1904 and :2144-2150. Fork: an
+    // unknown group logs one warning and returns undefined so the caller falls back to its own default;
     // any other defect still dies.
-    const agentModel = Effect.fnUntraced(function* (ag: Agent.Info, contextProviderID?: ProviderV2.ID) {
-      if (!ag.modelRef) return ag.model
-      const exit = yield* provider.resolveModelRef(ag.modelRef, contextProviderID).pipe(Effect.exit)
+    const resolveModelValue = Effect.fnUntraced(function* (
+      ref: string,
+      log: Record<string, unknown>,
+      contextProviderID?: ProviderV2.ID,
+    ) {
+      if (ref.includes("/")) return Provider.parseModel(ref)
+      const exit = yield* provider.resolveModelRef(ref, contextProviderID).pipe(Effect.exit)
       if (Exit.isSuccess(exit)) return { providerID: exit.value.providerID, modelID: exit.value.id }
       const err = Cause.squash(exit.cause)
       if (!Provider.ModelGroupNotFoundError.isInstance(err)) return yield* Effect.die(err)
-      yield* Effect.logWarning("agent model group not found, using fallback", { agent: ag.name, group: ag.modelRef })
-      return ag.model
+      yield* Effect.logWarning("model group not found, using fallback", { ...log, group: ref })
+      return undefined
+    })
+
+    // An agent's model for this turn: its group (agent.modelRef) resolved now, else the static agent.model.
+    const agentModel = Effect.fnUntraced(function* (ag: Agent.Info, contextProviderID?: ProviderV2.ID) {
+      if (!ag.modelRef) return ag.model
+      const resolved = yield* resolveModelValue(ag.modelRef, { agent: ag.name }, contextProviderID)
+      return resolved ?? ag.model
     })
 
     const createUserMessage = Effect.fn("SessionPrompt.createUserMessage")(function* (input: PromptInput) {
@@ -2371,13 +2383,19 @@ const layer = Layer.effect(
       template = template.trim()
 
       const taskModel = yield* Effect.gen(function* () {
-        if (cmd.model) return Provider.parseModel(cmd.model)
+        if (cmd.model) {
+          const cmdModel = yield* resolveModelValue(cmd.model, { command: input.command })
+          if (cmdModel) return cmdModel
+        }
         if (cmd.agent) {
           const cmdAgent = yield* agents.get(cmd.agent)
           const cmdModel = cmdAgent ? yield* agentModel(cmdAgent) : undefined
           if (cmdModel) return cmdModel
         }
-        if (input.model) return Provider.parseModel(input.model)
+        if (input.model) {
+          const inputModel = yield* resolveModelValue(input.model, { command: input.command })
+          if (inputModel) return inputModel
+        }
         return yield* currentModel(input.sessionID)
       })
 
@@ -2414,11 +2432,10 @@ const layer = Layer.effect(
         : [...uniqueTemplateParts, ...(input.parts ?? [])]
 
       const userAgent = isSubtask ? (input.agent ?? (yield* agents.defaultInfo()).name) : agent.name
-      const userModel = isSubtask
-        ? input.model
-          ? Provider.parseModel(input.model)
-          : yield* currentModel(input.sessionID)
-        : taskModel
+      const inputModel = input.model
+        ? yield* resolveModelValue(input.model, { command: input.command })
+        : undefined
+      const userModel = isSubtask ? (inputModel ?? (yield* currentModel(input.sessionID))) : taskModel
 
       yield* plugin.trigger(
         "command.execute.before",
