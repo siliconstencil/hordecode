@@ -8,6 +8,8 @@ import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Question } from "@/question"
 import { forwardRef } from "@opencode-ai/core/permission/permission-forward-ref"
+import { PermissionAudit } from "./audit"
+import { PermissionHook } from "./hook"
 
 export const Event = PermissionV1.Event
 
@@ -370,7 +372,7 @@ const layer = Layer.effect(
       }
     })
 
-    return Service.of({ ask, reply, list, skipAll, setSkipAll })
+    return Service.of({ ask: PermissionHook.ask(PermissionAudit.ask(ask)), reply: PermissionAudit.reply(reply), list, skipAll, setSkipAll })
   }),
 )
 
