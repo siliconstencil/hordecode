@@ -140,6 +140,9 @@ const layer = Layer.effect(
         needsAsk = true
       }
 
+      // A deny-only probe (see Tool.Context.denied) stops here: nothing is allowed, asked or recorded.
+      if (input.denyOnly) return
+
       // Runtime skip-all: auto-allow anything that would block for approval. Ordered AFTER
       // the deny loop (explicit deny still wins) and EXCLUDES forced-ask permissions
       // (bash_delete etc.), the same containment as a wildcard allow rule, which forced-ask is

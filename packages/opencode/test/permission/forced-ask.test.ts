@@ -139,3 +139,62 @@ it.instance(
     }),
   { git: true },
 )
+
+const probe = (patterns: string[], ruleset: PermissionV1.AskInput["ruleset"]) =>
+  ask({
+    sessionID: SessionID.make("session_test"),
+    permission: "bash",
+    patterns,
+    metadata: {},
+    always: [],
+    ruleset,
+    denyOnly: true,
+  })
+
+// The deny probe a delete command runs before its forced ask: an explicit deny blocks, anything else
+// passes without asking.
+it.instance(
+  "deny-only probe is denied by an explicit bash deny rule",
+  () =>
+    Effect.gen(function* () {
+      const err = yield* fail(
+        probe(["rm src/junk.txt"], [
+          { permission: "bash", pattern: "*", action: "ask" },
+          { permission: "bash", pattern: "rm *", action: "deny" },
+        ]),
+      )
+      expect(err).toBeInstanceOf(PermissionV1.DeniedError)
+      expect(yield* (yield* Permission.Service).list()).toHaveLength(0)
+    }),
+  { git: true },
+)
+
+it.instance(
+  "deny-only probe passes without a request when no rule denies",
+  () =>
+    Effect.gen(function* () {
+      yield* probe(["rm src/junk.txt"], [{ permission: "bash", pattern: "*", action: "ask" }])
+      yield* probe(["rm src/junk.txt"], [])
+      expect(yield* (yield* Permission.Service).list()).toHaveLength(0)
+    }),
+  { git: true },
+)
+
+it.instance(
+  "bash_delete with no matching rule still asks",
+  () =>
+    Effect.gen(function* () {
+      const fiber = yield* ask({
+        sessionID: SessionID.make("session_test"),
+        permission: "bash_delete",
+        patterns: ["rm src/junk.txt"],
+        metadata: {},
+        always: [],
+        ruleset: [{ permission: "bash", pattern: "*", action: "ask" }],
+      }).pipe(Effect.forkScoped)
+      expect(yield* waitForPending(1)).toHaveLength(1)
+      yield* rejectAll()
+      yield* Fiber.await(fiber)
+    }),
+  { git: true },
+)

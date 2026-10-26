@@ -916,6 +916,9 @@ export const ShellTool = Tool.define(
                     (ctx.autoApproveDelete ? yield* ctx.autoApproveDelete() : false) ||
                     (yield* tmpOnlyDelete(tree.rootNode, cwd, ps, shell, instanceCtx))
                   if (!skipDeleteAsk) {
+                    // askDelete replaces the regular bash ask, so an explicit bash deny rule is evaluated here first.
+                    // MiMo Code 0.1.11 tool/bash.ts:871-878 goes straight to askDelete; upstream v1.19.3 shell.ts:284 has no delete ask.
+                    if (ctx.denied) yield* ctx.denied({ permission: ShellID.ToolID, patterns: Array.from(scan.patterns) })
                     yield* askDelete(ctx, scan, params.command)
                   } else {
                     yield* ask(ctx, scan, params)

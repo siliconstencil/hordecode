@@ -113,6 +113,20 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
             ruleset: Agent.runtimePermission(input.agent, input.session.permission),
           })
           .pipe(Effect.orDie),
+      denied: (req) =>
+        permission
+          .ask({
+            permission: req.permission,
+            patterns: req.patterns,
+            always: [],
+            metadata: {},
+            denyOnly: true,
+            ...routing,
+            sessionID: input.session.id,
+            tool: { messageID: input.processor.message.id, callID: options.toolCallId },
+            ruleset: Agent.runtimePermission(input.agent, input.session.permission),
+          })
+          .pipe(Effect.orDie),
     }
   }
 

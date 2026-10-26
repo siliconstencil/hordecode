@@ -1499,6 +1499,36 @@ describe("tool.shell delete confirmation", () => {
     }),
   )
 
+  it.live("an explicit bash deny stops a delete before the bash_delete ask", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      yield* runIn(
+        tmp,
+        Effect.gen(function* () {
+          const requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" | "tool">> = []
+          const denied: Array<{ permission: string; patterns: string[] }> = []
+          const err = new Error("denied by rule")
+          const target = path.join(tmp, "junk.txt")
+          expect(
+            yield* fail(
+              { command: `rm ${target}` },
+              {
+                ...capture(requests),
+                denied: (input: { permission: string; patterns: string[] }) =>
+                  Effect.sync(() => {
+                    denied.push(input)
+                    throw err
+                  }),
+              },
+            ),
+          ).toMatchObject({ message: err.message })
+          expect(denied).toEqual([{ permission: "bash", patterns: [`rm ${target}`] }])
+          expect(requests).toEqual([])
+        }),
+      )
+    }),
+  )
+
   it.live("skips bash_delete ask for a delete confined to a temp root outside the project", () =>
     Effect.gen(function* () {
       const tmp = yield* tmpdirScoped()

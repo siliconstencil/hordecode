@@ -14,6 +14,7 @@ export function status(exit: Exit.Exit<void, PermissionV1.Error>): "allow" | "de
 export const ask =
   <R>(inner: (input: PermissionV1.AskInput) => Effect.Effect<void, PermissionV1.Error, R>) =>
   (request: PermissionV1.AskInput) => {
+    if (request.denyOnly) return inner(request)
     const input = { ...request, id: request.id ?? PermissionV1.ID.ascending() }
     return inner(input).pipe(
       Effect.onExit((exit) =>

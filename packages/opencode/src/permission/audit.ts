@@ -61,6 +61,7 @@ function outcome(exit: Exit.Exit<void, PermissionV1.Error>) {
 export const ask =
   <R>(inner: (input: PermissionV1.AskInput) => Effect.Effect<void, PermissionV1.Error, R>) =>
   (request: PermissionV1.AskInput) => {
+    if (request.denyOnly) return inner(request)
     // The id is fixed here so a decision line and its reply line share one requestID.
     const input = { ...request, id: request.id ?? PermissionV1.ID.ascending() }
     return inner(input).pipe(

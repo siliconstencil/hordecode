@@ -66,6 +66,12 @@ export type Context<M extends Metadata = Metadata> = {
    * Undefined only in test/harness ctx literals -- treat as false (always ask).
    */
   autoApproveDelete?(): Effect.Effect<boolean>
+  /**
+   * Fails when the ruleset explicitly denies `permission` for any of `patterns`; otherwise returns
+   * without asking anyone. Lets a tool that replaces the regular ask with a forced one (bash delete)
+   * still honor a deny rule. Undefined only in test/harness ctx literals -- treat as no deny.
+   */
+  denied?(input: { permission: string; patterns: string[] }): Effect.Effect<void>
 }
 
 export interface ExecuteResult<M extends Metadata = Metadata> {

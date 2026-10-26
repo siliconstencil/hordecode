@@ -53,6 +53,8 @@ export const AskInput = Schema.Struct({
   id: Schema.optional(ID),
   ruleset: Ruleset,
   interactive: Schema.optional(Schema.Boolean),
+  // Evaluate the ruleset for an explicit deny only: no allow, no ask, no pending request.
+  denyOnly: Schema.optional(Schema.Boolean),
   forward: Schema.optional(Schema.Struct({ parentSessionID: Schema.String })),
   inherit: Schema.optional(Schema.Struct({ parentSessionID: Schema.String })),
 }).annotate({
