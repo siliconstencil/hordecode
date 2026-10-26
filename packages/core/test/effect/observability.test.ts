@@ -5,7 +5,7 @@ import fs from "fs/promises"
 import os from "os"
 import path from "path"
 import { fileLogger } from "../../src/observability/logging"
-import { resource, signalUrl } from "../../src/observability/otlp"
+import { flush, resource, signalUrl } from "../../src/observability/otlp"
 
 const otelResourceAttributes = process.env.OTEL_RESOURCE_ATTRIBUTES
 const opencodeClient = process.env.OPENCODE_CLIENT
@@ -139,4 +139,12 @@ test("file logger flattens nested objects", async () => {
   expect(line).toContain('tags="[\\\"api\\\",\\\"test\\\"]"')
   expect(line).toContain("session.id=session-1")
   expect(line).not.toContain("request={")
+})
+
+describe("flush", () => {
+  test("resolves immediately when no trace exporter was created", async () => {
+    const start = performance.now()
+    await flush(5000)
+    expect(performance.now() - start).toBeLessThan(100)
+  })
 })

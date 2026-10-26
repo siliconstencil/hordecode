@@ -26,6 +26,7 @@ export function signalUrl(
 
 const logsUrl = signalUrl("logs")
 const tracesUrl = signalUrl("traces")
+let spanProcessor: { forceFlush(): Promise<void> } | undefined
 
 const headers = Flag.OTEL_EXPORTER_OTLP_HEADERS
   ? Flag.OTEL_EXPORTER_OTLP_HEADERS.split(",").reduce(
@@ -86,15 +87,32 @@ export async function tracingLayer() {
   manager.enable()
   context.setGlobalContextManager(manager)
 
+  const processor = new SdkBase.BatchSpanProcessor(
+    new OTLP.OTLPTraceExporter({
+      url: tracesUrl,
+      headers,
+    }),
+  )
+  spanProcessor = processor
   return NodeSdk.layer(() => ({
     resource: resource(),
-    spanProcessor: new SdkBase.BatchSpanProcessor(
-      new OTLP.OTLPTraceExporter({
-        url: tracesUrl,
-        headers,
-      }),
-    ),
+    spanProcessor: processor,
   }))
+}
+
+// Hordecode: the CLI ends with process.exit(), which skips layer finalizers, so the last span
+// batch is lost on short commands such as `run`. Flush it first, bounded by a timeout
+// (pattern: omp coding-agent/src/telemetry-export-otlp.ts:443-449). No-op without an endpoint.
+export async function flush(timeoutMs = 2000) {
+  if (!spanProcessor) return
+  let timer: ReturnType<typeof setTimeout> | undefined
+  await Promise.race([
+    spanProcessor.forceFlush().catch(() => undefined),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs)
+    }),
+  ])
+  if (timer) clearTimeout(timer)
 }
 
 export * as Otlp from "./otlp"

@@ -15,6 +15,7 @@ import { UI } from "./cli/ui"
 import { Log } from "@opencode-ai/core/util"
 import { Installation } from "./installation"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
+import { Otlp } from "@opencode-ai/core/observability/otlp"
 import { FormatError } from "./cli/error"
 import { ServeCommand } from "./cli/cmd/serve"
 import { DebugCommand } from "./cli/cmd/debug"
@@ -157,5 +158,7 @@ try {
   // Most notably, some docker-container-based MCP servers don't handle such signals unless
   // run using `docker run --init`.
   // Explicitly exit to avoid any hanging subprocesses.
+  // Hordecode: flush the last OTLP span batch first; process.exit() skips layer finalizers.
+  await Otlp.flush()
   process.exit()
 }
