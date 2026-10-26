@@ -9,6 +9,7 @@ import { useSDK } from "../context/sdk"
 import { useSync } from "@tui/context/sync"
 import { useLocal } from "@tui/context/local"
 import { useToast } from "../ui/toast"
+import { useBindings } from "../keymap"
 
 const MODALITIES = ["image", "audio", "video", "pdf"] as const
 type Modality = (typeof MODALITIES)[number]
@@ -57,11 +58,13 @@ export function DialogModalities() {
       setStore(modality, !store[modality])
       evt.preventDefault()
     }
-    if (evt.name === "return") {
-      void save()
-      evt.preventDefault()
-    }
   })
+
+  // Enter goes through the keymap like upstream dialog-debug.tsx:50; a raw useKeyboard "return" never
+  // arrives because the keymap layer handles return first.
+  useBindings(() => ({
+    bindings: [{ key: "return", desc: "Save", group: "Dialog", cmd: () => void save() }],
+  }))
 
   async function save() {
     if (!current) return
