@@ -391,6 +391,17 @@ const InfoSchema = Schema.Struct({
       primary_tools: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
         description: "Tools that should only be available to primary agents.",
       }),
+      switches: Schema.optional(
+        Schema.Struct({
+          workspaces: Schema.optional(Schema.Boolean),
+          orchestrator: Schema.optional(Schema.Boolean),
+          workflow_tool: Schema.optional(Schema.Boolean),
+          cron: Schema.optional(Schema.Boolean),
+        }),
+      ).annotate({
+        description:
+          "Turn on Hordecode experimental features. Read once at startup; restart to apply. An environment variable that is set always wins.",
+      }),
       continue_loop_on_deny: Schema.optional(Schema.Boolean).annotate({
         description: "Continue the agent loop when a tool call is denied",
       }),

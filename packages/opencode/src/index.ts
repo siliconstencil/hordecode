@@ -1,3 +1,6 @@
+// Must stay the first import: Hordecode flags are read at import time, and this sets the
+// experimental switch env vars from the global config before flag.ts is evaluated.
+import "./config/switch-env"
 import yargs from "yargs"
 import { hideBin } from "yargs/helpers"
 import { RunCommand } from "./cli/cmd/run"

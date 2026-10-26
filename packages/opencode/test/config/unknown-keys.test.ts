@@ -16,6 +16,12 @@ describe("findUnknownConfigKeys", () => {
     ])
   })
 
+  test("does not report experimental.switches as unknown", () => {
+    expect(
+      findUnknownConfigKeys({ experimental: { switches: { workspaces: true, orchestrator: false, cron: true } } }),
+    ).toEqual([])
+  })
+
   test("returns nothing for known keys only", () => {
     expect(findUnknownConfigKeys({ model: "x", experimental: { primary_tools: [] } })).toEqual([])
   })
