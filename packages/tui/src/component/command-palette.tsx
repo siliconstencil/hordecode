@@ -24,8 +24,23 @@ const CATEGORY_KEYS: Record<string, string> = {
 
 type PaletteCommandEntry = ReturnType<OpenTuiKeymap["getCommandEntries"]>[number]
 
+// Upstream opencode v1.19.4 packages/tui/src/component/command-palette.tsx:16 filters by
+// `hidden` only. Fork delta: a command whose `enabled` is false (boolean, or a function
+// returning false) is not listed, because running it does nothing. Undefined means enabled.
+// The function form is called here so Solid tracks its reads in the reactive selector.
+function isEnabledPaletteCommand(command: PaletteCommandEntry["command"]) {
+  const enabled = command.enabled
+  if (typeof enabled === "boolean") return enabled
+  if (typeof enabled === "function") return enabled() === true
+  // @opentui/keymap also accepts a ReactiveMatcher ({ get(): boolean, subscribe }).
+  if (typeof enabled === "object" && enabled !== null && "get" in enabled && typeof enabled.get === "function") {
+    return enabled.get() === true
+  }
+  return true
+}
+
 function isVisiblePaletteCommand(command: PaletteCommandEntry["command"]) {
-  return command.hidden !== true && command.name !== COMMAND_PALETTE_COMMAND
+  return command.hidden !== true && command.name !== COMMAND_PALETTE_COMMAND && isEnabledPaletteCommand(command)
 }
 
 function isSuggestedPaletteCommand(entry: PaletteCommandEntry) {
