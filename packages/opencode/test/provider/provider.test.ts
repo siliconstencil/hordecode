@@ -736,12 +736,11 @@ it.instance(
 )
 
 it.instance(
-  "a config cost override is trusted even when it fails the price sanity rule",
+  "a config cost override is used as given",
   Effect.gen(function* () {
     const providers = yield* list
     const model = providers[ProviderV2.ID.make("test-provider")].models["test-model"]
     expect(model.cost.cache.read).toBe(0.1)
-    expect(model.cost.suspect).toBeUndefined()
   }),
   {
     config: {

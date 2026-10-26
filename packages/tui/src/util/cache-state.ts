@@ -46,10 +46,10 @@ function tokenLabel(count: number) {
 }
 
 // The value shown after the `Cache` label, or undefined when nothing is known.
-export function cacheLabel(state: CacheState, estimated = false): string | undefined {
+export function cacheLabel(state: CacheState): string | undefined {
   if (state.kind === "unknown") return undefined
   if (state.kind === "warm") return `warm ${clock(state.remainingMs)}`
-  const cost = state.cost === undefined ? "" : ` (~$${(Math.round(state.cost * 100 + 1e-6) / 100).toFixed(2)}${estimated ? " est." : ""})`
+  const cost = state.cost === undefined ? "" : ` (~$${(Math.round(state.cost * 100 + 1e-6) / 100).toFixed(2)})`
   return `cold  next turn re-caches ~${tokenLabel(state.tokens)} tokens${cost}`
 }
 
@@ -58,7 +58,7 @@ export function cacheLineFor(input: {
   providerID: string
   start?: number
   tokens?: { input: number; cache: { read: number; write: number } }
-  model?: { cachePromptTTL?: CacheTTL; cost?: { cache?: { write?: number }; suspect?: boolean } }
+  model?: { cachePromptTTL?: CacheTTL; cost?: { cache?: { write?: number }} }
   now: number
 }): string | undefined {
   if (input.providerID !== "anthropic") return undefined
@@ -69,5 +69,5 @@ export function cacheLineFor(input: {
     now: input.now,
     writePrice: input.model?.cost?.cache?.write,
   })
-  return cacheLabel(state, input.model?.cost?.suspect === true)
+  return cacheLabel(state)
 }

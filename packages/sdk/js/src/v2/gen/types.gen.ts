@@ -2266,7 +2266,6 @@ export type Model = {
         size: number
       }
     }>
-    suspect?: boolean
     experimentalOver200K?: {
       input: number
       output: number

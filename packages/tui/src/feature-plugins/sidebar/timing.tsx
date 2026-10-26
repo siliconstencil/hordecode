@@ -4,7 +4,6 @@ import { OPENCODE_BASE_MODE } from "../../keymap"
 import type { BuiltinTuiPlugin } from "../builtins"
 import { createMemo, createSignal, onCleanup, createEffect, Show, For } from "solid-js"
 import { Locale } from "../../util/locale"
-import { messagesSuspect, withEstimate } from "../../util/cost-estimate"
 
 const id = "internal:sidebar-timing"
 
@@ -97,7 +96,6 @@ function ViewInternal(props: { api: TuiPluginApi; session_id: string }) {
   const messages = createMemo(() => props.api.state.session.messages(props.session_id) ?? [])
   const session = createMemo(() => props.api.state.session.get(props.session_id))
   const cost = createMemo(() => session()?.cost ?? 0)
-  const costEstimated = createMemo(() => messagesSuspect(props.api.state.provider, messages()))
   const [now, setNow] = createSignal(Date.now())
 
   const assistants = createMemo(() =>
@@ -286,7 +284,7 @@ function ViewInternal(props: { api: TuiPluginApi; session_id: string }) {
             <box flexDirection="row" justifyContent="space-between">
               <text fg={theme().text}>{"Spent   ".padEnd(8)}</text>
               <text fg={theme().text}>
-                {withEstimate(cost().toLocaleString("en-US", { style: "currency", currency: "USD" }), costEstimated())}
+                {cost().toLocaleString("en-US", { style: "currency", currency: "USD" })}
               </text>
             </box>
             <Show when={anyToolRunning()}>

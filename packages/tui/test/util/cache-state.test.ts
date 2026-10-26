@@ -21,7 +21,6 @@ describe("cache state", () => {
     const state = cacheState({ start, tokens: cached, now: start + 300_000, writePrice: 2.5 })
     expect(state).toEqual({ kind: "cold", tokens: 190_000, cost: 0.475 })
     expect(cacheLabel(state)).toBe("cold  next turn re-caches ~190K tokens (~$0.48)")
-    expect(cacheLabel(state, true)).toBe("cold  next turn re-caches ~190K tokens (~$0.48 est.)")
   })
 
   test("cold without a write price omits the cost", () => {

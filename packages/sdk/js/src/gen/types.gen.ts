@@ -1489,7 +1489,6 @@ export type Model = {
       read: number
       write: number
     }
-    suspect?: boolean
     experimentalOver200K?: {
       input: number
       output: number

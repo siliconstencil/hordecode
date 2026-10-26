@@ -42,7 +42,7 @@ one-hour entry costs more to write than a five-minute one, so it pays off when y
 a session after more than five minutes. The setting applies to Anthropic and OpenRouter models;
 other providers ignore it.
 
-## The TTL and Cache rows, and the `est.` mark
+## The TTL and Cache rows
 
 For Anthropic models the sidebar Telemetry panel shows how the prompt cache stands. The `Cache`
 row is the hit rate over the session. The `TTL` row shows the state of the last request's entry:
@@ -54,12 +54,8 @@ row is the hit rate over the session. The `TTL` row shows the state of the last 
 
 No `TTL` row appears before the first cached request or for other providers.
 
-When a model's catalog price looks inconsistent (a cache-read price at or below 5 percent of the
-input price or above the input price, or a cache-write price outside 100 to 250 percent of it),
-Hordecode keeps the price and marks every cost figure that includes that model with `est.`, for
-example `$1.20 est.`, in the sidebar panels, the prompt footer and the subagent footer. Setting the
-model's `cost` yourself (see Model prices) removes the mark. If the cache is not read on two turns
-in a row with more than 20K tokens of prompt, a warning is written to the log.
+If the cache is not read on two turns in a row with more than 20K tokens of prompt, a warning is
+written to the log.
 
 ## Default agent
 

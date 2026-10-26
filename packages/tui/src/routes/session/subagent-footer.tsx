@@ -6,7 +6,6 @@ import { SplitBorder } from "../../ui/border"
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
 import { Locale } from "../../util/locale"
 import { contextUsage } from "../../util/context-usage"
-import { messagesSuspect, withEstimate } from "../../util/cost-estimate"
 import { useTerminalDimensions } from "@opentui/solid"
 import { useCommandShortcut, useOpencodeKeymap } from "../../keymap"
 import { filterSupervisorList } from "../../feature-plugins/sidebar/supervisor"
@@ -75,7 +74,7 @@ export function SubagentFooter() {
     })
     return {
       context: ctx.percent !== null ? `${Locale.number(ctx.tokens)} (${ctx.percent}%)` : Locale.number(ctx.tokens),
-      cost: cost > 0 ? withEstimate(money.format(cost), messagesSuspect(sync.data.provider, msg)) : undefined,
+      cost: cost > 0 ? money.format(cost) : undefined,
     }
   })
 

@@ -1,4 +1,3 @@
-import { markPrice } from "@opencode-ai/core/provider/price-sanity"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import os from "os"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
@@ -1121,8 +1120,6 @@ const ProviderCost = Schema.Struct({
   input: Schema.Finite,
   output: Schema.Finite,
   cache: ProviderCacheCost,
-  // Set when the catalog price fails the sanity rule; the prices are kept as given.
-  suspect: optional(Schema.Boolean),
   tiers: optional(Schema.Array(ProviderCostTier)),
   experimentalOver200K: optional(
     Schema.Struct({
@@ -1364,7 +1361,7 @@ function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model
     status: model.status ?? "active",
     headers: {},
     options: {},
-    cost: markPrice(`${provider.id}/${model.id}`, cost(model.cost)),
+    cost: cost(model.cost),
     limit: {
       context: model.limit.context,
       input: model.limit.input,
@@ -1630,18 +1627,14 @@ const layer = Layer.effect(
                     ? { field: "reasoning_content" }
                     : false),
               },
-              cost: markPrice(
-                `${providerID}/${modelID}`,
-                {
-                  input: model?.cost?.input ?? existingModel?.cost?.input ?? 0,
-                  output: model?.cost?.output ?? existingModel?.cost?.output ?? 0,
-                  cache: {
-                    read: model?.cost?.cache_read ?? existingModel?.cost?.cache.read ?? 0,
-                    write: model?.cost?.cache_write ?? existingModel?.cost?.cache.write ?? 0,
-                  },
+              cost: {
+                input: model?.cost?.input ?? existingModel?.cost?.input ?? 0,
+                output: model?.cost?.output ?? existingModel?.cost?.output ?? 0,
+                cache: {
+                  read: model?.cost?.cache_read ?? existingModel?.cost?.cache.read ?? 0,
+                  write: model?.cost?.cache_write ?? existingModel?.cost?.cache.write ?? 0,
                 },
-                { override: model?.cost !== undefined },
-              ),
+              },
               cachePromptTTL: model.cachePromptTTL ?? existingModel?.cachePromptTTL,
               options: mergeDeep(existingModel?.options ?? {}, model.options ?? {}),
               limit: {
