@@ -468,6 +468,12 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
   onMount(() => {
     if (permission.mode === "auto") void persistSkipAll(true)
   })
+  // The stored per-project toggle is read after startup; mirror it to background agents and say so.
+  createEffect(() => {
+    if (!permission.restored) return
+    void persistSkipAll(true)
+    toast.show({ variant: "warning", message: "Auto-approve restored for this project", duration: 3000 })
+  })
 
   // Auto-approve permission requests when permission.mode === "auto". Forced-ask permissions
   // (the server's FORCED_ASK set, opencode/src/permission/index.ts) are left to the user: the
