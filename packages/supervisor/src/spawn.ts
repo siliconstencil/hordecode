@@ -316,6 +316,23 @@ export interface SpawnInput {
   onReady?: (info: { supervisorID: string; sessionID: SessionID }) => Effect.Effect<void>
 }
 
+/**
+ * Span annotations for a spawn. Ids and enum-like labels only: never the task text,
+ * description or any content. parentSessionID falls back to sessionID.
+ */
+export function spawnSpanAttributes(
+  input: Pick<SpawnInput, "mode" | "agentType" | "context" | "sessionID" | "parentSessionID" | "background">,
+): Record<string, string | boolean> {
+  return {
+    "supervisor.mode": String(input.mode),
+    "agent.type": String(input.agentType),
+    "context.mode": String(input.context),
+    "session.id": String(input.sessionID),
+    "parent.session.id": String(input.parentSessionID ?? input.sessionID),
+    "supervisor.background": input.background,
+  }
+}
+
 export interface SpawnResult {
   supervisorID: string
   sessionID: SessionID
@@ -441,6 +458,12 @@ export const layer = Layer.effect(
       provenance?: MessageV2.Provenance
       format?: MessageV2.OutputFormat
     }) {
+      yield* Effect.annotateCurrentSpan({
+        "supervisor.id": input.supervisorID,
+        "agent.type": input.agentType,
+        "session.id": String(input.sessionID),
+        "supervisor.source": input.source,
+      })
       const result = yield* sessionPrompt.prompt({
         sessionID: input.sessionID,
         agent: input.agentType,
@@ -920,6 +943,7 @@ export const layer = Layer.effect(
         ...(input.cwd ? { directory: input.cwd } : {}),
         ...(permission ? { permission } : {}),
       })
+      yield* Effect.annotateCurrentSpan({ "supervisor.id": child.id, "agent.type": input.agentType })
       yield* supervisorReg.register({
         sessionID: child.id,
         supervisorID: child.id,
@@ -967,6 +991,7 @@ export const layer = Layer.effect(
       const supervisorID = resuming
         ? input.resumeSupervisorID!
         : yield* supervisorReg.allocateSupervisorID(input.sessionID, input.agentType)
+      yield* Effect.annotateCurrentSpan({ "supervisor.id": supervisorID, "agent.type": input.agentType })
 
       const watermark = input.context === "full" ? yield* session.lastMainMessageID(input.sessionID) : undefined
 
@@ -1097,6 +1122,7 @@ export const layer = Layer.effect(
     })
 
     const spawn = Effect.fn("Supervisor.spawn")(function* (input: SpawnInput) {
+      yield* Effect.annotateCurrentSpan(spawnSpanAttributes(input))
       yield* Effect.sync(() =>
         log.info("supervisor.spawn", {
           sessionID: input.sessionID,
