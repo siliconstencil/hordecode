@@ -126,6 +126,17 @@ function realpathBestEffort(p: string) {
   }
 }
 
+// A path counts as inside the project only when its real location is too: a symlink in the worktree that points
+// elsewhere must still ask for the external directory.
+function insideProject(resolved: string, instance: InstanceContext) {
+  if (!containsPath(resolved, instance)) return false
+  return containsPath(realpathBestEffort(resolved), {
+    ...instance,
+    directory: realpathBestEffort(instance.directory),
+    worktree: instance.worktree === "/" ? "/" : realpathBestEffort(instance.worktree),
+  })
+}
+
 function insideTmp(resolved: string) {
   const abs = realpathBestEffort(resolved)
   return tmpRoots()
@@ -595,7 +606,7 @@ export const ShellTool = Tool.define(
           for (const arg of pathArgs(command, ps, shellKind === "cmd")) {
             const resolved = yield* argPath(arg, cwd, ps, shell)
             yield* Effect.logInfo("resolved path", { arg, resolved })
-            if (!resolved || containsPath(resolved, instance)) continue
+            if (!resolved || insideProject(resolved, instance)) continue
             const dir = (yield* fs.isDir(resolved)) ? resolved : path.dirname(resolved)
             scan.dirs.add(dir)
           }

@@ -5,6 +5,7 @@ import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { Cause, Effect, Exit, Fiber, Layer } from "effect"
 import type * as Scope from "effect/Scope"
 import os from "os"
+import fs from "fs/promises"
 import path from "path"
 import { Config } from "@/config/config"
 import { Shell } from "@opencode-ai/core/shell"
@@ -1059,6 +1060,67 @@ describe("tool.shell permissions", () => {
       )
     }),
   )
+
+  each("a leading cd inside the worktree is neutral for bash permission matching", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      yield* Effect.promise(() => Bun.write(path.join(tmp, "packages/x/a.txt"), "x"))
+      yield* runIn(
+        tmp,
+        Effect.gen(function* () {
+          for (const command of [
+            "cd packages/x && bun test",
+            "cd ./packages/x/../x && bun test",
+            `cd ${path.join(tmp, "packages/x").replaceAll("\\", "/")} && bun test`,
+          ]) {
+            const requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" | "tool">> = []
+            yield* fail({ command }, capture(requests, new Error("stop")))
+            expect(requests.map((r) => [r.permission, r.patterns])).toEqual([["bash", ["bun test"]]])
+            expect(requests[0].always).toEqual(["bun test *"])
+          }
+        }),
+      )
+    }),
+  )
+
+  each("a leading cd outside the worktree keeps asking for the directory", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      const outside = yield* tmpdirScoped()
+      yield* runIn(
+        tmp,
+        Effect.gen(function* () {
+          for (const [command, dir] of [
+            ["cd .. && bun test", path.dirname(tmp)],
+            [`cd ${outside.replaceAll("\\", "/")} && bun test`, outside],
+          ]) {
+            const requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" | "tool">> = []
+            yield* fail({ command }, capture(requests, new Error("stop")))
+            expect(requests[0].permission).toBe("external_directory")
+            expect(requests[0].patterns.some((item) => item.replaceAll("\\", "/").startsWith(dir.replaceAll("\\", "/")))).toBe(true)
+          }
+        }),
+      )
+    }),
+  )
+
+  if (process.platform !== "win32") {
+    each("a leading cd through a symlink that leaves the worktree keeps asking", () =>
+      Effect.gen(function* () {
+        const tmp = yield* tmpdirScoped()
+        const outside = yield* tmpdirScoped()
+        yield* Effect.promise(() => fs.symlink(outside, path.join(tmp, "link")))
+        yield* runIn(
+          tmp,
+          Effect.gen(function* () {
+            const requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" | "tool">> = []
+            yield* fail({ command: "cd link && bun test" }, capture(requests, new Error("stop")))
+            expect(requests[0].permission).toBe("external_directory")
+          }),
+        )
+      }),
+    )
+  }
 
   each("matches redirects in permission pattern", () =>
     Effect.gen(function* () {

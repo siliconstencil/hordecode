@@ -50,6 +50,9 @@ export function provider(model: Provider.Model) {
   return [PROMPT_DEFAULT]
 }
 
+export const TOOL_PREFERENCE =
+  "Read files with the Read, Glob and Grep tools and change them with the Edit and Write tools; do not use shell commands such as cat, sed, tee or heredocs for that."
+
 export interface Interface {
   readonly environment: (model: Provider.Model) => Effect.Effect<string[]>
   readonly skills: (agent: Agent.Info) => Effect.Effect<string | undefined>
@@ -83,6 +86,8 @@ const layer = Layer.effect(
             `  Today's date: ${new Date().toDateString()}`,
             `</env>`,
           ].join("\n"),
+          // Same guidance as the generic prompt (upstream session/prompt/anthropic.txt:85), stated for every model.
+          TOOL_PREFERENCE,
           references.length === 0
             ? undefined
             : [

@@ -85,6 +85,11 @@ const it = testEffect(
 )
 
 describe("session.system", () => {
+  test("the tool preference note is one sentence that names the file tools", () => {
+    expect(SystemPrompt.TOOL_PREFERENCE.match(/\./g)?.length).toBe(1)
+    for (const name of ["Read", "Glob", "Grep", "Edit", "Write", "heredocs"]) expect(SystemPrompt.TOOL_PREFERENCE).toContain(name)
+  })
+
   test("selects the Meta prompt for Muse Spark model IDs", () => {
     for (const id of ["meta/muse-spark-preview", "muse-spark-1.1", "muse-spark-1.2"]) {
       const prompt = SystemPrompt.provider({ api: { id } } as Provider.Model)[0]
