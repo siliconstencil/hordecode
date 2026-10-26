@@ -33,7 +33,7 @@ export function isActive(cfg: AdvisorConfig | undefined): cfg is AdvisorConfig &
 const SESSION_LIMIT = 256
 const sessions = new Map<string, { trigger: TriggerState; guard: EmissionGuard }>()
 
-export function stateFor(sessionID: string) {
+export function stateFor(sessionID: string, maxNotes?: number) {
   const existing = sessions.get(sessionID)
   if (existing) {
     sessions.delete(sessionID)
@@ -44,7 +44,7 @@ export function stateFor(sessionID: string) {
     const oldest = sessions.keys().next().value
     if (oldest !== undefined) sessions.delete(oldest)
   }
-  const created = { trigger: { lastFiredStep: undefined, lastReasons: [] } as TriggerState, guard: new EmissionGuard() }
+  const created = { trigger: { lastFiredStep: undefined, lastReasons: [] } as TriggerState, guard: new EmissionGuard({ maxNotes }) }
   sessions.set(sessionID, created)
   return created
 }

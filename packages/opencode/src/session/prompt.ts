@@ -14,6 +14,7 @@ import { type Tool as AITool, tool, jsonSchema } from "ai"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import * as ModelValue from "./model-value"
+import * as Advisor from "./advisor/hook"
 import { CompactionGuard } from "./compaction-guard"
 import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
@@ -1763,6 +1764,37 @@ const layer = Layer.effect(
             sessionID,
           }
           yield* sessions.updateMessage(msg)
+
+          // Hordecode: optional advisor (experimental.advisor, off by default; session/advisor/hook.ts).
+          // When its trigger fires, a second model reviews the turn; admitted notes reach this step as a
+          // synthetic reminder (reminders.ts pattern, not persisted) and the call's cost is added to msg.
+          const advice = yield* Advisor.maybeAdvise({
+            cfg: (yield* config.get()).experimental?.advisor,
+            step,
+            messages: msgs,
+            provider,
+            llm,
+            model,
+            user: lastUser,
+            agent,
+            sessionID,
+            parentSessionID: session.parentID,
+          })
+          if (advice?.reminder) {
+            const target = msgs.findLast((m) => m.info.role === "user")
+            target?.parts.push({
+              id: PartID.ascending(),
+              messageID: target.info.id,
+              sessionID: target.info.sessionID,
+              type: "text",
+              text: advice.reminder,
+              synthetic: true,
+            })
+          }
+          if (advice?.usage) {
+            msg.cost += Session.getUsage({ model: advice.model, usage: advice.usage }).cost
+            yield* sessions.updateMessage(msg)
+          }
 
           const finalizeInterruptedAssistant = Effect.gen(function* () {
             if (msg.time.completed) return
