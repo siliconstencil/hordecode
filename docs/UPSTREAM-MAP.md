@@ -6,21 +6,21 @@ Regenerate with `bun run script/upstream-map.ts` (writes this file and `docs/ups
 Reference points:
 
 - Git base: upstream tag `v1.17.18` (an ancestor of `main`).
-- Parity reference: opencode 1.19.3 checkout at `../repos/opencode-1.19.3`.
+- Parity reference: opencode 1.19.4 checkout at `../../repos/opencode-1.19.4`.
 - MiMo Code references: `../repos/mimocode-v0.1.5` (starting base) and `../repos/mimocode-v0.1.11` (parity), selective from 0.1.12.
 
 ## Classes
 
 | class | meaning | rule for changes |
 |---|---|---|
-| PARITY | identical to opencode 1.19.3 | Do not edit. Upstream owns it; take the next upstream version as-is. |
+| PARITY | identical to opencode 1.19.4 | Do not edit. Upstream owns it; take the next upstream version as-is. |
 | LAGGING | identical to v1.17.18, upstream has moved on | Port the upstream change, do not hand-edit. |
 | FORK_DELTA | upstream file that Hordecode modified | Every edit must cite the upstream and MiMo reference. Ports must re-apply the delta. |
 | FORK_ONLY | exists only in Hordecode | Hordecode owns it. Custom features and the MiMo delta-port live here. |
 | kept (upstream removed) | Hordecode still carries a file upstream deleted | Decide per file at the next port. |
-| UPSTREAM_ONLY | present in 1.19.3, absent here | Not yet ported (deliberately dropped: `packages/console`, `packages/stats`). |
+| UPSTREAM_ONLY | present in 1.19.4, absent here | Not yet ported (deliberately dropped: `packages/console`, `packages/stats`). |
 
-Totals: PARITY 4477, LAGGING 452, FORK_DELTA 691, FORK_ONLY 1161, FORK_KEPT_UPSTREAM_REMOVED 8, UPSTREAM_ONLY 298.
+Totals: PARITY 4476, LAGGING 452, FORK_DELTA 693, FORK_ONLY 1171, FORK_KEPT_UPSTREAM_REMOVED 8, UPSTREAM_ONLY 299.
 
 ## Packages that are entirely Hordecode's
 
@@ -33,10 +33,10 @@ agent, bus, control-plane, cron, global, inbox, memory, project, shared, skill, 
 | path | parity | lagging | fork delta | fork only | kept (upstream removed) | upstream only |
 |---|---|---|---|---|---|---|
 | packages/core | 371 | 0 | 117 | 330 | 0 | 5 |
-| packages/opencode | 598 | 0 | 231 | 181 | 0 | 9 |
+| packages/opencode | 597 | 0 | 233 | 184 | 0 | 8 |
 | packages/tui | 121 | 1 | 117 | 135 | 0 | 5 |
 | packages/web | 554 | 94 | 55 | 0 | 0 | 2 |
-| packages/ui | 1542 | 53 | 45 | 0 | 0 | 55 |
+| packages/ui | 1542 | 53 | 45 | 0 | 0 | 57 |
 | packages/app | 265 | 206 | 39 | 0 | 5 | 133 |
 | packages/server | 27 | 0 | 4 | 14 | 0 | 0 |
 | packages/desktop | 197 | 40 | 11 | 1 | 1 | 58 |
@@ -86,6 +86,7 @@ A package with zero LAGGING and zero UPSTREAM_ONLY rows is at parity. Packages w
 | LICENSE | 0 | 0 | 1 | 0 | 0 | 0 |
 | package.json | 0 | 0 | 1 | 0 | 0 | 0 |
 | README.md | 0 | 0 | 1 | 0 | 0 | 0 |
+| ROADMAP.md | 0 | 0 | 0 | 1 | 0 | 0 |
 | sdks | 12 | 3 | 1 | 0 | 0 | 0 |
 | SECURITY.md | 0 | 0 | 1 | 0 | 0 | 0 |
 | TOOLBOX.md | 0 | 0 | 0 | 1 | 0 | 0 |

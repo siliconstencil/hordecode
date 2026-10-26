@@ -2695,6 +2695,7 @@ PARITY	packages/opencode/src/server/routes/instance/httpapi/groups/global.ts
 PARITY	packages/opencode/src/server/routes/instance/httpapi/groups/instance.ts
 PARITY	packages/opencode/src/server/routes/instance/httpapi/groups/mcp.ts
 PARITY	packages/opencode/src/server/routes/instance/httpapi/groups/metadata.ts
+FORK_ONLY	packages/opencode/src/server/routes/instance/httpapi/groups/permission-runtime.ts
 PARITY	packages/opencode/src/server/routes/instance/httpapi/groups/permission.ts
 PARITY	packages/opencode/src/server/routes/instance/httpapi/groups/project-copy.ts
 PARITY	packages/opencode/src/server/routes/instance/httpapi/groups/project.ts
@@ -2716,6 +2717,7 @@ FORK_DELTA	packages/opencode/src/server/routes/instance/httpapi/handlers/file.ts
 FORK_DELTA	packages/opencode/src/server/routes/instance/httpapi/handlers/global.ts
 PARITY	packages/opencode/src/server/routes/instance/httpapi/handlers/instance.ts
 PARITY	packages/opencode/src/server/routes/instance/httpapi/handlers/mcp.ts
+FORK_ONLY	packages/opencode/src/server/routes/instance/httpapi/handlers/permission-runtime.ts
 PARITY	packages/opencode/src/server/routes/instance/httpapi/handlers/permission.ts
 FORK_DELTA	packages/opencode/src/server/routes/instance/httpapi/handlers/project-copy.ts
 PARITY	packages/opencode/src/server/routes/instance/httpapi/handlers/project.ts
@@ -2998,7 +3000,7 @@ PARITY	packages/opencode/test/cli/tui/plugin-loader-pure.test.ts
 FORK_DELTA	packages/opencode/test/cli/tui/plugin-loader.test.ts
 PARITY	packages/opencode/test/cli/tui/plugin-toggle.test.ts
 PARITY	packages/opencode/test/cli/tui/thread.test.ts
-UPSTREAM_ONLY	packages/opencode/test/cli/upgrade.test.ts
+FORK_DELTA	packages/opencode/test/cli/upgrade.test.ts
 FORK_ONLY	packages/opencode/test/cli/workspace-trust-gate.test.ts
 FORK_ONLY	packages/opencode/test/command/builtin.test.ts
 FORK_ONLY	packages/opencode/test/command/config.test.ts
@@ -3175,8 +3177,9 @@ FORK_ONLY	packages/opencode/test/permission-ask.test.ts
 PARITY	packages/opencode/test/permission-task.test.ts
 PARITY	packages/opencode/test/permission/arity.test.ts
 FORK_ONLY	packages/opencode/test/permission/forced-ask.test.ts
-PARITY	packages/opencode/test/permission/next.test.ts
+FORK_DELTA	packages/opencode/test/permission/next.test.ts
 FORK_ONLY	packages/opencode/test/permission/runtime-permission.test.ts
+FORK_ONLY	packages/opencode/test/permission/skip-all.test.ts
 FORK_DELTA	packages/opencode/test/plugin/auth-override.test.ts
 PARITY	packages/opencode/test/plugin/azure.test.ts
 PARITY	packages/opencode/test/plugin/cerebras.test.ts
@@ -4016,6 +4019,7 @@ FORK_ONLY	packages/skill/src/harness/.bundle/brainstorm/scripts/stop-server.sh
 FORK_ONLY	packages/skill/src/harness/.bundle/brainstorm/SKILL.md
 FORK_ONLY	packages/skill/src/harness/.bundle/brainstorm/spec-document-reviewer-prompt.md
 FORK_ONLY	packages/skill/src/harness/.bundle/brainstorm/visual-companion.md
+FORK_ONLY	packages/skill/src/harness/.bundle/debug/condition-based-waiting-example.ts
 FORK_ONLY	packages/skill/src/harness/.bundle/debug/condition-based-waiting.md
 FORK_ONLY	packages/skill/src/harness/.bundle/debug/CREATION-LOG.md
 FORK_ONLY	packages/skill/src/harness/.bundle/debug/defense-in-depth.md
@@ -4032,6 +4036,7 @@ FORK_ONLY	packages/skill/src/harness/.bundle/eval/example-output.md
 FORK_ONLY	packages/skill/src/harness/.bundle/eval/failure-patterns.md
 FORK_ONLY	packages/skill/src/harness/.bundle/eval/scoring-metrics.md
 FORK_ONLY	packages/skill/src/harness/.bundle/eval/scripts/aggregate.sh
+FORK_ONLY	packages/skill/src/harness/.bundle/eval/scripts/harness-gate.sh
 FORK_ONLY	packages/skill/src/harness/.bundle/eval/scripts/score-helper.sh
 FORK_ONLY	packages/skill/src/harness/.bundle/eval/SKILL.md
 FORK_ONLY	packages/skill/src/harness/.bundle/eval/stage-budgets.conf
@@ -4070,6 +4075,7 @@ FORK_ONLY	packages/skill/src/research/.bundle/report/SKILL.md
 FORK_ONLY	packages/skill/src/research/.bundle/research/conf/failure-patterns.md
 FORK_ONLY	packages/skill/src/research/.bundle/research/conf/phase-budgets.conf
 FORK_ONLY	packages/skill/src/research/.bundle/research/conf/scoring-metrics.conf
+FORK_ONLY	packages/skill/src/research/.bundle/research/METHODOLOGY.md
 FORK_ONLY	packages/skill/src/research/.bundle/research/scripts/marker-snapshot.sh
 FORK_ONLY	packages/skill/src/research/.bundle/research/scripts/research-aggregate.sh
 FORK_ONLY	packages/skill/src/research/.bundle/research/scripts/research-budget-check.sh
@@ -4087,6 +4093,9 @@ FORK_ONLY	packages/skill/src/research/.bundle/research/templates/handoff-checkli
 FORK_ONLY	packages/skill/src/research/.bundle/research/templates/report.md
 FORK_ONLY	packages/skill/src/research/.bundle/review/SKILL.md
 FORK_ONLY	packages/skill/src/research/.bundle/scope/SKILL.md
+FORK_ONLY	packages/skill/src/research/.bundle/subagent/research-auditor-prompt.md
+FORK_ONLY	packages/skill/src/research/.bundle/subagent/research-revise-prompt.md
+FORK_ONLY	packages/skill/src/research/.bundle/subagent/researcher-prompt.md
 FORK_ONLY	packages/skill/src/research/.bundle/subagent/SKILL.md
 FORK_ONLY	packages/skill/src/research/.bundle/tdd/SKILL.md
 FORK_ONLY	packages/skill/src/research/.bundle/verify/SKILL.md
@@ -4558,6 +4567,7 @@ FORK_ONLY	packages/tui/test/visual.test.ts
 FORK_DELTA	packages/tui/tsconfig.json
 PARITY	packages/ui/.gitignore
 UPSTREAM_ONLY	packages/ui/AGENTS.md
+UPSTREAM_ONLY	packages/ui/bunfig.toml
 PARITY	packages/ui/LICENSE
 FORK_DELTA	packages/ui/package.json
 PARITY	packages/ui/script/build-oc2-v2-overrides.ts
@@ -6248,6 +6258,7 @@ PARITY	packages/ui/src/v2/styles/colors.css
 PARITY	packages/ui/src/v2/styles/tailwind.css
 FORK_DELTA	packages/ui/src/v2/styles/theme.css
 PARITY	packages/ui/sst-env.d.ts
+UPSTREAM_ONLY	packages/ui/test/solid-jsx.ts
 PARITY	packages/ui/tsconfig.build.json
 PARITY	packages/ui/tsconfig.json
 LAGGING	packages/ui/vite.config.ts
@@ -7025,6 +7036,7 @@ PARITY	README.uk.md
 PARITY	README.vi.md
 PARITY	README.zh.md
 PARITY	README.zht.md
+FORK_ONLY	ROADMAP.md
 PARITY	screenshot-uk.png
 FORK_DELTA	script/beta.ts
 PARITY	script/changelog.ts
