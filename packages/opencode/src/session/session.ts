@@ -419,6 +419,8 @@ export const getUsage = (input: { model: Provider.Model; usage: Usage; metadata?
     (input.model.cost?.experimentalOver200K && contextTokens > 200_000
       ? input.model.cost.experimentalOver200K
       : input.model.cost)
+  // Anthropic bills one-hour cache writes at twice the base input price; the catalog cache_write is the five-minute price.
+  const write1h = Math.min(tokens.cache.write1h ?? 0, tokens.cache.write)
   const totalNanoAiu = input.metadata?.["copilot"]?.["totalNanoAiu"]
   return {
     cost:
@@ -429,7 +431,8 @@ export const getUsage = (input: { model: Provider.Model; usage: Usage; metadata?
               .add(new Decimal(tokens.input).mul(finite(costInfo?.input ?? 0)).div(1_000_000))
               .add(new Decimal(tokens.output).mul(finite(costInfo?.output ?? 0)).div(1_000_000))
               .add(new Decimal(tokens.cache.read).mul(finite(costInfo?.cache?.read ?? 0)).div(1_000_000))
-              .add(new Decimal(tokens.cache.write).mul(finite(costInfo?.cache?.write ?? 0)).div(1_000_000))
+              .add(new Decimal(write1h).mul(finite(costInfo?.input ?? 0)).mul(2).div(1_000_000))
+              .add(new Decimal(tokens.cache.write - write1h).mul(finite(costInfo?.cache?.write ?? 0)).div(1_000_000))
               // TODO: update models.dev to have better pricing model, for now:
               // charge reasoning tokens at the same rate as output tokens
               .add(new Decimal(tokens.reasoning).mul(finite(costInfo?.output ?? 0)).div(1_000_000))

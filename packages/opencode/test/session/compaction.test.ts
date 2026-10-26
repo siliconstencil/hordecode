@@ -1703,6 +1703,25 @@ describe("SessionNs.getUsage", () => {
     expect(result.tokens.cache).toEqual({ read: 0, write: 3000, write5m: 1000, write1h: 2000 })
   })
 
+  test("prices one-hour cache writes at twice the input price and the rest at the cache write price", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const priced = (cost: object) => ({ ...model, cost: { input: 1, output: 0, cache: { read: 0, write: 1.25 }, ...cost } })
+    const write = (m: typeof model, split?: Record<string, number>, total = 1_000_000) =>
+      SessionNs.getUsage({
+        model: m,
+        usage: usage({ inputTokens: total, outputTokens: 0, totalTokens: total }),
+        metadata: {
+          anthropic: { cacheCreationInputTokens: total, ...(split ? { usage: { cache_creation: split } } : {}) },
+        },
+      }).cost
+    expect(write(priced({}), { ephemeral_1h_input_tokens: 1_000_000 })).toBe(2)
+    expect(write(priced({}), { ephemeral_5m_input_tokens: 1_000_000 })).toBe(1.25)
+    expect(write(priced({}))).toBe(1.25)
+    expect(write(priced({}), { ephemeral_5m_input_tokens: 500_000, ephemeral_1h_input_tokens: 500_000 })).toBe(1.625)
+    const tiered = priced({ tiers: [{ tier: { type: "context", size: 10 }, input: 3, output: 0, cache: { read: 0, write: 3.75 } }] })
+    expect(write(tiered, { ephemeral_1h_input_tokens: 1_000_000 })).toBe(6)
+  })
+
   test("leaves the split out when the provider does not report it", () => {
     const model = createModel({ context: 100_000, output: 32_000 })
     const none = SessionNs.getUsage({ model, usage: usage({ inputTokens: 100, outputTokens: 10, totalTokens: 110 }) })
