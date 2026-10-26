@@ -1529,6 +1529,58 @@ describe("tool.shell delete confirmation", () => {
     }),
   )
 
+  it.live("an explicit external_directory deny stops an outside delete before the bash_delete ask", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      yield* runIn(
+        tmp,
+        Effect.gen(function* () {
+          const outside = path.join(path.parse(tmp).root, "hordecode-outside-test", "x")
+          const probes: Array<{ permission: string; patterns: string[] }> = []
+          const err = new Error("external directory denied")
+          const requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" | "tool">> = []
+          expect(
+            yield* fail(
+              { command: `rm ${outside}` },
+              {
+                ...capture(requests),
+                denied: (input: { permission: string; patterns: string[] }) =>
+                  Effect.sync(() => {
+                    probes.push(input)
+                    if (input.permission === "external_directory") throw err
+                  }),
+              },
+            ),
+          ).toMatchObject({ message: err.message })
+          expect(probes.map((item) => item.permission)).toEqual(["bash", "external_directory"])
+          expect(probes[1].patterns).toEqual([path.join(path.dirname(outside), "*")])
+          expect(requests).toEqual([])
+        }),
+      )
+    }),
+  )
+
+  it.live("a delete outside the project with no deny rule still asks bash_delete", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      yield* runIn(
+        tmp,
+        Effect.gen(function* () {
+          const outside = path.join(path.parse(tmp).root, "hordecode-outside-test", "x")
+          const requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" | "tool">> = []
+          const err = new Error("stop after permission")
+          expect(
+            yield* fail(
+              { command: `rm ${outside}` },
+              { ...capture(requests, err), denied: () => Effect.void },
+            ),
+          ).toMatchObject({ message: err.message })
+          expect(requests.map((item) => item.permission)).toEqual(["bash_delete"])
+        }),
+      )
+    }),
+  )
+
   it.live("skips bash_delete ask for a delete confined to a temp root outside the project", () =>
     Effect.gen(function* () {
       const tmp = yield* tmpdirScoped()

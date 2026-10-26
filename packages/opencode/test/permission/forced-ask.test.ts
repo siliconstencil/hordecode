@@ -198,3 +198,27 @@ it.instance(
     }),
   { git: true },
 )
+
+it.instance(
+  "deny-only probe is denied by an explicit external_directory deny rule",
+  () =>
+    Effect.gen(function* () {
+      const err = yield* fail(
+        ask({
+          sessionID: SessionID.make("session_test"),
+          permission: "external_directory",
+          patterns: ["/outside/*"],
+          metadata: {},
+          always: [],
+          denyOnly: true,
+          ruleset: [
+            { permission: "external_directory", pattern: "*", action: "ask" },
+            { permission: "external_directory", pattern: "/outside/*", action: "deny" },
+          ],
+        }),
+      )
+      expect(err).toBeInstanceOf(PermissionV1.DeniedError)
+      expect(yield* (yield* Permission.Service).list()).toHaveLength(0)
+    }),
+  { git: true },
+)

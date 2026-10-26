@@ -359,13 +359,16 @@ const parse = Effect.fn("ShellTool.parse")(function* (command: string, ps: boole
   return tree
 })
 
+const dirGlobs = (directories: string[]) =>
+  directories.map((dir) => {
+    if (process.platform === "win32") return FSUtil.normalizePathPattern(path.join(dir, "*"))
+    return path.join(dir, "*")
+  })
+
 const ask = Effect.fn("ShellTool.ask")(function* (ctx: Tool.Context, scan: Scan, input: { command: string }) {
   if (scan.dirs.size > 0) {
     const directories = Array.from(scan.dirs)
-    const globs = directories.map((dir) => {
-      if (process.platform === "win32") return FSUtil.normalizePathPattern(path.join(dir, "*"))
-      return path.join(dir, "*")
-    })
+    const globs = dirGlobs(directories)
     yield* ctx.ask({
       permission: "external_directory",
       patterns: globs,
@@ -916,9 +919,14 @@ export const ShellTool = Tool.define(
                     (ctx.autoApproveDelete ? yield* ctx.autoApproveDelete() : false) ||
                     (yield* tmpOnlyDelete(tree.rootNode, cwd, ps, shell, instanceCtx))
                   if (!skipDeleteAsk) {
-                    // askDelete replaces the regular bash ask, so an explicit bash deny rule is evaluated here first.
+                    // askDelete replaces the regular bash and external_directory asks, so explicit deny rules are evaluated here first.
                     // MiMo Code 0.1.11 tool/bash.ts:871-878 goes straight to askDelete; upstream v1.19.3 shell.ts:284 has no delete ask.
-                    if (ctx.denied) yield* ctx.denied({ permission: ShellID.ToolID, patterns: Array.from(scan.patterns) })
+                    if (ctx.denied) {
+                      yield* ctx.denied({ permission: ShellID.ToolID, patterns: Array.from(scan.patterns) })
+                      // The same holds for an explicit external_directory deny on the outside directories the scan found.
+                      if (scan.dirs.size > 0)
+                        yield* ctx.denied({ permission: "external_directory", patterns: dirGlobs(Array.from(scan.dirs)) })
+                    }
                     yield* askDelete(ctx, scan, params.command)
                   } else {
                     yield* ask(ctx, scan, params)
