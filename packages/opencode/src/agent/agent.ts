@@ -60,6 +60,9 @@ export const Info = Schema.Struct({
       providerID: ProviderV2.ID,
     }),
   ),
+  // Model group name (config `model_groups`) when the agent's `model` is not provider/model.
+  // `model` then carries the group default; session/prompt.ts resolves the group per turn.
+  modelRef: Schema.optional(Schema.String),
   variant: Schema.optional(Schema.String),
   prompt: Schema.optional(Schema.String),
   completionGate: Schema.optional(Schema.Boolean),
@@ -464,7 +467,18 @@ const layer = Layer.effect(
               options: {},
               native: false,
             }
-          if (value.model) item.model = Provider.parseModel(value.model)
+          if (value.model) {
+            // Fork: a non-"/" value is a model group name. Citations: MiMo
+            // packages/opencode/src/agent/agent.ts:468-470; fork twin packages/agent/src/agent.ts:450-452.
+            if (value.model.includes("/")) {
+              item.model = Provider.parseModel(value.model)
+              item.modelRef = undefined
+            } else {
+              const group = cfg.model_groups?.[value.model]
+              item.modelRef = value.model
+              item.model = group ? Provider.parseModel(typeof group === "string" ? group : group.default) : undefined
+            }
+          }
           item.variant = value.variant ?? item.variant
           item.prompt = value.prompt ?? item.prompt
           item.description = value.description ?? item.description

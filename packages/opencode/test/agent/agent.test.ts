@@ -247,6 +247,71 @@ it.instance(
 )
 
 it.instance(
+  "agent model group name resolves to group default and keeps modelRef",
+  () =>
+    Effect.gen(function* () {
+      const custom = yield* load((svc) => svc.get("grouped"))
+      expect(custom?.modelRef).toBe("standard")
+      expect(String(custom?.model?.providerID)).toBe("anthropic")
+      expect(String(custom?.model?.modelID)).toBe("claude-x")
+    }),
+  {
+    config: {
+      model_groups: { standard: "anthropic/claude-x" },
+      agent: { grouped: { model: "standard", description: "Grouped agent" } },
+    },
+  },
+)
+
+it.instance(
+  "agent model group object form resolves to its default member",
+  () =>
+    Effect.gen(function* () {
+      const custom = yield* load((svc) => svc.get("grouped"))
+      expect(custom?.modelRef).toBe("fast")
+      expect(String(custom?.model?.providerID)).toBe("openai")
+      expect(String(custom?.model?.modelID)).toBe("gpt-y")
+    }),
+  {
+    config: {
+      model_groups: { fast: { default: "openai/gpt-y", models: ["openai/gpt-y"] } },
+      agent: { grouped: { model: "fast", description: "Grouped agent" } },
+    },
+  },
+)
+
+it.instance(
+  "agent literal provider/model sets model and no modelRef",
+  () =>
+    Effect.gen(function* () {
+      const custom = yield* load((svc) => svc.get("literal"))
+      expect(custom?.modelRef).toBeUndefined()
+      expect(String(custom?.model?.providerID)).toBe("anthropic")
+      expect(String(custom?.model?.modelID)).toBe("claude-x")
+    }),
+  {
+    config: {
+      agent: { literal: { model: "anthropic/claude-x", description: "Literal agent" } },
+    },
+  },
+)
+
+it.instance(
+  "agent unknown model group keeps modelRef and leaves model unset",
+  () =>
+    Effect.gen(function* () {
+      const custom = yield* load((svc) => svc.get("missing"))
+      expect(custom?.modelRef).toBe("nope")
+      expect(custom?.model).toBeUndefined()
+    }),
+  {
+    config: {
+      agent: { missing: { model: "nope", description: "Missing group agent" } },
+    },
+  },
+)
+
+it.instance(
   "agent disable removes agent from list",
   () =>
     Effect.gen(function* () {

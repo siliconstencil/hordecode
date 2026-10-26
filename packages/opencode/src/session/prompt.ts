@@ -685,7 +685,8 @@ const layer = Layer.effect(
               yield* events.publish(Session.Event.Error, { sessionID: input.sessionID, error: error.toObject() })
               throw error
             }
-            const model = input.model ?? agent.model ?? (yield* currentModel(input.sessionID))
+            const model =
+              input.model ?? (yield* agentModel(agent)) ?? (yield* currentModel(input.sessionID))
             const userMsg: SessionV1.User = {
               id: input.messageID ?? MessageID.ascending(),
               sessionID: input.sessionID,
@@ -851,6 +852,20 @@ const layer = Layer.effect(
       return yield* provider.defaultModel().pipe(Effect.orDie)
     })
 
+    // Resolves an agent's model group (agent.modelRef) for this turn. MiMo resolves it the same way:
+    // packages/opencode/src/session/prompt.ts:1899-1904 and :2144-2150. Fork: an unknown group logs one
+    // warning and falls back to the agent's static model (the group default) instead of ending the prompt;
+    // any other defect still dies.
+    const agentModel = Effect.fnUntraced(function* (ag: Agent.Info, contextProviderID?: ProviderV2.ID) {
+      if (!ag.modelRef) return ag.model
+      const exit = yield* provider.resolveModelRef(ag.modelRef, contextProviderID).pipe(Effect.exit)
+      if (Exit.isSuccess(exit)) return { providerID: exit.value.providerID, modelID: exit.value.id }
+      const err = Cause.squash(exit.cause)
+      if (!Provider.ModelGroupNotFoundError.isInstance(err)) return yield* Effect.die(err)
+      yield* Effect.logWarning("agent model group not found, using fallback", { agent: ag.name, group: ag.modelRef })
+      return ag.model
+    })
+
     const createUserMessage = Effect.fn("SessionPrompt.createUserMessage")(function* (input: PromptInput) {
       const current = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
       const agentName = input.agent ?? current.agent
@@ -863,8 +878,12 @@ const layer = Layer.effect(
         throw error
       }
 
-      const model = input.model ?? ag.model ?? (yield* currentModel(input.sessionID))
-      const same = ag.model && model.providerID === ag.model.providerID && model.modelID === ag.model.modelID
+      const resolvedAgentModel = yield* agentModel(ag, input.model?.providerID)
+      const model = input.model ?? resolvedAgentModel ?? (yield* currentModel(input.sessionID))
+      const same =
+        resolvedAgentModel &&
+        model.providerID === resolvedAgentModel.providerID &&
+        model.modelID === resolvedAgentModel.modelID
       const full =
         !input.variant && ag.variant && same
           ? yield* provider
@@ -2355,7 +2374,8 @@ const layer = Layer.effect(
         if (cmd.model) return Provider.parseModel(cmd.model)
         if (cmd.agent) {
           const cmdAgent = yield* agents.get(cmd.agent)
-          if (cmdAgent?.model) return cmdAgent.model
+          const cmdModel = cmdAgent ? yield* agentModel(cmdAgent) : undefined
+          if (cmdModel) return cmdModel
         }
         if (input.model) return Provider.parseModel(input.model)
         return yield* currentModel(input.sessionID)
