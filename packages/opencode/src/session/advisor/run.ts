@@ -39,6 +39,7 @@ export function stateFor(sessionID: string, maxNotes?: number) {
   if (existing) {
     sessions.delete(sessionID)
     sessions.set(sessionID, existing)
+    existing.guard.setMaxNotes(maxNotes)
     return existing
   }
   if (sessions.size >= SESSION_LIMIT) {

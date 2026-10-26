@@ -98,3 +98,14 @@ describe("emission guard", () => {
     expect(guard.admit([n("concern", "charlie charlie charlie")], "nit")).toEqual([])
   })
 })
+
+describe("setMaxNotes", () => {
+  test("a changed budget applies to the next admit", () => {
+    const guard = new EmissionGuard({ maxNotes: 1 })
+    const notes = (prefix: string) =>
+      [1, 2, 3].map((i) => ({ severity: "concern" as const, note: `${prefix} distinct advisory note number ${i}` }))
+    expect(guard.admit(notes("first"), "nit").length).toBe(1)
+    guard.setMaxNotes(3)
+    expect(guard.admit(notes("second"), "nit").length).toBe(3)
+  })
+})

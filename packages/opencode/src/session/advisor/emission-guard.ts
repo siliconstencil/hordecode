@@ -38,7 +38,7 @@ function count(value: number | undefined, fallback: number) {
 }
 
 export class EmissionGuard {
-  private readonly maxNotes: number
+  private maxNotes: number
   private readonly historyLimit: number
   // dedupe key -> highest severity admitted so far. Map insertion order is the recency order.
   private readonly history = new Map<string, Severity>()
@@ -46,6 +46,11 @@ export class EmissionGuard {
   constructor(opts: { maxNotes?: number; historyLimit?: number } = {}) {
     this.maxNotes = count(opts.maxNotes, DEFAULT_MAX_NOTES)
     this.historyLimit = Math.max(1, count(opts.historyLimit, DEFAULT_HISTORY_LIMIT))
+  }
+
+  // The config can change while a session runs; the next review uses the new budget.
+  setMaxNotes(maxNotes: number | undefined) {
+    this.maxNotes = count(maxNotes, DEFAULT_MAX_NOTES)
   }
 
   admit(notes: Note[], minSeverity: Severity): Note[] {
