@@ -1,5 +1,6 @@
 import { createStore } from "solid-js/store"
 import { createSimpleContext } from "./helper"
+import { pickAgent } from "../util/default-agent"
 import { batch, createEffect, createMemo, createSignal } from "solid-js"
 import { useSync } from "./sync"
 import { useEvent } from "./event"
@@ -99,7 +100,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           return agents()
         },
         current() {
-          return agents().find((x) => x.name === agentStore.current) ?? agents().at(0)
+          return pickAgent({ agents: agents(), selected: agentStore.current, configured: sync.data.config.default_agent })
         },
         set(name: string) {
           if (!agents().some((x) => x.name === name))
