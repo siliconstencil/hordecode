@@ -4,7 +4,8 @@
  * Current consumers:
  * - packages/supervisor/src/spawn.ts:6 (SessionPrompt.Service at :200,
  *   SessionPrompt.defaultLayer at :789)
- * - packages/opencode/src/session/prompt.ts:20 (applyHarnessInjection)
+ * - applyHarnessInjection now lives in ./harness-injection.ts (re-exported here); the runtime
+ *   packages/opencode/src/session/prompt.ts imports it from there so idle serve does not load this file for it
  * - packages/opencode/src/session/session.ts:522-523 (injectScheduledPrompt
  *   via dynamic import)
  * - 8 test/compatibility files (7 type-import: Prompt, AgentAttachment,
@@ -73,8 +74,6 @@ import { TuiEvent } from "../cli/cmd/tui/event"
 import { Plugin } from "../plugin"
 import BUILD_SWITCH from "../session/prompt/build-switch.txt"
 import MAX_STEPS from "../session/prompt/max-steps.txt"
-import PROMPT_HARNESS from "../session/prompt/harness.txt"
-import PROMPT_RESEARCH from "../session/prompt/research.txt"
 import {
   RECOVERY_PROMPT_MILD,
   RECOVERY_PROMPT_STRONG,
@@ -89,7 +88,7 @@ import {
   TEXT_NGRAM_RECOVERY_REMIND,
   TEXT_NGRAM_RECOVERY_REPLAN,
 } from "../session/prompt/text-ngram-detection"
-import { harnessSkillsBlock, modeSkillsBlock } from "@opencode-ai/skill/harness/extract"
+import { harnessSkillsBlock } from "@opencode-ai/skill/harness/extract"
 import { builtinSkillRoot, matchDocumentSkills } from "../skill/builtin/extract"
 import { ToolRegistry } from "../tool/registry"
 import { LSP } from "../lsp"
@@ -100,7 +99,7 @@ import * as CrossSpawnSpawner from "../effect/cross-spawn-spawner"
 import * as Stream from "effect/Stream"
 import { CommandV2 } from "../command"
 import { pathToFileURL, fileURLToPath } from "url"
-import { ConfigMarkdown, ConfigHarness } from "../config/index"
+import { ConfigMarkdown } from "../config/index"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@opencode-ai/shared/util/error"
 import { SessionProcessor } from "./processor"
@@ -132,7 +131,6 @@ import { Cause, Effect, Exit, Layer, Option, Scope, Context, Schema } from "effe
 import { EffectLogger } from "../effect"
 import { InstanceState } from "../effect"
 import type { SupervisorPromptOps } from "./supervisor-prompt-ops"
-import type { InstanceContext } from "@opencode-ai/project/instance"
 import { SessionRunState } from "./run-state"
 import { Goal } from "./goal"
 import { TaskGate, MAX_TASK_GATE_MAIN_REACT } from "@opencode-ai/task/gate"
@@ -313,47 +311,8 @@ export const CommandInput = Schema.Struct({
 })
 export type CommandInput = Schema.Schema.Type<typeof CommandInput>
 
-/**
- * Mode-driven skill pipeline injection: when the session agent has a
- * `skillPipeline` field (e.g. "harness", "research"), inject the
- * corresponding mode prompt with its skills block into the latest user
- * message. Exported so both core and opencode can consume it.
- */
-const MODE_PROMPTS: Record<string, string> = {
-  harness: PROMPT_HARNESS,
-  research: PROMPT_RESEARCH,
-}
-
-export const applyHarnessInjection = Effect.fn("SessionPrompt.applyHarnessInjection")(function* (
-  msgs: MessageV2.WithParts[],
-  agent: Agent.Info,
-  cfg: Config.Info,
-  ctx: InstanceContext,
-) {
-  const pipeline = agent.skillPipeline
-  if (!pipeline) return
-
-  const userMsg = msgs.findLast((msg) => msg.info.role === "user")
-  if (!userMsg) return
-
-  const promptText = MODE_PROMPTS[pipeline]
-  if (!promptText) return
-
-  const skillsBlock = modeSkillsBlock(pipeline)
-  const harnessCfg = cfg.harness
-  const docsDir = ConfigHarness.resolveDocsDir(ctx.worktree, harnessCfg)
-  const text = promptText
-    .replace("{{harness_skills}}", skillsBlock)
-    .replace("{{harness_docs_dir}}", `Save ${pipeline} skill outputs: specs in \`${path.join(docsDir, "specs")}\`, plans in \`${path.join(docsDir, "plans")}\`, reports in \`${path.join(docsDir, "reports")}\`.`)
-  userMsg.parts.unshift({
-    id: PartID.ascending(),
-    messageID: userMsg.info.id,
-    sessionID: userMsg.info.sessionID,
-    type: "text",
-    text,
-    synthetic: true,
-  })
-})
+export { applyHarnessInjection } from "./harness-injection"
+import { applyHarnessInjection } from "./harness-injection"
 
 // ---------------------------------------------------------------------------
 // Interface
