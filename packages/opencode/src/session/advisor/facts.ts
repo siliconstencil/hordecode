@@ -83,7 +83,15 @@ export function collectFacts(messages: Message[], contextLimit: number | undefin
     if (key !== undefined) files.add(key)
   })
 
-  const errors = tools.flatMap((part) => (part.state.status === "error" ? [part.state.error] : []))
+  // A tool error, or a completed shell call that exited non-zero (bash reports metadata.exit and
+  // metadata.output; a failed command is not a tool error). The output stands in as the error text.
+  const errors = tools.flatMap((part) => {
+    if (part.state.status === "error") return [part.state.error]
+    if (part.state.status !== "completed") return []
+    const metadata = (part.state.metadata ?? {}) as { exit?: unknown; output?: unknown }
+    if (typeof metadata.exit !== "number" || metadata.exit === 0) return []
+    return [`exit ${metadata.exit}: ${typeof metadata.output === "string" ? metadata.output : ""}`]
+  })
   const counts = new Map<string, number>()
   for (const error of errors) {
     const key = errorKey(error)

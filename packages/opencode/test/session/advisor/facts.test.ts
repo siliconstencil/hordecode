@@ -130,3 +130,28 @@ describe("collectFacts", () => {
     expect(collectFacts([user("hi")], 1000).contextPercent).toBeNull()
   })
 })
+
+describe("shell exit codes", () => {
+  function shell(exit: number, output: string): Msg {
+    return {
+      info: { id: "a", role: "assistant", sessionID: "s" },
+      parts: [
+        {
+          type: "tool",
+          tool: "bash",
+          callID: `c-${Math.random()}`,
+          state: { status: "completed", input: {}, output, metadata: { exit, output }, title: "", time: { start: 0, end: 0 } },
+        },
+      ],
+    } as unknown as Msg
+  }
+
+  test("a completed bash call with a non-zero exit counts as a failure", () => {
+    const facts = collectFacts(
+      [user("go"), shell(1, "cat: a.txt: No such file"), shell(1, "cat: a.txt: No such file"), shell(0, "ok")],
+      undefined,
+    )
+    expect(facts.toolFailures).toBe(2)
+    expect(facts.maxSameError).toBe(2)
+  })
+})
