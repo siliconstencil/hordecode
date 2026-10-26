@@ -29,7 +29,7 @@ export class NonInteractiveDeniedError extends PermissionV1.DeniedError {
   }
 }
 
-// A permission ask that no human ever answers resolves as DENY after this bound.
+// A permission ask that no human ever answers fails with a timeout error after this bound (no allow, the tool call is not run).
 const DEFAULT_PERMISSION_TIMEOUT = 5 * 60 * 1000
 
 // In skip-all mode a forced-ask permission (bash_delete) still needs a human, who is likely
@@ -53,7 +53,7 @@ export interface Interface {
 
 interface PendingEntry {
   info: PermissionV1.Request
-  deferred: Deferred.Deferred<void, PermissionV1.RejectedError | PermissionV1.CorrectedError>
+  deferred: Deferred.Deferred<void, PermissionV1.RejectedError | PermissionV1.CorrectedError | PermissionV1.TimeoutError>
 }
 
 interface State {
@@ -220,7 +220,7 @@ const layer = Layer.effect(
       }
       yield* Effect.logInfo("asking", { id, permission: info.permission, patterns: info.patterns })
 
-      const deferred = yield* Deferred.make<void, PermissionV1.RejectedError | PermissionV1.CorrectedError>()
+      const deferred = yield* Deferred.make<void, PermissionV1.RejectedError | PermissionV1.CorrectedError | PermissionV1.TimeoutError>()
       pending.set(id, { info, deferred })
       yield* events.publish(Event.Asked, info)
 
@@ -267,8 +267,24 @@ const layer = Layer.effect(
                   yield* Deferred.fail(deferred, error)
                   return yield* error
                 }
-                yield* Deferred.fail(deferred, new PermissionV1.RejectedError())
-                return yield* new PermissionV1.RejectedError()
+                // Close the prompt in every client and tell the model what happened: this is not a user decision, so the
+                // session keeps running and the tool result carries the timeout sentence.
+                yield* events.publish(Event.Replied, {
+                  sessionID: info.sessionID,
+                  requestID: info.id,
+                  reply: "reject",
+                })
+                const timeout = new PermissionV1.TimeoutError({
+                  seconds: Math.round(timeoutMs / 1000),
+                  command: info.permission === "bash",
+                })
+                yield* Effect.logWarning("permission request timed out", {
+                  sessionID: info.sessionID,
+                  id: info.id,
+                  permission: info.permission,
+                })
+                yield* Deferred.fail(deferred, timeout)
+                return yield* timeout
               }),
           }),
         ),

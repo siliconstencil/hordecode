@@ -18,6 +18,16 @@ export class CorrectedError extends Schema.TaggedErrorClass<CorrectedError>()("P
   }
 }
 
+// No reply arrived within the wait bound. The message is shown in the transcript and returned to the model as the tool result.
+export class TimeoutError extends Schema.TaggedErrorClass<TimeoutError>()("PermissionTimeoutError", {
+  seconds: Schema.Number,
+  command: Schema.Boolean,
+}) {
+  override get message() {
+    return `Permission request timed out after ${this.seconds}s, ${this.command ? "command" : "tool call"} not run.`
+  }
+}
+
 export class DeniedError extends Schema.TaggedErrorClass<DeniedError>()("PermissionDeniedError", {
   ruleset: Schema.Any,
 }) {
@@ -30,4 +40,4 @@ export class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()("Per
   requestID: ID,
 }) {}
 
-export type Error = DeniedError | RejectedError | CorrectedError
+export type Error = DeniedError | RejectedError | CorrectedError | TimeoutError

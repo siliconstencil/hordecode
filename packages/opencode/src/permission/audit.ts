@@ -54,6 +54,7 @@ function outcome(exit: Exit.Exit<void, PermissionV1.Error>) {
   if (error.value instanceof NonInteractiveDeniedError) return "deny_non_interactive"
   if (error.value._tag === "PermissionDeniedError") return "deny"
   if (error.value._tag === "PermissionCorrectedError") return "reject_with_feedback"
+  if (error.value._tag === "PermissionTimeoutError") return "timeout"
   return "reject"
 }
 
