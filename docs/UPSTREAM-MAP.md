@@ -20,7 +20,7 @@ Reference points:
 | kept (upstream removed) | Hordecode still carries a file upstream deleted | Decide per file at the next port. |
 | UPSTREAM_ONLY | present in 1.19.4, absent here | Not yet ported (deliberately dropped: `packages/console`, `packages/stats`). |
 
-Totals: PARITY 4476, LAGGING 452, FORK_DELTA 693, FORK_ONLY 1171, FORK_KEPT_UPSTREAM_REMOVED 8, UPSTREAM_ONLY 299.
+Totals: PARITY 4939, LAGGING 55, FORK_DELTA 896, FORK_ONLY 1214, FORK_KEPT_UPSTREAM_REMOVED 5, UPSTREAM_ONLY 33.
 
 ## Packages that are entirely Hordecode's
 
@@ -32,21 +32,22 @@ agent, bus, control-plane, cron, global, inbox, memory, project, shared, skill, 
 
 | path | parity | lagging | fork delta | fork only | kept (upstream removed) | upstream only |
 |---|---|---|---|---|---|---|
-| packages/core | 371 | 0 | 117 | 330 | 0 | 5 |
-| packages/opencode | 597 | 0 | 233 | 184 | 0 | 8 |
-| packages/tui | 121 | 1 | 117 | 135 | 0 | 5 |
-| packages/web | 554 | 94 | 55 | 0 | 0 | 2 |
-| packages/ui | 1542 | 53 | 45 | 0 | 0 | 57 |
-| packages/app | 265 | 206 | 39 | 0 | 5 | 133 |
+| packages/core | 369 | 0 | 119 | 332 | 0 | 5 |
+| packages/opencode | 596 | 0 | 234 | 211 | 0 | 8 |
+| packages/tui | 121 | 1 | 117 | 141 | 0 | 5 |
+| packages/desktop | 140 | 0 | 165 | 3 | 1 | 1 |
+| packages/app | 549 | 14 | 81 | 0 | 4 | 0 |
+| packages/web | 635 | 13 | 57 | 0 | 0 | 0 |
+| packages/ui | 1651 | 0 | 45 | 0 | 0 | 1 |
 | packages/server | 27 | 0 | 4 | 14 | 0 | 0 |
-| packages/desktop | 197 | 40 | 11 | 1 | 1 | 58 |
 | packages/cli | 22 | 0 | 3 | 7 | 0 | 0 |
 | packages/client | 11 | 0 | 10 | 0 | 0 | 0 |
 | packages/plugin | 35 | 0 | 6 | 4 | 0 | 1 |
 | packages/schema | 67 | 0 | 7 | 0 | 0 | 0 |
 | packages/sdk | 42 | 0 | 6 | 0 | 0 | 0 |
-| packages/enterprise | 17 | 15 | 4 | 0 | 0 | 0 |
+| packages/enterprise | 18 | 14 | 4 | 0 | 0 | 0 |
 | packages/protocol | 23 | 0 | 3 | 0 | 0 | 0 |
+| packages/session-ui | 117 | 0 | 3 | 0 | 0 | 0 |
 | packages/function | 2 | 0 | 2 | 0 | 0 | 2 |
 | packages/sdk-next | 7 | 0 | 2 | 0 | 0 | 0 |
 | packages/slack | 5 | 0 | 2 | 0 | 0 | 0 |
@@ -55,7 +56,6 @@ agent, bus, control-plane, cron, global, inbox, memory, project, shared, skill, 
 | packages/http-recorder | 23 | 0 | 1 | 0 | 0 | 0 |
 | packages/httpapi-codegen | 15 | 0 | 1 | 0 | 0 | 0 |
 | packages/llm | 151 | 0 | 1 | 0 | 0 | 0 |
-| packages/session-ui | 69 | 30 | 1 | 0 | 2 | 18 |
 | packages/storybook | 17 | 8 | 1 | 0 | 0 | 2 |
 | packages/containers | 8 | 0 | 0 | 0 | 0 | 0 |
 | packages/docs | 23 | 1 | 0 | 0 | 0 | 0 |
@@ -70,8 +70,8 @@ A package with zero LAGGING and zero UPSTREAM_ONLY rows is at parity. Packages w
 | path | parity | lagging | fork delta | fork only | kept (upstream removed) | upstream only |
 |---|---|---|---|---|---|---|
 | .github | 31 | 0 | 5 | 3 | 0 | 0 |
-| script | 14 | 1 | 3 | 2 | 0 | 2 |
-| docs | 0 | 0 | 0 | 4 | 0 | 0 |
+| docs | 0 | 0 | 0 | 6 | 0 | 0 |
+| script | 14 | 1 | 3 | 3 | 0 | 2 |
 | patches | 19 | 0 | 1 | 1 | 0 | 0 |
 | .gitignore | 0 | 0 | 1 | 0 | 0 | 0 |
 | .husky | 0 | 0 | 1 | 0 | 0 | 0 |
