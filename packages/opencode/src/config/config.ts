@@ -317,10 +317,23 @@ const layer = Layer.effect(
       const gitignore = path.join(dir, ".gitignore")
       const hasIgnore = yield* fs.existsSafe(gitignore)
       if (!hasIgnore) {
+        // Upstream (opencode v1.19.4 packages/opencode/src/config/config.ts:317) lists the first five
+        // entries. The cron runtime files follow MiMo Code 0.1.11 packages/opencode/src/config/gitignore.ts:4-12
+        // (.cron-lock, scheduled_tasks.json); session_scheduled_tasks.json is the fork's session-scoped
+        // cron store (packages/cron/src/cron-task.ts:117). All three stay out of the user's git status.
         yield* fs
           .writeFileString(
             gitignore,
-            ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
+            [
+              "node_modules",
+              "package.json",
+              "package-lock.json",
+              "bun.lock",
+              ".gitignore",
+              ".cron-lock",
+              "scheduled_tasks.json",
+              "session_scheduled_tasks.json",
+            ].join("\n"),
           )
           .pipe(
             Effect.catchIf(
