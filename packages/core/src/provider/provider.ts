@@ -5,6 +5,7 @@ import { Config } from "../config/index"
 import { mapValues, mergeDeep, omit, pickBy, sortBy } from "remeda"
 import { NoSuchModelError, type Provider as SDK } from "ai"
 import { Log } from "../util"
+import { markPrice } from "./price-sanity"
 import { Npm } from "../npm"
 import { Hash } from "@opencode-ai/shared/util/hash"
 import { Service as PluginService, defaultLayer as PluginDefaultLayer } from "../plugin"
@@ -883,6 +884,8 @@ const ProviderCost = Schema.Struct({
   input: Schema.Number,
   output: Schema.Number,
   cache: ProviderCacheCost,
+  // Set when the catalog price fails the sanity rule; the prices are kept as given.
+  suspect: Schema.optional(Schema.Boolean),
   experimentalOver200K: Schema.optional(
     Schema.Struct({
       input: Schema.Number,
@@ -1019,7 +1022,7 @@ function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model
     status: model.status ?? "active",
     headers: {},
     options: {},
-    cost: cost(model.cost),
+    cost: markPrice(`${provider.id}/${model.id}`, cost(model.cost)),
     limit: {
       context: model.limit.context,
       input: model.limit.input,
@@ -1224,14 +1227,18 @@ const layer: Layer.Layer<
                     ? { field: "reasoning_content" }
                     : false),
               },
-              cost: {
-                input: model?.cost?.input ?? existingModel?.cost?.input ?? 0,
-                output: model?.cost?.output ?? existingModel?.cost?.output ?? 0,
-                cache: {
-                  read: model?.cost?.cache_read ?? existingModel?.cost?.cache?.read ?? 0,
-                  write: model?.cost?.cache_write ?? existingModel?.cost?.cache?.write ?? 0,
+              cost: markPrice(
+                `${providerID}/${modelID}`,
+                {
+                  input: model?.cost?.input ?? existingModel?.cost?.input ?? 0,
+                  output: model?.cost?.output ?? existingModel?.cost?.output ?? 0,
+                  cache: {
+                    read: model?.cost?.cache_read ?? existingModel?.cost?.cache?.read ?? 0,
+                    write: model?.cost?.cache_write ?? existingModel?.cost?.cache?.write ?? 0,
+                  },
                 },
-              },
+                { override: model?.cost !== undefined },
+              ),
               options: mergeDeep(existingModel?.options ?? {}, model.options ?? {}),
               limit: {
                 context: (() => {

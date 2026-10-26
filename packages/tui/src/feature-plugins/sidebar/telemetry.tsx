@@ -4,6 +4,7 @@ import type { BuiltinTuiPlugin } from "../builtins"
 import { createMemo, createSignal, onCleanup, createEffect, Show } from "solid-js"
 import { streamingTPS, completedTPS, formatTPS } from "../../util/tps"
 import { contextUsage } from "../../util/context-usage"
+import { costSuspect, withEstimate } from "../../util/cost-estimate"
 
 const id = "internal:sidebar-telemetry"
 
@@ -56,6 +57,10 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
   const messages = createMemo(() => props.api.state.session.messages(props.session_id) ?? [])
   const session = createMemo(() => props.api.state.session.get(props.session_id))
   const cost = createMemo(() => session()?.cost ?? 0)
+  const costEstimated = createMemo(() => {
+    const last = messages().findLast((m): m is AssistantMessage => m.role === "assistant")
+    return costSuspect(props.api.state.provider, last?.providerID, last?.modelID)
+  })
   const [now, setNow] = createSignal(Date.now())
 
   const assistants = createMemo(() =>
@@ -268,7 +273,7 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
           <box flexDirection="row" justifyContent="space-between">
             <text fg={theme().text}>{"Usage   ".padEnd(8)}</text>
             <text fg={theme().textMuted}>
-              <span style={{ fg: theme().text }}>{money.format(cost())}</span> spent · {formatTokens(totalTokens())} tkn
+              <span style={{ fg: theme().text }}>{withEstimate(money.format(cost()), costEstimated())}</span> spent · {formatTokens(totalTokens())} tkn
             </text>
           </box>
         </box>

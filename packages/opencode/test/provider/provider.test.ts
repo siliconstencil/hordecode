@@ -735,6 +735,36 @@ it.instance(
   },
 )
 
+it.instance(
+  "a config cost override is trusted even when it fails the price sanity rule",
+  Effect.gen(function* () {
+    const providers = yield* list
+    const model = providers[ProviderV2.ID.make("test-provider")].models["test-model"]
+    expect(model.cost.cache.read).toBe(0.1)
+    expect(model.cost.suspect).toBeUndefined()
+  }),
+  {
+    config: {
+      provider: {
+        "test-provider": {
+          name: "Test",
+          npm: "@ai-sdk/openai-compatible",
+          env: [],
+          models: {
+            "test-model": {
+              name: "Test Model",
+              tool_call: true,
+              limit: { context: 8000, output: 2000 },
+              cost: { input: 2, output: 10, cache_read: 0.1, cache_write: 2.5 },
+            },
+          },
+          options: { apiKey: "test" },
+        },
+      },
+    },
+  },
+)
+
 // getSmallModel routes through the `lite` tier (model_groups port, ):
 // an explicit `small_model` literal wins first (back-compat), otherwise it
 // resolves resolveModelRef("lite") — a configured `lite` group (provider-aware),
