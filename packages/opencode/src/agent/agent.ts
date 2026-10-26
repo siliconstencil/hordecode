@@ -22,6 +22,7 @@ import PROMPT_EXPLORE from "./prompt/explore.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
 import { Permission } from "@/permission"
+import { ProtectedPath } from "@/permission/protected-path"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@opencode-ai/core/global"
 import path from "path"
@@ -106,7 +107,7 @@ export const use = serviceUse(Service)
 // session approval could introduce. Every permission-evaluation site routes
 // through this — there is no per-agent name special-casing.
 export function runtimePermission(agent: Info, permission?: PermissionV1.Ruleset): PermissionV1.Ruleset {
-  return Permission.merge(agent.permission ?? [], permission ?? [], agent.hardPermission ?? [])
+  return Permission.merge(agent.permission ?? [], permission ?? [], agent.hardPermission ?? [], ProtectedPath.ruleset())
 }
 
 const layer = Layer.effect(

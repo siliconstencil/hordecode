@@ -25,6 +25,7 @@ import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { ShellPrompt, type Parameters } from "./shell/prompt"
 import { BashArity } from "@/permission/arity"
+import { ProtectedPath } from "@/permission/protected-path"
 import * as BashInteractive from "./bash-interactive"
 
 export { Parameters } from "./shell/prompt"
@@ -156,6 +157,7 @@ type Part = {
 
 type Scan = {
   dirs: Set<string>
+  protected: Set<string>
   patterns: Set<string>
   always: Set<string>
   deletes: Set<string>
@@ -576,6 +578,7 @@ export const ShellTool = Tool.define(
     ) {
       const scan: Scan = {
         dirs: new Set<string>(),
+        protected: new Set<string>(),
         patterns: new Set<string>(),
         always: new Set<string>(),
         deletes: new Set<string>(),
@@ -603,6 +606,17 @@ export const ShellTool = Tool.define(
         }
 
         if (isDelete(tokens, ps)) scan.deletes.add(source(node))
+
+        for (const word of tokens.slice(1)) {
+          const file = ProtectedPath.matchWord(word, cwd)
+          if (file) scan.protected.add(file)
+        }
+      }
+
+      for (const node of root.descendantsOfType("file_redirect")) {
+        const target = node?.childForFieldName("destination")
+        const file = target && ProtectedPath.matchWord(target.text, cwd)
+        if (file) scan.protected.add(file)
       }
 
       return scan
@@ -839,6 +853,7 @@ export const ShellTool = Tool.define(
                   )
                   const scan = yield* collect(tree.rootNode, cwd, ps, shell, instanceCtx)
                   if (!containsPath(cwd, instanceCtx)) scan.dirs.add(cwd)
+                  yield* ProtectedPath.assert(ctx, scan.protected)
                   // Delete-containing commands are authorized by askDelete alone --
                   // the delete UI shows the full command (including any external
                   // paths it touches), so a separate bash/external_directory

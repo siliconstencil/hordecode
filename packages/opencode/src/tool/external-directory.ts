@@ -5,6 +5,7 @@ import type * as Tool from "./tool"
 import { containsPath } from "../project/instance-context"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Global } from "@opencode-ai/core/global"
+import { ProtectedPath } from "@/permission/protected-path"
 import { Config } from "@/config/config"
 import { isMemoryWriteEnabled } from "@/memory/write-gate"
 import { assertAgentWriteSandbox, assertMemoryWriteAllowed } from "@opencode-ai/core/tool/memory-path-guard"
@@ -22,6 +23,9 @@ export const assertExternalDirectoryEffect = Effect.fn("Tool.assertExternalDirec
   options?: Options,
 ) {
   if (!target) return false
+
+  // Credential files are denied before every exemption below, bypass included.
+  yield* ProtectedPath.assert(ctx, [target])
 
   if (options?.bypass) return false
 
