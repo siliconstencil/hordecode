@@ -1,9 +1,12 @@
+import type { JSX } from "solid-js"
 import { useTheme } from "../context/theme"
+import { useLanguage } from "../context/language"
 import { useDialog, type DialogContext } from "../ui/dialog"
 import { DialogSelect, type DialogSelectOption } from "../ui/dialog-select"
 import { useSDK } from "../context/sdk"
 import { useSync } from "../context/sync"
 import { useToast } from "../ui/toast"
+import { dict } from "../i18n/en"
 
 // Fork addition (FORK_ONLY). Edits the `experimental.advisor` config key: an optional second model that
 // reviews the agent and leaves notes. The server reads the key on every step, so no restart is needed.
@@ -26,6 +29,8 @@ export type AdvisorSettings = {
 
 type ModelRef = { providerID: string; modelID: string }
 
+type Translate = (key: string, vars?: Record<string, string | number>) => string
+
 type AdvisorRow = "enabled" | "model" | "sensitivity" | "notes"
 
 // The generated SDK config type does not carry `experimental.advisor` yet, so it is declared here.
@@ -33,23 +38,36 @@ type ConfigWithAdvisor = {
   experimental?: { advisor?: AdvisorSettings }
 }
 
-const SENSITIVITY_OPTIONS: { value: AdvisorSensitivity; title: string; description: string }[] = [
+type SensitivityOption = { value: AdvisorSensitivity; titleKey: string; descriptionKey: string }
+
+const SENSITIVITY_OPTIONS: SensitivityOption[] = [
   {
     value: "low",
-    title: "Low",
-    description: "Quiet: only clear trouble (12 files, 4 failures, 85% context)",
+    titleKey: "tui.advisor.sensitivity.low.title",
+    descriptionKey: "tui.advisor.sensitivity.low.description",
   },
   {
     value: "default",
-    title: "Default",
-    description: "Balanced (8 files, 3 failures, 70% context)",
+    titleKey: "tui.advisor.sensitivity.default.title",
+    descriptionKey: "tui.advisor.sensitivity.default.description",
   },
   {
     value: "high",
-    title: "High",
-    description: "Watchful (5 files, 2 failures, 60% context)",
+    titleKey: "tui.advisor.sensitivity.high.title",
+    descriptionKey: "tui.advisor.sensitivity.high.description",
   },
 ]
+
+// English fallback for callers without a language context (the pure helpers and their tests).
+// Reads the English dictionary and interpolates {{name}} the same way the language context does.
+const englishT: Translate = (key, vars) => {
+  const template = dict[key] ?? key
+  if (!vars) return template
+  return template.replace(/\{\{(\w+)\}\}/g, (match, name: string) => {
+    const value = vars[name]
+    return value !== undefined ? String(value) : match
+  })
+}
 
 // Pure: the config patch written by the dialog. Unknown keys of `current` are kept. Exported for tests.
 export function advisorPatch(current: AdvisorSettings, change: Partial<AdvisorSettings>) {
@@ -61,19 +79,23 @@ export function advisorPatch(current: AdvisorSettings, change: Partial<AdvisorSe
 }
 
 // Pure: row titles for the main view. Exported for tests.
-export function advisorSummary(settings: AdvisorSettings) {
-  const sensitivity = SENSITIVITY_OPTIONS.find((option) => option.value === settings.sensitivity)?.title ?? "Default"
-  const notes =
+export function advisorSummary(settings: AdvisorSettings, t: Translate = englishT) {
+  const sensitivityTitle =
+    SENSITIVITY_OPTIONS.find((option) => option.value === settings.sensitivity)?.titleKey ??
+    "tui.advisor.sensitivity.default.title"
+  const notesKey =
     settings.min_severity === "nit"
-      ? "all"
+      ? "tui.advisor.notes.all"
       : settings.min_severity === "blocker"
-        ? "blockers only"
-        : "important only"
+        ? "tui.advisor.notes.blockers"
+        : "tui.advisor.notes.important"
   return {
-    enabled: settings.enabled ? "Advisor: On" : "Advisor: Off",
-    model: `Model: ${settings.model ? settings.model : "not set"}`,
-    sensitivity: `Sensitivity: ${sensitivity}`,
-    notes: `Notes: ${notes}`,
+    enabled: t(settings.enabled ? "tui.advisor.enabled.on" : "tui.advisor.enabled.off"),
+    model: settings.model
+      ? t("tui.advisor.model", { value: settings.model })
+      : t("tui.advisor.model_not_set"),
+    sensitivity: t("tui.advisor.sensitivity", { value: t(sensitivityTitle) }),
+    notes: t(notesKey),
   }
 }
 
@@ -93,6 +115,7 @@ function parseModel(model: string | undefined): ModelRef | undefined {
 async function saveAdvisor(
   sdk: ReturnType<typeof useSDK>,
   toast: ReturnType<typeof useToast>,
+  t: Translate,
   current: AdvisorSettings,
   change: Partial<AdvisorSettings>,
 ): Promise<AdvisorSettings | undefined> {
@@ -106,12 +129,39 @@ async function saveAdvisor(
     toast.show({ variant: "error", message: err instanceof Error ? err.message : String(err) })
     return undefined
   }
-  toast.show({ variant: "success", message: "Advisor updated.", duration: 3000 })
+  toast.show({ variant: "success", message: t("tui.advisor.updated"), duration: 3000 })
   return { ...current, ...change }
+}
+
+// Opens a sub-picker in place of the main view. Esc in the picker returns to the main view: dialog.replace
+// calls the onClose given here when the picker is closed without a selection. A selection sets `done`
+// before it navigates, so the picker's own navigation does not re-open the main view a second time.
+function openSubPicker(
+  dialog: DialogContext,
+  settings: AdvisorSettings | undefined,
+  render: (setDone: (value: boolean) => void) => JSX.Element,
+) {
+  let done = false
+  const setDone = (value: boolean) => {
+    done = value
+  }
+  dialog.replace(
+    () => render(setDone),
+    () => {
+      if (done) return
+      done = true
+      // Back to the main view only when the picker left an empty stack (Esc); if another dialog
+      // replaced it (for example a permission prompt), leave that dialog alone.
+      queueMicrotask(() => {
+        if (dialog.stack.length === 0) DialogAdvisor.show(dialog, settings)
+      })
+    },
+  )
 }
 
 export function DialogAdvisor(props: { settings?: AdvisorSettings }) {
   const dialog = useDialog()
+  const t = useLanguage().t
   const sdk = useSDK()
   const sync = useSync()
   const toast = useToast()
@@ -127,20 +177,20 @@ export function DialogAdvisor(props: { settings?: AdvisorSettings }) {
       DialogAdvisorModel.show(dialog, current, true)
       return
     }
-    const next = await saveAdvisor(sdk, toast, current, { enabled })
+    const next = await saveAdvisor(sdk, toast, t, current, { enabled })
     if (next) DialogAdvisor.show(dialog, next)
   }
 
   async function toggleNotes() {
     const current = settings()
     const min_severity: AdvisorMinSeverity = current.min_severity === "nit" ? "concern" : "nit"
-    const next = await saveAdvisor(sdk, toast, current, { min_severity })
+    const next = await saveAdvisor(sdk, toast, t, current, { min_severity })
     if (next) DialogAdvisor.show(dialog, next)
   }
 
   const options = (): DialogSelectOption<AdvisorRow>[] => {
     const current = settings()
-    const summary = advisorSummary(current)
+    const summary = advisorSummary(current, t)
     return [
       { value: "enabled", title: summary.enabled, onSelect: () => void toggleEnabled() },
       { value: "model", title: summary.model, onSelect: () => DialogAdvisorModel.show(dialog, settings()) },
@@ -153,32 +203,39 @@ export function DialogAdvisor(props: { settings?: AdvisorSettings }) {
     ]
   }
 
-  return <DialogSelect<AdvisorRow> title="Advisor" flat={true} options={options()} />
+  return <DialogSelect<AdvisorRow> title={t("tui.advisor.title")} flat={true} options={options()} />
 }
 
 DialogAdvisor.show = (dialog: DialogContext, settings?: AdvisorSettings) => {
   dialog.replace(() => <DialogAdvisor settings={settings} />)
 }
 
-export function DialogAdvisorSensitivity(props: { settings: AdvisorSettings }) {
+export function DialogAdvisorSensitivity(props: {
+  settings: AdvisorSettings
+  setDone: (value: boolean) => void
+}) {
   const dialog = useDialog()
+  const t = useLanguage().t
   const sdk = useSDK()
   const toast = useToast()
 
   async function choose(value: AdvisorSensitivity) {
-    const next = await saveAdvisor(sdk, toast, props.settings, { sensitivity: value })
+    // Set before the save so the picker's close does not re-open the main view; undone if the save fails.
+    props.setDone(true)
+    const next = await saveAdvisor(sdk, toast, t, props.settings, { sensitivity: value })
     if (next) DialogAdvisor.show(dialog, next)
+    else props.setDone(false)
   }
 
   return (
     <DialogSelect<AdvisorSensitivity>
-      title="Advisor sensitivity"
+      title={t("tui.advisor.sensitivity_title")}
       flat={true}
       current={props.settings.sensitivity ?? "default"}
       options={SENSITIVITY_OPTIONS.map((option) => ({
         value: option.value,
-        title: option.title,
-        description: option.description,
+        title: t(option.titleKey),
+        description: t(option.descriptionKey),
         onSelect: () => void choose(option.value),
       }))}
     />
@@ -186,12 +243,17 @@ export function DialogAdvisorSensitivity(props: { settings: AdvisorSettings }) {
 }
 
 DialogAdvisorSensitivity.show = (dialog: DialogContext, settings: AdvisorSettings) => {
-  dialog.replace(() => <DialogAdvisorSensitivity settings={settings} />)
+  openSubPicker(dialog, settings, (setDone) => <DialogAdvisorSensitivity settings={settings} setDone={setDone} />)
 }
 
-export function DialogAdvisorModel(props: { settings: AdvisorSettings; enableOnSelect?: boolean }) {
+export function DialogAdvisorModel(props: {
+  settings: AdvisorSettings
+  enableOnSelect?: boolean
+  setDone: (value: boolean) => void
+}) {
   const dialog = useDialog()
   const { theme } = useTheme()
+  const t = useLanguage().t
   const sdk = useSDK()
   const sync = useSync()
   const toast = useToast()
@@ -199,8 +261,11 @@ export function DialogAdvisorModel(props: { settings: AdvisorSettings; enableOnS
   async function choose(ref: ModelRef) {
     const change: Partial<AdvisorSettings> = { model: `${ref.providerID}/${ref.modelID}` }
     if (props.enableOnSelect) change.enabled = true
-    const next = await saveAdvisor(sdk, toast, props.settings, change)
+    // Set before the save so the picker's close does not re-open the main view; undone if the save fails.
+    props.setDone(true)
+    const next = await saveAdvisor(sdk, toast, t, props.settings, change)
     if (next) DialogAdvisor.show(dialog, next)
+    else props.setDone(false)
   }
 
   const options = (): DialogSelectOption<ModelRef>[] => {
@@ -223,13 +288,13 @@ export function DialogAdvisorModel(props: { settings: AdvisorSettings; enableOnS
 
   return (
     <DialogSelect<ModelRef>
-      title="Advisor model"
+      title={t("tui.advisor.model_title")}
       flat={true}
       current={parseModel(props.settings.model)}
       options={options()}
       emptyView={
         <box paddingLeft={4} paddingRight={4} paddingTop={1}>
-          <text fg={theme.textMuted}>No connected provider. Connect one with /connect first.</text>
+          <text fg={theme.textMuted}>{t("tui.advisor.no_provider")}</text>
         </box>
       }
     />
@@ -237,5 +302,7 @@ export function DialogAdvisorModel(props: { settings: AdvisorSettings; enableOnS
 }
 
 DialogAdvisorModel.show = (dialog: DialogContext, settings: AdvisorSettings, enableOnSelect?: boolean) => {
-  dialog.replace(() => <DialogAdvisorModel settings={settings} enableOnSelect={enableOnSelect} />)
+  openSubPicker(dialog, settings, (setDone) => (
+    <DialogAdvisorModel settings={settings} enableOnSelect={enableOnSelect} setDone={setDone} />
+  ))
 }

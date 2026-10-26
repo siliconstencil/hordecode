@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { advisorPatch, advisorSummary } from "../../src/component/dialog-advisor"
+import { dict as en } from "../../src/i18n/en"
+import { dict as tr } from "../../src/i18n/tr"
 
 describe("dialog advisor", () => {
   test("advisorPatch keeps unknown keys and applies the change", () => {
@@ -57,5 +59,26 @@ describe("dialog advisor", () => {
     expect(advisorSummary({ min_severity: "concern" }).notes).toBe("Notes: important only")
     expect(advisorSummary({}).notes).toBe("Notes: important only")
     expect(advisorSummary({ min_severity: "blocker" }).notes).toBe("Notes: blockers only")
+  })
+
+  test("advisorSummary passes keys and interpolation values to a translate function", () => {
+    const fake = (key: string, vars?: Record<string, string | number>) =>
+      vars ? `${key}|${JSON.stringify(vars)}` : key
+    expect(
+      advisorSummary({ enabled: true, model: "openai/gpt-5", sensitivity: "high", min_severity: "nit" }, fake),
+    ).toEqual({
+      enabled: "tui.advisor.enabled.on",
+      model: 'tui.advisor.model|{"value":"openai/gpt-5"}',
+      sensitivity: 'tui.advisor.sensitivity|{"value":"tui.advisor.sensitivity.high.title"}',
+      notes: "tui.advisor.notes.all",
+    })
+    expect(advisorSummary({}, fake).model).toBe("tui.advisor.model_not_set")
+    expect(advisorSummary({ min_severity: "blocker" }, fake).notes).toBe("tui.advisor.notes.blockers")
+  })
+
+  test("every advisor key in the Turkish dictionary exists in English", () => {
+    const keys = Object.keys(tr).filter((key) => key.startsWith("tui.advisor."))
+    expect(keys.length).toBeGreaterThan(0)
+    for (const key of keys) expect(en[key]).toBeDefined()
   })
 })
