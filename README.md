@@ -50,8 +50,8 @@ plugin process.
 
 | Part | Follows | Notes |
 | --- | --- | --- |
-| core, CLI, server, TUI, SDK and the small packages | opencode 1.19.3 | ported as a whole at each base bump |
-| web, desktop and shared UI packages | opencode 1.17.18 | ported in their own step |
+| core, CLI, server, TUI, SDK and the small packages | opencode 1.19.4 | ported as a whole at each base bump |
+| web, desktop and shared UI packages | opencode 1.19.4 | ported in their own step |
 | supervisor, harness, memory, inbox, cron, workflow, skill, task and the other fork packages | Hordecode | fork-only; supervisor and harness are customized ports of the MiMo Code designs (parity 0.1.11) |
 
 Hordecode 0.1.x stays on the opencode 1.x line; each base bump ports a newer 1.x release
@@ -81,7 +81,7 @@ Upgrade an existing install with the method it was installed with:
 
 ```bash
 horde upgrade            # latest
-horde upgrade 0.1.1      # a specific version
+horde upgrade 0.1.3      # a specific version
 ```
 
 > [!WARNING]
@@ -96,7 +96,7 @@ archive against the release's `SHA256SUMS`, installs into `~/.hordecode/bin` and
 directory to your shell profile unless you pass `--no-modify-path`.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/siliconstencil/hordecode/main/install | bash -s -- --version 0.1.1
+curl -fsSL https://raw.githubusercontent.com/siliconstencil/hordecode/main/install | bash -s -- --version 0.1.3
 curl -fsSL https://raw.githubusercontent.com/siliconstencil/hordecode/main/install | bash -s -- --no-modify-path
 ./install --binary /path/to/hordecode     # install a locally built binary
 ```
@@ -112,15 +112,16 @@ Set `HORDECODE_RELEASE_BASE` to install from a mirror of the GitHub releases.
 | --- | --- | --- |
 | linux-x64 | `hordecode-linux-x64` | verified target; ships the on-device embedding index |
 | linux-x64 (no AVX2) | `hordecode-linux-x64-baseline` | |
-| linux-x64 musl | `hordecode-linux-x64-musl`, `-baseline-musl` | Alpine and other musl systems |
-| linux-arm64 | `hordecode-linux-arm64`, `-musl` | |
-| darwin-arm64 | `hordecode-darwin-arm64` | |
+| linux-x64 musl | `hordecode-linux-x64-musl`, `-baseline-musl` | Alpine and other musl systems; keyword memory search (BM25) |
+| linux-arm64 | `hordecode-linux-arm64`, `-musl` | the glibc package ships the on-device embedding index |
+| darwin-arm64 | `hordecode-darwin-arm64` | ships the on-device embedding index |
 | darwin-x64 | `hordecode-darwin-x64`, `-baseline` | keyword memory search (BM25) |
-| windows-x64 | `hordecode-windows-x64`, `-baseline` | install with npm |
-| windows-arm64 | `hordecode-windows-arm64` | use npm |
+| windows-x64 | `hordecode-windows-x64`, `-baseline` | install with npm; ships the on-device embedding index |
+| windows-arm64 | `hordecode-windows-arm64` | use npm; ships the on-device embedding index |
 
 The `hordecode` npm package selects the right platform package at install time. Every
-target has keyword memory search (BM25); linux-x64 adds the on-device embedding index.
+target has keyword memory search (BM25); every target except the musl packages and darwin-x64
+also ships the on-device embedding index.
 
 </details>
 
@@ -133,7 +134,7 @@ Fork features surface as tools the agent can call, not as extra CLI commands:
 - **task** and **workflow**: units of work, and declared multi-step workflows.
 - **memory-add / memory-recall / memory-update / memory-session / memory-status /
   memory-dump / memory-gc**: persistent project memory. With `memory.embedding`
-  enabled (linux-x64) recall uses an on-device embedding index; otherwise BM25.
+  enabled recall uses an on-device embedding index where the package ships one; otherwise BM25.
 - **skill** and **skill-search**: discover and load skills from the user and project
   skill directories; the bundled research pipeline ships as a skill set.
 - **cron**: scheduled runs.
@@ -169,7 +170,7 @@ Memory recall is keyword search (BM25) out of the box and needs no download. Sem
 
 On first use Hordecode downloads the embedding model once (about 133 MB) into its cache
 directory; recall uses keyword search while the model loads, then becomes hybrid
-(keyword + semantic). The on-device index ships in the linux-x64 package; other targets use
+(keyword + semantic). The on-device index ships in every package except the musl ones and darwin-x64, which use
 keyword search. `memory-status` reports the current
 mode and vector count, and `horde debug embedding-check` verifies the pipeline.
 
