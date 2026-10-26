@@ -5,7 +5,7 @@ import { createMemo, createSignal, onCleanup, createEffect, Show } from "solid-j
 import { streamingTPS, completedTPS, formatTPS } from "../../util/tps"
 import { contextUsage } from "../../util/context-usage"
 import { costSuspect, withEstimate } from "../../util/cost-estimate"
-import { cacheLabel, cacheState, type CacheTTL } from "../../util/cache-state"
+import { cacheLineFor, type CacheTTL } from "../../util/cache-state"
 
 const id = "internal:sidebar-telemetry"
 
@@ -119,14 +119,7 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
     const model = props.api.state.provider.find((item) => item.id === l.providerID)?.models[l.modelID] as
       | { cachePromptTTL?: CacheTTL; cost?: { cache?: { write?: number }; suspect?: boolean } }
       | undefined
-    const state = cacheState({
-      start: l.time.created,
-      tokens: l.tokens,
-      ttl: model?.cachePromptTTL,
-      now: tick(),
-      writePrice: model?.cost?.cache?.write,
-    })
-    return cacheLabel(state, model?.cost?.suspect === true)
+    return cacheLineFor({ providerID: l.providerID, start: l.time.created, tokens: l.tokens, model, now: tick() })
   })
 
   const contextStats = createMemo(() => {

@@ -356,6 +356,19 @@ export function plan(input: { slug: string; time: { created: number } }, instanc
   return path.join(base, [input.time.created, input.slug].join("-") + ".md")
 }
 
+// Anthropic splits cache writes by lifetime in `usage.cache_creation`; the AI SDK passes the raw usage object through
+// provider metadata. Both fields are left out when the provider does not report them.
+export function cacheWriteSplit(metadata: ProviderMetadata | undefined) {
+  const raw = (metadata?.["anthropic"]?.["usage"] as { cache_creation?: Record<string, unknown> } | undefined)?.cache_creation
+  const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined)
+  const write5m = count(raw?.["ephemeral_5m_input_tokens"])
+  const write1h = count(raw?.["ephemeral_1h_input_tokens"])
+  return {
+    ...(write5m === undefined ? {} : { write5m }),
+    ...(write1h === undefined ? {} : { write1h }),
+  }
+}
+
 export const getUsage = (input: { model: Provider.Model; usage: Usage; metadata?: ProviderMetadata }) => {
   const finite = (value: number) => (Number.isFinite(value) ? value : 0)
   const safe = (value: number) => Math.max(0, finite(value))
@@ -394,6 +407,7 @@ export const getUsage = (input: { model: Provider.Model; usage: Usage; metadata?
     cache: {
       write: cacheWriteInputTokens,
       read: cacheReadInputTokens,
+      ...cacheWriteSplit(input.metadata),
     },
   }
 

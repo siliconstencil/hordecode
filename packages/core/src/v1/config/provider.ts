@@ -77,6 +77,8 @@ export const Model = Schema.Struct({
   ),
   experimental: Schema.optional(Schema.Boolean),
   status: Schema.optional(ModelStatus),
+  // Anthropic prompt cache lifetime for this model; 5m is the provider default.
+  cachePromptTTL: Schema.optional(Schema.Literals(["5m", "1h"])),
   provider: Schema.optional(
     Schema.Struct({ npm: Schema.optional(Schema.String), api: Schema.optional(Schema.String) }),
   ),

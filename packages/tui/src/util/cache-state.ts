@@ -52,3 +52,22 @@ export function cacheLabel(state: CacheState, estimated = false): string | undef
   const cost = state.cost === undefined ? "" : ` (~$${(Math.round(state.cost * 100 + 1e-6) / 100).toFixed(2)}${estimated ? " est." : ""})`
   return `cold  next turn re-caches ~${tokenLabel(state.tokens)} tokens${cost}`
 }
+
+// The sidebar line for the last finished request. Only Anthropic's cache lifetimes are modelled, so other providers get none.
+export function cacheLineFor(input: {
+  providerID: string
+  start?: number
+  tokens?: { input: number; cache: { read: number; write: number } }
+  model?: { cachePromptTTL?: CacheTTL; cost?: { cache?: { write?: number }; suspect?: boolean } }
+  now: number
+}): string | undefined {
+  if (input.providerID !== "anthropic") return undefined
+  const state = cacheState({
+    start: input.start,
+    tokens: input.tokens,
+    ttl: input.model?.cachePromptTTL,
+    now: input.now,
+    writePrice: input.model?.cost?.cache?.write,
+  })
+  return cacheLabel(state, input.model?.cost?.suspect === true)
+}

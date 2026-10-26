@@ -1688,6 +1688,33 @@ describe("util.token.estimate", () => {
 })
 
 describe("SessionNs.getUsage", () => {
+  test("reads the Anthropic 5m and 1h cache write split when present", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const result = SessionNs.getUsage({
+      model,
+      usage: usage({ inputTokens: 5000, outputTokens: 10, totalTokens: 5010 }),
+      metadata: {
+        anthropic: {
+          cacheCreationInputTokens: 3000,
+          usage: { cache_creation: { ephemeral_5m_input_tokens: 1000, ephemeral_1h_input_tokens: 2000 } },
+        },
+      },
+    })
+    expect(result.tokens.cache).toEqual({ read: 0, write: 3000, write5m: 1000, write1h: 2000 })
+  })
+
+  test("leaves the split out when the provider does not report it", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const none = SessionNs.getUsage({ model, usage: usage({ inputTokens: 100, outputTokens: 10, totalTokens: 110 }) })
+    expect(none.tokens.cache).toEqual({ read: 0, write: 0 })
+    const partial = SessionNs.getUsage({
+      model,
+      usage: usage({ inputTokens: 100, outputTokens: 10, totalTokens: 110 }),
+      metadata: { anthropic: { usage: { cache_creation: { ephemeral_1h_input_tokens: 40, ephemeral_5m_input_tokens: "x" } } } },
+    })
+    expect(partial.tokens.cache).toEqual({ read: 0, write: 0, write1h: 40 })
+  })
+
   test("normalizes standard usage to token format", () => {
     const model = createModel({ context: 100_000, output: 32_000 })
     const result = SessionNs.getUsage({

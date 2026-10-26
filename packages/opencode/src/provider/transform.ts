@@ -429,12 +429,15 @@ function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage
   const system = msgs.filter((msg) => msg.role === "system").slice(0, 2)
   const final = msgs.filter((msg) => msg.role !== "system").slice(-2)
 
+  // Only Anthropic and OpenRouter take a TTL; the others ignore an unknown `ttl`, so it is threaded only there
+  // (same shape as core provider/transform.ts:339-341).
+  const ttl = model.cachePromptTTL === "1h" ? { ttl: "1h" as const } : {}
   const providerOptions = {
     anthropic: {
-      cacheControl: { type: "ephemeral" },
+      cacheControl: { type: "ephemeral", ...ttl },
     },
     openrouter: {
-      cacheControl: { type: "ephemeral" },
+      cacheControl: { type: "ephemeral", ...ttl },
     },
     bedrock: {
       cachePoint: { type: "default" },

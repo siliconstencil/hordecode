@@ -262,6 +262,9 @@ export const StepFinishPart = Schema.Struct({
     cache: Schema.Struct({
       read: Schema.Finite,
       write: Schema.Finite,
+      // Anthropic reports how much of the write used each cache lifetime; absent for other providers and old sessions.
+      write5m: Schema.optional(Schema.Finite),
+      write1h: Schema.optional(Schema.Finite),
     }),
   }),
 }).annotate({ identifier: "StepFinishPart" })
@@ -491,6 +494,9 @@ export const Assistant = Schema.Struct({
     cache: Schema.Struct({
       read: Schema.Finite,
       write: Schema.Finite,
+      // Anthropic reports how much of the write used each cache lifetime; absent for other providers and old sessions.
+      write5m: Schema.optional(Schema.Finite),
+      write1h: Schema.optional(Schema.Finite),
     }),
   }),
   structured: Schema.optional(Schema.Any),

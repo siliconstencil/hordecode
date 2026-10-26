@@ -765,6 +765,34 @@ it.instance(
   },
 )
 
+it.instance(
+  "model cachePromptTTL from config reaches the model",
+  Effect.gen(function* () {
+    const providers = yield* list
+    const models = providers[ProviderV2.ID.make("test-provider")].models
+    expect(models["long"].cachePromptTTL).toBe("1h")
+    expect(models["short"].cachePromptTTL).toBe("5m")
+    expect(models["plain"].cachePromptTTL).toBeUndefined()
+  }),
+  {
+    config: {
+      provider: {
+        "test-provider": {
+          name: "Test",
+          npm: "@ai-sdk/openai-compatible",
+          env: [],
+          models: {
+            long: { name: "Long", tool_call: true, limit: { context: 8000, output: 2000 }, cachePromptTTL: "1h" },
+            short: { name: "Short", tool_call: true, limit: { context: 8000, output: 2000 }, cachePromptTTL: "5m" },
+            plain: { name: "Plain", tool_call: true, limit: { context: 8000, output: 2000 } },
+          },
+          options: { apiKey: "test" },
+        },
+      },
+    },
+  },
+)
+
 // getSmallModel routes through the `lite` tier (model_groups port, ):
 // an explicit `small_model` literal wins first (back-compat), otherwise it
 // resolves resolveModelRef("lite") — a configured `lite` group (provider-aware),

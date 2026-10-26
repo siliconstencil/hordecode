@@ -1153,6 +1153,7 @@ export const Model = Schema.Struct({
   headers: Schema.Record(Schema.String, Schema.String),
   release_date: Schema.String,
   variants: optional(Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.Any))),
+  cachePromptTTL: optional(Schema.Literals(["5m", "1h"])),
 }).annotate({ identifier: "Model" })
 export type Model = Types.DeepMutable<Schema.Schema.Type<typeof Model>>
 
@@ -1641,6 +1642,7 @@ const layer = Layer.effect(
                 },
                 { override: model?.cost !== undefined },
               ),
+              cachePromptTTL: model.cachePromptTTL ?? existingModel?.cachePromptTTL,
               options: mergeDeep(existingModel?.options ?? {}, model.options ?? {}),
               limit: {
                 context: model.limit?.context ?? existingModel?.limit?.context ?? 0,

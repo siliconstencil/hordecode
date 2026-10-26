@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { cacheLabel, cacheState } from "../../src/util/cache-state"
+import { cacheLabel, cacheLineFor, cacheState } from "../../src/util/cache-state"
 
 const start = 1_000_000
 const cached = { input: 3_000, cache: { read: 150_000, write: 37_000 } }
@@ -41,5 +41,18 @@ describe("cache state", () => {
     expect(cacheState({ start, now: start, tokens: { input: 9, cache: { read: 0, write: 0 } } })).toEqual({ kind: "unknown" })
     expect(cacheState({ tokens: cached, now: start })).toEqual({ kind: "unknown" })
     expect(cacheLabel({ kind: "unknown" })).toBeUndefined()
+  })
+})
+
+describe("cache line by provider", () => {
+  const base = { start, tokens: cached, now: start + 59_000 }
+
+  test("an Anthropic model shows the line and honors the model TTL", () => {
+    expect(cacheLineFor({ ...base, providerID: "anthropic" })).toBe("warm 04:01")
+    expect(cacheLineFor({ ...base, providerID: "anthropic", model: { cachePromptTTL: "1h" } })).toBe("warm 59:01")
+  })
+
+  test("other providers show no line even with cache tokens", () => {
+    for (const providerID of ["openai", "openrouter", "amazon-bedrock", "google"]) expect(cacheLineFor({ ...base, providerID })).toBeUndefined()
   })
 })

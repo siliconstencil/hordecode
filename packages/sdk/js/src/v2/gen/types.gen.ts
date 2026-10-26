@@ -371,6 +371,8 @@ export type AssistantMessage = {
     cache: {
       read: number
       write: number
+      write5m?: number
+      write1h?: number
     }
   }
   structured?: unknown
@@ -573,6 +575,8 @@ export type StepFinishPart = {
     cache: {
       read: number
       write: number
+      write5m?: number
+      write1h?: number
     }
   }
 }

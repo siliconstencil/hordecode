@@ -3648,6 +3648,23 @@ describe("ProviderTransform.message - cache control on gateway", () => {
     expect(result[0].providerOptions).toBeUndefined()
   })
 
+  test("cachePromptTTL 1h reaches the Anthropic and OpenRouter cache control, 5m and unset do not add a ttl", () => {
+    const run = (cachePromptTTL?: "5m" | "1h") => {
+      const model = createModel({
+        providerID: "anthropic",
+        cachePromptTTL,
+        api: { id: "claude-sonnet-5", url: "https://api.anthropic.com", npm: "@ai-sdk/anthropic" },
+      } as any)
+      const msgs = [{ role: "system", content: "You are a helpful assistant" }, { role: "user", content: "Hello" }] as any[]
+      return (ProviderTransform.message(msgs, model, {}) as any[])[0].providerOptions
+    }
+    expect(run("1h").anthropic.cacheControl).toEqual({ type: "ephemeral", ttl: "1h" })
+    expect(run("1h").openrouter.cacheControl).toEqual({ type: "ephemeral", ttl: "1h" })
+    expect(run("1h").bedrock).toEqual({ cachePoint: { type: "default" } })
+    expect(run("5m").anthropic.cacheControl).toEqual({ type: "ephemeral" })
+    expect(run(undefined).anthropic.cacheControl).toEqual({ type: "ephemeral" })
+  })
+
   test("non-gateway anthropic keeps existing cache control behavior", () => {
     const model = createModel({
       providerID: "anthropic",
