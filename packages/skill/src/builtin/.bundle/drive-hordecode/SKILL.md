@@ -34,6 +34,7 @@ The launcher choice is orthogonal to the interface:
 
 - `which hordecode` (or repo with bun) and `which tmux` before starting.
 - Helper scripts must be invoked with `bash scripts/wait-for-text.sh ...` — they are not executable.
+- Wait for pane text with `bash scripts/wait-for-text.sh -t <session>:0.0 -p '<regex>' -T <seconds>` (exit 0 when the text appears, 1 on timeout); it needs bash and tmux, so it is POSIX-only (Linux and macOS, not native Windows).
 
 ## Dev Mode
 
