@@ -398,11 +398,11 @@ export const dict = {
   "trust.dangerous.option.no": "Cik (oneri len)",
 
   // Advisor dialog
-  "tui.advisor.title": "Danisman (advisor)",
-  "tui.advisor.model_title": "Danisman modeli",
-  "tui.advisor.sensitivity_title": "Danisman hassasiyeti",
-  "tui.advisor.enabled.on": "Danisman: Acik",
-  "tui.advisor.enabled.off": "Danisman: Kapali",
+  "tui.advisor.title": "Advisor",
+  "tui.advisor.model_title": "Advisor modeli",
+  "tui.advisor.sensitivity_title": "Advisor hassasiyeti",
+  "tui.advisor.enabled.on": "Advisor: Acik",
+  "tui.advisor.enabled.off": "Advisor: Kapali",
   "tui.advisor.model": "Model: {{value}}",
   "tui.advisor.model_not_set": "Model: secilmedi",
   "tui.advisor.sensitivity": "Hassasiyet: {{value}}",
@@ -415,6 +415,6 @@ export const dict = {
   "tui.advisor.notes.important": "Notlar: sadece onemliler",
   "tui.advisor.notes.all": "Notlar: hepsi",
   "tui.advisor.notes.blockers": "Notlar: sadece engelleyiciler",
-  "tui.advisor.updated": "Danisman guncellendi.",
+  "tui.advisor.updated": "Advisor guncellendi.",
   "tui.advisor.no_provider": "Bagli saglayici yok. Once /connect ile bir saglayici baglayin.",
 } satisfies Partial<Record<Keys, string>>
