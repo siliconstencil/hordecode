@@ -49,6 +49,21 @@ describe("signalUrl", () => {
   test("blank signal-specific endpoint falls back to the common endpoint", () => {
     expect(signalUrl("traces", { common: "http://c:4318", traces: "  " })).toBe("http://c:4318/v1/traces")
   })
+
+  test("metrics: common endpoint gets /v1/metrics", () => {
+    expect(signalUrl("metrics", { common: "http://c:4318" })).toBe("http://c:4318/v1/metrics")
+  })
+
+  test("metrics: signal-specific endpoint wins over the common one", () => {
+    const env = { common: "http://c:4318", metrics: "http://m:4318/custom" }
+    expect(signalUrl("metrics", env)).toBe("http://m:4318/custom")
+    expect(signalUrl("traces", env)).toBe("http://c:4318/v1/traces")
+  })
+
+  test("metrics: disabled SDK or no endpoint returns undefined", () => {
+    expect(signalUrl("metrics", {})).toBeUndefined()
+    expect(signalUrl("metrics", { common: "http://c:4318", metrics: "http://m:4318", disabled: true })).toBeUndefined()
+  })
 })
 
 describe("resource", () => {

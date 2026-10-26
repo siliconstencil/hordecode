@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { chatSpanAttributes, chatSpanName } from "../../src/session/chat-span"
+import { Effect, Metric } from "effect"
+import { chatSpanAttributes, chatSpanName, recordChatMetrics } from "../../src/session/chat-span"
 
 const tokens = { input: 100, output: 20, reasoning: 5, cache: { read: 30, write: 7 } }
 
@@ -76,5 +77,53 @@ describe("chatSpanAttributes", () => {
       expect(key).not.toMatch(/prompt|task|path|args|error|text|content/i)
       expect(typeof value === "string" || typeof value === "number").toBe(true)
     }
+  })
+})
+
+// Hordecode: model-call metrics. Each test uses its own provider id so the module-level
+// instruments, which are shared across tests, can be read as deltas.
+let seq = 0
+const freshProvider = () => `test-provider-${++seq}`
+
+const seriesFor = async (id: string, provider: string) =>
+  (await Effect.runPromise(Metric.snapshot)).filter(
+    (s) => s.id === id && s.attributes?.["gen_ai.provider.name"] === provider,
+  )
+
+const counterTotal = async (id: string, provider: string) =>
+  (await seriesFor(id, provider)).reduce((sum, s) => sum + (s.state as { count: number }).count, 0)
+
+describe("recordChatMetrics", () => {
+  test("increases the cost counter by the given cost", async () => {
+    const provider = freshProvider()
+    const before = await counterTotal("hordecode.chat.cost", provider)
+    await Effect.runPromise(recordChatMetrics({ ...base, providerID: provider, cost: 0.25 }))
+    expect((await counterTotal("hordecode.chat.cost", provider)) - before).toBeCloseTo(0.25, 10)
+  })
+
+  test("zero cost adds no cost series", async () => {
+    const provider = freshProvider()
+    await Effect.runPromise(recordChatMetrics({ ...base, providerID: provider, cost: 0 }))
+    expect(await seriesFor("hordecode.chat.cost", provider)).toHaveLength(0)
+  })
+
+  test("token usage records one observation per non-zero token type", async () => {
+    const provider = freshProvider()
+    await Effect.runPromise(
+      recordChatMetrics({ ...base, providerID: provider, tokens: { input: 100, output: 0, reasoning: 5, cache: { read: 30, write: 0 } } }),
+    )
+    const series = await seriesFor("gen_ai.client.token.usage", provider)
+    const types = series.map((s) => s.attributes?.["gen_ai.token.type"]).sort()
+    expect(types).toEqual(["cache_read", "input", "reasoning"])
+    const input = series.find((s) => s.attributes?.["gen_ai.token.type"] === "input")!
+    expect((input.state as { sum: number }).sum).toBeGreaterThanOrEqual(100)
+  })
+
+  test("duration is recorded only when latency is known", async () => {
+    const provider = freshProvider()
+    await Effect.runPromise(recordChatMetrics({ ...base, providerID: provider, latencyMs: null }))
+    expect(await seriesFor("hordecode.chat.duration", provider)).toHaveLength(0)
+    await Effect.runPromise(recordChatMetrics({ ...base, providerID: provider, latencyMs: 800 }))
+    expect((await seriesFor("hordecode.chat.duration", provider))[0]!.state).toMatchObject({ count: 1 })
   })
 })

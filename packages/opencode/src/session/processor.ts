@@ -31,8 +31,9 @@ import { SessionCallTable } from "@opencode-ai/core/session/call.sql"
 import { Metrics } from "@opencode-ai/core/metrics"
 import { Usage, type LLMEvent } from "@opencode-ai/llm"
 import { monitor as tryBestMonitor, type TryBestIncident } from "./try-best-detector"
-import { chatSpanAttributes, chatSpanName } from "./chat-span"
+import { chatSpanAttributes, chatSpanName, recordChatMetrics, type ChatSpanInput } from "./chat-span"
 import { Flag } from "@opencode-ai/core/flag/flag"
+import { Otlp } from "@opencode-ai/core/observability/otlp"
 
 const DOOM_LOOP_THRESHOLD = 3
 
@@ -716,7 +717,10 @@ const layer = Layer.effect(
               const derivedErrorType = ctx.stopErrorType ?? (finishReason === "error" ? (classifyError(value.reason) ?? "provider_error") : null)
               const derivedStopReason = ctx.stopReason ?? (finishReason === "stop" && ctx.blocked ? "blocked" : null)
               // Hordecode: one chat span per step with usage and cost (no content); exported only when OTLP is configured.
-              yield* Effect.void.pipe(Effect.withSpan(chatSpanName(modelId), { kind: "client", attributes: chatSpanAttributes({ providerID: providerId, modelID: modelId, sessionID: ctx.assistantMessage.sessionID, finishReason, tokens: usage.tokens, cost: usage.cost ?? 0, latencyMs, ttftMs }) }))
+              const chatInput: ChatSpanInput = { providerID: providerId, modelID: modelId, sessionID: ctx.assistantMessage.sessionID, finishReason, tokens: usage.tokens, cost: usage.cost ?? 0, latencyMs, ttftMs }
+              yield* Effect.void.pipe(Effect.withSpan(chatSpanName(modelId), { kind: "client", attributes: chatSpanAttributes(chatInput) }))
+              // Hordecode: model-call metrics, only when an OTLP metrics endpoint is configured.
+              if (Otlp.metricsEnabled) yield* recordChatMetrics(chatInput)
               yield* database.db
                 .insert(SessionCallTable)
                 .values({

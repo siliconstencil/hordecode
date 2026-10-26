@@ -1,18 +1,20 @@
-import { Layer } from "effect"
-import { OtlpLogger } from "effect/unstable/observability"
+import { Duration, Effect, Exit, Layer, Scope } from "effect"
+import { FetchHttpClient } from "effect/unstable/http"
+import { OtlpLogger, OtlpMetrics, OtlpSerialization } from "effect/unstable/observability"
 import { Flag } from "../flag/flag"
 import { InstallationChannel, InstallationVersion } from "../installation/version"
 import { runID } from "./shared"
 
-export type Signal = "traces" | "logs"
+export type Signal = "traces" | "logs" | "metrics"
 
 // OTel spec: signal endpoints are used as-is, the common endpoint gets /v1/<signal>
 export function signalUrl(
   signal: Signal,
-  env: { common?: string; traces?: string; logs?: string; disabled?: boolean } = {
+  env: { common?: string; traces?: string; logs?: string; metrics?: string; disabled?: boolean } = {
     common: Flag.OTEL_EXPORTER_OTLP_ENDPOINT,
     traces: Flag.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
     logs: Flag.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
+    metrics: Flag.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT,
     disabled: Flag.OTEL_SDK_DISABLED,
   },
 ): string | undefined {
@@ -26,6 +28,9 @@ export function signalUrl(
 
 const logsUrl = signalUrl("logs")
 const tracesUrl = signalUrl("traces")
+const metricsUrl = signalUrl("metrics")
+// Hordecode: model-call metrics are recorded only when a metrics endpoint is configured.
+export const metricsEnabled = !!metricsUrl
 let spanProcessor: { forceFlush(): Promise<void> } | undefined
 
 const headers = Flag.OTEL_EXPORTER_OTLP_HEADERS
@@ -74,7 +79,30 @@ export function loggers() {
   return [OtlpLogger.make({ url: logsUrl, resource: resource(), headers })]
 }
 
+// Hordecode: the metrics exporter runs in a scope owned by this module, not in a layer, because the
+// CLI ends with process.exit() and flush() must be able to close it (the exporter's finalizer sends the
+// last snapshot). Effect metrics live in the global MetricRegistry, so this scope sees every update.
+// HttpClient and OtlpSerialization are provided here; core/src/observability.ts (parity) is unchanged.
+let metricsScope: Scope.Closeable | undefined
+
+async function startMetrics(url: string) {
+  const scope = Scope.makeUnsafe()
+  await Effect.runPromise(
+    OtlpMetrics.make({ url, resource: resource(), headers, exportInterval: Duration.seconds(30) }).pipe(
+      Scope.provide(scope),
+      Effect.provide(OtlpSerialization.layerJson),
+      Effect.provide(FetchHttpClient.layer),
+    ),
+  )
+  metricsScope = scope
+}
+
 export async function tracingLayer() {
+  if (metricsUrl && !metricsScope) await startMetrics(metricsUrl)
+  return tracesUrl ? await tracesLayer() : Layer.empty
+}
+
+async function tracesLayer() {
   if (!tracesUrl) return Layer.empty
   const NodeSdk = await import("@effect/opentelemetry/NodeSdk")
   const OTLP = await import("@opentelemetry/exporter-trace-otlp-http")
@@ -104,10 +132,15 @@ export async function tracingLayer() {
 // batch is lost on short commands such as `run`. Flush it first, bounded by a timeout
 // (pattern: omp coding-agent/src/telemetry-export-otlp.ts:443-449). No-op without an endpoint.
 export async function flush(timeoutMs = 2000) {
-  if (!spanProcessor) return
+  if (!spanProcessor && !metricsScope) return
+  const scope = metricsScope
+  metricsScope = undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   await Promise.race([
-    spanProcessor.forceFlush().catch(() => undefined),
+    Promise.all([
+      spanProcessor?.forceFlush().catch(() => undefined),
+      scope ? Effect.runPromise(Scope.close(scope, Exit.void)).catch(() => undefined) : undefined,
+    ]),
     new Promise<void>((resolve) => {
       timer = setTimeout(resolve, timeoutMs)
     }),
