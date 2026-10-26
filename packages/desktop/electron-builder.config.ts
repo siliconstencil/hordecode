@@ -20,6 +20,8 @@ const metainfoFpm = (appId: string) =>
 async function signWindows(configuration: { path: string }) {
   if (process.platform !== "win32") return
   if (process.env.GITHUB_ACTIONS !== "true") return
+  // Only the signing repository logs in to the signing service; elsewhere the installer is built unsigned.
+  if (process.env.HORDECODE_SIGN_WINDOWS !== "1") return
 
   await execFileAsync(
     "pwsh",
