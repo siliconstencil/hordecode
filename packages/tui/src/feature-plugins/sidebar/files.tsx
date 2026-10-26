@@ -16,57 +16,35 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
   const theme = () => props.api.theme.current
   const list = createMemo(() => props.api.state.session.diff(props.session_id))
 
-  const renderItem = (item: { file: string; additions: number; deletions: number }) => (
-    <box flexDirection="row" gap={1} justifyContent="space-between">
-      <text fg={theme().textMuted} wrapMode="none">
-        {Locale.truncateLeft(item.file, Math.max(2, 38 - changeCountWidth(item)))}
-      </text>
-      <box flexDirection="row" gap={1} flexShrink={0}>
-        <Show when={item.additions}>
-          <text fg={theme().diffAdded}>+{item.additions}</text>
-        </Show>
-        <Show when={item.deletions}>
-          <text fg={theme().diffRemoved}>-{item.deletions}</text>
-        </Show>
-      </box>
-    </box>
-  )
-
   return (
     <Show when={list().length > 0}>
-      <box flexShrink={0} gap={0}>
-        <box
-          flexDirection="row"
-          justifyContent="space-between"
-          onMouseDown={() => list().length > 2 && setOpen((x) => !x)}
-        >
+      <box>
+        <box flexDirection="row" gap={1} onMouseDown={() => list().length > 2 && setOpen((x) => !x)}>
+          <Show when={list().length > 2}>
+            <text fg={theme().text}>{open() ? "▼" : "▶"}</text>
+          </Show>
           <text fg={theme().text}>
             <b>Modified Files</b>
           </text>
-          <box flexDirection="row" gap={1}>
-            <text fg={theme().textMuted}>{list().length} files</text>
-            <Show when={list().length > 2}>
-              <text fg={theme().textMuted}>{open() ? "▾" : "▸"}</text>
-            </Show>
-          </box>
         </box>
         <Show when={list().length <= 2 || open()}>
-          <Show
-            when={list().length > 4}
-            fallback={<For each={list()}>{(item) => renderItem(item)}</For>}
-          >
-            <scrollbox
-              height={4}
-              verticalScrollbarOptions={{
-                trackOptions: {
-                  backgroundColor: theme().background,
-                  foregroundColor: theme().warning,
-                },
-              }}
-            >
-              <For each={list()}>{(item) => renderItem(item)}</For>
-            </scrollbox>
-          </Show>
+          <For each={list()}>
+            {(item) => (
+              <box flexDirection="row" gap={1} justifyContent="space-between">
+                <text fg={theme().textMuted} wrapMode="none">
+                  {Locale.truncateLeft(item.file, Math.max(2, 36 - changeCountWidth(item)))}
+                </text>
+                <box flexDirection="row" gap={1} flexShrink={0}>
+                  <Show when={item.additions}>
+                    <text fg={theme().diffAdded}>+{item.additions}</text>
+                  </Show>
+                  <Show when={item.deletions}>
+                    <text fg={theme().diffRemoved}>-{item.deletions}</text>
+                  </Show>
+                </box>
+              </box>
+            )}
+          </For>
         </Show>
       </box>
     </Show>
