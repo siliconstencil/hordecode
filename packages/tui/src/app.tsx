@@ -53,7 +53,6 @@ import { DialogAgent } from "./component/dialog-agent"
 import { DialogSessionList } from "./component/dialog-session-list"
 import { DialogWorkspaceList } from "./component/dialog-workspace-list"
 import { DialogConsoleOrg } from "./component/dialog-console-org"
-import { DialogLogin } from "./component/dialog-login"
 import { ThemeProvider, useTheme } from "./context/theme"
 import { Home } from "./routes/home"
 import { Session } from "./routes/session"
@@ -944,28 +943,6 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
           dialog.replace(() => <DialogProviderList />)
         },
         category: "Provider",
-      },
-      {
-        name: "provider.login",
-        title: "Login",
-        slashName: "login",
-        category: "Provider",
-        run: () => {
-          dialog.replace(() => <DialogLogin />)
-        },
-      },
-      {
-        name: "provider.logout",
-        title: "Logout",
-        slashName: "logout",
-        category: "Provider",
-        run: async () => {
-          await sdk.client.auth.remove({ providerID: "" })
-          await sdk.client.instance.dispose()
-          await sync.bootstrap()
-          toast.show({ message: "Logged out", variant: "info" })
-          dialog.clear()
-        },
       },
       ...(sync.data.console_state.switchableOrgCount > 1
         ? [
