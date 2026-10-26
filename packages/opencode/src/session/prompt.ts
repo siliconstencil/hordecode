@@ -13,6 +13,7 @@ import { Provider } from "@/provider/provider"
 import { type Tool as AITool, tool, jsonSchema } from "ai"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
+import * as ModelValue from "./model-value"
 import { CompactionGuard } from "./compaction-guard"
 import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
@@ -424,20 +425,21 @@ const layer = Layer.effect(
         yield* Effect.logWarning("title agent not found, skipping title generation")
         return
       }
-      const sessionModel = ag.model
+      const agModel = yield* agentModel(ag)
+      const sessionModel = agModel
         ? undefined
         : yield* provider.getModel(input.providerID, input.modelID).pipe(
             Effect.catch(() => Effect.succeed(undefined)),
           )
-      if (!ag.model && !sessionModel) {
+      if (!agModel && !sessionModel) {
         yield* Effect.logError(
           "session's selected model unavailable for title generation; skipping (pick a different model to retry)",
           { providerID: input.providerID, modelID: input.modelID },
         )
         return
       }
-      const mdl = ag.model
-        ? yield* provider.getModel(ag.model.providerID, ag.model.modelID)
+      const mdl = agModel
+        ? yield* provider.getModel(agModel.providerID, agModel.modelID)
         : sessionModel!
       const msgs = onlySubtasks
         ? [{ role: "user" as const, content: subtasks.map((p) => p.prompt).join("\n") }]
@@ -852,31 +854,11 @@ const layer = Layer.effect(
       return yield* provider.defaultModel().pipe(Effect.orDie)
     })
 
-    // Resolves a model value that may be a `model_groups` name (no "/") or a literal "provider/model".
-    // A literal keeps Provider.parseModel. A group name goes through Provider.resolveModelRef, which MiMo
-    // resolves the same way: packages/opencode/src/session/prompt.ts:1899-1904 and :2144-2150. Fork: an
-    // unknown group logs one warning and returns undefined so the caller falls back to its own default;
-    // any other defect still dies.
-    const resolveModelValue = Effect.fnUntraced(function* (
-      ref: string,
-      log: Record<string, unknown>,
-      contextProviderID?: ProviderV2.ID,
-    ) {
-      if (ref.includes("/")) return Provider.parseModel(ref)
-      const exit = yield* provider.resolveModelRef(ref, contextProviderID).pipe(Effect.exit)
-      if (Exit.isSuccess(exit)) return { providerID: exit.value.providerID, modelID: exit.value.id }
-      const err = Cause.squash(exit.cause)
-      if (!Provider.ModelGroupNotFoundError.isInstance(err)) return yield* Effect.die(err)
-      yield* Effect.logWarning("model group not found, using fallback", { ...log, group: ref })
-      return undefined
-    })
-
-    // An agent's model for this turn: its group (agent.modelRef) resolved now, else the static agent.model.
-    const agentModel = Effect.fnUntraced(function* (ag: Agent.Info, contextProviderID?: ProviderV2.ID) {
-      if (!ag.modelRef) return ag.model
-      const resolved = yield* resolveModelValue(ag.modelRef, { agent: ag.name }, contextProviderID)
-      return resolved ?? ag.model
-    })
+    // Model-value resolution lives in ./model-value.ts; these bind this layer's Provider instance.
+    const resolveModelValue = (ref: string, log: Record<string, unknown>, contextProviderID?: ProviderV2.ID) =>
+      ModelValue.resolveModelValue(provider, ref, log, contextProviderID)
+    const agentModel = (ag: Agent.Info, contextProviderID?: ProviderV2.ID) =>
+      ModelValue.agentModel(provider, ag, contextProviderID)
 
     const createUserMessage = Effect.fn("SessionPrompt.createUserMessage")(function* (input: PromptInput) {
       const current = yield* sessions.get(input.sessionID).pipe(Effect.orDie)

@@ -11,6 +11,7 @@ import { Inbox } from "@opencode-ai/inbox"
 import type { Supervisor } from "@opencode-ai/supervisor/schema"
 import { Agent } from "@/agent/agent"
 import { Session } from "@/session/session"
+import * as ModelValue from "@/session/model-value"
 import { SessionID as SessionIDSchema } from "../session/schema"
 import type { SessionID } from "../session/schema"
 import { Provider, sortVisionModels } from "@/provider/provider"
@@ -648,21 +649,20 @@ export const SupervisorTool = Tool.define(
           const background = op.action === "spawn"
 
           const fallbackModel = (ctx.extra as { model?: Provider.Model } | undefined)?.model
-          const model = op.model
-            ? yield* provider
-                .resolveModelRef(op.model, next.model?.providerID)
-                .pipe(
-                  Effect.map((m) => ({
-                    providerID: toLegacyProviderID(m.providerID),
-                    modelID: toLegacyModelID(m.id),
-                  })),
-                )
-            : next.model
-              ? {
-                  providerID: toLegacyProviderID(next.model.providerID),
-                  modelID: toLegacyModelID(next.model.modelID),
-                }
-              : fallbackModel
+          // op.model may be a model_groups name: an unknown group warns and falls back to the agent model.
+          // The agent model resolves its own group (agent.modelRef) per spawn, as prompt turns do.
+          const opModel = op.model
+            ? yield* ModelValue.resolveModelValue(provider, op.model, { agent: next.name }, next.model?.providerID, {
+                validateLiteral: true,
+              })
+            : undefined
+          const resolvedModel = opModel ?? (yield* ModelValue.agentModel(provider, next))
+          const model = resolvedModel
+            ? {
+                providerID: toLegacyProviderID(resolvedModel.providerID),
+                modelID: toLegacyModelID(resolvedModel.modelID),
+              }
+            : fallbackModel
                 ? {
                     providerID: toLegacyProviderID(fallbackModel.providerID),
                     modelID: toLegacyModelID(fallbackModel.id),

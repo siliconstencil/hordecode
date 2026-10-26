@@ -8,6 +8,7 @@ import { MessageV2 } from "./message-v2"
 import { Token } from "@/util/token"
 import { SessionProcessor } from "./processor"
 import { Agent } from "@/agent/agent"
+import * as ModelValue from "./model-value"
 import { Plugin } from "@/plugin"
 import { Config } from "@/config/config"
 import { NotFoundError } from "@/storage/storage"
@@ -393,8 +394,9 @@ const layer = Layer.effect(
       }
 
       const agent = yield* agents.get("compaction")
-      const model = agent.model
-        ? yield* provider.getModel(agent.model.providerID, agent.model.modelID).pipe(Effect.orDie)
+      const agentMdl = yield* ModelValue.agentModel(provider, agent)
+      const model = agentMdl
+        ? yield* provider.getModel(agentMdl.providerID, agentMdl.modelID).pipe(Effect.orDie)
         : yield* provider.getModel(userMessage.model.providerID, userMessage.model.modelID).pipe(Effect.orDie)
       const cfg = yield* config.get()
       // FIX-8: pass the FULL pre-boundary list to select, not the boundary-scoped
