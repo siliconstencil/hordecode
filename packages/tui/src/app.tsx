@@ -89,7 +89,6 @@ import { DialogVariant } from "./component/dialog-variant"
 import { DialogWorkflows } from "./component/dialog-workflows"
 import { DialogWorktree } from "./component/dialog-worktree"
 import { DialogImageList } from "./component/dialog-image-list"
-import { DialogLogoDesign } from "./component/dialog-logo-design"
 import { DialogContextLimit } from "./component/dialog-context-limit"
 import { CommandProvider } from "./component/dialog-command"
 import { createTuiAttention } from "./attention"
@@ -1026,15 +1025,6 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         slashName: "background",
         run: () => {
           dialog.replace(() => <DialogImageList />)
-        },
-        category: "System",
-      },
-      {
-        name: "logo.switch",
-        title: "Switch logo design",
-        slashName: "logo",
-        run: () => {
-          dialog.replace(() => <DialogLogoDesign />)
         },
         category: "System",
       },
