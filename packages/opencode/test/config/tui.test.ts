@@ -120,6 +120,7 @@ it.instance("keeps server and tui plugin merge semantics aligned", () =>
       expect(serverOrigins.map((item) => item.scope)).toEqual(tuiOrigins.map((item) => item.scope))
     }),
   ),
+  { git: true },
 )
 
 it.instance("loads tui config with the same precedence order as server config paths", () =>
