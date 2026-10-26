@@ -13,6 +13,7 @@ import { Provider } from "@/provider/provider"
 import { type Tool as AITool, tool, jsonSchema } from "ai"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
+import { CompactionGuard } from "./compaction-guard"
 import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
 import { Plugin } from "../plugin"
@@ -1425,6 +1426,7 @@ const layer = Layer.effect(
         let structured: unknown
         let step = 0
         let skipOverflowCheck = false
+        const compactionGuard = CompactionGuard.make()
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
 
         while (true) {
@@ -1609,6 +1611,12 @@ const layer = Layer.effect(
           }
 
           if (task?.type === "compaction") {
+            const attempts = CompactionGuard.advance(compactionGuard, msgs, lastUser.id)
+            if (attempts > CompactionGuard.MAX_CONSECUTIVE) {
+              yield* bus.publish(CompactionGuard.Failed, { sessionID, reason: "limit", attempts: attempts - 1 })
+              yield* Effect.logWarning("rl:exit", { "session.id": sessionID, step, site: "compaction:limit" })
+              break
+            }
             const result = yield* compaction.process({
               messages: msgs,
               parentID: lastUser.id,
@@ -1617,6 +1625,10 @@ const layer = Layer.effect(
               overflow: task.overflow,
             })
             if (result === "stop") {
+              const failed = CompactionGuard.failure(
+                yield* MessageV2.filterCompactedEffect(sessionID).pipe(Effect.provideService(Database.Service, database)),
+              )
+              if (failed) yield* bus.publish(CompactionGuard.Failed, { sessionID, reason: "error", attempts, ...failed })
               yield* Effect.logInfo("rl:exit", { "session.id": sessionID, step, site: "compaction:stop" })
               break
             }

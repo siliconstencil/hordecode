@@ -35,6 +35,8 @@ import { SessionSummary } from "../../src/session/summary"
 import { Instruction } from "../../src/session/instruction"
 import { SessionProcessor } from "../../src/session/processor"
 import { SessionPrompt } from "../../src/session/prompt"
+import { CompactionGuard } from "../../src/session/compaction-guard"
+import { GlobalBus } from "@/bus/global"
 import { SessionRevert } from "../../src/session/revert"
 import { SessionRunState } from "../../src/session/run-state"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
@@ -753,6 +755,60 @@ it.instance("loop stops provider overflow instead of auto-compacting when disabl
       expect(result.info.finish).toBe("error")
     }
     expect(messages.some((message) => message.parts.some((part) => part.type === "compaction"))).toBe(false)
+  }),
+)
+
+// Compaction failure reporting. Extends the overflow case above (upstream v1.19.4
+// packages/opencode/test/session/prompt.test.ts:677, "loop stops provider overflow instead of
+// auto-compacting when disabled") with auto compaction left on.
+const collectCompactionFailed = Effect.acquireRelease(
+  Effect.sync(() => {
+    const seen: Array<Record<string, unknown>> = []
+    const listener = (event: { payload: { type: string; properties: Record<string, unknown> } }) => {
+      if (event.payload.type === CompactionGuard.Failed.type) seen.push(event.payload.properties)
+    }
+    GlobalBus.on("event", listener)
+    return { seen, listener }
+  }),
+  ({ listener }) => Effect.sync(() => GlobalBus.off("event", listener)),
+).pipe(Effect.map(({ seen }) => seen))
+
+it.instance("a compaction that overflows publishes session.compaction.failed with reason error", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig((url) => providerCfg(url))
+    const seen = yield* collectCompactionFailed
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "overflow" })
+
+    for (let i = 0; i < 6; i++) yield* llm.error(413, { error: { message: "request entity too large" } })
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", noReply: true, parts: [{ type: "text", text: "hi" }] })
+    yield* prompt.loop({ sessionID: chat.id })
+
+    expect(seen.map((evt) => [evt.reason, evt.error])).toEqual([["error", "ContextOverflowError"]])
+  }),
+)
+
+it.instance("compactions that never lead to a finished step stop at the limit", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig((url) => providerCfg(url))
+    const seen = yield* collectCompactionFailed
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "loop" })
+
+    for (let i = 0; i < 10; i++) {
+      yield* llm.error(413, { error: { message: "request entity too large" } })
+      yield* llm.text("summary")
+    }
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", noReply: true, parts: [{ type: "text", text: "hi" }] })
+    yield* prompt.loop({ sessionID: chat.id })
+    const summaries = (yield* sessions.messages({ sessionID: chat.id })).filter(
+      (msg) => msg.info.role === "assistant" && msg.info.summary,
+    )
+
+    expect(seen).toEqual([{ sessionID: chat.id, reason: "limit", attempts: CompactionGuard.MAX_CONSECUTIVE }])
+    expect(summaries).toHaveLength(CompactionGuard.MAX_CONSECUTIVE)
   }),
 )
 
