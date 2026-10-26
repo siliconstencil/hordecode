@@ -115,7 +115,6 @@ Prefer a markdown file (`.hordecode/agent/<name>.md`, body = system prompt) for 
 | `compaction.reserved` | Token buffer to avoid overflow |
 | `checkpoint.thresholds` | Context-fill triggers, e.g. `["40%","60%","80%"]` |
 | `checkpoint.reserved` | Token buffer for checkpoint ops (default 20000) |
-| `checkpoint.max_writer_failures` | Consecutive writer failures before pausing (default 3) |
 | `checkpoint.fork` | Fork parent prefix into writer session for cache reuse (default false) |
 | `checkpoint.push_caps.*` | Per-section token caps for rebuild context (tasks_ledger, focus_task, checkpoint, memory, notes, global, recent_user, …) |
 | `checkpoint.task_archive_days` | Days before done/abandoned tasks filtered out (default 7) |

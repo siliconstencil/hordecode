@@ -273,7 +273,7 @@ const InfoSchema = Schema.Struct({
       }),
       max_writer_failures: Schema.optional(PositiveInt).annotate({
         description:
-          "Maximum consecutive writer failures per session before checkpointing stops retrying until process restart. Default: 3.",
+          "Deprecated: has no effect; kept so existing configs still load.",
       }),
       fork: Schema.optional(Schema.Boolean).annotate({
         description:
