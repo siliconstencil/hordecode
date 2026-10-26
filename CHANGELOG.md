@@ -2,6 +2,79 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3] - 2026-10-25
+
+### Added
+
+- Credential files are protected: the file tools and shell commands cannot read or write `auth.json` or
+  `mcp-auth.json` in the data directory. The rule is applied after user, session and agent rules, so an allow
+  rule or an "always" approval does not relax it. It follows symlinks and hard links and recognizes quoted
+  words, `~`, environment variables and globs in shell commands.
+- An optional permission audit log: set `HORDECODE_PERMISSION_AUDIT=1` and every permission decision and
+  reply is written as one JSON line to `<data>/log/permission.jsonl`, with credentials in command patterns
+  redacted. The file rotates at 5 MiB (`HORDECODE_PERMISSION_AUDIT_MAX_BYTES`) and keeps three older files.
+- Plugins can observe permission decisions: the `permission.ask` hook runs after each decision with the final
+  status (`allow` or `deny`). It reports only; the decision stays with the permission system.
+- Optional command sandbox for the shell tool on Linux. Set `HORDECODE_SANDBOX=auto` to use bubblewrap when it
+  is installed, or `required` to refuse to run commands without it. Commands then see the project directory
+  read-write and the rest of the system read-only, with no network unless `HORDECODE_SANDBOX_NETWORK=host`.
+  The default is off, which behaves exactly as before.
+- A Cache line in the sidebar for Anthropic models: `Cache   warm 03:41` shows the time left of the prompt cache
+  entry, and `Cache   cold  next turn re-caches ~190K tokens (~$0.48)` tells you what the next request will write.
+  A warning is logged when the cache is not read on two consecutive large turns.
+- A `cachePromptTTL` model setting (`"5m"` or `"1h"`) for Anthropic and OpenRouter models, and the 5 minute and
+  1 hour split of cache writes is stored with each response when Anthropic reports it.
+- On-device embeddings for hybrid memory search (`memory.embedding: true`) work on Linux, Windows and macOS on
+  Apple silicon; musl Linux and macOS on Intel keep keyword search.
+- The `default_agent` setting is honored when the terminal UI starts.
+- Auto-approve is remembered per project and restored with a short notice when you reopen the project.
+- The desktop app has a new Hordecode icon (a letter H) for the release, beta and dev channels on macOS,
+  Windows and Linux, and the Windows executable carries the same icon with the product name, company and version
+  in its file properties.
+- Database maintenance at startup: `PRAGMA optimize` runs when the database opens, and a large write-ahead log
+  is truncated. `HORDECODE_DB_MAINTENANCE=0` turns it off; `HORDECODE_DB_VACUUM=1` adds a bounded `VACUUM`.
+- A `session.compaction.failed` event reports a compaction that could not fit the context and a loop that
+  compacted repeatedly without progress.
+- The bundled `drive-hordecode` skill ships its `scripts/wait-for-text.sh` helper and shows how to use it
+  (bash and tmux required).
+- [Docs] Pages for the supervisor, task, workflow, cron, skill and memory tools.
+
+### Changed
+
+- The core, CLI, server, TUI and support packages follow opencode 1.19.4 (from 1.19.3): the Bun 1.4.4
+  toolchain, `@ff-labs/fff-bun` 0.10.5, and cross builds that install the native packages for both libc
+  variants. Hordecode keeps its own update flow.
+- The web app, the desktop app and the shared UI packages follow opencode 1.19.4 (from 1.17.18), including
+  the v2 session views, plural-aware UI text and the new markdown renderer.
+- Desktop menus, recovery messages and WSL messages read "Hordecode" in every language.
+- One hour prompt cache writes are priced at twice the model's input price, as Anthropic bills them; five
+  minute writes keep the catalog cache write price.
+- A permission request that nobody answers within five minutes now ends with the message "Permission request
+  timed out after 300s, command not run." in the transcript and as the tool result; the session continues
+  instead of stopping as if you had refused.
+- The sidebar lists every modified file again, with long paths shortened from the left.
+- A compaction that repeats without a finished step in between stops after two attempts instead of continuing
+  until the step limit.
+- The documentation site no longer shows the upstream v2 announcement bar.
+- Agents are told to read files with Read, Glob and Grep and to change them with Edit and Write instead of shell
+  commands such as `cat`, `sed` or heredocs.
+
+### Fixed
+
+- The terminal UI no longer stops with "bootstrap timed out" in terminals that answer its color queries at
+  once, such as Konsole.
+- A `bash` deny rule such as `"rm *": "deny"` blocks a delete command again instead of asking, and an
+  `external_directory` deny rule blocks deletes outside the project too.
+- A shell command whose directory is a symlink that leads out of the project now asks for the external
+  directory permission, like any other path outside the project.
+- Task operations on an unknown task id (`block`, `unblock`, `done`, `abandon`, `rename`) answer
+  `Task <id> not found. Use task list to see valid task IDs, or task create to add one.`
+- The `drive-hordecode` skill no longer points at a helper script that was missing from the bundle.
+- Importing the project package on its own no longer fails with an initialization error.
+- macOS builds keep a consistent code signature after the build path is removed from the binary.
+- The desktop type check uses the same compiler as upstream, so it no longer reports errors that upstream's
+  does not.
+
 ## [0.1.2] - 2026-10-20
 
 ### Added
