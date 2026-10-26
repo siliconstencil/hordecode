@@ -460,11 +460,7 @@ const layer = Layer.effect(
           Stream.mkString,
           Effect.orDie,
         )
-      const cleaned = text
-        .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
-        .split("\n")
-        .map((line) => line.trim())
-        .find((line) => line.length > 0)
+      const cleaned = cleanSessionTitle(text)
       if (!cleaned) return
       const t = cleaned.length > 100 ? cleaned.substring(0, 97) + "..." : cleaned
       yield* sessions
@@ -2568,6 +2564,25 @@ const bashRegex = /!`([^`]+)`/g
 const argsRegex = /(?:\[Image\s+\d+\]|"[^"]*"|'[^']*'|[^\s"']+)/gi
 const placeholderRegex = /\$(\d+)/g
 const quoteTrimRegex = /^["']|["']$/g
+
+// Session title cleanup. Upstream: repos/opencode-1.19.4/packages/opencode/src/session/prompt.ts
+// (title generation: think-block strip, first non-empty line). The fork adds: drop text up to an
+// unpaired trailing </think>, strip a leading "Title:" label, strip matching surrounding quotes.
+// Returns "" when nothing usable remains; the caller keeps the existing empty-result handling.
+export function cleanSessionTitle(text: string): string {
+  const withoutBlocks = text.replace(/<think>[\s\S]*?<\/think>\s*/g, "")
+  const closeTag = withoutBlocks.lastIndexOf("</think>")
+  const afterClose = closeTag === -1 ? withoutBlocks : withoutBlocks.slice(closeTag + "</think>".length)
+  const line = afterClose
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.length > 0)
+  if (!line) return ""
+  return line
+    .replace(/^[\s"'*]*title\s*:[\s"'*]*/i, "")
+    .replace(/^(["'])([\s\S]*)\1$/, "$2")
+    .trim()
+}
 
 const TeamNode = LayerNode.make({
   service: Team.Service,

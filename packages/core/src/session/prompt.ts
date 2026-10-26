@@ -233,6 +233,25 @@ function isExtensionPath(filePath: string): boolean {
 const elog = EffectLogger.create({ service: "session.prompt" })
 const quoteTrimRegex = /^["']|["']$/g
 
+// Session title cleanup. Upstream: repos/opencode-1.19.4/packages/opencode/src/session/prompt.ts
+// (title generation: think-block strip, first non-empty line). The fork adds: drop text up to an
+// unpaired trailing </think>, strip a leading "Title:" label, strip matching surrounding quotes.
+// Returns "" when nothing usable remains. Twin of the runtime copy; keep them equal.
+export function cleanSessionTitle(text: string): string {
+  const withoutBlocks = text.replace(/<think>[\s\S]*?<\/think>\s*/g, "")
+  const closeTag = withoutBlocks.lastIndexOf("</think>")
+  const afterClose = closeTag === -1 ? withoutBlocks : withoutBlocks.slice(closeTag + "</think>".length)
+  const line = afterClose
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.length > 0)
+  if (!line) return ""
+  return line
+    .replace(/^[\s"'*]*title\s*:[\s"'*]*/i, "")
+    .replace(/^(["'])([\s\S]*)\1$/, "$2")
+    .trim()
+}
+
 // ---------------------------------------------------------------------------
 // Input types (Effect Schema, replacing Zod schemas)
 // ---------------------------------------------------------------------------
@@ -617,14 +636,9 @@ export const layer = Layer.effect(
         })
         .pipe(Effect.ignore)
 
-      const cleaned = result.text
-        .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
-        .split("\n")
-        .map((line) => line.trim())
-        .find((line) => line.length > 0)
+      const cleaned = cleanSessionTitle(result.text)
       if (!cleaned) return ""
-      const stripped = cleaned.replace(quoteTrimRegex, "")
-      return stripped.length > 120 ? stripped.substring(0, 117) + "..." : stripped
+      return cleaned.length > 120 ? cleaned.substring(0, 117) + "..." : cleaned
     })
 
     const insertReminders = Effect.fn("SessionPrompt.insertReminders")(function* (input: {
