@@ -14,6 +14,9 @@ const signScript = path.join(rootDir, "script", "sign-windows.ps1")
 const legacyDesktopEntry = path.join(packageDir, "resources", "linux", "hordecode-desktop.desktop")
 const legacyDesktopEntryFpm = `${legacyDesktopEntry}=/usr/share/applications/hordecode-desktop.desktop`
 
+const metainfoFpm = (appId: string) =>
+  `${path.join(packageDir, "resources", `${appId}.metainfo.xml`)}=/usr/share/metainfo/${appId}.metainfo.xml`
+
 async function signWindows(configuration: { path: string }) {
   if (process.platform !== "win32") return
   if (process.env.GITHUB_ACTIONS !== "true") return
@@ -51,8 +54,17 @@ const getBase = (appId: string): Configuration => ({
   extraMetadata: {
     desktopName: `${appId}.desktop`,
   },
-  files: ["out/**/*", "resources/**/*"],
+  files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*"],
   extraResources: [
+    ...(channel === "dev"
+      ? [
+          {
+            from: "resources/",
+            to: "",
+            filter: ["opencode-cli*"],
+          },
+        ]
+      : []),
     {
       from: "native/",
       to: "native/",
@@ -115,7 +127,8 @@ function getConfig() {
         ...base,
         appId,
         productName: "Hordecode Dev",
-        rpm: { packageName: "hordecode-dev" },
+        deb: { fpm: [metainfoFpm(appId)] },
+        rpm: { packageName: "hordecode-dev", fpm: [metainfoFpm(appId)] },
       }
     }
     case "beta": {
@@ -125,7 +138,8 @@ function getConfig() {
         productName: "Hordecode Beta",
         protocols: { name: "Hordecode Beta", schemes: ["hordecode"] },
         publish: { provider: "github", owner: "siliconstencil", repo: "hordecode", channel: "latest" },
-        rpm: { packageName: "hordecode-beta" },
+        deb: { fpm: [metainfoFpm(appId)] },
+        rpm: { packageName: "hordecode-beta", fpm: [metainfoFpm(appId)] },
       }
     }
     case "prod": {
@@ -135,8 +149,8 @@ function getConfig() {
         productName: "Hordecode",
         protocols: { name: "Hordecode", schemes: ["hordecode"] },
         publish: { provider: "github", owner: "siliconstencil", repo: "hordecode", channel: "latest" },
-        deb: { fpm: [legacyDesktopEntryFpm] },
-        rpm: { packageName: "hordecode", fpm: [legacyDesktopEntryFpm] },
+        deb: { fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },
+        rpm: { packageName: "hordecode", fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },
       }
     }
   }

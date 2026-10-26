@@ -2,7 +2,7 @@
   "name": "@opencode-ai/desktop",
   "private": true,
   "version": "0.1.0",
-  "hordecodeBase": "1.17.18",
+  "hordecodeBase": "1.19.4",
   "type": "module",
   "license": "MIT",
   "homepage": "https://github.com/siliconstencil/hordecode",
@@ -11,7 +11,7 @@
     "email": "hello@opencode.ai"
   },
   "scripts": {
-    "typecheck": "tsc -b",
+    "typecheck": "tsgo -b",
     "predev": "bun ./scripts/predev.ts",
     "dev": "electron-vite dev",
     "prebuild": "bun ./scripts/prebuild.ts",
@@ -32,6 +32,7 @@
     "electron-store": "11.0.2",
     "electron-updater": "6.8.9",
     "electron-window-state": "^5.0.3",
+    "drizzle-orm": "catalog:",
     "marked": "^15"
   },
   "devDependencies": {
