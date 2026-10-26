@@ -444,6 +444,26 @@ const InfoSchema = Schema.Struct({
         description:
           "Try-best tuning: detect and self-correct suboptimal tool-call batches. Object form overrides detector defaults; absence disables try-best.",
       }),
+      advisor: Schema.optional(
+        Schema.Struct({
+          enabled: Schema.optional(Schema.Boolean),
+          model: Schema.optional(Schema.String),
+          triggers: Schema.optional(
+            Schema.Struct({
+              files_touched: Schema.optional(Schema.Number),
+              tool_failures: Schema.optional(Schema.Number),
+              same_error: Schema.optional(Schema.Number),
+              context_percent: Schema.optional(Schema.Number),
+            }),
+          ),
+          min_severity: Schema.optional(Schema.Literals(["nit", "concern", "blocker"])),
+          max_notes: Schema.optional(Schema.Number),
+          cooldown_steps: Schema.optional(Schema.Number),
+        }),
+      ).annotate({
+        description:
+          "Advisor (experimental, off by default): a second model reviews the agent when the work looks risky (many files touched, repeated tool failures, high context use) and adds short notes for the next step. Runs only when enabled is true and model is set.",
+      }),
     }),
   ),
   workflow: Schema.optional(

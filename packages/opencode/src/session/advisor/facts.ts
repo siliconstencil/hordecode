@@ -23,7 +23,7 @@ function text(value: unknown) {
 
 // The current user turn starts at the last user message that carries at least one
 // non-synthetic text part. Synthetic reminders injected by the runtime do not open a turn.
-function currentTurn(messages: Message[]): Message[] {
+export function currentTurn(messages: Message[]): Message[] {
   const start = messages.findLastIndex(
     (msg) =>
       msg.info.role === "user" &&
