@@ -17,8 +17,7 @@
 ---
 
 Hordecode is a terminal-native AI coding agent. It is a friendly fork of
-[opencode](https://github.com/anomalyco/opencode) that tracks upstream, carries a
-delta-port of [MiMo Code](https://github.com/XiaomiMiMo/MiMo-Code), and adds its own
+[opencode](https://github.com/anomalyco/opencode) that tracks upstream and adds its own
 layer: a supervisor for long-running work, a harness pipeline, an inbox, persistent
 memory with an optional on-device embedding index, skills, workflows and cron.
 
@@ -58,6 +57,10 @@ Hordecode 0.1.x stays on the opencode 1.x line; each base bump ports a newer 1.x
 whole. The file-level ownership map is in [docs/UPSTREAM-MAP.md](docs/UPSTREAM-MAP.md): 1,161
 files are Hordecode's own and 691 upstream files carry Hordecode changes.
 How Hordecode follows upstream releases is in [ROADMAP.md](ROADMAP.md).
+
+Credits: the supervisor and harness designs are customized ports of
+[MiMo Code](https://github.com/XiaomiMiMo/MiMo-Code) (MIT); its copyright notice is kept in
+[LICENSE](LICENSE).
 
 ---
 
