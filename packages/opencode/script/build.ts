@@ -5,6 +5,7 @@ import fs from "fs"
 import path from "path"
 import { fileURLToPath } from "url"
 import { createSolidTransformPlugin } from "@opentui/solid/bun-plugin"
+import { rehashMachO } from "./macho-rehash"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -360,6 +361,13 @@ for (const item of targets) {
     }
     if (count > 0) fs.writeFileSync(file, buf)
     console.log(`  -> build path scrubbed: ${count} occurrence(s) of the source tree path replaced`)
+  }
+
+  // The scrub above edits bytes that Bun's ad-hoc signature already hashed. Recompute the page hashes so a
+  // Linux cross build does not ship a stale signature (codesign below only runs on macOS).
+  if (item.os === "darwin") {
+    const rehashed = rehashMachO(`dist/${name}/bin/hordecode`)
+    if (rehashed) console.log(`  -> code signature page hashes rewritten: ${rehashed.changed} of ${rehashed.pages}`)
   }
 
   // Embedding the bundle invalidates the linker's ad-hoc signature, and macOS 27+
