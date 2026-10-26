@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Flat mark: a light letter H on a dark rounded square. Safe area: the letter spans x 115 to 397 and y 80 to 432 of the 512 canvas. -->
+  <!-- Channel colours (background / letter): prod #2b2b2b / #ececea, dev #4f85f4 / #ffffff, beta #ececec / #111111. -->
+  <rect width="512" height="512" rx="112" fill="#2b2b2b"/>
+  <path d="M115 80H193V221H319V80H397V432H319V291H193V432H115Z" fill="#ececea"/>
+</svg>
