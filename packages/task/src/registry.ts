@@ -226,6 +226,8 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Config.Service> = 
       id: string
       event_summary?: string
     }) {
+      const existing = yield* get({ session_id: input.session_id, id: input.id })
+      if (!existing) return yield* Effect.die(new RecoverableError(notFoundMessage(input.id)))
       const now = Date.now()
       Database.use((db) =>
         db
@@ -246,6 +248,8 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Config.Service> = 
       id: string
       event_summary?: string
     }) {
+      const existing = yield* get({ session_id: input.session_id, id: input.id })
+      if (!existing) return yield* Effect.die(new RecoverableError(notFoundMessage(input.id)))
       const now = Date.now()
       Database.use((db) =>
         db
@@ -316,6 +320,8 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Config.Service> = 
       id: string
       event_summary?: string
     }) {
+      const existing = yield* get({ session_id: input.session_id, id: input.id })
+      if (!existing) return yield* Effect.die(new RecoverableError(notFoundMessage(input.id)))
       const now = Date.now()
       const cleanup = yield* cleanupAfter(now)
       Database.use((db) =>
@@ -342,6 +348,8 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Config.Service> = 
       id: string
       event_summary?: string
     }) {
+      const existing = yield* get({ session_id: input.session_id, id: input.id })
+      if (!existing) return yield* Effect.die(new RecoverableError(notFoundMessage(input.id)))
       const now = Date.now()
       const cleanup = yield* cleanupAfter(now)
       Database.use((db) =>
@@ -368,6 +376,8 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Config.Service> = 
       id: string
       summary: string
     }) {
+      const existing = yield* get({ session_id: input.session_id, id: input.id })
+      if (!existing) return yield* Effect.die(new RecoverableError(notFoundMessage(input.id)))
       const now = Date.now()
       Database.use((db) =>
         db
