@@ -18,6 +18,8 @@ const SWITCH_ENV = {
   orchestrator: "HORDECODE_EXPERIMENTAL_ORCHESTRATOR",
   workflow_tool: "HORDECODE_EXPERIMENTAL_WORKFLOW_TOOL",
   cron: "HORDECODE_EXPERIMENTAL_CRON",
+  permission_audit: "HORDECODE_PERMISSION_AUDIT",
+  sandbox: "HORDECODE_SANDBOX",
 } as const
 
 type SwitchKey = keyof typeof SWITCH_ENV
@@ -32,6 +34,16 @@ const ROWS: { key: RowKey; label: string; description: string }[] = [
   { key: "orchestrator", label: "orchestrator", description: "Orchestrator agent" },
   { key: "workflow_tool", label: "workflow_tool", description: "Workflow commands" },
   { key: "cron", label: "cron", description: "Cron commands" },
+  {
+    key: "permission_audit",
+    label: "permission_audit",
+    description: "Permission audit log (every permission decision to permission.jsonl)",
+  },
+  {
+    key: "sandbox",
+    label: "sandbox",
+    description: "Shell command sandbox on Linux (bubblewrap, project read-write, no network)",
+  },
   {
     key: "embedding",
     label: "memory embedding",
@@ -50,6 +62,8 @@ export function switchesPatch(state: SwitchState) {
         orchestrator: state.orchestrator,
         workflow_tool: state.workflow_tool,
         cron: state.cron,
+        permission_audit: state.permission_audit,
+        sandbox: state.sandbox,
       },
     },
     memory: { embedding: state.embedding },
@@ -61,6 +75,7 @@ type ConfigWithSwitches = {
   experimental?: { switches?: Partial<Record<SwitchKey, boolean>> }
   memory?: { embedding?: boolean }
 }
+
 
 export function DialogSwitches() {
   const dialog = useDialog()
@@ -79,6 +94,8 @@ export function DialogSwitches() {
     // Workflow and cron commands are on unless turned off (core/src/flag/flag.ts uses !falsy for both).
     workflow_tool: switches?.workflow_tool ?? true,
     cron: switches?.cron ?? true,
+    permission_audit: switches?.permission_audit ?? false,
+    sandbox: switches?.sandbox ?? false,
     embedding: config.memory?.embedding ?? false,
   } satisfies SwitchState
 
@@ -129,6 +146,8 @@ export function DialogSwitches() {
       orchestrator: store.orchestrator,
       workflow_tool: store.workflow_tool,
       cron: store.cron,
+      permission_audit: store.permission_audit,
+      sandbox: store.sandbox,
       embedding: store.embedding,
     }
     const res = await sdk.client.global.config.update({ config: switchesPatch(state) as any })

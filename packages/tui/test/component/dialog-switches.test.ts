@@ -9,11 +9,20 @@ describe("dialog switches", () => {
         orchestrator: false,
         workflow_tool: false,
         cron: false,
+        permission_audit: false,
+        sandbox: false,
         embedding: false,
       }),
     ).toEqual({
       experimental: {
-        switches: { workspaces: false, orchestrator: false, workflow_tool: false, cron: false },
+        switches: {
+          workspaces: false,
+          orchestrator: false,
+          workflow_tool: false,
+          cron: false,
+          permission_audit: false,
+          sandbox: false,
+        },
       },
       memory: { embedding: false },
     })
@@ -26,11 +35,20 @@ describe("dialog switches", () => {
         orchestrator: false,
         workflow_tool: true,
         cron: false,
+        permission_audit: true,
+        sandbox: true,
         embedding: true,
       }),
     ).toEqual({
       experimental: {
-        switches: { workspaces: true, orchestrator: false, workflow_tool: true, cron: false },
+        switches: {
+          workspaces: true,
+          orchestrator: false,
+          workflow_tool: true,
+          cron: false,
+          permission_audit: true,
+          sandbox: true,
+        },
       },
       memory: { embedding: true },
     })

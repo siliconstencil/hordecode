@@ -384,6 +384,8 @@ export const Info = Schema.Struct({
           orchestrator: Schema.optional(Schema.Boolean),
           workflow_tool: Schema.optional(Schema.Boolean),
           cron: Schema.optional(Schema.Boolean),
+          permission_audit: Schema.optional(Schema.Boolean),
+          sandbox: Schema.optional(Schema.Boolean),
         }),
       ).annotate({
         description:

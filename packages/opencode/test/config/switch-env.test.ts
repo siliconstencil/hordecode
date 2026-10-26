@@ -43,6 +43,40 @@ describe("applySwitchEnv", () => {
     expect(set).not.toContain("HORDECODE_EXPERIMENTAL_WORKSPACES")
   })
 
+  test("sandbox writes auto or off; permission_audit keeps true or false", async () => {
+    await using tmp = await tmpdir()
+    await fs.writeFile(
+      path.join(tmp.path, "hordecode.json"),
+      JSON.stringify({ experimental: { switches: { sandbox: true, permission_audit: true } } }),
+    )
+    const env: Record<string, string | undefined> = {}
+    applySwitchEnv(env, tmp.path)
+    expect(env.HORDECODE_SANDBOX).toBe("auto")
+    expect(env.HORDECODE_PERMISSION_AUDIT).toBe("true")
+
+    await using off = await tmpdir()
+    await fs.writeFile(
+      path.join(off.path, "hordecode.json"),
+      JSON.stringify({ experimental: { switches: { sandbox: false, permission_audit: false } } }),
+    )
+    const offEnv: Record<string, string | undefined> = {}
+    applySwitchEnv(offEnv, off.path)
+    expect(offEnv.HORDECODE_SANDBOX).toBe("off")
+    expect(offEnv.HORDECODE_PERMISSION_AUDIT).toBe("false")
+  })
+
+  test("an existing HORDECODE_SANDBOX=required stays required", async () => {
+    await using tmp = await tmpdir()
+    await fs.writeFile(
+      path.join(tmp.path, "hordecode.json"),
+      JSON.stringify({ experimental: { switches: { sandbox: true } } }),
+    )
+    const env: Record<string, string | undefined> = { HORDECODE_SANDBOX: "required" }
+    const set = applySwitchEnv(env, tmp.path)
+    expect(env.HORDECODE_SANDBOX).toBe("required")
+    expect(set).not.toContain("HORDECODE_SANDBOX")
+  })
+
   test("later config files win over earlier ones", async () => {
     await using tmp = await tmpdir()
     await fs.writeFile(

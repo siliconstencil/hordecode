@@ -11,9 +11,18 @@ export const SWITCH_ENV = {
   orchestrator: "HORDECODE_EXPERIMENTAL_ORCHESTRATOR",
   workflow_tool: "HORDECODE_EXPERIMENTAL_WORKFLOW_TOOL",
   cron: "HORDECODE_EXPERIMENTAL_CRON",
+  permission_audit: "HORDECODE_PERMISSION_AUDIT",
+  sandbox: "HORDECODE_SANDBOX",
 } as const
 
 type SwitchKey = keyof typeof SWITCH_ENV
+
+// The env value written for each boolean. Keys not listed here write "true" / "false".
+const SWITCH_VALUE: Partial<Record<SwitchKey, (on: boolean) => string>> = {
+  sandbox: (on) => (on ? "auto" : "off"),
+}
+
+const envValue = (key: SwitchKey, on: boolean) => (SWITCH_VALUE[key]?.(on) ?? String(on))
 
 const FILES = ["config.json", "opencode.json", "opencode.jsonc", "hordecode.json", "hordecode.jsonc"]
 
@@ -45,7 +54,7 @@ export function applySwitchEnv(env: Record<string, string | undefined>, dir = gl
     const value = merged[key]
     const name = SWITCH_ENV[key]
     if (typeof value === "boolean" && env[name] === undefined) {
-      env[name] = String(value)
+      env[name] = envValue(key, value)
       set.push(name)
     }
   }
