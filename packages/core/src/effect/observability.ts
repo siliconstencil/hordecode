@@ -5,9 +5,11 @@ import * as EffectLogger from "./logger"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { InstallationChannel, InstallationVersion } from "@opencode-ai/core/installation/version"
 import { ensureProcessMetadata } from "@opencode-ai/core/util/run-identity"
+import { signalUrl } from "../observability/otlp"
 
-const base = Flag.OTEL_EXPORTER_OTLP_ENDPOINT
-export const enabled = !!base
+const logsUrl = signalUrl("logs")
+const tracesUrl = signalUrl("traces")
+export const enabled = !!(logsUrl || tracesUrl)
 const processID = crypto.randomUUID()
 
 const headers = Flag.OTEL_EXPORTER_OTLP_HEADERS
@@ -58,7 +60,7 @@ function logs() {
     [
       EffectLogger.logger,
       OtlpLogger.make({
-        url: `${base}/v1/logs`,
+        url: logsUrl!,
         resource: resource(),
         headers,
       }),
@@ -88,19 +90,20 @@ const traces = async () => {
     resource: resource(),
     spanProcessor: new SdkBase.BatchSpanProcessor(
       new OTLP.OTLPTraceExporter({
-        url: `${base}/v1/traces`,
+        url: tracesUrl!,
         headers,
       }),
     ),
   }))
 }
 
-export const layer = !base
+export const layer = !enabled
   ? EffectLogger.layer
   : Layer.unwrap(
       Effect.gen(function* () {
-        const trace = yield* Effect.promise(traces)
-        return Layer.mergeAll(trace, logs())
+        const trace = tracesUrl ? yield* Effect.promise(traces) : Layer.empty
+        const log = logsUrl ? logs() : EffectLogger.layer
+        return Layer.mergeAll(trace, log)
       }),
     )
 

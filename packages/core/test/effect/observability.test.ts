@@ -5,7 +5,7 @@ import fs from "fs/promises"
 import os from "os"
 import path from "path"
 import { fileLogger } from "../../src/observability/logging"
-import { resource } from "../../src/observability/otlp"
+import { resource, signalUrl } from "../../src/observability/otlp"
 
 const otelResourceAttributes = process.env.OTEL_RESOURCE_ATTRIBUTES
 const opencodeClient = process.env.OPENCODE_CLIENT
@@ -16,6 +16,39 @@ afterEach(() => {
 
   if (opencodeClient === undefined) delete process.env.OPENCODE_CLIENT
   else process.env.OPENCODE_CLIENT = opencodeClient
+})
+
+describe("signalUrl", () => {
+  test("returns undefined for both signals when no endpoint is set", () => {
+    expect(signalUrl("traces", {})).toBeUndefined()
+    expect(signalUrl("logs", {})).toBeUndefined()
+  })
+
+  test("appends /v1/<signal> to the common endpoint", () => {
+    expect(signalUrl("traces", { common: "http://c:4318" })).toBe("http://c:4318/v1/traces")
+    expect(signalUrl("logs", { common: "http://c:4318" })).toBe("http://c:4318/v1/logs")
+  })
+
+  test("strips trailing slashes from the common endpoint", () => {
+    expect(signalUrl("traces", { common: "http://c:4318/" })).toBe("http://c:4318/v1/traces")
+    expect(signalUrl("logs", { common: "http://c:4318///" })).toBe("http://c:4318/v1/logs")
+  })
+
+  test("uses a signal-specific endpoint as-is and overrides the common one", () => {
+    const env = { common: "http://c:4318", traces: "http://t:4318/custom" }
+    expect(signalUrl("traces", env)).toBe("http://t:4318/custom")
+    expect(signalUrl("logs", env)).toBe("http://c:4318/v1/logs")
+  })
+
+  test("disabled SDK returns undefined for both signals", () => {
+    const env = { common: "http://c:4318", traces: "http://t:4318", logs: "http://l:4318", disabled: true }
+    expect(signalUrl("traces", env)).toBeUndefined()
+    expect(signalUrl("logs", env)).toBeUndefined()
+  })
+
+  test("blank signal-specific endpoint falls back to the common endpoint", () => {
+    expect(signalUrl("traces", { common: "http://c:4318", traces: "  " })).toBe("http://c:4318/v1/traces")
+  })
 })
 
 describe("resource", () => {

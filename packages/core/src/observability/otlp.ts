@@ -4,7 +4,28 @@ import { Flag } from "../flag/flag"
 import { InstallationChannel, InstallationVersion } from "../installation/version"
 import { runID } from "./shared"
 
-const endpoint = Flag.OTEL_EXPORTER_OTLP_ENDPOINT
+export type Signal = "traces" | "logs"
+
+// OTel spec: signal endpoints are used as-is, the common endpoint gets /v1/<signal>
+export function signalUrl(
+  signal: Signal,
+  env: { common?: string; traces?: string; logs?: string; disabled?: boolean } = {
+    common: Flag.OTEL_EXPORTER_OTLP_ENDPOINT,
+    traces: Flag.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
+    logs: Flag.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
+    disabled: Flag.OTEL_SDK_DISABLED,
+  },
+): string | undefined {
+  if (env.disabled) return undefined
+  const specific = env[signal]?.trim()
+  if (specific) return specific
+  const common = env.common?.trim().replace(/\/+$/, "")
+  if (common) return `${common}/v1/${signal}`
+  return undefined
+}
+
+const logsUrl = signalUrl("logs")
+const tracesUrl = signalUrl("traces")
 
 const headers = Flag.OTEL_EXPORTER_OTLP_HEADERS
   ? Flag.OTEL_EXPORTER_OTLP_HEADERS.split(",").reduce(
@@ -48,12 +69,12 @@ export function resource(): { serviceName: string; serviceVersion: string; attri
 }
 
 export function loggers() {
-  if (!endpoint) return []
-  return [OtlpLogger.make({ url: `${endpoint}/v1/logs`, resource: resource(), headers })]
+  if (!logsUrl) return []
+  return [OtlpLogger.make({ url: logsUrl, resource: resource(), headers })]
 }
 
 export async function tracingLayer() {
-  if (!endpoint) return Layer.empty
+  if (!tracesUrl) return Layer.empty
   const NodeSdk = await import("@effect/opentelemetry/NodeSdk")
   const OTLP = await import("@opentelemetry/exporter-trace-otlp-http")
   const SdkBase = await import("@opentelemetry/sdk-trace-base")
@@ -69,7 +90,7 @@ export async function tracingLayer() {
     resource: resource(),
     spanProcessor: new SdkBase.BatchSpanProcessor(
       new OTLP.OTLPTraceExporter({
-        url: `${endpoint}/v1/traces`,
+        url: tracesUrl,
         headers,
       }),
     ),

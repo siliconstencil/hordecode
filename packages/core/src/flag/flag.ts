@@ -43,6 +43,10 @@ export const Flag = {
   // Common / Upstream Base
   OTEL_EXPORTER_OTLP_ENDPOINT: process.env["OTEL_EXPORTER_OTLP_ENDPOINT"],
   OTEL_EXPORTER_OTLP_HEADERS: process.env["OTEL_EXPORTER_OTLP_HEADERS"],
+  // Per-signal endpoints and the SDK kill switch follow the OpenTelemetry env spec.
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: process.env["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"],
+  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: process.env["OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"],
+  OTEL_SDK_DISABLED: process.env["OTEL_SDK_DISABLED"]?.trim().toLowerCase() === "true",
 
   OPENCODE_AUTO_HEAP_SNAPSHOT: truthy("HORDECODE_AUTO_HEAP_SNAPSHOT") || truthy("OPENCODE_AUTO_HEAP_SNAPSHOT"),
   OPENCODE_GIT_BASH_PATH: process.env["HORDECODE_GIT_BASH_PATH"] ?? process.env["OPENCODE_GIT_BASH_PATH"],
