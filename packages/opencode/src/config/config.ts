@@ -28,6 +28,7 @@ import { ConfigPermissionV1 } from "@opencode-ai/core/v1/config/permission"
 import { ConfigPluginV1 } from "@opencode-ai/core/v1/config/plugin"
 import { ConfigAgent } from "./agent"
 import { ConfigCommand } from "./command"
+import { findUnknownConfigKeys, recordUnknownConfigKeys } from "./unknown-keys"
 import { ConfigManaged } from "./managed"
 import { ConfigParse } from "./parse"
 import { ConfigPaths } from "./paths"
@@ -194,6 +195,12 @@ const layer = Layer.effect(
           kind: diagnostic.kind,
           action: diagnostic.message,
         }),
+      )
+      // Fork addition: parse.ts (PARITY) ignores excess properties, so warn here instead.
+      const unknownKeys = findUnknownConfigKeys(result.value)
+      recordUnknownConfigKeys(source, unknownKeys)
+      yield* Effect.forEach(unknownKeys, (key) =>
+        Effect.logWarning("unknown configuration key", { source, path: key.path, suggestion: key.suggestion }),
       )
       return ConfigParse.schema(ConfigV1.Info, result.value, source)
     })
