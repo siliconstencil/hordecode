@@ -17,7 +17,9 @@ export interface InstanceContext {
 
 export const context = LocalContext.create<InstanceContext>("instance")
 const cache = new Map<string, Promise<InstanceContext>>()
-const project = makeRuntime(Project.Service, Project.defaultLayer)
+const createProjectRuntime = () => makeRuntime(Project.Service, Project.defaultLayer)
+let projectRuntime: ReturnType<typeof createProjectRuntime> | undefined
+const project = () => (projectRuntime ??= createProjectRuntime())
 
 const FORBIDDEN_PREFIXES = [
   "/etc",
@@ -55,7 +57,7 @@ function boot(input: { directory: string; init?: () => Promise<any>; worktree?: 
             worktree: input.worktree,
             project: input.project,
           }
-        : await project
+        : await project()
             .runPromise((svc) => svc.fromDirectory(input.directory))
             .then(({ project, sandbox }) => ({
               directory: input.directory,
