@@ -177,3 +177,8 @@ mode and vector count, and `horde debug embedding-check` verifies the pipeline.
 
 Every outbound connection, what starts it and how to turn it off is listed in
 [docs/NETWORK.md](docs/NETWORK.md). Hordecode has no product telemetry.
+
+## Configuration notes
+
+Prices, cache lifetime, the default agent, remembered auto-approve and permission timeouts are
+described in [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
