@@ -28,10 +28,23 @@ const loadRuntimeBinding = (): string => {
     const rt = path.resolve(exeDir, "runtime", "onnxruntime")
     const bind = path.join(rt, "onnxruntime_binding.node")
     if (fs.existsSync(bind)) {
+      // Windows looks for the binding's onnxruntime.dll beside the executable and in the system
+      // folders, not beside the binding. Load it by absolute path first; the loader then reuses the
+      // already loaded module of that name for the binding (Dynamic-Link Library Search Order).
+      const dll = path.join(rt, "onnxruntime.dll")
+      if (process.platform === "win32" && fs.existsSync(dll)) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { dlopen } = require("bun:ffi") as typeof import("bun:ffi")
+        dlopen(dll, { OrtGetApiBase: { args: [], returns: "ptr" } })
+      }
       ;(process as ProcessWithDlopen).dlopen({ exports: {} } as NodeJS.Module, bind)
       runtimeDir = rt
     }
-  } catch {
+  } catch (e) {
+    // A missing system runtime (on Windows the Microsoft Visual C++ Redistributable) lands here.
+    log.warn("onnxruntime native binding failed to load, memory search stays keyword-only", {
+      error: e instanceof Error ? e.message : String(e),
+    })
     runtimeDir = ""
   }
   return runtimeDir

@@ -33,9 +33,20 @@ function getDirSize(dirPath: string): string {
   return (total / 1024 / 1024).toFixed(1)
 }
 
-function copyOnnxDlls(targetDir: string, os: string, arch: string) {
-  if (os !== "linux" || arch !== "x64") {
-    console.warn(`  WARN ONNX vendoring skipped for ${os}-${arch} (verified only for linux-x64, BM25 fallback)`)
+// onnxruntime-node 1.24.3 ships native files for linux x64/arm64 (glibc), darwin arm64 and win32
+// x64/arm64. Layout per platform (memory/src/embedding/service.ts loads them):
+// - linux, win32: binding plus the runtime library in runtime/onnxruntime/; service.ts preloads it
+//   (win32: onnxruntime.dll by absolute path, because Windows does not search the binding's folder)
+//   and the vendor copy of the binding reuses the loaded library by soname / module name.
+// - darwin: binding and dylib side by side in the vendor package; the binding finds the dylib through
+//   its own rpath (@loader_path), the standard node_modules layout.
+// The DirectML and DirectX compiler DLLs serve only the DirectML provider; embeddings run on the CPU.
+const ONNX_SKIP = new Set(["DirectML.dll", "dxcompiler.dll", "dxil.dll"])
+const isOnnxLibrary = (f: string) => f.startsWith("libonnxruntime") || f === "onnxruntime.dll"
+
+function copyOnnxDlls(targetDir: string, os: string, arch: string, abi?: string) {
+  if (abi === "musl") {
+    console.warn(`  WARN ONNX vendoring skipped for ${os}-${arch}-musl (no musl build of onnxruntime-node, BM25 fallback)`)
     return
   }
   const vendorDir = path.resolve(targetDir, "vendor")
@@ -53,19 +64,18 @@ function copyOnnxDlls(targetDir: string, os: string, arch: string) {
   }
   const onnxNodeDir = resolveCache("onnxruntime-node@1.24.3")
   const nativeDir = path.join(onnxNodeDir, `bin/napi-v6/${os}/${arch}`)
-  const rtDir = path.resolve(targetDir, "runtime", "onnxruntime")
-  fs.mkdirSync(rtDir, { recursive: true })
-  if (onnxNodeDir && fs.existsSync(path.join(nativeDir, "onnxruntime_binding.node"))) {
+  if (!onnxNodeDir || !fs.existsSync(path.join(nativeDir, "onnxruntime_binding.node"))) {
+    console.warn(`  WARN no onnxruntime native files for ${os}-${arch} at ${nativeDir}, BM25 fallback`)
+    return
+  }
+  if (os !== "darwin") {
+    const rtDir = path.resolve(targetDir, "runtime", "onnxruntime")
+    fs.mkdirSync(rtDir, { recursive: true })
     for (const f of fs.readdirSync(nativeDir)) {
-      const fp = path.join(nativeDir, f)
-      try {
-        fs.cpSync(fp, path.join(rtDir, f))
-        if (f.endsWith(".so") || f === "onnxruntime.dll") fs.cpSync(fp, path.join(targetDir, f))
-      } catch {}
+      if (ONNX_SKIP.has(f)) continue
+      fs.cpSync(path.join(nativeDir, f), path.join(rtDir, f))
     }
     console.log(`  -> runtime/onnxruntime/: native files (${getDirSize(rtDir)} MB)`)
-  } else {
-    console.warn(`  WARN onnxruntime native binaries not found at ${nativeDir}, BM25 fallback`)
   }
   const nmDir = path.join(vendorDir, "node_modules")
   const hfDir = (() => {
@@ -90,14 +100,14 @@ function copyOnnxDlls(targetDir: string, os: string, arch: string) {
     const vendorNative = path.join(onnxNmDir, `bin/napi-v6/${os}/${arch}`)
     fs.mkdirSync(vendorNative, { recursive: true })
     // The binding (.node) is required by onnxruntime-node/dist/binding.js from this vendor path.
-    // libonnxruntime.so.1 is loaded once from runtime/onnxruntime/ (DT_NEEDED of the binding
-    // dlopen'd by memory/src/embedding/service.ts) and the dynamic linker resolves the soname to
-    // that copy; a second copy here was never opened (strace, 2026-10-20) and cost 35 MB per package.
-    if (fs.existsSync(nativeDir))
-      for (const f of fs.readdirSync(nativeDir)) {
-        if (f.startsWith("libonnxruntime")) continue
-        fs.cpSync(path.join(nativeDir, f), path.join(vendorNative, f))
-      }
+    // linux, win32: the runtime library is loaded once from runtime/onnxruntime/ (see above) and the
+    // loader resolves the binding's dependency to that copy; a second copy here was never opened
+    // (strace, 2026-10-20) and cost 35 MB per package. darwin: the dylib lives here, next to the binding.
+    for (const f of fs.readdirSync(nativeDir)) {
+      if (ONNX_SKIP.has(f)) continue
+      if (os !== "darwin" && isOnnxLibrary(f)) continue
+      fs.cpSync(path.join(nativeDir, f), path.join(vendorNative, f))
+    }
     fs.cpSync(path.join(onnxNodeDir, "package.json"), path.join(onnxNmDir, "package.json"))
   }
   const commonDir = resolveCache("onnxruntime-common@1.24.3")
@@ -402,7 +412,7 @@ for (const item of targets) {
   )
 
   try {
-    copyOnnxDlls(path.resolve(dir, `dist/${name}/bin`), item.os, item.arch)
+    copyOnnxDlls(path.resolve(dir, `dist/${name}/bin`), item.os, item.arch, item.abi)
   } catch (e) {
     console.warn(`  WARN ONNX vendoring failed for ${name}:`, e, "(BM25 fallback)")
   }

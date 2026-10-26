@@ -54,6 +54,23 @@ jobs:
       - name: Version
         working-directory: packages/opencode
         run: ./dist/hordecode-${{ matrix.target }}/bin/${{ matrix.bin }} --version
+      - name: Hybrid memory check (embedding model and vector store)
+        working-directory: packages/opencode
+        env:
+          HORDECODE_HOME: ${{ runner.temp }}/hordecode-embed-home
+          HORDECODE_CONFIG_CONTENT: '{"memory":{"embedding":true}}'
+        run: |
+          set -u
+          BIN="$PWD/dist/hordecode-${{ matrix.target }}/bin/${{ matrix.bin }}"
+          mkdir -p "$HORDECODE_HOME"
+          if "$BIN" debug embedding-check; then
+            echo "hybrid memory works on ${{ matrix.target }}"
+          elif [ "${{ matrix.target }}" = "darwin-x64" ]; then
+            # onnxruntime-node ships no Intel macOS build; memory search is keyword-only there by design.
+            echo "darwin-x64: keyword-only memory search (expected)"
+          else
+            exit 1
+          fi
       - name: Fresh user checks on the built binary
         working-directory: packages/opencode
         env:
