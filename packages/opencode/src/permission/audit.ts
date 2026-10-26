@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import fs from "fs"
 import path from "path"
 import { Cause, Effect, Exit, Option } from "effect"
@@ -7,9 +8,17 @@ import { NonInteractiveDeniedError } from "."
 
 // One JSON line per permission decision and per human reply, under the log directory,
 // rotated by size. Opt-in; a failed write never affects the permission flow.
+// Each line carries `prev`, the SHA-256 of the previous line, so `verify` can detect edits.
+// Concurrency: two processes appending to the same file can interleave and break the chain;
+// this is not handled here.
 
 const MAX_BYTES = 5 * 1024 * 1024
 const KEEP = 3
+const ZERO = "0".repeat(64)
+const hash = (text: string) => createHash("sha256").update(text).digest("hex")
+
+// Hash of the last line written per target path, valid across rotation (the last line moves to `<target>.1`).
+const last = new Map<string, string>()
 
 const env = (name: string) => process.env[`HORDECODE_${name}`] ?? process.env[`OPENCODE_${name}`]
 
@@ -35,16 +44,111 @@ function rotate(target: string) {
   fs.renameSync(target, `${target}.1`)
 }
 
+function lastLine(target: string) {
+  if (!fs.existsSync(target)) return undefined
+  return fs
+    .readFileSync(target, "utf8")
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .at(-1)
+}
+
+// Hash of the last line before the next append: cached per process, else read from disk.
+function previous(target: string) {
+  const cached = last.get(target)
+  if (cached !== undefined) return cached
+  const line = lastLine(target) ?? lastLine(`${target}.1`)
+  const value = line === undefined ? ZERO : hash(line)
+  last.set(target, value)
+  return value
+}
+
+// Test-only: forget the cached chain head, as a new process would.
+export function __resetForTest() {
+  last.clear()
+}
+
 export function write(entry: Record<string, unknown>) {
   if (!enabled()) return
   try {
     const target = file()
-    const line = JSON.stringify({ time: Date.now(), ...entry }) + "\n"
+    const text = JSON.stringify({ time: Date.now(), ...entry, prev: previous(target) })
+    const line = text + "\n"
     fs.mkdirSync(path.dirname(target), { recursive: true })
     const size = fs.statSync(target, { throwIfNoEntry: false })?.size ?? 0
     if (size > 0 && size + Buffer.byteLength(line) > maxBytes()) rotate(target)
     fs.appendFileSync(target, line, { mode: 0o600 })
+    last.set(target, hash(text))
   } catch {}
+}
+
+export type Broken = { file: string; line: number; reason: string }
+
+export type Verification = {
+  ok: boolean
+  files: string[]
+  lines: number
+  legacy: number
+  // `file:line` of the first chained line, where the chain starts.
+  anchor: string | undefined
+  broken?: Broken
+}
+
+// Walks the rotated files oldest first and checks every chained line's `prev`.
+export function verify(target = file()): Verification {
+  const files: string[] = []
+  for (let i = KEEP; i >= 1; i--) if (fs.existsSync(`${target}.${i}`)) files.push(`${target}.${i}`)
+  if (fs.existsSync(target)) files.push(target)
+
+  let lines = 0
+  let legacy = 0
+  let anchor: string | undefined
+  let chained = false
+  let expected: string | undefined
+  const fail = (file: string, line: number, reason: string): Verification => ({
+    ok: false,
+    files,
+    lines,
+    legacy,
+    anchor,
+    broken: { file, line, reason },
+  })
+
+  for (const current of files) {
+    const rows = fs.readFileSync(current, "utf8").split("\n")
+    if (rows.at(-1) === "") rows.pop()
+    for (let i = 0; i < rows.length; i++) {
+      const text = rows[i]!
+      const where = i + 1
+      lines++
+      let entry: unknown
+      try {
+        entry = JSON.parse(text)
+      } catch {
+        return fail(current, where, "invalid JSON")
+      }
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry))
+        return fail(current, where, "line is not an object")
+      if (!("prev" in entry)) {
+        if (chained) return fail(current, where, "legacy line after a chained line")
+        legacy++
+        expected = hash(text)
+        continue
+      }
+      const prev = (entry as { prev: unknown }).prev
+      if (!chained) {
+        // Anchor: its predecessor may have been rotated out, so only a zero prev is meaningful.
+        chained = true
+        anchor = `${current}:${where}`
+        if (prev === ZERO && lines > 1) return fail(current, where, "zero prev after earlier lines")
+        expected = hash(text)
+        continue
+      }
+      if (prev !== expected) return fail(current, where, `prev mismatch: expected ${expected}, found ${String(prev)}`)
+      expected = hash(text)
+    }
+  }
+  return { ok: true, files, lines, legacy, anchor }
 }
 
 function outcome(exit: Exit.Exit<void, PermissionV1.Error>) {

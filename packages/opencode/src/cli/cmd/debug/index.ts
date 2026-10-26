@@ -16,6 +16,7 @@ import { AgentCommand } from "./agent"
 import { StartupCommand } from "./startup"
 import { V2Command } from "./v2"
 import { Memory } from "@opencode-ai/memory"
+import { PermissionAudit } from "../../../permission/audit"
 import { Service as EmbeddingService } from "@opencode-ai/memory/embedding/service"
 
 export const DebugCommand = cmd({
@@ -37,6 +38,7 @@ export const DebugCommand = cmd({
       .command(PathsCommand)
       .command(WaitCommand)
       .command(EmbeddingCheckCommand)
+      .command(AuditVerifyCommand)
       .demandCommand(),
   async handler() {},
 })
@@ -165,6 +167,33 @@ const EmbeddingCheckCommand = effectCmd({
     // ends holding the npm-install lock and the next boot waits for it to go stale.
     yield* body.pipe(Effect.ensuring(svc.waitForDependencies()))
   }),
+})
+
+const AuditVerifyCommand = cmd({
+  command: "audit-verify [file]",
+  describe: "verify the permission audit log hash chain",
+  builder: (yargs) =>
+    yargs.positional("file", {
+      type: "string",
+      describe: "base log file (default: the permission audit log)",
+    }),
+  handler(args) {
+    const target = args.file ?? PermissionAudit.file()
+    const result = PermissionAudit.verify(target)
+    if (result.files.length === 0) {
+      console.error(`no audit log found: ${target}`)
+      process.exitCode = 1
+      return
+    }
+    const summary = `files=${result.files.length} lines=${result.lines} legacy=${result.legacy}`
+    if (result.ok) {
+      console.log(`ok ${summary}`)
+      return
+    }
+    const broken = result.broken!
+    console.log(`broken ${summary} at ${broken.file}:${broken.line}: ${broken.reason}`)
+    process.exitCode = 1
+  },
 })
 
 const PathsCommand = cmd({

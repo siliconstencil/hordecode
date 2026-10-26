@@ -33,7 +33,9 @@ function normalize(text: string): string {
       // (the harness now uses FileSystem.makeTempDirectoryScoped under the
       // hood). A `[a-z0-9]+` regex would leave uppercase chars trailing.
       [new RegExp(`<TMPDIR>${PATH_SEP}oc-cli-[A-Za-z0-9]+`, "g"), "<HOME>"],
-      [/\s+\[string\] \[default: "<HOME>"\]/g, ' [string] [default: "<HOME>"]'],
+      // Fork delta of upstream line 36: a long TMPDIR makes yargs wrap inside the default, so allow any
+      // whitespace between the parts (tests here run with TMPDIR under the project, never /tmp).
+      [/\s+\[string\]\s+\[default:\s+"<HOME>"\]/g, ' [string] [default: "<HOME>"]'],
       // The harness spawns the CLI via `bun run`, so yargs renders the
       // program name as "bun" instead of "horde". Normalize it back so
       // snapshots stay stable regardless of how the CLI was launched.

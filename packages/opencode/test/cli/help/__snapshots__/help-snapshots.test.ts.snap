@@ -117,21 +117,22 @@ exports[`horde CLI help-text snapshots every documented command emits stable hel
 debugging and troubleshooting tools
 
 Commands:
-  horde debug config           show resolved configuration
-  horde debug lsp              LSP debugging utilities (no-op when all LSPs are disabled; set \`lsp:
-                             true\` in config to enable)
-  horde debug rg               ripgrep debugging utilities
-  horde debug file             file system debugging utilities
-  horde debug scrap            list all known projects
-  horde debug skill            list all available skills
-  horde debug snapshot         snapshot debugging utilities
-  horde debug startup          print startup timing
-  horde debug agent <name>     show agent configuration details
-  horde debug v2               debug v2 catalog and built-in plugins
-  horde debug info             show debug information
-  horde debug paths            show global paths (data, config, cache, state)
-  horde debug wait             wait indefinitely (for debugging)
-  horde debug embedding-check  verify memory embedding pipeline in compiled binary
+  horde debug config               show resolved configuration
+  horde debug lsp                  LSP debugging utilities (no-op when all LSPs are disabled; set
+                                 \`lsp: true\` in config to enable)
+  horde debug rg                   ripgrep debugging utilities
+  horde debug file                 file system debugging utilities
+  horde debug scrap                list all known projects
+  horde debug skill                list all available skills
+  horde debug snapshot             snapshot debugging utilities
+  horde debug startup              print startup timing
+  horde debug agent <name>         show agent configuration details
+  horde debug v2                   debug v2 catalog and built-in plugins
+  horde debug info                 show debug information
+  horde debug paths                show global paths (data, config, cache, state)
+  horde debug wait                 wait indefinitely (for debugging)
+  horde debug embedding-check      verify memory embedding pipeline in compiled binary
+  horde debug audit-verify [file]  verify the permission audit log hash chain
 
 Options:
   -h, --help        show help                                                              [boolean]

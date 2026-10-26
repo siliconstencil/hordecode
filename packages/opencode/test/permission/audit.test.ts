@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { describe, expect, test } from "bun:test"
 import { Effect, Exit, Fiber, Layer } from "effect"
 import fs from "fs"
+import path from "path"
 import { EventV2Bridge } from "../../src/event-v2-bridge"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { InstanceBootstrap } from "../../src/project/bootstrap"
@@ -22,8 +24,16 @@ const it = testEffect(env)
 const sessionID = SessionID.make("session_audit")
 
 const clear = () => {
+  PermissionAudit.__resetForTest()
   for (const suffix of ["", ".1", ".2", ".3", ".4"]) fs.rmSync(PermissionAudit.file() + suffix, { force: true })
 }
+
+const rawLines = (suffix = "") =>
+  fs.existsSync(PermissionAudit.file() + suffix)
+    ? fs.readFileSync(PermissionAudit.file() + suffix, "utf8").split("\n").filter((line) => line.length > 0)
+    : []
+
+const sha = (text: string) => createHash("sha256").update(text).digest("hex")
 
 const lines = (suffix = "") =>
   fs.existsSync(PermissionAudit.file() + suffix)
@@ -166,5 +176,88 @@ describe("permission audit helpers", () => {
       delete process.env["HORDECODE_PERMISSION_AUDIT_MAX_BYTES"]
       clear()
     }
+  })
+})
+
+describe("permission audit hash chain", () => {
+  const logged = (body: () => void) => {
+    clear()
+    process.env["HORDECODE_PERMISSION_AUDIT"] = "1"
+    try {
+      body()
+    } finally {
+      delete process.env["HORDECODE_PERMISSION_AUDIT"]
+      clear()
+    }
+  }
+
+  test("chains three writes from 64 zeros and verifies", () => {
+    logged(() => {
+      for (let i = 0; i < 3; i++) PermissionAudit.write({ kind: "decision", n: i })
+      const raw = rawLines()
+      const result = PermissionAudit.verify()
+      expect(result).toEqual({ ok: true, files: [PermissionAudit.file()], lines: 3, legacy: 0, anchor: `${PermissionAudit.file()}:1` })
+      expect(JSON.parse(raw[0]!).prev).toBe("0".repeat(64))
+      expect(JSON.parse(raw[1]!).prev).toBe(sha(raw[0]!))
+      expect(JSON.parse(raw[2]!).prev).toBe(sha(raw[1]!))
+    })
+  })
+
+  test("reports the line after an edited line as a prev mismatch", () => {
+    logged(() => {
+      for (let i = 0; i < 3; i++) PermissionAudit.write({ kind: "decision", n: i })
+      const text = fs.readFileSync(PermissionAudit.file(), "utf8")
+      fs.writeFileSync(PermissionAudit.file(), text.replace('"n":1', '"n":2'))
+      const result = PermissionAudit.verify()
+      expect(result.ok).toBe(false)
+      expect(result.broken?.file).toBe(PermissionAudit.file())
+      expect(result.broken?.line).toBe(3)
+      expect(result.broken?.reason).toContain("prev mismatch")
+    })
+  })
+
+  test("verifies across rotated files", () => {
+    logged(() => {
+      process.env["HORDECODE_PERMISSION_AUDIT_MAX_BYTES"] = "400"
+      try {
+        for (let i = 0; i < 40; i++) PermissionAudit.write({ kind: "decision", n: i, pad: "x".repeat(60) })
+      } finally {
+        delete process.env["HORDECODE_PERMISSION_AUDIT_MAX_BYTES"]
+      }
+      const result = PermissionAudit.verify()
+      expect(result.ok).toBe(true)
+      expect(result.files).toEqual([`${PermissionAudit.file()}.3`, `${PermissionAudit.file()}.2`, `${PermissionAudit.file()}.1`, PermissionAudit.file()])
+      expect(result.lines).toBe(rawLines(".1").length + rawLines(".2").length + rawLines(".3").length + rawLines().length)
+      expect(result.legacy).toBe(0)
+    })
+  })
+
+  test("a fresh process continues the chain from the last existing line", () => {
+    logged(() => {
+      PermissionAudit.write({ kind: "decision", n: 0 })
+      PermissionAudit.write({ kind: "decision", n: 1 })
+      PermissionAudit.__resetForTest()
+      PermissionAudit.write({ kind: "decision", n: 2 })
+      const raw = rawLines()
+      expect(JSON.parse(raw[2]!).prev).toBe(sha(raw[1]!))
+      expect(PermissionAudit.verify().ok).toBe(true)
+    })
+  })
+
+  test("legacy lines before chained lines verify; a legacy line after a chained one breaks", () => {
+    logged(() => {
+      const legacy = (n: number) => JSON.stringify({ time: 1, kind: "decision", n }) + "\n"
+      fs.mkdirSync(path.dirname(PermissionAudit.file()), { recursive: true })
+      fs.writeFileSync(PermissionAudit.file(), legacy(0) + legacy(1))
+      PermissionAudit.write({ kind: "decision", n: 2 })
+      const ok = PermissionAudit.verify()
+      expect(ok).toMatchObject({ ok: true, lines: 3, legacy: 2 })
+
+      fs.appendFileSync(PermissionAudit.file(), legacy(3))
+      const broken = PermissionAudit.verify()
+      expect(broken.ok).toBe(false)
+      expect(broken.broken).toMatchObject({ file: PermissionAudit.file(), line: 4 })
+      expect(broken.broken?.reason).toContain("legacy line after a chained line")
+    })
   })
 })
