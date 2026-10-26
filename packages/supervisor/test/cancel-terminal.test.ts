@@ -22,6 +22,7 @@ import { SessionRunState } from "@opencode-ai/core/session/run-state"
 import { PluginV2 as Plugin } from "@opencode-ai/core/plugin"
 import { TaskRegistry } from "@opencode-ai/task/registry"
 import { Agent } from "@opencode-ai/agent/agent"
+import { Config } from "@opencode-ai/core/config/index"
 import { Inbox } from "@opencode-ai/inbox"
 import type { InstanceContext } from "@opencode-ai/project/instance"
 import type { SessionID } from "@opencode-ai/core/session/schema"
@@ -68,6 +69,7 @@ const fakeDeps = Layer.mergeAll(
   Layer.succeed(SessionRunState.Service, { cancelSupervisor: () => Effect.void } as never),
   Layer.succeed(Plugin.Service, {} as never),
   Layer.succeed(TaskRegistry.Service, {} as never),
+  Layer.succeed(Config.Service, { get: () => Effect.succeed({}) } as never),
 )
 
 const AppLayer = Supervisor.layer.pipe(

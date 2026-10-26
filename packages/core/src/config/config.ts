@@ -386,6 +386,11 @@ const InfoSchema = Schema.Struct({
       openTelemetry: Schema.optional(Schema.Boolean).annotate({
         description: "Enable OpenTelemetry spans for AI SDK calls (using the 'experimental_telemetry' flag)",
       }),
+      // Mirrors core/src/v1/config/config.ts so fork packages reading Config.Service see
+      // the key the runtime parser keeps.
+      primary_tools: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
+        description: "Tools that should only be available to primary agents.",
+      }),
       continue_loop_on_deny: Schema.optional(Schema.Boolean).annotate({
         description: "Continue the agent loop when a tool call is denied",
       }),

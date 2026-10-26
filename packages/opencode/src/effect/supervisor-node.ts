@@ -64,6 +64,8 @@ export const SupervisorNode = LayerNode.make({
     PluginV2.node,
     BusNode,
     TaskRegistryNode,
+    // Supervisor.layer reads experimental.primary_tools through Config.Service at spawn time.
+    Config.node,
   ],
 })
 

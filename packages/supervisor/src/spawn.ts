@@ -10,8 +10,9 @@ import { TaskRegistry } from "@opencode-ai/task/registry"
 import { TaskGate, MAX_TASK_GATE_SUBAGENT_REACT } from "@opencode-ai/task/gate"
 import { Agent } from "@opencode-ai/agent/agent"
 import { SYSTEM_SPAWNED_AGENT_TYPES } from "@opencode-ai/agent/config"
-import { disabled } from "@opencode-ai/core/permission/index"
+import { disabled, type Ruleset as SessionRuleset } from "@opencode-ai/core/permission/index"
 import { Ruleset } from "@opencode-ai/core/permission"
+import { Config } from "@opencode-ai/core/config/index"
 import type { SpawnMode, ContextMode, ToolWhitelist, Lifecycle, Supervisor } from "./schema"
 import { deriveLiveness, WATCHDOG_SCAN_INTERVAL_MS } from "./schema"
 import { runTurn } from "./turn"
@@ -35,6 +36,36 @@ import { Instance, type InstanceContext } from "@opencode-ai/project/instance"
 import { InstanceRef } from "@opencode-ai/core/effect/instance-ref"
 
 const log = Log.create({ service: "supervisor.spawn" })
+
+/**
+ * Permission ruleset for a spawned child session. Mirrors upstream opencode
+ * v1.19.4 packages/opencode/src/tool/task.ts:150-154: each `experimental.primary_tools`
+ * entry becomes a deny rule on the child session. Deny rules are appended after the
+ * inherited rules and skipped when already present (no growth on repeated resume).
+ * System-spawned agent types are exempt and keep the inherited ruleset unchanged.
+ * With no primary tools the inherited value is returned unchanged.
+ */
+export function childPermission(input: {
+  inherited: SessionRuleset | undefined
+  existing?: SessionRuleset
+  primaryTools: readonly string[] | undefined
+  agentType: string | undefined
+}): SessionRuleset | undefined {
+  const tools = input.primaryTools ?? []
+  if (tools.length === 0) return input.inherited
+  if (input.agentType !== undefined && SYSTEM_SPAWNED_AGENT_TYPES.has(input.agentType)) return input.inherited
+  const base = input.inherited ?? []
+  const present = [...base, ...(input.existing ?? [])]
+  const has = (rule: SessionRuleset[number]) =>
+    present.some((r) => r.permission === rule.permission && r.pattern === rule.pattern && r.action === rule.action)
+  const denies: SessionRuleset = []
+  for (const permission of tools) {
+    const rule = { permission, pattern: "*", action: "deny" as const }
+    if (has(rule) || denies.some((d) => d.permission === permission)) continue
+    denies.push(rule)
+  }
+  return [...base, ...denies]
+}
 
 /**
  * Cap on preStop ReAct re-entries per spawn -- prevents infinite loops.
@@ -318,6 +349,7 @@ export const layer = Layer.effect(
     const plugin = yield* Plugin.Service
     const bus = yield* Bus.Service
     const taskRegistry = yield* TaskRegistry.Service
+    const config = yield* Config.Service
     const scope = yield* Scope.Scope
 
     // ForkContext snapshot per supervisor, captured at spawn for fork agents
@@ -869,6 +901,16 @@ export const layer = Layer.effect(
           )
         : undefined
 
+      const inheritedPeerPermission = input.forkContext?.parentPermission?.map((p) => ({
+        permission: p.action,
+        pattern: p.resource,
+        action: p.effect,
+      }))
+      const permission = childPermission({
+        inherited: inheritedPeerPermission,
+        primaryTools: (yield* config.get()).experimental?.primary_tools,
+        agentType: input.agentType,
+      })
       const child = yield* session.create({
         parentID: input.sessionID,
         contextFrom: input.context === "full" ? input.sessionID : undefined,
@@ -876,15 +918,7 @@ export const layer = Layer.effect(
         // (opencode tool/task.ts:160, consumed at tui subagent-footer.tsx:20).
         title: childSessionTitle(input),
         ...(input.cwd ? { directory: input.cwd } : {}),
-        ...(input.forkContext?.parentPermission
-          ? {
-              permission: input.forkContext.parentPermission.map((p) => ({
-                permission: p.action,
-                pattern: p.resource,
-                action: p.effect,
-              })),
-            }
-          : {}),
+        ...(permission ? { permission } : {}),
       })
       yield* supervisorReg.register({
         sessionID: child.id,
@@ -957,6 +991,8 @@ export const layer = Layer.effect(
         pattern: p.resource,
         action: p.effect,
       }))
+      const primaryTools = (yield* config.get()).experimental?.primary_tools
+      const permission = childPermission({ inherited: inheritedPermission, primaryTools, agentType: input.agentType })
       const child = input.ownsSession || resuming
         ? yield* session.get(input.sessionID)
         : yield* session.create({
@@ -966,10 +1002,21 @@ export const layer = Layer.effect(
             // (opencode tool/task.ts:160, consumed at tui subagent-footer.tsx:20).
             title: childSessionTitle(input),
             ...(input.cwd ? { directory: input.cwd } : {}),
-            ...(inheritedPermission ? { permission: inheritedPermission } : {}),
+            ...(permission ? { permission } : {}),
           })
-      if (input.ownsSession && inheritedPermission)
-        yield* session.setPermission({ sessionID: child.id, permission: inheritedPermission })
+      // The owned session's ruleset is replaced, so the base is the inherited ruleset or,
+      // when none, the session's current ruleset (keeps its own rules). No write when unchanged.
+      if (input.ownsSession) {
+        const current = child.permission ? [...child.permission] : undefined
+        const next = childPermission({
+          inherited: inheritedPermission ?? current,
+          existing: current,
+          primaryTools,
+          agentType: input.agentType,
+        })
+        if (next && next !== current)
+          yield* session.setPermission({ sessionID: child.id, permission: next })
+      }
 
       if (resuming) {
         // Resume reuses the existing row (PK is session_id + supervisor_id, so a
@@ -1309,6 +1356,7 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Plugin.defaultLayer),
     Layer.provide(Bus.layer),
     Layer.provide(TaskRegistry.defaultLayer),
+    Layer.provide(Config.defaultLayer),
   ),
 )
 
