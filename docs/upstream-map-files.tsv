@@ -1560,7 +1560,8 @@ PARITY	packages/core/test/effect/keyed-mutex.test.ts
 PARITY	packages/core/test/effect/layer-node/layer-node-types.test.ts
 FORK_DELTA	packages/core/test/effect/layer-node/layer-node.test.ts
 PARITY	packages/core/test/effect/layer-node/node-build.test.ts
-FORK_DELTA	packages/core/test/effect/observability.test.ts
+PARITY	packages/core/test/effect/observability.test.ts
+FORK_ONLY	packages/core/test/effect/otlp-signal.test.ts
 PARITY	packages/core/test/event.test.ts
 PARITY	packages/core/test/file-mutation.test.ts
 FORK_ONLY	packages/core/test/filesystem/filesystem-sandbox.test.ts

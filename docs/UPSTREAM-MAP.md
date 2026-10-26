@@ -20,7 +20,7 @@ Reference points:
 | kept (upstream removed) | Hordecode still carries a file upstream deleted | Decide per file at the next port. |
 | UPSTREAM_ONLY | present in 1.19.4, absent here | Not yet ported (deliberately dropped: `packages/console`, `packages/stats`). |
 
-Totals: PARITY 4938, LAGGING 55, FORK_DELTA 897, FORK_ONLY 1246, FORK_KEPT_UPSTREAM_REMOVED 5, UPSTREAM_ONLY 33.
+Totals: PARITY 4939, LAGGING 55, FORK_DELTA 896, FORK_ONLY 1247, FORK_KEPT_UPSTREAM_REMOVED 5, UPSTREAM_ONLY 33.
 
 ## Packages that are entirely Hordecode's
 
@@ -33,7 +33,7 @@ agent, bus, control-plane, cron, global, inbox, memory, project, shared, skill, 
 | path | parity | lagging | fork delta | fork only | kept (upstream removed) | upstream only |
 |---|---|---|---|---|---|---|
 | packages/opencode | 595 | 0 | 235 | 236 | 0 | 8 |
-| packages/core | 368 | 0 | 120 | 333 | 0 | 5 |
+| packages/core | 369 | 0 | 119 | 334 | 0 | 5 |
 | packages/tui | 122 | 1 | 116 | 145 | 0 | 5 |
 | packages/desktop | 140 | 0 | 165 | 3 | 1 | 1 |
 | packages/app | 549 | 14 | 81 | 0 | 4 | 0 |
