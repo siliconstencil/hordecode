@@ -17,6 +17,9 @@ const legacyDesktopEntryFpm = `${legacyDesktopEntry}=/usr/share/applications/hor
 const metainfoFpm = (appId: string) =>
   `${path.join(packageDir, "resources", `${appId}.metainfo.xml`)}=/usr/share/metainfo/${appId}.metainfo.xml`
 
+// Only the signing repository holds the Apple certificate and notarization key; elsewhere the app is built unsigned.
+const signMacos = process.env.HORDECODE_SIGN_MACOS === "1"
+
 async function signWindows(configuration: { path: string }) {
   if (process.platform !== "win32") return
   if (process.env.GITHUB_ACTIONS !== "true") return
@@ -76,15 +79,15 @@ const getBase = (appId: string): Configuration => ({
   mac: {
     category: "public.app-category.developer-tools",
     icon: `resources/icons/icon.icns`,
-    hardenedRuntime: true,
+    hardenedRuntime: signMacos,
     gatekeeperAssess: false,
     entitlements: "resources/entitlements.plist",
     entitlementsInherit: "resources/entitlements.plist",
-    notarize: true,
+    notarize: signMacos,
     target: ["dmg", "zip"],
   },
   dmg: {
-    sign: true,
+    sign: signMacos,
   },
   protocols: {
     name: "Hordecode",

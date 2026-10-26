@@ -310,6 +310,7 @@ jobs:
     continue-on-error: false
     env:
       HORDECODE_SIGN_WINDOWS: ${{ github.repository == 'anomalyco/opencode' && '1' || '' }}
+      HORDECODE_SIGN_MACOS: ${{ github.repository == 'anomalyco/opencode' && '1' || '' }}
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -427,7 +428,7 @@ jobs:
         env:
           OPENCODE_CHANNEL: ${{ (github.ref_name == 'beta' && 'beta') || 'prod' }}
           GH_TOKEN: ${{ steps.committer.outputs.token }}
-          CSC_KEYCHAIN: build.keychain
+          CSC_KEYCHAIN: ${{ github.repository == 'anomalyco/opencode' && 'build.keychain' || '' }}
           APPLE_API_KEY: ${{ runner.temp }}/apple-api-key.p8
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
