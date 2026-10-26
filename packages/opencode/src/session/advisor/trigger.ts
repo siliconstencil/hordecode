@@ -10,13 +10,23 @@ export interface AdvisorTriggers {
   context_percent: number
 }
 
-// Proposals, to be set from measurement, not omp values. omp has no threshold gate.
-// A threshold of 0 disables that trigger.
+// Proposals, to be set from measurement, not omp values. omp has no threshold gate (it reviews
+// every turn). A threshold of 0 disables that trigger.
 export const DEFAULT_TRIGGERS: AdvisorTriggers = {
   files_touched: 8,
   tool_failures: 3,
   same_error: 2,
   context_percent: 70,
+}
+
+export type Sensitivity = "low" | "default" | "high"
+
+// Sensitivity presets: thresholds plus the cooldown in steps between two reviews. Explicit
+// experimental.advisor.triggers / cooldown_steps values override the preset.
+export const PRESETS: Record<Sensitivity, { triggers: AdvisorTriggers; cooldown: number }> = {
+  low: { triggers: { files_touched: 12, tool_failures: 4, same_error: 3, context_percent: 85 }, cooldown: 6 },
+  default: { triggers: DEFAULT_TRIGGERS, cooldown: 3 },
+  high: { triggers: { files_touched: 5, tool_failures: 2, same_error: 2, context_percent: 60 }, cooldown: 2 },
 }
 
 export interface TriggerState {

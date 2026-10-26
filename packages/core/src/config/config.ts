@@ -456,6 +456,9 @@ const InfoSchema = Schema.Struct({
               context_percent: Schema.optional(Schema.Number),
             }),
           ),
+          sensitivity: Schema.optional(Schema.Literals(["low", "default", "high"])).annotate({
+            description: "How readily the advisor reviews: low (quiet), default, high (watchful). Explicit triggers and cooldown_steps override it.",
+          }),
           min_severity: Schema.optional(Schema.Literals(["nit", "concern", "blocker"])),
           max_notes: Schema.optional(Schema.Number),
           cooldown_steps: Schema.optional(Schema.Number),

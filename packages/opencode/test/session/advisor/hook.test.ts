@@ -119,3 +119,67 @@ describe("maybeAdvise", () => {
     expect(out?.reminder).toBeUndefined()
   })
 })
+
+describe("maybeAdvise tuning", () => {
+  const distinct = [user("fix the build"), failedTool("permission denied"), failedTool("not found"), failedTool("timeout")]
+
+  test("sensitivity presets move the thresholds", async () => {
+    const { provider } = fakeProvider()
+    const low = fakeLLM(reply)
+    expect(
+      await run({ cfg: { enabled: true, model: "test/advisor", sensitivity: "low" }, step: 2, sessionID: "t1", llm: low.llm, provider, messages: distinct }),
+    ).toBeUndefined()
+    expect(low.count()).toBe(0)
+    const def = fakeLLM(reply)
+    const out = await run({ cfg: { enabled: true, model: "test/advisor" }, step: 2, sessionID: "t2", llm: def.llm, provider, messages: distinct })
+    expect(out?.reasons).toEqual(["tool_failures 3 >= 3"])
+  })
+
+  test("explicit triggers override the preset", async () => {
+    const { provider } = fakeProvider()
+    const fake = fakeLLM(reply)
+    const out = await run({
+      cfg: { enabled: true, model: "test/advisor", sensitivity: "low", triggers: { tool_failures: 2 } },
+      step: 2,
+      sessionID: "t3",
+      llm: fake.llm,
+      provider,
+      messages: distinct,
+    })
+    expect(out?.reasons).toEqual(["tool_failures 3 >= 2"])
+  })
+
+  test("subagent sessions are not reviewed", async () => {
+    const { provider } = fakeProvider()
+    const fake = fakeLLM(reply)
+    const out = await Effect.runPromise(
+      maybeAdvise({
+        cfg: { enabled: true, model: "test/advisor" },
+        step: 2,
+        messages: failures,
+        provider,
+        llm: fake.llm,
+        model: mainModel,
+        user: {} as never,
+        agent: {} as never,
+        sessionID: "t4",
+        parentSessionID: "parent",
+      }),
+    )
+    expect(out).toBeUndefined()
+    expect(fake.count()).toBe(0)
+  })
+
+  test("a new user turn resets cooldown and repeat suppression", async () => {
+    const { provider } = fakeProvider()
+    const fake = fakeLLM(reply)
+    const cfg = { enabled: true, model: "test/advisor" }
+    await run({ cfg, step: 2, sessionID: "t5", llm: fake.llm, provider })
+    const next = failures.map((m, i) => (i === 0 ? ({ ...m, info: { ...m.info, id: "u2" } } as Msg) : m))
+    const out = await run({ cfg, step: 3, sessionID: "t5", llm: fake.llm, provider, messages: next })
+    // The advisor runs again in the new turn; the identical note is still dropped by the guard.
+    expect(out?.reasons.length).toBeGreaterThan(0)
+    expect(fake.count()).toBe(2)
+    expect(out?.reminder).toBeUndefined()
+  })
+})

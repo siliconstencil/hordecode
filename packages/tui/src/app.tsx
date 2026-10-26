@@ -90,6 +90,7 @@ import { DialogWorktree } from "./component/dialog-worktree"
 import { DialogImageList } from "./component/dialog-image-list"
 import { DialogContextLimit } from "./component/dialog-context-limit"
 import { DialogSwitches } from "./component/dialog-switches"
+import { DialogAdvisor } from "./component/dialog-advisor"
 import { DialogSelect } from "./ui/dialog-select"
 import { CommandProvider } from "./component/dialog-command"
 import { createTuiAttention } from "./attention"
@@ -1240,6 +1241,15 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
             duration: 3000,
           })
           dialog.clear()
+        },
+      },
+      {
+        name: "advisor.configure",
+        title: "Advisor",
+        slashName: "advisor",
+        category: "Agent",
+        run: () => {
+          DialogAdvisor.show(dialog)
         },
       },
       {

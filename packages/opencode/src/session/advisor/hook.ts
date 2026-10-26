@@ -10,8 +10,8 @@ import type { Usage } from "@opencode-ai/llm"
 import { Provider } from "@/provider/provider"
 import type { LLM } from "../llm"
 import * as ModelValue from "../model-value"
-import { collectFacts } from "./facts"
-import { DEFAULT_TRIGGERS, evaluate } from "./trigger"
+import { collectFacts, currentTurn } from "./facts"
+import { PRESETS, evaluate } from "./trigger"
 import { advise, isActive, renderReminder, renderTranscript, stateFor, type AdvisorConfig } from "./run"
 
 export interface Advice {
@@ -52,14 +52,25 @@ export const maybeAdvise = (input: {
   Effect.gen(function* () {
     const cfg = input.cfg
     if (!isActive(cfg)) return undefined
+    // Primary sessions only, like omp (it reviews primary turns): subagent sessions would multiply
+    // the cost and their parent already sees their result.
+    if (input.parentSessionID) return undefined
     const state = stateFor(input.sessionID, cfg.max_notes)
+    // A new user turn starts a fresh trigger history (cooldown and repeat suppression are per turn).
+    const turnID = currentTurn(input.messages)[0]?.info.id
+    if (state.turnID !== turnID) {
+      state.turnID = turnID
+      state.trigger.lastFiredStep = undefined
+      state.trigger.lastReasons = []
+    }
     const facts = collectFacts(input.messages, input.model.limit?.context)
+    const preset = PRESETS[cfg.sensitivity ?? "default"] ?? PRESETS.default
     const decision = evaluate(
       facts,
-      { ...DEFAULT_TRIGGERS, ...cfg.triggers },
+      { ...preset.triggers, ...cfg.triggers },
       state.trigger,
       input.step,
-      cfg.cooldown_steps ?? 3,
+      cfg.cooldown_steps ?? preset.cooldown,
     )
     if (!decision.fire) return undefined
     state.trigger.lastFiredStep = input.step

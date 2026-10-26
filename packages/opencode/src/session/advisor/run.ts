@@ -20,6 +20,7 @@ export interface AdvisorConfig {
     same_error?: number
     context_percent?: number
   }
+  sensitivity?: "low" | "default" | "high"
   min_severity?: Severity
   max_notes?: number
   cooldown_steps?: number
@@ -31,7 +32,7 @@ export function isActive(cfg: AdvisorConfig | undefined): cfg is AdvisorConfig &
 
 // Per-session state, least recently used evicted first (a read moves the session to the end).
 const SESSION_LIMIT = 256
-const sessions = new Map<string, { trigger: TriggerState; guard: EmissionGuard }>()
+const sessions = new Map<string, { trigger: TriggerState; guard: EmissionGuard; turnID?: string }>()
 
 export function stateFor(sessionID: string, maxNotes?: number) {
   const existing = sessions.get(sessionID)
@@ -44,7 +45,7 @@ export function stateFor(sessionID: string, maxNotes?: number) {
     const oldest = sessions.keys().next().value
     if (oldest !== undefined) sessions.delete(oldest)
   }
-  const created = { trigger: { lastFiredStep: undefined, lastReasons: [] } as TriggerState, guard: new EmissionGuard({ maxNotes }) }
+  const created: { trigger: TriggerState; guard: EmissionGuard; turnID?: string } = { trigger: { lastFiredStep: undefined, lastReasons: [] } as TriggerState, guard: new EmissionGuard({ maxNotes }) }
   sessions.set(sessionID, created)
   return created
 }
