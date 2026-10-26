@@ -16,11 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - name: Install
-        run: bun install
+      - uses: ./.github/actions/setup-bun
       - name: Fork rules
         run: bun run script/fork-check.ts --strict
       - name: typecheck inbox

@@ -14,7 +14,7 @@ However, any UI or core product feature must go through a design review with the
 
 ## Developing Hordecode
 
-- Requirements: Bun 1.3.14 or later
+- Requirements: Bun 1.4.4 or later
 - Install dependencies and start the dev server from the repo root:
 
   ```bash
