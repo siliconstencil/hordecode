@@ -28,7 +28,12 @@ const openEventStream = (directory: string) =>
     const response = yield* requestInDirectory(EventPaths.event, directory)
     const reader = yield* Queue.unbounded<Uint8Array>()
     yield* response.stream.pipe(
-      Stream.runForEach((value) => Queue.offer(reader, value)),
+      // One chunk can carry several SSE messages (session.created and supervisor.registered arrive together), so queue them one by one.
+      Stream.runForEach((value) =>
+        Effect.forEach(new TextDecoder().decode(value).split("\n\n").filter(Boolean), (message) =>
+          Queue.offer(reader, new TextEncoder().encode(`${message}\n\n`)),
+        ),
+      ),
       Effect.forkScoped,
     )
     return { response, reader }
