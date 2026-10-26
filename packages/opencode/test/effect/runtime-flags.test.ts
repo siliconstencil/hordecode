@@ -637,4 +637,43 @@ describe("RuntimeFlags", () => {
       expect(flags.experimentalLspTy).toBe(true)
     }),
   )
+
+  it.effect("experimentalWorkspaces reads HORDECODE_EXPERIMENTAL_WORKSPACES", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ HORDECODE_EXPERIMENTAL_WORKSPACES: "true" })))
+
+      expect(flags.experimentalWorkspaces).toBe(true)
+    }),
+  )
+
+  it.effect("experimentalWorkspaces still reads OPENCODE_EXPERIMENTAL_WORKSPACES (fallback)", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ OPENCODE_EXPERIMENTAL_WORKSPACES: "true" })))
+
+      expect(flags.experimentalWorkspaces).toBe(true)
+    }),
+  )
+
+  it.effect("experimentalWorkspaces: HORDECODE_EXPERIMENTAL_WORKSPACES=false wins over HORDECODE_EXPERIMENTAL=true", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(
+        Effect.provide(
+          fromConfig({
+            HORDECODE_EXPERIMENTAL: "true",
+            HORDECODE_EXPERIMENTAL_WORKSPACES: "false",
+          }),
+        ),
+      )
+
+      expect(flags.experimentalWorkspaces).toBe(false)
+    }),
+  )
+
+  it.effect("experimentalWorkspaces defaults to false", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({})))
+
+      expect(flags.experimentalWorkspaces).toBe(false)
+    }),
+  )
 })

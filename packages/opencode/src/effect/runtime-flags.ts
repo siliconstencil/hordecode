@@ -11,10 +11,14 @@ const experimental = Config.boolean("HORDECODE_EXPERIMENTAL").pipe(
   Config.orElse(() => Config.boolean("OPENCODE_EXPERIMENTAL")),
   Config.withDefault(false),
 )
-const enabledByExperimental = (name: string) =>
-  Config.all({ experimental, enabled: Config.boolean(name).pipe(Config.option) }).pipe(
+const enabledByExperimental = (name: string) => {
+  const specific = name.startsWith("OPENCODE_")
+    ? Config.boolean(`HORDECODE_${name.slice("OPENCODE_".length)}`).pipe(Config.orElse(() => Config.boolean(name)))
+    : Config.boolean(name)
+  return Config.all({ experimental, enabled: specific.pipe(Config.option) }).pipe(
     Config.map((flags) => Option.getOrElse(flags.enabled, () => flags.experimental)),
   )
+}
 
 export class Service extends ConfigService.Service<Service>()("@opencode/RuntimeFlags", {
   autoShare: Config.boolean("HORDECODE_AUTO_SHARE").pipe(
