@@ -1,3 +1,4 @@
+import * as CacheWatch from "./cache-watch"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { Image } from "@/image/image"
@@ -686,6 +687,14 @@ const layer = Layer.effect(
             ctx.assistantMessage.finish = value.reason
             ctx.assistantMessage.cost += usage.cost
             ctx.assistantMessage.tokens = usage.tokens
+            if (ctx.model.cost.cache.read > 0 && CacheWatch.observe(ctx.assistantMessage.sessionID, usage.tokens)) {
+              yield* Effect.logWarning("prompt cache was not read on two consecutive large turns", {
+                sessionID: ctx.assistantMessage.sessionID,
+                model: ctx.model.id,
+                input: usage.tokens.input,
+                cacheWrite: usage.tokens.cache.write,
+              })
+            }
             yield* session.updatePart({
               id: PartID.ascending(),
               reason: value.reason,

@@ -5,6 +5,7 @@ import { createMemo, createSignal, onCleanup, createEffect, Show } from "solid-j
 import { streamingTPS, completedTPS, formatTPS } from "../../util/tps"
 import { contextUsage } from "../../util/context-usage"
 import { costSuspect, withEstimate } from "../../util/cost-estimate"
+import { cacheLabel, cacheState, type CacheTTL } from "../../util/cache-state"
 
 const id = "internal:sidebar-telemetry"
 
@@ -97,6 +98,36 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
   })
 
   const tpsLabel = createMemo(() => formatTPS(tps()))
+
+  // Last finished request with token usage: the prompt cache entry it wrote or hit lives from its start time.
+  const lastRequest = createMemo(() =>
+    messages().findLast(
+      (m): m is AssistantMessage =>
+        m.role === "assistant" && !!(m as AssistantMessage).time?.completed && (m as AssistantMessage).tokens.output > 0,
+    ),
+  )
+  const [tick, setTick] = createSignal(Date.now())
+  createEffect(() => {
+    const l = lastRequest()
+    if (!l || l.tokens.cache.read + l.tokens.cache.write <= 0) return
+    const id = setInterval(() => setTick(Date.now()), 1000)
+    onCleanup(() => clearInterval(id))
+  })
+  const cacheLine = createMemo(() => {
+    const l = lastRequest()
+    if (!l) return undefined
+    const model = props.api.state.provider.find((item) => item.id === l.providerID)?.models[l.modelID] as
+      | { cachePromptTTL?: CacheTTL; cost?: { cache?: { write?: number }; suspect?: boolean } }
+      | undefined
+    const state = cacheState({
+      start: l.time.created,
+      tokens: l.tokens,
+      ttl: model?.cachePromptTTL,
+      now: tick(),
+      writePrice: model?.cost?.cache?.write,
+    })
+    return cacheLabel(state, model?.cost?.suspect === true)
+  })
 
   const contextStats = createMemo(() => {
     const l = messages().findLast(
@@ -269,6 +300,15 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
               <Show when={stats()?.avgLatency}>{(lat) => <> · {formatLatency(lat())}</>}</Show>
             </text>
           </box>
+
+          <Show when={cacheLine()}>
+            {(label) => (
+              <box flexDirection="row" justifyContent="space-between">
+                <text fg={theme().text}>{"TTL     ".padEnd(8)}</text>
+                <text fg={theme().textMuted}>{label()}</text>
+              </box>
+            )}
+          </Show>
 
           <box flexDirection="row" justifyContent="space-between">
             <text fg={theme().text}>{"Usage   ".padEnd(8)}</text>
