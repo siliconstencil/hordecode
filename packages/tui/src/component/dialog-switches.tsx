@@ -8,6 +8,7 @@ import { useLanguage } from "../context/language"
 import { useSDK } from "../context/sdk"
 import { useSync } from "../context/sync"
 import { useToast } from "../ui/toast"
+import { useBindings } from "../keymap"
 
 // Fork addition (FORK_ONLY). Mirrors the `experimental.switches` keys of the config schema and the env
 // names that packages/opencode/src/config/switch-env.ts maps them to. Copied, not imported, so the TUI
@@ -75,8 +76,9 @@ export function DialogSwitches() {
   const initialState = {
     workspaces: switches?.workspaces ?? false,
     orchestrator: switches?.orchestrator ?? false,
-    workflow_tool: switches?.workflow_tool ?? false,
-    cron: switches?.cron ?? false,
+    // Workflow and cron commands are on unless turned off (core/src/flag/flag.ts uses !falsy for both).
+    workflow_tool: switches?.workflow_tool ?? true,
+    cron: switches?.cron ?? true,
     embedding: config.memory?.embedding ?? false,
   } satisfies SwitchState
 
@@ -113,11 +115,13 @@ export function DialogSwitches() {
       setStore(row, !store[row])
       evt.preventDefault()
     }
-    if (evt.name === "return") {
-      void save()
-      evt.preventDefault()
-    }
   })
+
+  // Enter goes through the keymap like upstream dialog-debug.tsx:50; a raw useKeyboard "return" never
+  // arrives because the keymap layer handles return first.
+  useBindings(() => ({
+    bindings: [{ key: "return", desc: "Save", group: "Dialog", cmd: () => void save() }],
+  }))
 
   async function save() {
     const state: SwitchState = {

@@ -27,17 +27,23 @@ describe("flag-gated commands (default enabled)", () => {
 })
 
 describe("flag-gated commands disabled", () => {
-  const savedCron = Flag.HORDECODE_EXPERIMENTAL_CRON
-  const savedWorkflow = Flag.HORDECODE_EXPERIMENTAL_WORKFLOW_TOOL
+  // The flags are getters over the env (core/src/flag/flag.ts), so the test sets the env names.
+  const savedCron = process.env.HORDECODE_EXPERIMENTAL_CRON
+  const savedWorkflow = process.env.HORDECODE_EXPERIMENTAL_WORKFLOW_TOOL
+  const restore = (name: string, value: string | undefined) => {
+    if (value === undefined) delete process.env[name]
+    else process.env[name] = value
+  }
 
   beforeAll(() => {
-    Flag.HORDECODE_EXPERIMENTAL_CRON = false
-    Flag.HORDECODE_EXPERIMENTAL_WORKFLOW_TOOL = false
+    process.env.HORDECODE_EXPERIMENTAL_CRON = "false"
+    process.env.HORDECODE_EXPERIMENTAL_WORKFLOW_TOOL = "false"
+    expect(Flag.HORDECODE_EXPERIMENTAL_CRON).toBe(false)
   })
 
   afterAll(() => {
-    Flag.HORDECODE_EXPERIMENTAL_CRON = savedCron
-    Flag.HORDECODE_EXPERIMENTAL_WORKFLOW_TOOL = savedWorkflow
+    restore("HORDECODE_EXPERIMENTAL_CRON", savedCron)
+    restore("HORDECODE_EXPERIMENTAL_WORKFLOW_TOOL", savedWorkflow)
   })
 
   it.effect("deep-research has source=skill when HORDECODE_EXPERIMENTAL_WORKFLOW_TOOL is disabled", () =>
