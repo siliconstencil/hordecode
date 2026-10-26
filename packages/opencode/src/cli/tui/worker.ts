@@ -97,3 +97,5 @@ export const rpc = {
 }
 
 Rpc.listen(rpc)
+// Tell the TUI thread the handler is installed; it holds its first call until then (cmd/tui.ts).
+Rpc.emit("ready", true)

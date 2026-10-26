@@ -327,6 +327,18 @@ export const TuiThreadCommand = cmd({
         ),
       })
       const client = Rpc.client<typeof rpc>(worker)
+      // A message posted before the worker has evaluated its modules is lost: the module graph
+      // awaits at top level (core/src/global.ts, global/src/index.ts, the Log.init in worker.ts)
+      // before Rpc.listen runs. Upstream posts right away too (opencode v1.19.4
+      // packages/opencode/src/cli/cmd/tui.ts:249-254); the window there is a few mkdir calls.
+      // When the terminal answers the theme queries at once, the first bootstrap request went out
+      // inside that window and the TUI waited for it until the 15 s bootstrap timeout.
+      const ready = new Promise<void>((resolve) => {
+        const off = client.on("ready", () => {
+          off()
+          resolve()
+        })
+      })
       const reload = () => {
         client.call("reload", undefined).catch(() => {})
       }
@@ -341,6 +353,7 @@ export const TuiThreadCommand = cmd({
         worker.terminate()
       }
 
+      await withTimeout(ready, 10_000).catch(() => {})
       const prompt = await input(args.prompt)
       const config = await TuiConfig.get()
 
