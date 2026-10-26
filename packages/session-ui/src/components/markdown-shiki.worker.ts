@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import { ShikiStreamTokenizer } from "@shikijs/stream"
+import { OpenCodeTheme } from "@opencode-ai/ui/context/marked-theme"
 import {
   bundledLanguages,
   createHighlighter,
@@ -27,22 +28,25 @@ const queue = createLatestWorkerQueue<Extract<MarkdownWorkerRequest, { type: "hi
 })
 
 self.onmessage = (event: MessageEvent<MarkdownWorkerRequest>) => {
-  if (event.data.type === "init") {
-    highlighter ??= createHighlighter({ themes: [event.data.theme], langs: [] })
-    return
-  }
   if (event.data.type === "dispose") {
     queue.dispose(event.data.key)
+    return
+  }
+  if (event.data.type !== "highlight") {
+    post({ type: "error", id: event.data.id, message: `Unsupported request: ${event.data.type}` })
     return
   }
 
   queue.highlight(event.data)
 }
 
+function ensureHighlighter() {
+  return (highlighter ??= createHighlighter({ themes: [OpenCodeTheme], langs: [] }))
+}
+
 async function highlight(request: Extract<MarkdownWorkerRequest, { type: "highlight" }>) {
   try {
-    const instance = await highlighter
-    if (!instance) throw new Error("Shiki worker is not initialized")
+    const instance = await ensureHighlighter()
     const language = request.language in bundledLanguages ? request.language : "text"
     if (!instance.getLoadedLanguages().includes(language))
       await instance.loadLanguage(bundledLanguages[language as BundledLanguage])
@@ -54,6 +58,7 @@ async function highlight(request: Extract<MarkdownWorkerRequest, { type: "highli
         type: "highlight",
         id: request.id,
         key: request.key,
+        language,
         reset: true,
         stable: result.tokens
           .flatMap((line, index) =>
@@ -81,6 +86,7 @@ async function highlight(request: Extract<MarkdownWorkerRequest, { type: "highli
       type: "highlight",
       id: request.id,
       key: request.key,
+      language,
       reset,
       stable: result.stable.filter((token) => token.content.length > 0).map(token),
       unstable: result.unstable.filter((token) => token.content.length > 0).map(token),
