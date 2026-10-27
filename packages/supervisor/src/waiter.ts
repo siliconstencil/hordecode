@@ -180,6 +180,9 @@ export const layer: Layer.Layer<Service, never, Bus.Service | SupervisorRegistry
       if (isWaitResolving(entry)) return yield* snapshot(input.sessionID, entry)
 
       const resolved = yield* Deferred.make<WaitResult>()
+      // The bus callback runs outside the fiber; run its follow-up with this fiber's context so its
+      // logs go to the configured logger instead of the default console logger (the TUI screen).
+      const runFork = Effect.runForkWith(yield* Effect.context())
 
       return yield* Effect.acquireUseRelease(
         bus.subscribeCallback(SupervisorStatusChanged, (evt) => {
@@ -187,7 +190,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | SupervisorRegistry
           if (evt.properties.sessionID !== input.sessionID) return
           // SupervisorStatusChanged carries status + lastOutcome but not lifecycle.
           // Re-read the row to get lifecycle (the missing predicate input).
-          Effect.runFork(
+          runFork(
             Effect.gen(function* () {
               yield* Effect.sleep(OUTCOME_SETTLE_MS)
               const fresh = yield* reg.get(input.sessionID, input.supervisor_id)

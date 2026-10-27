@@ -778,8 +778,11 @@ export const SupervisorTool = Tool.define(
           // Port of supervisor.ts:777-796: on parent abort, cancel the child so
           // it is not orphaned (was missing -- child kept running after parent
           // abort).
+          // The abort listener runs outside the fiber, so the cancel runs with the captured context
+          // (instance and logger); a bare runFork logged an InstanceRef warning onto the TUI screen.
+          const runFork = Effect.runForkWith(yield* Effect.context())
           function cancelHandler() {
-            Effect.runFork(supervisor.cancel(spawnResult.sessionID, spawnResult.supervisorID, "graceful"))
+            runFork(supervisor.cancel(spawnResult.sessionID, spawnResult.supervisorID, "graceful"))
           }
           const outcome = yield* Effect.acquireUseRelease(
             Effect.sync(() => {

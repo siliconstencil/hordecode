@@ -80,7 +80,9 @@ const layer = Layer.effect(
       if (status.type === "idle") {
         yield* events.publish(Event.Idle, { sessionID })
         data.delete(sessionID)
-        Effect.runFork(autoArchiveChild(sessionID))
+        // Fork-only auto-archive (upstream status.ts:39-47 has none). Forked from this fiber so it
+        // keeps the instance and logger; a bare runFork would log through the default console logger.
+        yield* Effect.forkDetach(autoArchiveChild(sessionID))
         return
       }
       data.set(sessionID, status)

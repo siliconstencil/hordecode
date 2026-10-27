@@ -9,6 +9,7 @@ import { InstanceDisposed } from "@/server/event"
 import { Question } from "@/question"
 import { ConfigApi } from "./groups/config"
 import { ControlApi } from "./groups/control"
+import { DiagnosticsApi } from "./groups/diagnostics"
 import { ControlPlaneApi } from "./groups/control-plane"
 import { EventApi } from "./groups/event"
 import { ExperimentalApi } from "./groups/experimental"
@@ -60,8 +61,11 @@ export const RootHttpApi = HttpApi.make("opencode-root")
   .middleware(SchemaErrorMiddleware)
   .middleware(Authorization)
 
+// Hordecode: DiagnosticsApi is FORK_ONLY (groups/diagnostics.ts). The list below mirrors upstream
+// api.ts:61-77 (InstanceHttpApi), which stays at parity.
 export const InstanceHttpApi = HttpApi.make("opencode-instance")
   .addHttpApi(ConfigApi)
+  .addHttpApi(DiagnosticsApi)
   .addHttpApi(ExperimentalApi)
   .addHttpApi(FileApi)
   .addHttpApi(InstanceApi)

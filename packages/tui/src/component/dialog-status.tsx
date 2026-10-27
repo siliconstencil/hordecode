@@ -4,16 +4,31 @@ import path from "path"
 import { useTheme } from "../context/theme"
 import { useDialog } from "../ui/dialog"
 import { useSync } from "../context/sync"
-import { For, Match, Switch, Show, createMemo } from "solid-js"
+import { useSDK } from "../context/sdk"
+import { For, Match, Switch, Show, createMemo, createResource } from "solid-js"
 
 export type DialogStatusProps = {}
 
 export function DialogStatus() {
   const sync = useSync()
+  const sdk = useSDK()
   const { theme } = useTheme()
   const dialog = useDialog()
 
   const enabledFormatters = createMemo(() => sync.data.formatter.filter((f) => f.enabled))
+
+  // Hordecode: OpenTelemetry targets come from the server, not this process's env (horde attach).
+  // Failures leave the block in its fallback state.
+  const [diagnostics] = createResource(async () => {
+    try {
+      return (await sdk.client.diagnostics.get()).data
+    } catch {
+      return undefined
+    }
+  })
+  const otel = createMemo(() =>
+    Object.entries(diagnostics()?.otel ?? {}).filter((entry): entry is [string, string] => Boolean(entry[1])),
+  )
 
   const plugins = createMemo(() => {
     const list = sync.data.config.plugin ?? []
@@ -158,6 +173,29 @@ export function DialogStatus() {
                 <text wrapMode="word" fg={theme.text}>
                   <b>{item.name}</b>
                   {item.version && <span style={{ fg: theme.textMuted }}> @{item.version}</span>}
+                </text>
+              </box>
+            )}
+          </For>
+        </box>
+      </Show>
+      {/* Hordecode: OpenTelemetry block, same layout as the Plugins block (upstream dialog-status.tsx:144-165). */}
+      <Show when={otel().length > 0} fallback={<text fg={theme.text}>No OpenTelemetry export</text>}>
+        <box>
+          <text fg={theme.text}>OpenTelemetry export</text>
+          <For each={otel()}>
+            {([signal, url]) => (
+              <box flexDirection="row" gap={1}>
+                <text
+                  flexShrink={0}
+                  style={{
+                    fg: theme.success,
+                  }}
+                >
+                  •
+                </text>
+                <text wrapMode="word" fg={theme.text}>
+                  <b>{signal}</b> <span style={{ fg: theme.textMuted }}>{`-> ${url}`}</span>
                 </text>
               </box>
             )}

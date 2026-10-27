@@ -48,6 +48,7 @@ import { openEditor } from "../../editor"
 import { useDialog } from "../../ui/dialog"
 import { DialogAlert } from "../../ui/dialog-alert"
 import { TodoItem } from "../../component/todo-item"
+import { AdvisorNote } from "../../component/advisor-note"
 import { DialogMessage } from "./dialog-message"
 import type { PromptInfo } from "../../component/prompt/history"
 import { DialogConfirm } from "../../ui/dialog-confirm"
@@ -1684,8 +1685,9 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
   const [copyHover, setCopyHover] = createSignal(false)
   const handleCopy = () => {
     if (renderer.getSelection()?.getSelectedText()) return
+    // Hordecode: ignored (display-only) text such as advisor notes is not part of the answer.
     const text = props.parts
-      .filter((p) => p.type === "text")
+      .filter((p) => p.type === "text" && !(p as TextPart).ignored)
       .map((p) => (p as TextPart).text)
       .join("\n")
       .trim()
@@ -2035,6 +2037,9 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
   const ctx = use()
   const { theme, syntax } = useTheme()
   const content = createMemo(() => stripSystemReminderBlocks(props.part.text))
+  // Hordecode: the advisor's review of a step is an ignored part with metadata.advisor (upstream
+  // TextPart, index.tsx:1621, renders every text part as markdown).
+  if (props.part.metadata?.advisor) return <AdvisorNote metadata={props.part.metadata} />
   return (
     <Show when={content().trim()}>
       <box id={`text-${props.part.messageID}-${props.part.id}`} paddingLeft={3} marginTop={1} flexShrink={0}>
@@ -3733,8 +3738,13 @@ const toolDisplays = new Set([
   "workflow",
 ])
 
+// Hordecode: the hashline tools carry the same input (filePath) and metadata (diff) as read and
+// edit, so they use those views and an edit shows its diff (upstream toolDisplay, index.tsx:2578).
+const toolAliases: Record<string, string> = { hashline_read: "read", hashline_edit: "edit" }
+
 export function toolDisplay(tool: string) {
-  return toolDisplays.has(tool) ? tool : "generic"
+  const name = toolAliases[tool] ?? tool
+  return toolDisplays.has(name) ? name : "generic"
 }
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {

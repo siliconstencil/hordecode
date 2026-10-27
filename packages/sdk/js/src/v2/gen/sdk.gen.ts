@@ -24,6 +24,8 @@ import type {
   ConfigProvidersResponses,
   ConfigUpdateErrors,
   ConfigUpdateResponses,
+  DiagnosticsGetErrors,
+  DiagnosticsGetResponses,
   EventSubscribeResponses,
   EventTuiCommandExecute,
   EventTuiPromptAppend,
@@ -1531,6 +1533,38 @@ export class Config2 extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<ConfigProvidersResponses, ConfigProvidersErrors, ThrowOnError>({
       url: "/config/providers",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Diagnostics extends HeyApiClient {
+  /**
+   * Get Hordecode diagnostics
+   *
+   * Unknown configuration keys found while loading config, and the OpenTelemetry export URLs in use (credentials and query strings removed).
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<DiagnosticsGetResponses, DiagnosticsGetErrors, ThrowOnError>({
+      url: "/hordecode/diagnostics",
       ...options,
       ...params,
     })
@@ -7505,6 +7539,11 @@ export class OpencodeClient extends HeyApiClient {
   private _config?: Config2
   get config(): Config2 {
     return (this._config ??= new Config2({ client: this.client }))
+  }
+
+  private _diagnostics?: Diagnostics
+  get diagnostics(): Diagnostics {
+    return (this._diagnostics ??= new Diagnostics({ client: this.client }))
   }
 
   private _tool?: Tool

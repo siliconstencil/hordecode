@@ -15,6 +15,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import * as ModelValue from "./model-value"
 import * as Advisor from "./advisor/hook"
+import * as AdvisorRun from "./advisor/run"
 import { CompactionGuard } from "./compaction-guard"
 import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
@@ -1791,7 +1792,26 @@ const layer = Layer.effect(
               synthetic: true,
             })
           }
-          if (advice?.usage) {
+          if (advice) {
+            // Shown to the user on this step's assistant message. Ignored parts are never replayed to
+            // a model (message-v2.ts toModelMessages), so the model still sees the notes only once,
+            // through the reminder above. Pattern: noticeMemoryWriteOffFallback in this file.
+            const now = Date.now()
+            yield* sessions
+              .updatePart({
+                id: PartID.ascending(),
+                messageID: msg.id,
+                sessionID: msg.sessionID,
+                type: "text",
+                text: AdvisorRun.renderDisplay(advice.notes, advice.reasons, advice.failed),
+                synthetic: true,
+                ignored: true,
+                time: { start: now, end: now },
+                metadata: { advisor: { notes: advice.notes, reasons: advice.reasons, failed: advice.failed } },
+              })
+              .pipe(Effect.ignore)
+          }
+          if (advice?.usage && advice.model) {
             msg.cost += Session.getUsage({ model: advice.model, usage: advice.usage }).cost
             yield* sessions.updateMessage(msg)
           }

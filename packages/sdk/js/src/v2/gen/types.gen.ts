@@ -2199,6 +2199,7 @@ export type Config = {
       cron?: boolean
       permission_audit?: boolean
       sandbox?: boolean
+      hashline?: boolean
     }
     continue_loop_on_deny?: boolean
     mcp_timeout?: number
@@ -2213,6 +2214,20 @@ export type Config = {
       edit_matches?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       action_streak?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       bash_retries?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+    advisor?: {
+      enabled?: boolean
+      model?: string
+      triggers?: {
+        files_touched?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        tool_failures?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        same_error?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        context_percent?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }
+      sensitivity?: "low" | "default" | "high"
+      min_severity?: "nit" | "concern" | "blocker"
+      max_notes?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      cooldown_steps?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     }
   }
 }
@@ -2316,6 +2331,19 @@ export type Provider = {
   }
   models: {
     [key: string]: Model
+  }
+}
+
+export type HordecodeDiagnostics = {
+  unknownConfigKeys: Array<{
+    path: string
+    suggestion?: string
+    source: string
+  }>
+  otel: {
+    traces?: string
+    logs?: string
+    metrics?: string
   }
 }
 
@@ -7825,6 +7853,34 @@ export type ConfigProvidersResponses = {
 }
 
 export type ConfigProvidersResponse = ConfigProvidersResponses[keyof ConfigProvidersResponses]
+
+export type DiagnosticsGetData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/hordecode/diagnostics"
+}
+
+export type DiagnosticsGetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type DiagnosticsGetError = DiagnosticsGetErrors[keyof DiagnosticsGetErrors]
+
+export type DiagnosticsGetResponses = {
+  /**
+   * Hordecode diagnostics
+   */
+  200: HordecodeDiagnostics
+}
+
+export type DiagnosticsGetResponse = DiagnosticsGetResponses[keyof DiagnosticsGetResponses]
 
 export type ExperimentalCapabilitiesGetData = {
   body?: never

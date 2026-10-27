@@ -215,7 +215,7 @@ describe("advise", () => {
     expect(seen[0].messages[0].content).toBe("Triggered by: files_touched 9 >= 8\n\ntranscript")
   })
 
-  test("provider-error yields no notes and does not throw", async () => {
+  test("provider-error yields no notes, reports the failure and does not throw", async () => {
     const result = await Effect.runPromise(
       advise({
         ...callInput,
@@ -225,7 +225,7 @@ describe("advise", () => {
         ]),
       }),
     )
-    expect(result).toEqual({ notes: [], usage: undefined })
+    expect(result).toEqual({ notes: [], usage: undefined, failed: "upstream down" })
   })
 
   test("a defect thrown by stream yields no notes and does not throw", async () => {
@@ -236,5 +236,6 @@ describe("advise", () => {
     } as unknown as LLM.Interface
     const result = await Effect.runPromise(advise({ ...callInput, llm }))
     expect(result.notes).toEqual([])
+    expect(result.failed).toBe("boom")
   })
 })

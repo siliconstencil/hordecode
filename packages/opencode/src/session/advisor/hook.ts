@@ -13,12 +13,18 @@ import * as ModelValue from "../model-value"
 import { collectFacts, currentTurn } from "./facts"
 import { PRESETS, evaluate } from "./trigger"
 import { advise, isActive, renderReminder, renderTranscript, stateFor, type AdvisorConfig } from "./run"
+import type { Note } from "./emission-guard"
 
 export interface Advice {
   reminder?: string
+  // Notes admitted by the guard (empty when the review found nothing to report).
+  notes: Note[]
   usage?: Usage
-  model: Provider.Model
+  // Unset when the advisor model could not be resolved.
+  model?: Provider.Model
   reasons: string[]
+  // Why the review did not run or did not finish (model not resolved, timeout, provider error).
+  failed?: string
 }
 
 const resolveModel = (provider: Provider.Interface, ref: string, contextProviderID: Provider.Model["providerID"]) =>
@@ -77,7 +83,8 @@ export const maybeAdvise = (input: {
     state.trigger.lastReasons = decision.reasons
 
     const model = yield* resolveModel(input.provider, cfg.model, input.model.providerID)
-    if (!model) return undefined
+    // Shown on screen: the footer says the advisor is on, so a model that does not resolve must not be silent.
+    if (!model) return { notes: [], reasons: decision.reasons, failed: `model ${cfg.model} is not available` }
     const result = yield* advise({
       llm: input.llm,
       model,
@@ -94,11 +101,14 @@ export const maybeAdvise = (input: {
       reasons: decision.reasons.join("; "),
       received: result.notes.length,
       admitted: notes.length,
+      ...(result.failed ? { failed: result.failed } : {}),
     })
     return {
       reminder: notes.length > 0 ? renderReminder(notes, decision.reasons) : undefined,
+      notes,
       usage: result.usage,
       model,
       reasons: decision.reasons,
+      failed: result.failed,
     }
   })

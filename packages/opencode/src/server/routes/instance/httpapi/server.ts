@@ -86,6 +86,7 @@ import { PtyConnectApi } from "./groups/pty"
 import { eventHandlers } from "./handlers/event"
 import { configHandlers } from "./handlers/config"
 import { controlHandlers } from "./handlers/control"
+import { diagnosticsHandlers } from "./handlers/diagnostics"
 import { controlPlaneHandlers } from "./handlers/control-plane"
 import { experimentalHandlers } from "./handlers/experimental"
 import { fileHandlers } from "./handlers/file"
@@ -158,8 +159,11 @@ const ptyConnectApiRoutes = HttpApiBuilder.layer(PtyConnectApi).pipe(
   Layer.provide([ptyConnectHttpApiAuthLayer, workspaceRoutingLive, instanceContextLayer]),
 )
 const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
+  // Hordecode: diagnosticsHandlers is FORK_ONLY. The list mirrors upstream server.ts:153-170
+  // (instanceApiRoutes), which stays at parity.
   Layer.provide([
     configHandlers,
+    diagnosticsHandlers,
     experimentalHandlers,
     fileHandlers,
     instanceHandlers,

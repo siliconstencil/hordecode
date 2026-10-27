@@ -132,6 +132,14 @@ export function renderReminder(notes: Note[], reasons: string[]): string {
   ].join("\n")
 }
 
+// Plain-text form of a review for the user's screen. It is stored on the step's assistant message
+// as an ignored part (never replayed to a model); clients without an advisor view show this text.
+export function renderDisplay(notes: Note[], reasons: string[], failed?: string): string {
+  if (failed) return `Advisor review failed (${reasons.join(", ")}): ${failed}`
+  if (notes.length === 0) return `Advisor reviewed this step (${reasons.join(", ")}): no notes.`
+  return [`Advisor (${reasons.join(", ")}):`, ...notes.map((n) => `- [${n.severity}] ${n.note}`)].join("\n")
+}
+
 export const ADVISOR_SYSTEM = [
   "You are a senior reviewer watching a coding agent.",
   "You see a compact transcript of the current task: the user request, the agent's short messages, and its tool calls with file paths and errors.",
@@ -150,7 +158,7 @@ export const advise = (input: {
   permission?: LLM.StreamInput["permission"]
   transcript: string
   reasons: string[]
-}): Effect.Effect<{ notes: Note[]; usage?: Usage }> =>
+}): Effect.Effect<{ notes: Note[]; usage?: Usage; failed?: string }> =>
   Effect.gen(function* () {
     const prompt = [`Triggered by: ${input.reasons.join(", ")}`, "", input.transcript].join("\n")
     let out = ""
@@ -186,7 +194,13 @@ export const advise = (input: {
             provider: input.model.providerID,
             model: String(input.model.id),
             error: errorMessage(Cause.squash(cause)),
-          }).pipe(Effect.as({ notes: [] as Note[], usage: undefined as Usage | undefined })),
+          }).pipe(
+            Effect.as({
+              notes: [] as Note[],
+              usage: undefined as Usage | undefined,
+              failed: errorMessage(Cause.squash(cause)).slice(0, 200) as string | undefined,
+            }),
+          ),
     ),
   )
 

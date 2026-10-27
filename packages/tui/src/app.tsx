@@ -46,6 +46,7 @@ import { useConnected } from "./component/use-connected"
 import { DialogMcp } from "./component/dialog-mcp"
 import { DialogDebug } from "./component/dialog-debug"
 import { DialogStatus } from "./component/dialog-status"
+import { showUnknownConfigKeys } from "./component/config-warnings"
 import { DialogThemeList } from "./component/dialog-theme-list"
 import { DialogLanguageList } from "./component/dialog-language-list"
 import { DialogHelp } from "./ui/dialog-help"
@@ -686,6 +687,15 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         route.navigate({ type: "session", sessionID: match })
       }
     }
+  })
+
+  // Hordecode: unknown config keys are announced once after bootstrap, same one-shot pattern as the
+  // --fork effect below (upstream app.tsx:517).
+  let configWarningsShown = false
+  createEffect(() => {
+    if (configWarningsShown || sync.status !== "complete") return
+    configWarningsShown = true
+    void showUnknownConfigKeys(sdk, toast)
   })
 
   // Handle --session with --fork: wait for sync to be fully complete before forking

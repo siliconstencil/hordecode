@@ -100,6 +100,7 @@ describe("maybeAdvise", () => {
     expect(out?.reasons.some((r) => r.startsWith("tool_failures"))).toBe(true)
     expect(out?.reminder).toContain("[concern] The same command keeps failing")
     expect(out?.usage).toBeDefined()
+    expect(out?.notes).toEqual([{ severity: "concern", note: "The same command keeps failing; read the error before retrying." }])
   })
 
   test("cooldown and repeat suppression keep the next steps quiet", async () => {
@@ -117,6 +118,33 @@ describe("maybeAdvise", () => {
     const fake = fakeLLM('[{"severity":"nit","note":"Consider adding a comment to the function."}]')
     const out = await run({ cfg: { enabled: true, model: "test/advisor" }, step: 2, sessionID: "h5", llm: fake.llm, provider })
     expect(out?.reminder).toBeUndefined()
+    // The review still ran, so the screen shows it with no notes.
+    expect(out?.notes).toEqual([])
+  })
+})
+
+describe("maybeAdvise failures are reported", () => {
+  test("a provider error gives a failed review instead of no notes", async () => {
+    const { provider } = fakeProvider()
+    const llm = {
+      stream: () => Stream.fromIterable([{ type: "provider-error", message: "rate limited" }]),
+    } as unknown as LLM.Interface
+    const out = await run({ cfg: { enabled: true, model: "test/advisor" }, step: 2, sessionID: "f1", llm, provider })
+    expect(out?.failed).toBe("rate limited")
+    expect(out?.notes).toEqual([])
+    expect(out?.reminder).toBeUndefined()
+  })
+
+  test("an advisor model that does not resolve is reported", async () => {
+    const provider = {
+      getModel: () => Effect.fail(new Error("unknown model")),
+      resolveModelRef: () => Effect.die(new Error("not used")),
+    } as unknown as Provider.Interface
+    const fake = fakeLLM(reply)
+    const out = await run({ cfg: { enabled: true, model: "test/missing" }, step: 2, sessionID: "f2", llm: fake.llm, provider })
+    expect(out?.failed).toBe("model test/missing is not available")
+    expect(out?.model).toBeUndefined()
+    expect(fake.count()).toBe(0)
   })
 })
 

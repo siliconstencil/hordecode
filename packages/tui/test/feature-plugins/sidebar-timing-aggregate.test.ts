@@ -84,6 +84,16 @@ describe("aggregateTools", () => {
     const result = aggregateTools(parts)
     expect(result[0].avgMs).toBe(500) // (1000 + 0) / 2
   })
+
+  test("average is a whole number of milliseconds", () => {
+    // Measured in tmux: three bash calls showed "173.33333333333334ms".
+    const parts = [
+      { tool: "bash", duration: 198, status: "completed" },
+      { tool: "bash", duration: 161, status: "completed" },
+      { tool: "bash", duration: 161, status: "completed" },
+    ]
+    expect(aggregateTools(parts)[0].avgMs).toBe(173)
+  })
 })
 
 describe("tokenRow", () => {

@@ -70,7 +70,7 @@ export function aggregateTools(parts: Array<{ tool: string; duration?: number; s
       name,
       calls: row.calls,
       totalMs: row.totalMs,
-      avgMs: row.calls > 0 ? row.totalMs / row.calls : 0,
+      avgMs: row.calls > 0 ? Math.round(row.totalMs / row.calls) : 0,
       maxMs: row.maxMs,
       errors: row.errors,
     }))

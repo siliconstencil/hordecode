@@ -159,6 +159,11 @@ export function Prompt(props: PromptProps) {
   const route = useRoute()
   const project = useProject()
   const sync = useSync()
+  const advisorOn = createMemo(() => {
+    const advisor = (sync.data.config as { experimental?: { advisor?: { enabled?: boolean; model?: string } } })
+      .experimental?.advisor
+    return advisor?.enabled === true && !!advisor.model?.trim()
+  })
   const tuiConfig = useTuiConfig()
   const dialog = useDialog()
   const toast = useToast()
@@ -1490,6 +1495,11 @@ export function Prompt(props: PromptProps) {
                       </Show>
                       <Show when={store.mode === "normal" && permission.mode === "careful"}>
                         <text fg={fadeColor(theme.warning, agentMetaAlpha())}>careful</text>
+                      </Show>
+                      {/* Hordecode: the advisor is on (experimental.advisor with a model); next to the
+                          guardrail label after upstream's agent name (prompt/index.tsx:1450). */}
+                      <Show when={store.mode === "normal" && advisorOn()}>
+                        <text fg={fadeColor(theme.accent, agentMetaAlpha())}>advisor</text>
                       </Show>
                       <Show when={store.mode === "normal"}>
                         <box flexDirection="row" gap={1}>

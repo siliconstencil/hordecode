@@ -146,6 +146,9 @@ export function joinGroup(
       )
 
     const resolved = yield* Deferred.make<JoinResult>()
+    // The bus callback runs outside the fiber; run its follow-up with this fiber's context so its
+    // logs go to the configured logger instead of the default console logger (the TUI screen).
+    const runFork = Effect.runForkWith(yield* Effect.context())
 
     return yield* Effect.acquireUseRelease(
       deps.bus.subscribeCallback(SupervisorStatusChanged, (evt) => {
@@ -153,7 +156,7 @@ export function joinGroup(
           (m) => m.supervisorID === evt.properties.supervisorID && m.sessionID === evt.properties.sessionID,
         )
         if (!touched) return
-        Effect.runFork(
+        runFork(
           Effect.gen(function* () {
             const snap = yield* snapshotAll()
             if (!snap.every((r) => r.settled)) return
