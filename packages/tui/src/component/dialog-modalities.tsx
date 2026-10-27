@@ -45,11 +45,11 @@ export function DialogModalities() {
   })
 
   useKeyboard((evt) => {
-    if (evt.name === "up" || (evt.ctrl && evt.name === "p")) {
+    if (evt.ctrl && evt.name === "p") {
       setStore("active", (store.active - 1 + MODALITIES.length) % MODALITIES.length)
       evt.preventDefault()
     }
-    if (evt.name === "down" || (evt.ctrl && evt.name === "n")) {
+    if (evt.ctrl && evt.name === "n") {
       setStore("active", (store.active + 1) % MODALITIES.length)
       evt.preventDefault()
     }
@@ -60,10 +60,20 @@ export function DialogModalities() {
     }
   })
 
-  // Enter goes through the keymap like upstream dialog-debug.tsx:50; a raw useKeyboard "return" never
-  // arrives because the keymap layer handles return first.
+  // Enter and the arrow keys go through the keymap like upstream dialog-debug.tsx:50; a raw useKeyboard
+  // "return", "up" or "down" never arrives because a keymap layer handles them first (measured in tmux:
+  // the arrows did not move the selection, ctrl+n did).
   useBindings(() => ({
-    bindings: [{ key: "return", desc: "Save", group: "Dialog", cmd: () => void save() }],
+    bindings: [
+      { key: "return", desc: "Save", group: "Dialog", cmd: () => void save() },
+      {
+        key: "up",
+        desc: "Previous",
+        group: "Dialog",
+        cmd: () => setStore("active", (store.active - 1 + MODALITIES.length) % MODALITIES.length),
+      },
+      { key: "down", desc: "Next", group: "Dialog", cmd: () => setStore("active", (store.active + 1) % MODALITIES.length) },
+    ],
   }))
 
   async function save() {
