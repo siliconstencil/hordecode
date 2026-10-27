@@ -2710,6 +2710,7 @@ PARITY	packages/opencode/src/server/routes/instance/httpapi/errors.ts
 PARITY	packages/opencode/src/server/routes/instance/httpapi/groups/config.ts
 PARITY	packages/opencode/src/server/routes/instance/httpapi/groups/control-plane.ts
 PARITY	packages/opencode/src/server/routes/instance/httpapi/groups/control.ts
+FORK_ONLY	packages/opencode/src/server/routes/instance/httpapi/groups/diagnostics.ts
 PARITY	packages/opencode/src/server/routes/instance/httpapi/groups/event.ts
 PARITY	packages/opencode/src/server/routes/instance/httpapi/groups/experimental.ts
 FORK_DELTA	packages/opencode/src/server/routes/instance/httpapi/groups/file.ts
@@ -2733,6 +2734,7 @@ FORK_DELTA	packages/opencode/src/server/routes/instance/httpapi/groups/workspace
 PARITY	packages/opencode/src/server/routes/instance/httpapi/handlers/config.ts
 PARITY	packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts
 FORK_DELTA	packages/opencode/src/server/routes/instance/httpapi/handlers/control.ts
+FORK_ONLY	packages/opencode/src/server/routes/instance/httpapi/handlers/diagnostics.ts
 FORK_DELTA	packages/opencode/src/server/routes/instance/httpapi/handlers/event.ts
 FORK_DELTA	packages/opencode/src/server/routes/instance/httpapi/handlers/experimental.ts
 FORK_DELTA	packages/opencode/src/server/routes/instance/httpapi/handlers/file.ts
@@ -3272,6 +3274,7 @@ FORK_ONLY	packages/opencode/test/script/macho-rehash.test.ts
 FORK_ONLY	packages/opencode/test/script/pe-resources.test.ts
 PARITY	packages/opencode/test/server/AGENTS.md
 FORK_DELTA	packages/opencode/test/server/auth.test.ts
+FORK_ONLY	packages/opencode/test/server/diagnostics.test.ts
 PARITY	packages/opencode/test/server/global-bus.ts
 PARITY	packages/opencode/test/server/global-session-list.test.ts
 PARITY	packages/opencode/test/server/httpapi-authorization.test.ts
@@ -3338,6 +3341,7 @@ FORK_ONLY	packages/opencode/test/server/startup-gate.test.ts
 PARITY	packages/opencode/test/server/workspace-proxy.test.ts
 PARITY	packages/opencode/test/server/workspace-routing.test.ts
 PARITY	packages/opencode/test/server/worktree-endpoint-repro.test.ts
+FORK_ONLY	packages/opencode/test/session/advisor/display.test.ts
 FORK_ONLY	packages/opencode/test/session/advisor/emission-guard.test.ts
 FORK_ONLY	packages/opencode/test/session/advisor/facts.test.ts
 FORK_ONLY	packages/opencode/test/session/advisor/hook.test.ts
@@ -4262,11 +4266,13 @@ FORK_DELTA	packages/tui/src/attention.ts
 FORK_DELTA	packages/tui/src/audio.d.ts
 PARITY	packages/tui/src/audio.ts
 FORK_DELTA	packages/tui/src/clipboard.ts
+FORK_ONLY	packages/tui/src/component/advisor-note.tsx
 FORK_ONLY	packages/tui/src/component/background-image.tsx
 UPSTREAM_ONLY	packages/tui/src/component/bg-pulse-render.ts
 FORK_DELTA	packages/tui/src/component/bg-pulse.tsx
 FORK_ONLY	packages/tui/src/component/border.tsx
 FORK_DELTA	packages/tui/src/component/command-palette.tsx
+FORK_ONLY	packages/tui/src/component/config-warnings.ts
 FORK_ONLY	packages/tui/src/component/dialog-advisor.tsx
 PARITY	packages/tui/src/component/dialog-agent.tsx
 FORK_ONLY	packages/tui/src/component/dialog-agreement.tsx
@@ -4580,6 +4586,8 @@ PARITY	packages/tui/test/cli/tui/prompt-submit-race.test.ts
 PARITY	packages/tui/test/cli/tui/thinking.test.ts
 PARITY	packages/tui/test/cli/tui/use-event.test.tsx
 PARITY	packages/tui/test/clipboard.test.ts
+FORK_ONLY	packages/tui/test/component/advisor-note.test.ts
+FORK_ONLY	packages/tui/test/component/config-warnings.test.ts
 FORK_ONLY	packages/tui/test/component/dialog-advisor.test.ts
 PARITY	packages/tui/test/component/dialog-session-list.test.ts
 FORK_ONLY	packages/tui/test/component/dialog-switches.test.ts
@@ -4615,6 +4623,7 @@ PARITY	packages/tui/test/prompt/part.test.ts
 PARITY	packages/tui/test/prompt/persistence.test.ts
 PARITY	packages/tui/test/prompt/traits.test.ts
 FORK_ONLY	packages/tui/test/routes/child-view-app-exit.test.tsx
+FORK_ONLY	packages/tui/test/routes/hashline-display.test.tsx
 FORK_ONLY	packages/tui/test/routes/hr16-l2-child-cycle.test.ts
 FORK_ONLY	packages/tui/test/routes/hr17-up-key-parent.test.tsx
 FORK_ONLY	packages/tui/test/routes/keybind-child-cycle-wiring.test.ts
