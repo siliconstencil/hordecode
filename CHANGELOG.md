@@ -44,6 +44,14 @@ All notable changes to this project will be documented in this file.
   sees in its next model call, and its cost is added to that step. Primary sessions only. The **Advisor** command
   (`/advisor`) turns it on or off, picks its model from the connected providers, sets the sensitivity (low,
   default or high) and chooses whether nits are shown. Changes apply without a restart.
+- Advisor reviews are shown in the conversation: an **Advisor** row lists the notes by severity, says when a
+  review found nothing, and says "review failed" with the reason when the advisor model is unavailable or its
+  call fails. The prompt footer shows `advisor` while it is on. The row is display only and is not sent to the
+  model again.
+- Unknown config keys are announced once after startup with a warning toast. **View status** lists the
+  OpenTelemetry endpoints the server exports to, or "No OpenTelemetry export". Both come from the new
+  `GET /hordecode/diagnostics` route.
+- `hashline_read` and `hashline_edit` are shown like Read and Edit, so a hashline edit shows its diff.
 
 ### Changed
 
@@ -72,6 +80,11 @@ All notable changes to this project will be documented in this file.
   the tool.
 - The last span batch is sent before the CLI exits, so short commands such as `horde run` keep their final spans.
 - A deny rule for `edit` also hides `multiedit` and `hashline_edit` from agents.
+- The arrow keys move the selection in the **Hordecode features** and **modalities** dialogs. Before, Space
+  always toggled the first row.
+- Cancelling a running subagent no longer prints an `InstanceRef` warning over the prompt; background
+  follow-ups of the supervisor and session status log to the log file.
+- Activity > Tools shows the average call time in whole milliseconds.
 - A non-Error value thrown during the SSRF guard's DNS lookup now produces the DNS failure error instead of a
   TypeError.
 

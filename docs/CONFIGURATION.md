@@ -167,6 +167,9 @@ one.
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ```
 
+**View status** (Ctrl+X S) lists the endpoints the server exports to, without credentials or query strings,
+or "No OpenTelemetry export".
+
 What is exported:
 
 - Traces: one `chat <model>` span per model step, with the `gen_ai.*` token usage attributes, the reasoning
@@ -209,7 +212,11 @@ The advisor is an optional second model that reviews the current task when the w
 by default. When a trigger fires, the advisor reads a compact transcript of the current turn and returns up
 to a few short notes, each marked `nit`, `concern` or `blocker`. The notes reach the agent in its next model
 call as a reminder, and the cost of the advisor call is added to that step. The advisor runs in primary sessions
-only, cannot change files, and is skipped quietly when its call fails or takes longer than 60 seconds.
+only and cannot change files. Each review appears in the conversation as an **Advisor** row with its notes, or
+"reviewed this step, no notes"; when the advisor model is unavailable, or the call fails or takes longer than 60
+seconds, the row says "review failed" with the reason and the agent continues without notes. The row is shown to
+you only; the agent sees the notes once, in that step. While the advisor is on, the prompt footer shows
+`advisor`.
 
 The triggers are checked at each step:
 
