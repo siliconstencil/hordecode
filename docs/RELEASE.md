@@ -13,6 +13,9 @@ dispatch) is not used; releases are built and published locally (see CLAUDE.md, 
   changelog, the release notes, the path-leak check and a `MANIFEST.md`. After the freeze phase it
   is read-only and `SHA256SUMS.all` covers every file. It is never edited again; a corrected
   release is a new version with a new archive.
+- The driver, the build and the husky pre-push hook need the bun version of the root `packageManager`
+  field (`^1.4.4` for 0.1.4) first on `PATH`; an older system bun stops the build and the push with
+  "This script requires bun@^...". The 0.1.4 release ran with a pinned bun prepended to `PATH`.
 - Nothing under `/tmp`. Builds run from a detached worktree under `<dev>/build-worktrees/`;
   `packages/opencode/script/build.ts` scrubs the source tree path and the build phase refuses to
   continue when a binary still contains it (`home-strings.txt` must be all zeros).
@@ -35,6 +38,10 @@ dispatch) is not used; releases are built and published locally (see CLAUDE.md, 
 | `verify`    | `npm install -g` into an isolated prefix, release `SHA256SUMS` against the archive, installer with an isolated `HOME` | files under `build-worktrees/release-<version>/verify-*` |
 | `freeze`    | Bundle with the tag, publication record in `MANIFEST.md`, `SHA256SUMS.all`, `chmod -R a-w`                 | archive becomes read-only                          |
 | `status`    | Tag, origin, npm count, GitHub release, archive state                                                      | none                                               |
+
+The `npm` phase can report a package as missing when the registry is slow to list it (0.1.4:
+`hordecode-windows-arm64` appeared about three minutes after the poll ended). Check with
+`npm view <package>@<version> version` before re-running the phase.
 
 Do not edit `script/fork-release.sh` while a phase is running: bash reads a script incrementally, so an
 edit during the `github` phase of 0.1.2 produced a syntax error after the release had been created.
