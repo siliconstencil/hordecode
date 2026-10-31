@@ -20,14 +20,10 @@ if (!Script.preview) {
   const dir = process.env.RUNNER_TEMP ?? "/tmp"
   const notesFile = `${dir}/opencode-release-notes.txt`
   await Bun.write(notesFile, body)
-  await $`gh release create v${Script.version} -d --target ${sha} --title "v${Script.version}" --notes-file ${notesFile}`
+  // No --target: GitHub requires the workflows permission, which github.token can't have, when the target's
+  // workflow files differ from dev. The draft attaches to the tag script/publish.ts pushes.
+  await $`gh release create v${Script.version} -d --title "v${Script.version}" --notes-file ${notesFile}`
   const release = await $`gh release view v${Script.version} --json tagName,databaseId`.json()
-  output.push(`release=${release.databaseId}`)
-  output.push(`tag=${release.tagName}`)
-} else if (Script.channel === "beta") {
-  await $`gh release create v${Script.version} -d --title "v${Script.version}" --repo ${process.env.GH_REPO}`
-  const release =
-    await $`gh release view v${Script.version} --json tagName,databaseId --repo ${process.env.GH_REPO}`.json()
   output.push(`release=${release.databaseId}`)
   output.push(`tag=${release.tagName}`)
 }

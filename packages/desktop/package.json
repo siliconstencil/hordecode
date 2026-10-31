@@ -2,7 +2,7 @@
   "name": "@opencode-ai/desktop",
   "private": true,
   "version": "0.1.0",
-  "hordecodeBase": "1.19.4",
+  "hordecodeBase": "1.19.5",
   "type": "module",
   "license": "MIT",
   "homepage": "https://github.com/siliconstencil/hordecode",

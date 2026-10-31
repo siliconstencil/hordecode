@@ -1,9 +1,7 @@
-import type { Config } from "@/config/config"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import type { Provider } from "@/provider/provider"
 import { ProviderTransform } from "@/provider/transform"
-import type { MessageV2 } from "./message-v2"
 import { Token } from "@/util/token"
 import { Wildcard } from "@/util/wildcard"
 

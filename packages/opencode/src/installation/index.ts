@@ -36,20 +36,7 @@ export const INSTALL_SCRIPT = process.env.HORDECODE_INSTALL_SCRIPT ?? DEFAULT_IN
 
 export type Method = "curl" | "npm" | "yarn" | "pnpm" | "bun" | "brew" | "scoop" | "choco" | "unknown"
 
-export type ReleaseType = "patch" | "minor" | "major"
-
 export const Event = InstallationEvent
-
-export function getReleaseType(current: string, latest: string): ReleaseType {
-  const currMajor = semver.major(current)
-  const currMinor = semver.minor(current)
-  const newMajor = semver.major(latest)
-  const newMinor = semver.minor(latest)
-
-  if (newMajor > currMajor) return "major"
-  if (newMinor > currMinor) return "minor"
-  return "patch"
-}
 
 // A release is an update when it is a newer version within the same major line (upstream
 // 1.19.3 installation/index.ts:66-70). Upstream treats an invalid current version as "notify
@@ -72,10 +59,6 @@ export function userAgent(client = "cli") {
 }
 
 export const USER_AGENT = userAgent()
-
-export function isPreview() {
-  return InstallationChannel !== "latest"
-}
 
 export function isLocal() {
   return InstallationChannel === "local"

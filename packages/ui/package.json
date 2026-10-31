@@ -1,7 +1,7 @@
 {
   "name": "@opencode-ai/ui",
   "version": "0.1.0",
-  "hordecodeBase": "1.19.4",
+  "hordecodeBase": "1.19.5",
   "type": "module",
   "license": "MIT",
   "repository": {

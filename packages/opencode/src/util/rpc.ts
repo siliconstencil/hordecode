@@ -1,3 +1,5 @@
+import { errorMessage } from "@/util/error"
+
 type Definition = {
   [method: string]: (input: any) => any
 }
@@ -14,10 +16,16 @@ export function listen(rpc: Definition) {
         const result = await rpc[parsed.method](parsed.input)
         postMessage(JSON.stringify({ type: "rpc.result", result, id: parsed.id }))
       } catch (error) {
-        postMessage(JSON.stringify({ type: "rpc.error", error: String(error), id: parsed.id }))
+        postMessage(JSON.stringify({ type: "rpc.error", error: failureMessage(error), id: parsed.id }))
       }
     }
   }
+}
+
+// Some failures keep their text on the cause: a taken --port rejects with an empty ServeError.
+function failureMessage(error: unknown): string {
+  if (error instanceof Error && !error.message && error.cause) return failureMessage(error.cause)
+  return errorMessage(error)
 }
 
 export function emit(event: string, data: unknown) {
