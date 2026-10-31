@@ -26,6 +26,7 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { decideAskRouting } from "@/agent/config"
 import { MCP_TOOL_SEARCH_ID } from "@/tool/mcp-tool-search"
+import { ReadLedger } from "@/tool/read-ledger"
 
 const MCP_RESOURCE_TOOLS = {
   list: "list_mcp_resources",
@@ -151,6 +152,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
               { args },
             )
             const result = yield* item.execute(args, ctx)
+            ReadLedger.note({ sessionID: ctx.sessionID, tool: item.id, args, cwd: input.session.directory })
             const output = {
               ...result,
               attachments: result.attachments?.map((attachment) => ({

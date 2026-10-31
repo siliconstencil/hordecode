@@ -4,6 +4,7 @@ import { SessionCwd } from "@opencode-ai/core/tool/session-cwd"
 import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { RecoverableError } from "@opencode-ai/core/tool/recoverable"
 import type { SessionID } from "@opencode-ai/core/session/schema"
+import { ReadLedger } from "./read-ledger"
 
 // Same normalization both sides of the comparison go through so a Read on
 // a relative path lines up with an Edit on the absolute one. `cwd` is the
@@ -41,10 +42,11 @@ function readPath(input: unknown): string | undefined {
 }
 
 /**
- * Throws RecoverableError if the given file was not previously read by the
- * `read` tool in this conversation. Writes/edits to existing files must be
- * preceded by a Read so the model sees the current contents -- this turns the
- * usage note in edit.txt into actual enforcement.
+ * Throws RecoverableError if the given file was not previously read (or written) by this session, or
+ * changed on disk since. The session's read ledger decides first: it survives compaction and records
+ * the file's mtime and size. A file the ledger has never seen falls back to scanning the conversation
+ * for a completed `read` call. Writes/edits to existing files must be preceded by a Read so the model
+ * sees the current contents -- this turns the usage note in edit.txt into actual enforcement.
  *
  * RecoverableError is intentional: the failure is surfaced to the agent as a
  * tool result it can act on (call Read, then retry) rather than as a hard
@@ -52,6 +54,13 @@ function readPath(input: unknown): string | undefined {
  */
 export function assertFileRead(ctx: Tool.Context, targetPath: string, toolId: string, cwd?: string): void {
   const target = canon(ctx.sessionID, targetPath, cwd)
+
+  const recorded = target === undefined ? "unknown" : ReadLedger.check(ctx.sessionID, target)
+  if (recorded === "current") return
+  if (recorded === "changed")
+    throw new RecoverableError(
+      `${toolId}: ${targetPath} changed on disk since it was last read or written in this session. Call the read tool on this file again, then retry.`,
+    )
 
   if (!ctx.messages) return
   for (const msg of ctx.messages) {
