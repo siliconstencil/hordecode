@@ -24,6 +24,8 @@ import type { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Instance } from "@opencode-ai/project/instance"
 import { InstanceRef } from "../effect/instance-ref"
 import { Worktree } from "../worktree"
+import { Integrate } from "../worktree/integrate"
+import { ShellID } from "./shell/id"
 import { assembleFleet, deriveLiveness, renderFleetTable } from "./fleet"
 import type { FleetActorInput, WorktreeEntry } from "./fleet"
 import { classifySession } from "@opencode-ai/core/session/visibility"
@@ -55,24 +57,58 @@ export function ownsWorktree(input: { directory: string; root: string; listed: R
   return input.directory.startsWith(prefix) && input.listed.includes(input.directory)
 }
 
+export type OwnedWorktreeRemoval =
+  | { kind: "not-owned" }
+  | { kind: "removed"; branch?: string }
+  | { kind: "kept"; directory: string; branch?: string; reason: string }
+  | { kind: "failed"; message: string }
+
 /**
- * Removes the child's worktree only if the child owns one (see ownsWorktree).
- * Returns true only when a removal was actually performed. Worktree.remove
- * falls back to deleting a non-worktree directory, so it must never be called
- * for a directory this session did not create.
+ * Removes the child's worktree only if the child owns one (see ownsWorktree), and only when that
+ * loses no work: uncommitted changes or commits not merged into the main checkout keep the worktree
+ * and its branch unless `force` is set. Worktree.remove falls back to deleting a non-worktree
+ * directory, so it must never be called for a directory this session did not create.
  */
-export const removeOwnedWorktree = (directory: string, root: string) =>
+export const removeOwnedWorktree = (directory: string, root: string, force?: boolean) =>
   Effect.gen(function* () {
     const wtSvc = yield* Worktree.Service
-    const listed = yield* wtSvc.list().pipe(Effect.catch(() => Effect.succeed([] as { directory: string }[])))
+    const listed = yield* wtSvc.list().pipe(Effect.catch(() => Effect.succeed([] as { directory: string; branch?: string }[])))
+    const canonical = canonicalPath(directory)
+    const entry = listed.find((wt) => canonicalPath(wt.directory) === canonical)
     const owned = ownsWorktree({
-      directory: canonicalPath(directory),
+      directory: canonical,
       root: canonicalPath(root),
       listed: listed.map((wt) => canonicalPath(wt.directory)),
     })
-    if (!owned) return false
-    return yield* wtSvc.remove({ directory })
+    if (!owned) return { kind: "not-owned" } satisfies OwnedWorktreeRemoval
+
+    const check = yield* Effect.promise(() => Integrate.removal({ directory, branch: entry?.branch, force }))
+    if (check.keep) return { kind: "kept", directory, branch: entry?.branch, reason: check.reason } satisfies OwnedWorktreeRemoval
+
+    return yield* wtSvc.remove({ directory }).pipe(
+      Effect.map((): OwnedWorktreeRemoval => ({ kind: "removed", branch: entry?.branch })),
+      Effect.catch((error: unknown) =>
+        Effect.succeed<OwnedWorktreeRemoval>({ kind: "failed", message: error instanceof Error ? error.message : String((error as { message?: unknown }).message ?? error) }),
+      ),
+    )
   })
+
+export function cancelWorktreeNote(removal: OwnedWorktreeRemoval, sessionID: string) {
+  if (removal.kind === "not-owned") return ""
+  if (removal.kind === "removed") return ` Removed its worktree${removal.branch ? ` and branch ${removal.branch}` : ""}.`
+  if (removal.kind === "failed") return ` Could not remove its worktree: ${removal.message}.`
+  return (
+    ` Kept its worktree ${removal.directory}${removal.branch ? ` (branch ${removal.branch})` : ""} because ${removal.reason}.` +
+    ` Integrate it with \`session merge ${sessionID}\` or discard it with \`session cancel ${sessionID} --force\`.`
+  )
+}
+
+function isolationNote(branch: string) {
+  return [
+    `You are working in your own git worktree on branch ${branch}.`,
+    "Commit your work on this branch before you finish: uncommitted changes are not integrated, and the worktree is kept rather than removed while it holds them.",
+  ].join(" ")
+}
 
 function SIDE_QUESTION_PROMPT(question: string): string {
   return [
@@ -208,6 +244,7 @@ const KNOWN_VERBS = [
   "dashboard",
   "status",
   "cancel",
+  "merge",
   "ask",
   "join",
   "setmode",
@@ -372,10 +409,20 @@ function mapVerb(verb: string | undefined, args: string[], line: number): Effect
       return Effect.succeed({ operation: { action: "status" as const, sessionID: rest[0] } })
     }
     case "cancel": {
-      const { rest, error } = extractSessionFlags(args, [])
+      const { bools, rest, error } = extractSessionFlags(args, [], ["force"])
       if (error) return flagError("cancel", error, line)
-      if (rest.length !== 1) return arityError("cancel", "<sessionID>", rest, line)
-      return Effect.succeed({ operation: { action: "cancel" as const, sessionID: rest[0] } })
+      if (rest.length !== 1) return arityError("cancel", "<sessionID> [--force]", rest, line)
+      return Effect.succeed({
+        operation: { action: "cancel" as const, sessionID: rest[0], ...(bools.force ? { force: true } : {}) },
+      })
+    }
+    case "merge": {
+      const { flags, rest, error } = extractSessionFlags(args, ["into"])
+      if (error) return flagError("merge", error, line)
+      if (rest.length !== 1) return arityError("merge", "<sessionID> [--into <branch>]", rest, line)
+      return Effect.succeed({
+        operation: { action: "merge" as const, sessionID: rest[0], ...(flags.into ? { into: flags.into } : {}) },
+      })
     }
     case "ask": {
       const { rest, error } = extractSessionFlags(args, [])
@@ -480,6 +527,17 @@ const statusOperation = Schema.Struct({
 const cancelOperation = Schema.Struct({
   action: Schema.Literal("cancel"),
   sessionID: Schema.String.annotate({ description: "Session id of the child session to stop." }),
+  force: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "Also discard the child's isolated worktree and branch even when it holds uncommitted or unmerged work. Without it such a worktree is kept.",
+  }),
+})
+const mergeOperation = Schema.Struct({
+  action: Schema.Literal("merge"),
+  sessionID: Schema.String.annotate({ description: "Child session id whose isolated worktree branch to merge." }),
+  into: Schema.optional(Schema.String).annotate({
+    description: "Target branch. Defaults to the branch checked out in the main checkout; required when that is a detached HEAD.",
+  }),
 })
 const askOperation = Schema.Struct({
   action: Schema.Literal("ask"),
@@ -514,6 +572,7 @@ export const Parameters = Schema.Struct({
     dashboardOperation,
     statusOperation,
     cancelOperation,
+    mergeOperation,
     askOperation,
     joinOperation,
     setmodeOperation,
@@ -684,7 +743,7 @@ export const SessionTool = Tool.define<
           }
 
           const targetDir = createOp.dir ?? (yield* InstanceState.directory)
-          const isolateInput: { effectiveDir: string; isolateNotice: string } = yield* Effect.gen(function* () {
+          const isolateInput: { effectiveDir: string; isolateNotice: string; branch?: string } = yield* Effect.gen(function* () {
             if (!createOp.isolate) return { effectiveDir: targetDir, isolateNotice: "" }
             const derivedName = (createOp.title ?? createOp.topic ?? (createOp.task ?? "").slice(0, 30)).trim().slice(0, 40)
             const wtOutcome = yield* Effect.gen(function* () {
@@ -699,7 +758,7 @@ export const SessionTool = Tool.define<
               }),
               Effect.catchDefect((defect: unknown) => Effect.succeed({ ok: false as const, tag: undefined as string | undefined, message: String(defect) })),
             )
-            if (wtOutcome.ok) return { effectiveDir: wtOutcome.info.directory, isolateNotice: "" }
+            if (wtOutcome.ok) return { effectiveDir: wtOutcome.info.directory, isolateNotice: "", branch: wtOutcome.info.branch }
             if (wtOutcome.tag === "WorktreeNotGitError")
               return { effectiveDir: targetDir, isolateNotice: " (note: --isolate ignored — directory is not a git repo; running shared)" }
             return {
@@ -709,6 +768,7 @@ export const SessionTool = Tool.define<
           })
           const effectiveDir = isolateInput.effectiveDir
           const isolateNotice = isolateInput.isolateNotice
+          const isolatedBranch = isolateInput.branch
 
           const taskText = createOp.task
           if (!taskText)
@@ -729,7 +789,7 @@ export const SessionTool = Tool.define<
             mode: "peer",
             sessionID: ctx.sessionID as SessionID,
             agentType: createOp.mode ?? "build",
-            task: taskText,
+            task: isolatedBranch ? `${taskText}\n\n${isolationNote(isolatedBranch)}` : taskText,
             description: createOp.title ?? taskText.slice(0, 40),
             context: "none" as const,
             tools: "INHERIT" as const,
@@ -749,7 +809,9 @@ export const SessionTool = Tool.define<
             output:
               `Created child session ${result.sessionID} (mode: ${createOp.mode ?? "build"}) in ${effectiveDir}.` +
               (createOp.topic ? ` Tagged with topic '${createOp.topic}' for reuse.` : ``) +
-              (createOp.isolate && !isolateNotice ? ` Isolated in its own worktree.` : isolateNotice) +
+              (createOp.isolate && !isolateNotice
+              ? ` Isolated in its own worktree${isolatedBranch ? ` on branch ${isolatedBranch}; the child was told to commit its work there. Integrate it with \`session merge ${result.sessionID}\`` : ""}.`
+              : isolateNotice) +
               ` Running in background.`,
             metadata: { sessionID: result.sessionID as string },
           }
@@ -801,24 +863,61 @@ export const SessionTool = Tool.define<
           // Instance (InstanceRef from the child dir), because `git worktree
           // remove` resolves against the ambient Instance.
           // Best-effort throughout (Effect.exit): never fail the cancel.
+          const force = (op as Extract<Operation, { action: "cancel" }>).force === true
           const child = yield* sessions.get(s as SessionID).pipe(Effect.catch(() => Effect.succeed(undefined)))
-          let removed = false
-          if (child) {
-            const ctxExit = yield* Effect.exit(
-              Effect.promise(() => Instance.provide({ directory: child.directory, fn: () => Instance.current })),
-            )
-            if (ctxExit._tag === "Success") {
-              const root = path.join(Global.Path.data, "worktree", ctxExit.value.project.id)
-              const remExit = yield* removeOwnedWorktree(child.directory, root).pipe(
-                Effect.provideService(InstanceRef, ctxExit.value),
-                Effect.exit,
-              )
-              removed = remExit._tag === "Success" ? remExit.value : false
-            }
-          }
+          const removal: OwnedWorktreeRemoval = child
+            ? yield* Effect.gen(function* () {
+                const ctxExit = yield* Effect.exit(
+                  Effect.promise(() => Instance.provide({ directory: child.directory, fn: () => Instance.current })),
+                )
+                if (ctxExit._tag !== "Success")
+                  return { kind: "failed", message: `could not open its project (${Cause.pretty(ctxExit.cause)})` } as OwnedWorktreeRemoval
+                const root = path.join(Global.Path.data, "worktree", ctxExit.value.project.id)
+                const remExit = yield* removeOwnedWorktree(child.directory, root, force).pipe(
+                  Effect.provideService(InstanceRef, ctxExit.value),
+                  Effect.exit,
+                )
+                if (remExit._tag === "Success") return remExit.value
+                return { kind: "failed", message: Cause.pretty(remExit.cause) } as OwnedWorktreeRemoval
+              })
+            : { kind: "not-owned" }
           return {
             title: `Cancelled ${s}`,
-            output: `Cancelled session ${s}.` + (removed ? ` Removed its worktree (branch deleted).` : ``),
+            output: `Cancelled session ${s}.` + cancelWorktreeNote(removal, s),
+            metadata: { sessionID: s },
+          }
+        }
+
+        if (action === "merge") {
+          const s = yield* requireSid("merge")
+          const mergeOp = op as Extract<Operation, { action: "merge" }>
+          const child = yield* sessions.get(s as SessionID).pipe(Effect.catch(() => Effect.succeed(undefined)))
+          if (!child) return yield* Effect.fail(new Tool.InvalidArgumentsError({ tool: id, detail: `merge: unknown session ${s}` }))
+          const wtSvc = yield* Worktree.Service
+          const listed = yield* wtSvc.list().pipe(Effect.catch(() => Effect.succeed([] as { directory: string; branch?: string }[])))
+          const entry = listed.find((wt) => canonicalPath(wt.directory) === canonicalPath(child.directory))
+          if (!entry?.branch)
+            return yield* Effect.fail(
+              new Tool.InvalidArgumentsError({ tool: id, detail: `merge: session ${s} has no isolated worktree branch to merge` }),
+            )
+          const check = yield* Effect.promise(() => Integrate.preflight({ directory: child.directory, branch: entry.branch as string, into: mergeOp.into }))
+          if (!check.ok) return { title: `Merge refused for ${s}`, output: `Not merged: ${check.reason}.`, metadata: { sessionID: s } }
+          if (check.conflicts.length > 0)
+            return {
+              title: `Merge refused for ${s}`,
+              output: `Not merged: ${check.branch} into ${check.target} would conflict in ${check.conflicts.join(", ")}.`,
+              metadata: { sessionID: s },
+            }
+          yield* ctx.ask({
+            permission: ShellID.ToolID,
+            patterns: [`git merge ${check.branch}`],
+            always: [],
+            metadata: { command: `git merge --no-ff ${check.branch} (into ${check.target})` },
+          })
+          const merged = yield* Effect.promise(() => Integrate.merge({ directory: child.directory, branch: check.branch, into: check.target }))
+          return {
+            title: merged.ok ? `Merged ${s}` : `Merge failed for ${s}`,
+            output: merged.ok ? merged.message : `Not merged: ${merged.reason}.`,
             metadata: { sessionID: s },
           }
         }

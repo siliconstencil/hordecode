@@ -36,7 +36,14 @@ JSON calls always wrap the action in an `operation` object — see examples belo
             listed children have reached a terminal state (success/fail/cancel),
             then returns one aggregated per-child summary. This is your
             aggregation step — dispatch-and-yield is the alternative.
-- cancel:   stop a running child session. `sessionID` required.
+- cancel:   stop a running child session. `sessionID` required. An isolated
+            child's worktree is removed only when it holds no uncommitted or
+            unmerged work; otherwise it is kept and the output says why. Optional
+            `force` discards the worktree and branch anyway.
+- merge:    merge an isolated child's branch into a target branch. `sessionID`
+            required; optional `into` (defaults to the branch checked out in the
+            main checkout; required on a detached HEAD). Refuses on conflicts and
+            asks permission before changing the repository.
 - ask:      ask a session a ONE-SHOT, READ-ONLY side question over a FROZEN
             snapshot of its history, without disturbing its running turn.
             `session_id` + `question` required. Returns the answer to you. The

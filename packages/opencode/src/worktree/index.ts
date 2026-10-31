@@ -275,14 +275,18 @@ const layer: Layer.Layer<
         },
       })
 
-      yield* runStartScripts(info.directory, { projectID, extra })
+      yield* runStartScripts(info.directory, { projectID, extra }).pipe(
+        Effect.catchCause((cause) => Effect.logError("worktree start scripts failed", { cause })),
+        Effect.forkIn(scope),
+      )
     })
 
     const createFromInfo = Effect.fn("Worktree.createFromInfo")(function* (info: Info, startCommand?: string) {
       yield* setup(info)
+      // Awaited up to the Ready event; only the start scripts run in the background. Upstream v1.19.5
+      // worktree/index.ts:281-293 forks the whole boot, which hands callers an unpopulated checkout.
       yield* boot(info, startCommand).pipe(
         Effect.catchCause((cause) => Effect.logError("worktree bootstrap failed", { cause })),
-        Effect.forkIn(scope),
       )
     })
 

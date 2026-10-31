@@ -1,3 +1,7 @@
+import { execFileSync } from "child_process"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs"
+import { tmpdir } from "os"
+import path from "path"
 import { afterEach, describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { SupervisorRegistryService } from "@opencode-ai/supervisor/registry"
@@ -31,6 +35,7 @@ let lastSpawnInput: SpawnInput | undefined
 // child directory and the Worktree.Service.remove input to assert the fix.
 let sessionGetDir: string | undefined
 let worktreeRemoveCalls: string[] = []
+let worktreeListResult: { directory: string; branch?: string }[] = []
 
 const layer = Layer.mergeAll(
   Layer.mock(Bus.Service, {
@@ -69,7 +74,7 @@ const layer = Layer.mergeAll(
     makeWorktreeInfo: () => Effect.succeed({ name: "test", directory: "/tmp/test", branch: "opencode/test" }),
     createFromInfo: () => Effect.void,
     create: () => Effect.succeed({ name: "test", directory: "/tmp/test", branch: "opencode/test" }),
-    list: () => Effect.succeed([]),
+    list: () => Effect.succeed(worktreeListResult),
     remove: (input: { directory: string }) => {
       worktreeRemoveCalls.push(input.directory)
       return Effect.succeed(true)
@@ -116,6 +121,7 @@ afterEach(() => {
   spawnRef.current = undefined
   sessionGetDir = undefined
   worktreeRemoveCalls = []
+  worktreeListResult = []
 })
 
 function mockSpawn() {
@@ -277,6 +283,117 @@ describe("cancel worktree removal", () => {
       expect(worktreeRemoveCalls).not.toContain(test.directory)
       expect(worktreeRemoveCalls).toEqual([])
       expect(result.output).not.toContain("Removed its worktree")
+    }),
+  )
+})
+
+// Isolated children: the create output names the branch and the child is told to commit; merge
+// integrates the branch through the Integrate preflight and asks permission before touching the repo.
+describe("isolated child worktrees", () => {
+  it.live("create with isolate names the branch and tells the child to commit", () =>
+    Effect.gen(function* () {
+      mockSpawn()
+      const info = yield* SessionTool
+      const def = yield* info.init()
+      const result = yield* def.execute({ operation: { action: "create", task: "edit files", isolate: true } }, ctx)
+
+      expect(result.output).toContain("on branch opencode/test")
+      expect(result.output).toContain("session merge ses-child")
+      expect(lastSpawnInput?.task).toStartWith("edit files")
+      expect(lastSpawnInput?.task).toContain("branch opencode/test")
+      expect(lastSpawnInput?.task).toContain("Commit your work")
+      expect(lastSpawnInput?.description).toBe("edit files")
+    }),
+  )
+
+  it.live("merge refuses a session that has no isolated worktree branch", () =>
+    Effect.gen(function* () {
+      sessionGetDir = "/tmp/not-a-worktree"
+      const info = yield* SessionTool
+      const def = yield* info.init()
+      const exit = yield* def.execute({ operation: { action: "merge", sessionID: "ses-child" } }, ctx).pipe(Effect.exit)
+
+      expect(exit._tag).toBe("Failure")
+    }),
+  )
+
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", args, { cwd, stdio: "pipe", env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" } })
+      .toString()
+      .trim()
+  const repoWithChild = () => {
+    const base = realpathSync(mkdtempSync(path.join(tmpdir(), "session-merge-")))
+    const repo = path.join(base, "repo")
+    const wt = path.join(base, "wt")
+    mkdirSync(repo)
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "config", "user.email", "t@example.invalid")
+    git(repo, "config", "user.name", "t")
+    writeFileSync(path.join(repo, "a.txt"), "base\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "init")
+    git(repo, "worktree", "add", "-q", "-b", "opencode/child", wt)
+    git(wt, "config", "user.email", "t@example.invalid")
+    git(wt, "config", "user.name", "t")
+    writeFileSync(path.join(wt, "b.txt"), "child work\n")
+    git(wt, "add", ".")
+    git(wt, "commit", "-q", "-m", "child")
+    sessionGetDir = wt
+    worktreeListResult = [{ directory: wt, branch: "opencode/child" }]
+    return { base, repo, wt }
+  }
+
+  it.live("merge asks permission, then merges a clean branch into the checked-out target", () =>
+    Effect.gen(function* () {
+      const { base, repo } = repoWithChild()
+      const asked: unknown[] = []
+      const info = yield* SessionTool
+      const def = yield* info.init()
+      const result = yield* def.execute(
+        { operation: { action: "merge", sessionID: "ses-child" } },
+        { ...ctx, ask: (input: unknown) => Effect.sync(() => void asked.push(input)) } as Context,
+      )
+
+      expect(asked).toHaveLength(1)
+      expect(result.output).toContain("Merged opencode/child into main")
+      expect(git(repo, "show", "HEAD:b.txt")).toBe("child work")
+      rmSync(base, { recursive: true, force: true })
+    }),
+  )
+
+  it.live("a denied permission leaves the repository untouched", () =>
+    Effect.gen(function* () {
+      const { base, repo } = repoWithChild()
+      const before = git(repo, "rev-parse", "HEAD")
+      const info = yield* SessionTool
+      const def = yield* info.init()
+      const exit = yield* def
+        .execute(
+          { operation: { action: "merge", sessionID: "ses-child" } },
+          { ...ctx, ask: () => Effect.die("denied") } as Context,
+        )
+        .pipe(Effect.exit)
+
+      expect(exit._tag).toBe("Failure")
+      expect(git(repo, "rev-parse", "HEAD")).toBe(before)
+      rmSync(base, { recursive: true, force: true })
+    }),
+  )
+
+  it.live("merge on a detached main checkout without a target is refused, with a target it proceeds", () =>
+    Effect.gen(function* () {
+      const { base, repo } = repoWithChild()
+      git(repo, "checkout", "-q", "--detach")
+      const info = yield* SessionTool
+      const def = yield* info.init()
+      const refused = yield* def.execute({ operation: { action: "merge", sessionID: "ses-child" } }, ctx)
+      expect(refused.output).toContain("detached HEAD")
+      expect(git(repo, "rev-parse", "HEAD")).toBe(git(repo, "rev-parse", "main"))
+
+      const merged = yield* def.execute({ operation: { action: "merge", sessionID: "ses-child", into: "main" } }, ctx)
+      expect(merged.output).toContain("Merged opencode/child into main")
+      expect(git(repo, "show", "main:b.txt")).toBe("child work")
+      rmSync(base, { recursive: true, force: true })
     }),
   )
 })
