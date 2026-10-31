@@ -38,6 +38,8 @@ import { Memory } from "@opencode-ai/memory"
 import { node as EmbeddingNode } from "@opencode-ai/memory/embedding/service"
 import { node as VectorStoreNode } from "@opencode-ai/memory/embedding/vector-store"
 import { TaskRegistry } from "@opencode-ai/task/registry"
+import { TaskGate, MAX_TASK_GATE_MAIN_REACT } from "@opencode-ai/task/gate"
+import { TaskGateState } from "@opencode-ai/task/gate-state"
 import { ConfigMarkdown } from "@/config/markdown"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@opencode-ai/core/util/error"
@@ -205,6 +207,8 @@ const layer = Layer.effect(
     const database = yield* Database.Service
     const { db } = database
     const goal = yield* Goal.Service
+    const taskGateState = yield* TaskGateState.Service
+    const taskRegistry = yield* TaskRegistry.Service
     const bus = yield* Bus.Service
     const supervisorRegistry = yield* SupervisorRegistryService.Service
     const checkpoint = yield* SessionCheckpoint.Service
@@ -1440,6 +1444,54 @@ const layer = Layer.effect(
         const compactionGuard = CompactionGuard.make()
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
 
+        // Task stop-condition gate (root session, main agent only): before honoring a stop, nudge
+        // once per non-terminal task board with a synthetic user turn; after
+        // MAX_TASK_GATE_MAIN_REACT nudges warn and allow the stop.
+        // Mirrors core/src/session/prompt.ts:1822-1870 (TaskGate.decide :1834).
+        const taskGate = Effect.fn("SessionPrompt.taskGate")(function* (lastUser: SessionV1.User) {
+          if ((agentID ?? "main") !== "main" || session.parentID) return false
+          const agent = yield* agents.get(lastUser.agent).pipe(Effect.orElseSucceed(() => undefined))
+          if (agent && Permission.disabled(["task"], agent.permission).has("task")) return false
+          if (lastUser.tools?.["task"] === false) return false
+
+          const decision = yield* TaskGate.decide({
+            session_id: sessionID,
+            owner: undefined,
+            reactCount: yield* taskGateState.get(sessionID),
+            maxReact: MAX_TASK_GATE_MAIN_REACT,
+            mode: "main",
+          }).pipe(Effect.provideService(TaskRegistry.Service, taskRegistry))
+          if (!decision.needReentry) {
+            if (decision.capExceeded)
+              yield* Effect.logWarning("task gate hit cap; allowing stop", {
+                "session.id": sessionID,
+                incompleteTasks: decision.incompleteTasks,
+              })
+            yield* taskGateState.clear(sessionID)
+            return false
+          }
+          yield* taskGateState.bump(sessionID)
+          const reentry = yield* sessions.updateMessage({
+            id: MessageID.ascending(),
+            role: "user",
+            sessionID,
+            agent: lastUser.agent,
+            model: lastUser.model,
+            tools: lastUser.tools,
+            format: lastUser.format,
+            time: { created: Date.now() },
+          } satisfies SessionV1.User)
+          yield* sessions.updatePart({
+            id: PartID.ascending(),
+            messageID: reentry.id,
+            sessionID,
+            type: "text",
+            text: decision.reentryText,
+            synthetic: true,
+          } satisfies SessionV1.TextPart)
+          return true
+        })
+
         while (true) {
           // Intentional divergence from v0.1.11 (packages/opencode/src/session/prompt.ts:3251,3661),
           // which uses while(true) + agent.steps ?? Infinity. Fork caps at 100/200
@@ -1509,6 +1561,7 @@ const layer = Layer.effect(
                 callID: orphan.callID,
               })
             }
+            if (lastUser && (yield* taskGate(lastUser))) continue
             // Goal stop-condition gate (only for main agent, not subagents).
             // Goal.runGate treats agentID "main" (its default) as the top-level
             // thread and skips gating for anything else -- session.parentID is
@@ -2287,6 +2340,7 @@ const layer = Layer.effect(
             Effect.onInterrupt(() => finalizeInterruptedAssistant),
           )
           if (outcome === "break") {
+            if (lastUser && (yield* taskGate(lastUser))) continue
             // Goal stop-condition gate (second site: after outcome break).
             // See the first call site above for why agentID must be
             // session.parentID-derived, not the agent persona name.
@@ -2685,6 +2739,12 @@ const TaskRegistryNode = LayerNode.make({
   deps: [Database.node, BusNode, Config.node],
 })
 
+const TaskGateStateNode = LayerNode.make({
+  service: TaskGateState.Service,
+  layer: TaskGateState.defaultLayer,
+  deps: [],
+})
+
 const MemoryNode = LayerNode.make({
   service: Memory.Service,
   layer: Memory.layer as Layer.Layer<Memory.Service>,
@@ -2736,6 +2796,8 @@ export const node = LayerNode.make({
     GoalNode,
     BusNode,
     SupervisorRegistryNode,
+    TaskGateStateNode,
+    TaskRegistryNode,
     SessionCheckpointNode,
     SessionPruneNode,
   ],
