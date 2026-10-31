@@ -4,6 +4,7 @@ import { EffectBridge } from "@/effect/bridge"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Installation } from "@/installation"
 import { disposeAllInstancesAndEmitGlobalDisposed } from "@/server/global-lifecycle"
+import { disposeAllWhenIdle } from "@/server/deferred-dispose"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { Effect, Queue } from "effect"
 import * as Stream from "effect/Stream"
@@ -77,7 +78,9 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
 
     const configUpdate = Effect.fn("GlobalHttpApi.configUpdate")(function* (ctx) {
       const result = yield* config.updateGlobal(ctx.payload)
-      if (result.changed) bridge.fork(disposeAllInstancesAndEmitGlobalDisposed({ swallowErrors: true }))
+      // Deferred until no session is busy: upstream v1.19.5 handlers/global.ts:79-81 disposes at once, which
+      // interrupts running turns (MiMo v0.1.11 server/routes/global.ts:214 does the same).
+      if (result.changed) bridge.fork(disposeAllWhenIdle())
       return result.info
     })
 
