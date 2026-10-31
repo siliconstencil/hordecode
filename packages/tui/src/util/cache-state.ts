@@ -53,6 +53,21 @@ export function cacheLabel(state: CacheState): string | undefined {
   return `cold  next turn re-caches ~${tokenLabel(state.tokens)} tokens${cost}`
 }
 
+// Delay until the sidebar line next changes, or undefined once nothing more will change (no cache data, a
+// provider without a modelled cache, or an entry that is already cold). Callers schedule one timer from it.
+export function cacheTickDelay(input: {
+  providerID: string
+  start?: number
+  tokens?: { input: number; cache: { read: number; write: number } }
+  model?: { cachePromptTTL?: CacheTTL }
+  now: number
+}): number | undefined {
+  if (input.providerID !== "anthropic") return undefined
+  const state = cacheState({ start: input.start, tokens: input.tokens, ttl: input.model?.cachePromptTTL, now: input.now })
+  if (state.kind !== "warm") return undefined
+  return Math.min(1000, state.remainingMs)
+}
+
 // The sidebar line for the last finished request. Only Anthropic's cache lifetimes are modelled, so other providers get none.
 export function cacheLineFor(input: {
   providerID: string

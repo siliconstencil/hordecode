@@ -14,6 +14,13 @@ export interface TaskItemProps {
   summary: string
   owner?: string
   depth: number
+  // False while the owning session is idle: the row keeps its in-progress marker but the spinner stops redrawing.
+  busy?: boolean
+}
+
+// The animated spinner only runs for an in-progress task whose session is working; every other case draws a static marker.
+export function taskSpinnerActive(input: { running: boolean; motion: boolean; busy?: boolean }) {
+  return input.running && input.motion && input.busy !== false
 }
 
 export function TaskItem(props: TaskItemProps) {
@@ -47,7 +54,7 @@ export function TaskItem(props: TaskItemProps) {
         <box flexShrink={0} flexDirection="row" gap={0}>
           <text style={{ fg: theme.warning }}>[</text>
           <Show
-            when={visual.motion()}
+            when={taskSpinnerActive({ running: running(), motion: visual.motion(), busy: props.busy })}
             fallback={<text style={{ fg: theme.warning }}>•</text>}
           >
             <spinner frames={spinnerFrames} interval={80} color={theme.warning} />

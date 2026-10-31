@@ -18,6 +18,10 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
   const [doneExpanded, setDoneExpanded] = createSignal(false)
   const theme = () => props.api.theme.current
   const all = createMemo(() => props.api.state.session.task(props.session_id))
+  const busy = createMemo(() => {
+    const status = props.api.state.session.status(props.session_id)?.type
+    return status === "busy" || status === "retry"
+  })
   const active = createMemo(() =>
     all()
       .filter((t) => t.status === "open" || t.status === "in_progress" || t.status === "blocked")
@@ -54,6 +58,7 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
                 summary={item().summary}
                 owner={item().owner ?? undefined}
                 depth={depthOf(item().id)}
+                busy={busy()}
               />
             )}
           </Index>

@@ -1,6 +1,6 @@
 import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
 import type { BuiltinTuiPlugin } from "../builtins"
-import { createMemo, For, Show, createSignal, onCleanup } from "solid-js"
+import { createEffect, createMemo, For, Show, createSignal, onCleanup } from "solid-js"
 
 const id = "internal:sidebar-supervisor"
 
@@ -44,6 +44,20 @@ export function pruneFinished<T extends { status: string; time_updated?: number;
   })
 }
 
+// Milliseconds until the next finished row ages out of the list, or undefined when none will.
+export function nextPruneDelay<T extends { status: string; time_updated?: number; time_created?: number }>(
+  list: readonly T[],
+  now: number,
+  ttl = FINISHED_ROW_TTL_MS,
+): number | undefined {
+  const delays = list.flatMap((s) => {
+    if (LIVE_STATUSES.has(s.status)) return []
+    const at = s.time_updated ?? s.time_created
+    return at === undefined ? [] : [Math.max(0, at + ttl - now)]
+  })
+  return delays.length === 0 ? undefined : Math.min(...delays)
+}
+
 /**
  * Filter supervisor list for sidebar display. Excludes mode=main rows
  * (every session self-registers one; they are not subagents). Only includes
@@ -71,19 +85,23 @@ function glyphFor(status: string) {
   return { ch: "?", kind: "muted" as const }
 }
 
-function View(props: { api: TuiPluginApi; session_id: string }) {
+export function View(props: { api: TuiPluginApi; session_id: string }) {
   const [open, setOpen] = createSignal(true)
   const theme = () => props.api.theme.current
   const [now, setNow] = createSignal(Date.now())
-  const tick = setInterval(() => setNow(Date.now()), 1000)
-  onCleanup(() => clearInterval(tick))
-  const list = createMemo(() => {
-    const all = props.api.state.supervisor()
-    const sid = props.session_id
-    const visible = filterSupervisorList(all, sid, {
+  const visible = createMemo(() =>
+    filterSupervisorList(props.api.state.supervisor(), props.session_id, {
       get: (id) => props.api.state.session.get(id) as { parentID?: string | null } | undefined,
-    })
-    return pruneFinished(visible, now())
+    }),
+  )
+  const list = createMemo(() => pruneFinished(visible(), now()))
+  // One timer to the next expiry; idle sidebars (no finished rows) arm nothing.
+  createEffect(() => {
+    now()
+    const delay = nextPruneDelay(list(), Date.now())
+    if (delay === undefined) return
+    const id = setTimeout(() => setNow(Date.now()), delay + 5)
+    onCleanup(() => clearTimeout(id))
   })
   const total = createMemo(() => list().length)
   const active = createMemo(() => list().filter((s) => s.status === "pending" || s.status === "running").length)

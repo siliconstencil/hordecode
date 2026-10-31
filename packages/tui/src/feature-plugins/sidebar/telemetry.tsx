@@ -4,7 +4,7 @@ import type { BuiltinTuiPlugin } from "../builtins"
 import { createMemo, createSignal, onCleanup, createEffect, Show } from "solid-js"
 import { streamingTPS, completedTPS, formatTPS } from "../../util/tps"
 import { contextUsage } from "../../util/context-usage"
-import { cacheLineFor, type CacheTTL } from "../../util/cache-state"
+import { cacheLineFor, cacheTickDelay, type CacheTTL } from "../../util/cache-state"
 
 const id = "internal:sidebar-telemetry"
 
@@ -51,7 +51,7 @@ function renderProgressBar(percent: number, width: number = 5): string {
   return "■".repeat(filled) + "□".repeat(empty)
 }
 
-function View(props: { api: TuiPluginApi; session_id: string }) {
+export function View(props: { api: TuiPluginApi; session_id: string }) {
   const [open, setOpen] = createSignal(true)
   const theme = () => props.api.theme.current
   const messages = createMemo(() => props.api.state.session.messages(props.session_id) ?? [])
@@ -102,19 +102,28 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
     ),
   )
   const [tick, setTick] = createSignal(Date.now())
-  createEffect(() => {
-    const l = lastRequest()
-    if (!l || l.tokens.cache.read + l.tokens.cache.write <= 0) return
-    const id = setInterval(() => setTick(Date.now()), 1000)
-    onCleanup(() => clearInterval(id))
-  })
-  const cacheLine = createMemo(() => {
+  const cacheInput = createMemo(() => {
     const l = lastRequest()
     if (!l) return undefined
     const model = props.api.state.provider.find((item) => item.id === l.providerID)?.models[l.modelID] as
       | { cachePromptTTL?: CacheTTL; cost?: { cache?: { write?: number }} }
       | undefined
-    return cacheLineFor({ providerID: l.providerID, start: l.time.created, tokens: l.tokens, model, now: tick() })
+    return { providerID: l.providerID, start: l.time.created, tokens: l.tokens, model }
+  })
+  // One timer at a time, only while the cache entry is warm: it re-arms itself from the tick it fires.
+  createEffect(() => {
+    tick()
+    const input = cacheInput()
+    if (!input) return
+    const delay = cacheTickDelay({ ...input, now: Date.now() })
+    if (delay === undefined) return
+    const id = setTimeout(() => setTick(Date.now()), delay)
+    onCleanup(() => clearTimeout(id))
+  })
+  const cacheLine = createMemo(() => {
+    const input = cacheInput()
+    if (!input) return undefined
+    return cacheLineFor({ ...input, now: Math.max(tick(), input.start) })
   })
 
   const contextStats = createMemo(() => {
