@@ -2134,7 +2134,7 @@ const runLoop: (sessionID: SessionID, agentID?: string, task_id?: string, steps?
       while (true) {
         if (!agentID || agentID === "main") yield* status.set(sessionID, { type: "busy" })
         yield* inbox.drain(sessionID, agentID ?? "main").pipe(Effect.ignore)
-        yield* slog.info("loop", { step })
+        yield* slog.debug("loop", { step })
 
         let msgs = yield* MessageV2.filterCompactedEffect(sessionID, {
           contextFrom: session.contextFrom,

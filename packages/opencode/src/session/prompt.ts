@@ -1515,7 +1515,7 @@ const layer = Layer.effect(
           let msgs = yield* MessageV2.filterCompactedEffect(sessionID).pipe(
             Effect.provideService(Database.Service, database),
           )
-          yield* Effect.logInfo("rl:iter", {
+          yield* Effect.logDebug("rl:iter", {
             "session.id": sessionID,
             step,
             msgCount: msgs.length,
