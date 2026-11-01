@@ -121,8 +121,11 @@ A port is complete only when all three land together: the code, the `hordecodeBa
   Hordecode decision: supervisors delegate through levels of subagents, unlike upstream's task
   tool (default 1) and MiMo 0.1.12 (no nested delegation). Peers and system spawns do not count.
   Open: nesting through `session ask`, `session create` and the workflow runtime is not checked.
-- Fork packages `agent`, `control-plane`, `project`, `shared`, `task`, `team`, `worktree` have
-  no tests; `memory` has tests but no `test` script; `global` has no scripts at all.
+- Fork package tests: `agent`, `control-plane`, `shared`, `task`, `team`, `worktree` and `memory` have a `test`
+  script; `project` tests cover project ids, workspace trust and the directory guard. Task registry lifecycle
+  tests live in `packages/opencode/test/task` (they need the app database layer). `global` has no scripts at all.
+  `packages/worktree` (used by the workflow runtime) names branches `hordecode/<name>`, while the runtime
+  `opencode/src/worktree` names them `opencode/<name>`.
 - `packages/docs` is untouched upstream scaffolding; the fork subsystems are undocumented there.
 - Type shortcuts: the session hot path is clean (`core/src/session/prompt.ts` 0 `as any`,
   `processor.ts` 2, `max-mode.ts` 5, `opencode/src/session/processor.ts` 0); the remaining
