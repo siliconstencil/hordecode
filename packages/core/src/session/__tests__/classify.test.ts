@@ -331,6 +331,51 @@ describe("classifyAssistantStep", () => {
       expect(result.type).toBe("text-tool-call")
     })
 
+    const M = "\uFF5CDSML\uFF5C"
+    const dsml = `<${M}function_calls>\n<${M}invoke name="bash">\n<${M}parameter name="command" string="true">ls</${M}parameter>\n</${M}invoke>\n</${M}function_calls>`
+
+    test("finish=tool-calls + DSML markup => text-tool-call", () => {
+      const result = classifyAssistantStep({
+        phase: "after-process",
+        lastUser,
+        assistant: assistantInfo("m-2", { finish: "tool-calls" }),
+        parts: [textPart(dsml)],
+      })
+      expect(result.type).toBe("text-tool-call")
+    })
+
+    test("finish=stop ending with a closed DSML block => text-tool-call", () => {
+      const result = classifyAssistantStep({
+        phase: "after-process",
+        lastUser,
+        assistant: assistantInfo("m-2", { finish: "stop" }),
+        parts: [textPart(`Let me check.\n${dsml}\n`)],
+      })
+      expect(result.type).toBe("text-tool-call")
+    })
+
+    test("finish=stop with DSML shown mid-answer or unclosed => final", () => {
+      for (const text of [`Example:\n${dsml}\nThat is the format.`, dsml.replace(`</${M}function_calls>`, "")]) {
+        const result = classifyAssistantStep({
+          phase: "after-process",
+          lastUser,
+          assistant: assistantInfo("m-2", { finish: "stop" }),
+          parts: [textPart(text)],
+        })
+        expect(result.type).toBe("final")
+      }
+    })
+
+    test("finish=stop with a DSML block but a real tool part => continue", () => {
+      const result = classifyAssistantStep({
+        phase: "after-process",
+        lastUser,
+        assistant: assistantInfo("m-2", { finish: "stop" }),
+        parts: [textPart(dsml), toolPart()],
+      })
+      expect(result.type).toBe("continue")
+    })
+
     test("finish=tool-calls WITH a real tool part => continue (not text-tool-call)", () => {
       const result = classifyAssistantStep({
         phase: "after-process",

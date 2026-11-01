@@ -1,4 +1,5 @@
 import { MessageV2 } from "./message-v2"
+import { hasDsmlToolCall, parseDsmlToolCalls } from "./dsml"
 
 export type StepClassification =
   | { type: "final"; degraded?: boolean }
@@ -64,8 +65,24 @@ export function classifyAssistantStep(input: {
         part.type === "text" &&
         !part.synthetic &&
         !part.ignored &&
-        /<invoke name=|<parameter name=|<\/invoke>|<function_calls>/.test(part.text),
+        (/<invoke name=|<parameter name=|<\/invoke>|<function_calls>/.test(part.text) || hasDsmlToolCall(part.text)),
     )
+  )
+    return { type: "text-tool-call" }
+
+  // 3b. DSML tool call written as the end of a normal stop (DeepSeek V3.2/V4 without structured calls).
+  // Needs a closed function_calls block with at least one invoke and nothing after it, so prose that merely
+  // shows the markup does not trigger a re-prompt.
+  if (
+    assistant.finish === "stop" &&
+    !assistant.error &&
+    input.lastUser.id < assistant.id &&
+    !input.parts.some((part) => part.type === "tool") &&
+    input.parts.some((part) => {
+      if (part.type !== "text" || part.synthetic || part.ignored) return false
+      const parsed = parseDsmlToolCalls(part.text)
+      return parsed.complete && parsed.trailing && parsed.calls.length > 0
+    })
   )
     return { type: "text-tool-call" }
 
