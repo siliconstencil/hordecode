@@ -972,7 +972,7 @@ export const layer = Layer.effect(
       })
 
       const replay = Effect.fn("SessionProcessor.replay")(function* (input: ReplayInput) {
-        slog.info("replay", { toolCalls: input.toolCalls.length, finish: input.finishReason })
+        slog.debug("replay", { toolCalls: input.toolCalls.length, finish: input.finishReason })
         ctx.needsOverflowHandling = false
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
 

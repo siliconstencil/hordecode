@@ -984,7 +984,7 @@ const layer = Layer.effect(
       })
 
       const replay = Effect.fn("SessionProcessor.replay")(function* (input: ReplayInput) {
-        yield* Effect.logInfo("replay", { toolCalls: input.toolCalls.length, finish: input.finishReason })
+        yield* Effect.logDebug("replay", { toolCalls: input.toolCalls.length, finish: input.finishReason })
         ctx.needsCompaction = false
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
         const ctrl = new AbortController()

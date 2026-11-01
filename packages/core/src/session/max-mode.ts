@@ -281,7 +281,7 @@ export const runMaxStep = (input: MaxStepInput): Effect.Effect<SessionProcessor.
     // candidates and emitting "[max mode] selected candidate" after the switch
     // Earlier branch state persisted.
     if ((input.agent as any)?.name !== MAX_MODE_AGENT) {
-      log.info("max step skipped: active agent is not max", { agent: (input.agent as any)?.name })
+      log.debug("max step skipped: active agent is not max", { agent: (input.agent as any)?.name })
       return yield* input.handle.process({
         user: input.user,
         agent: input.agent,
@@ -332,7 +332,7 @@ export const runMaxStep = (input: MaxStepInput): Effect.Effect<SessionProcessor.
     yield* setStatus(`judging ${survivors.length} candidates`)
     const { pick, usage: judgeUsage } = yield* judge(input, survivors)
     const winner = survivors[pick]
-    log.info("max step", { candidates: n, survivors: survivors.length, winner: pick, toolCalls: winner.toolCalls.length })
+    log.debug("max step", { candidates: n, survivors: survivors.length, winner: pick, toolCalls: winner.toolCalls.length })
 
     // The winner's own usage is what actually enters history, so it (and only
     // it) must drive the message's `tokens` -- that field feeds the context

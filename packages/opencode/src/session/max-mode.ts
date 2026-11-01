@@ -277,7 +277,7 @@ export const runMaxStep = (input: MaxStepInput): Effect.Effect<SessionProcessor.
     // candidates and emit "[max mode] selected candidate" after the switch
     // Earlier branch state persisted.
     if (input.agent.name !== MAX_MODE_AGENT) {
-      yield* Effect.logInfo("max step skipped: active agent is not max", { agent: input.agent.name })
+      yield* Effect.logDebug("max step skipped: active agent is not max", { agent: input.agent.name })
       return yield* input.handle.process({
         user: input.user,
         agent: input.agent,
@@ -321,7 +321,7 @@ export const runMaxStep = (input: MaxStepInput): Effect.Effect<SessionProcessor.
     yield* setStatus(`judging ${survivors.length} candidates`)
     const { pick, usage: judgeUsage } = yield* judge(input, survivors)
     const winner = survivors[pick]
-    yield* Effect.logInfo("max step", { candidates: n, survivors: survivors.length, winner: pick, toolCalls: winner.toolCalls.length })
+    yield* Effect.logDebug("max step", { candidates: n, survivors: survivors.length, winner: pick, toolCalls: winner.toolCalls.length })
     const overheadUsages = [...survivors.filter((_, i) => i !== pick).map((c) => c.usage), judgeUsage]
     const overhead = overheadUsages.reduce(
       (acc, u) => {
