@@ -2,6 +2,7 @@ import { Context, Effect, Layer } from "effect"
 import { randomUUID } from "crypto"
 import { Log } from "@opencode-ai/core/util"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { createIdleScanGate } from "./idle-scan"
 import {
   type CronTask,
   readCronTasks,
@@ -227,6 +228,7 @@ const makeImpl = (): Interface => {
       const sessionIds = new Set(sessionTasks.map((t) => t.id))
       const fileTasks = rt.isOwner ? yield* readCronTasks(rt.opts.dir) : []
       const tasks = [...fileTasks, ...sessionTasks]
+      idleScan.record(tasks.length)
       const now = Date.now()
 
       // Tick-local latch. Once a task fires this tick, break out and let the
@@ -350,8 +352,13 @@ const makeImpl = (): Interface => {
 
   let tickInterval: ReturnType<typeof setInterval> | undefined
 
+  // While a scan found no task, only every fifth tick scans again; anything that can add a task wakes it.
+  const idleScan = createIdleScanGate(5)
+  const wake = idleScan.wake
+
   const runTick = () => {
     if (!rt) return
+    if (!idleScan.shouldScan()) return
     Effect.runPromise(tick()).catch((e) => {
       log.warn("tick error", { error: String(e) })
     })
@@ -361,6 +368,7 @@ const makeImpl = (): Interface => {
 
   const start: Interface["start"] = (opts) =>
     Effect.gen(function* () {
+      wake()
       if (!tickInterval) tickInterval = setInterval(runTick, 1000)
       //  ordered re-entry. The previous `if (rt && !rt.isBoot) return`
       // silently no-op'd every same-dir re-start, which dropped the new
@@ -483,6 +491,7 @@ const makeImpl = (): Interface => {
 
   const add: Interface["add"] = (input) =>
     Effect.gen(function* () {
+      wake()
       const id = newId()
       const created: CronTask = {
         id,
@@ -639,6 +648,7 @@ const makeImpl = (): Interface => {
 
   const armLoop: Interface["armLoop"] = (input) =>
     Effect.gen(function* () {
+      wake()
       yield* Effect.sync(() =>
         log.info("cron.schedule", {
           sessionID: input.session_id,
