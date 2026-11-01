@@ -9,6 +9,8 @@ All notable changes to this project will be documented in this file.
 - `session merge <id> [--into <branch>]` merges an isolated child's branch after a conflict check; it asks
   permission, refuses on conflicts and refuses a detached main checkout unless a target is named.
 - DSML tool calls (DeepSeek V3.2/V4 markup written as text) are detected when a step ends with them.
+- Tests and a `test` script for the fork packages `agent`, `control-plane`, `shared`, `task`, `team`, `worktree`
+  and `memory`; the `project` package gains tests for project ids, workspace trust and the directory guard.
 
 ### Changed
 
@@ -20,12 +22,17 @@ All notable changes to this project will be documented in this file.
 - A fresh worktree is populated before `Worktree.createFromInfo` returns; only start scripts run in the
   background. A child's task names its branch and tells it to commit.
 - The orchestrator prompt names the real branch prefix `opencode/`.
-- The loop-iteration log lines `rl:iter` and `loop` are written at debug level.
+- The loop-iteration log lines `rl:iter` and `loop`, the per-step `replay` line and the max-mode `max step`
+  lines are written at debug level.
+- The `experimental.try_best` description says the detector runs only when `HORDECODE_ENABLE_TRY_BEST_HANDOFF`
+  is set; `multiedit` is documented as having no read guard.
 
 ### Fixed
 
 - Idle sidebar timers: the subagent panel arms one timeout to the next row expiry, the cache line ticks only
   while the prompt cache is warm, and in-progress task spinners stop while their session is idle.
+- Polling timers stop while a session is idle: the supervisor re-fetch, the workflow run poll after the run ends,
+  the home background when motion is off, and the cron scheduler's task scan while no task exists.
 - A global config write no longer interrupts running turns: instance disposal waits until no session is busy.
 - The read-before-edit guard keeps a per-session ledger (path, mtime, size) that survives compaction, counts
   writes and edits, and refuses an edit of a file changed on disk since it was last read or written.
