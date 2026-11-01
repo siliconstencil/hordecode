@@ -60,6 +60,7 @@ import { SubagentFooter } from "./subagent-footer.tsx"
 import { DialogSubagent, navigateTarget } from "./dialog-subagent"
 import { filterSupervisorList } from "../../feature-plugins/sidebar/supervisor"
 import { filetype } from "../../util/filetype"
+import { supervisorSyncActive, workflowPollActive } from "../../util/idle-timers"
 import parsers from "../../parsers-config"
 import { errorMessage } from "../../util/error"
 import { Toast, useToast } from "../../ui/toast"
@@ -342,13 +343,24 @@ export function Session() {
   const exit = useExit()
   const editor = useEditorContext()
 
+  // Periodic supervisor reconciliation: re-fetch every 15s, but only while a turn runs or a supervisor row is live.
   createEffect(() => {
     const sessionID = route.sessionID
-    // Periodic supervisor reconciliation: re-fetch every 15s while this session route is active.
+    if (
+      !supervisorSyncActive({
+        sessionStatus: sync.data.session_status[sessionID]?.type,
+        supervisors: sync.data.supervisor[sessionID] ?? [],
+      })
+    )
+      return
     const supervisorInterval = setInterval(() => {
       void sync.session.refreshSupervisor(sessionID)
     }, 15_000)
     onCleanup(() => clearInterval(supervisorInterval))
+  })
+
+  createEffect(() => {
+    const sessionID = route.sessionID
     void (async () => {
       const previousWorkspace = untrack(() => project.workspace.current())
       const result = await sdk.client.session.get({ sessionID }, { throwOnError: true })
@@ -2772,17 +2784,28 @@ function WorkflowPage(props: {
         } else if (pageScroll) {
           pageScroll.scrollTop = 0
         }
-        const interval = setInterval(() => {
-          sync.loadWorkflowStructure(runID)
-          sync.loadWorkflowTranscript(runID)
-        }, 1000)
         onCleanup(() => {
-          clearInterval(interval)
           if (pageScroll) workflowScrollByRun.set(runID, pageScroll.scrollTop)
         })
       },
     ),
   )
+
+  // Poll a run's structure and transcript once a second until it reaches a terminal status.
+  createEffect(() => {
+    const runID = props.runID
+    if (!workflowPollActive(run()?.status)) {
+      // Final fetch so the view matches the terminal state it just reached.
+      sync.loadWorkflowStructure(runID)
+      sync.loadWorkflowTranscript(runID)
+      return
+    }
+    const interval = setInterval(() => {
+      sync.loadWorkflowStructure(runID)
+      sync.loadWorkflowTranscript(runID)
+    }, 1000)
+    onCleanup(() => clearInterval(interval))
+  })
 
   const statusColor = createMemo(() => {
     const s = run()?.status

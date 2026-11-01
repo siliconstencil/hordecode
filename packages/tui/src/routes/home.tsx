@@ -2,6 +2,7 @@ import { Prompt, type PromptRef } from "../component/prompt"
 import { createEffect, createMemo, createSignal, onMount, Show } from "solid-js"
 import { HordecodeLogo } from "../component/logo"
 import { StarryBackground } from "../component/starry-background"
+import { useVisualMode } from "../context/visual"
 import { useSync } from "../context/sync"
 import { Toast } from "../ui/toast"
 import { useArgs } from "../context/args"
@@ -21,6 +22,7 @@ const placeholder = {
 }
 
 export function Home() {
+  const visual = useVisualMode()
   const pluginRuntime = usePluginRuntime()
   const sync = useSync()
   const route = useRouteData("home")
@@ -70,7 +72,7 @@ export function Home() {
 
   return (
     <>
-      <StarryBackground />
+      <StarryBackground animated={visual.motion} />
       <HomeSessionDestinationProvider>
       <box flexGrow={1} alignItems="center" paddingLeft={2} paddingRight={2} zIndex={1}>
         <box flexGrow={1} minHeight={0} />
