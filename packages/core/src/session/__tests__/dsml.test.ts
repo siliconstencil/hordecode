@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { hasDsmlToolCall, parseDsmlToolCalls } from "../dsml"
 
-const M = "｜DSML｜"
+const M = "\uff5cDSML\uff5c"
 const block = (inner: string) => `<${M}function_calls>\n${inner}\n</${M}function_calls>`
 const invoke = (name: string, params: string) => `<${M}invoke name="${name}">\n${params}\n</${M}invoke>`
 const param = (name: string, string: "true" | "false", value: string) =>

@@ -3,15 +3,15 @@ import { Schema } from "effect"
 // DeepSeek V3.2 / V4 tool calls written as text. A model that does not return structured tool calls
 // can emit them as DSML markup:
 //
-//   <｜DSML｜function_calls>
-//   <｜DSML｜invoke name="bash">
-//   <｜DSML｜parameter name="command" string="true">ls</｜DSML｜parameter>
-//   <｜DSML｜parameter name="timeout" string="false">30</｜DSML｜parameter>
-//   </｜DSML｜invoke>
-//   </｜DSML｜function_calls>
+//   <|DSML|function_calls>
+//   <|DSML|invoke name="bash">
+//   <|DSML|parameter name="command" string="true">ls</|DSML|parameter>
+//   <|DSML|parameter name="timeout" string="false">30</|DSML|parameter>
+//   </|DSML|invoke>
+//   </|DSML|function_calls>
 //
-// string="true" carries raw text, string="false" a JSON value. The marker is the full-width bar
-// U+FF5C; an ASCII bar is accepted too. Sources: the vLLM deepseek_v32 tool parser docs, sglang
+// (the sample is drawn with ASCII bars) string="true" carries raw text, string="false" a JSON value.
+// The real marker uses the full-width bar U+FF5C; an ASCII bar is accepted too. Sources: the vLLM deepseek_v32 tool parser docs, sglang
 // issue 14695 and opencode issue 14050 (raw DSML tags shown instead of tools running).
 
 const BAR = "[\\u{FF5C}|]"
