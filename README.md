@@ -49,8 +49,8 @@ plugin process.
 
 | Part | Follows | Notes |
 | --- | --- | --- |
-| core, CLI, server, TUI, SDK and the small packages | opencode 1.19.4 | ported as a whole at each base bump |
-| web, desktop and shared UI packages | opencode 1.19.4 | ported in their own step |
+| core, CLI, server, TUI, SDK and the small packages | opencode 1.19.5 | ported as a whole at each base bump |
+| web, desktop and shared UI packages | opencode 1.19.5 | ported in their own step |
 | supervisor, harness, memory, inbox, cron, workflow, skill, task and the other fork packages | Hordecode | fork-only; supervisor and harness are customized ports of the MiMo Code designs (parity 0.1.11) |
 
 Hordecode 0.1.x stays on the opencode 1.x line; each base bump ports a newer 1.x release

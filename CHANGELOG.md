@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 0.1.5
+
+### Added
+
+- `session merge <id> [--into <branch>]` merges an isolated child's branch after a conflict check; it asks
+  permission, refuses on conflicts and refuses a detached main checkout unless a target is named.
+- DSML tool calls (DeepSeek V3.2/V4 markup written as text) are detected when a step ends with them.
+
+### Changed
+
+- Base: opencode 1.19.5 (PARITY files copied, FORK_DELTA files merged, marker commit recorded).
+- Root sessions stop-gate on open tasks: a stop with open or in-progress tasks is nudged back to work, up to
+  three times, then allowed with a warning.
+- `session cancel` keeps an isolated child's worktree and branch when it holds uncommitted or unmerged work and
+  says so; `--force` discards it. The output reports removed, kept or failed truthfully.
+- A fresh worktree is populated before `Worktree.createFromInfo` returns; only start scripts run in the
+  background. A child's task names its branch and tells it to commit.
+- The orchestrator prompt names the real branch prefix `opencode/`.
+- The loop-iteration log lines `rl:iter` and `loop` are written at debug level.
+
+### Fixed
+
+- Idle sidebar timers: the subagent panel arms one timeout to the next row expiry, the cache line ticks only
+  while the prompt cache is warm, and in-progress task spinners stop while their session is idle.
+- A global config write no longer interrupts running turns: instance disposal waits until no session is busy.
+- The read-before-edit guard keeps a per-session ledger (path, mtime, size) that survives compaction, counts
+  writes and edits, and refuses an edit of a file changed on disk since it was last read or written.
+
 ## [0.1.4] - 2026-10-27
 
 ### Added

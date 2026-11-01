@@ -13,7 +13,7 @@ and adds its own features. Primary command `horde`, alias `hordecode`, npm packa
 GitHub `siliconstencil/hordecode`. Not affiliated with either upstream.
 
 - Starting bases: opencode 1.17.18 (git ancestor tag `v1.17.18`) and MiMo Code 0.1.5.
-- Current parity: opencode 1.19.4 for `core`, `opencode`, `tui`, `cli`, `server`, the small
+- Current parity: opencode 1.19.5 for `core`, `opencode`, `tui`, `cli`, `server`, the small
   packages and the UI packages (`app`, `desktop`, `ui`, `session-ui`, `web`). `enterprise` and
   `function` keep the 1.17.18 base (only enterprise `app.tsx` was ported). MiMo Code
   parity 0.1.11; from 0.1.12 MiMo changed its orchestrator, so MiMo updates are selective.
@@ -36,8 +36,8 @@ measured against those five words.
 Read-only checkouts next to the repository under `../repos/`, from
 https://github.com/anomalyco/opencode and https://github.com/XiaomiMiMo/MiMo-Code:
 
-- `opencode-1.19.4/` (tag `v1.19.4`) parity reference (latest 1.x);
-  `opencode-1.19.3/` (tag `v1.19.3`) previous parity. Upstream develops 1.x on branch `v1`;
+- `opencode-1.19.5/` (tag `v1.19.5`) parity reference (latest 1.x);
+  `opencode-1.19.4/` (tag `v1.19.4`) previous parity. Upstream develops 1.x on branch `v1`;
   the 2.x line (`v2.0.x` tags, the upstream mainline since 2026-09) is a restructured product,
   not a port target. Hordecode 0.1.x follows the latest 1.x release.
 - `mimocode-v0.1.5/` (commit `b3a8063b`) starting base; `mimocode-v0.1.11/` (tag `v0.1.11`)
@@ -45,9 +45,9 @@ https://github.com/anomalyco/opencode and https://github.com/XiaomiMiMo/MiMo-Cod
   change.
 
 Create one with, for example,
-`git clone --depth 1 --branch v1.19.4 https://github.com/anomalyco/opencode ../repos/opencode-1.19.4`.
+`git clone --depth 1 --branch v1.19.5 https://github.com/anomalyco/opencode ../repos/opencode-1.19.5`.
 Regenerate the ownership map with
-`bun run script/upstream-map.ts --base v1.17.18 --ref ../repos/opencode-1.19.4`.
+`bun run script/upstream-map.ts --base v1.17.18 --ref ../repos/opencode-1.19.5`.
 
 Never cite a folder by its label alone; check `package.json` version or the git tag first.
 
@@ -106,8 +106,8 @@ A port is complete only when all three land together: the code, the `hordecodeBa
 
 ## Known open items
 
-- `hordecodeBase` is 1.19.4 for the root and all packages except `enterprise` and `function`
-  (1.17.18). Marker commits for `v1.18.34`, `v1.19.0`, `v1.19.3` and `v1.19.4` are recorded.
+- `hordecodeBase` is 1.19.5 for the root and all packages except `enterprise` and `function`
+  (1.17.18). Marker commits for `v1.18.34`, `v1.19.0`, `v1.19.3`, `v1.19.4` and `v1.19.5` are recorded.
   Upstream tracking policy is in ROADMAP.md: every opencode 1.x release is ported before the
   next Hordecode release. Not carried on purpose: c28b6a0a3b (`upgrade --major`), 9c97b807d0
   (update dialog) and 3be039593a (1.x update discovery through opencode's npm package and

@@ -14,7 +14,17 @@
 How a port is done and recorded: [docs/UPSTREAM-MAP.md](docs/UPSTREAM-MAP.md) and
 [docs/FORK-RULES.md](docs/FORK-RULES.md).
 
-## 0.1.4 (in progress)
+## 0.1.5 (in progress)
+
+- Base: opencode 1.19.5, the latest 1.x release.
+- Root sessions: a stop with open tasks is nudged back to work, up to three times.
+- Worktrees: cancelling an isolated child keeps uncommitted or unmerged work; `session merge`
+  integrates a child branch after a conflict check.
+- Stability: a global config write no longer aborts running turns; idle sidebar timers stop;
+  the read-before-edit record survives compaction.
+- Models: DeepSeek DSML tool calls written as text are detected.
+
+## 0.1.4 (released 2026-10-27)
 
 - Base: opencode 1.19.4, the latest 1.x release.
 - Command palette: every listed command runs; commands that cannot run in the current context
