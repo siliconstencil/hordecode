@@ -442,7 +442,7 @@ const InfoSchema = Schema.Struct({
         }),
       ).annotate({
         description:
-          "Try-best tuning: detect and self-correct suboptimal tool-call batches. Object form overrides detector defaults; absence disables try-best.",
+          "Try-best detector thresholds. The detector only runs when the environment variable HORDECODE_ENABLE_TRY_BEST_HANDOFF is set; this object only overrides its defaults and does not enable it.",
       }),
       advisor: Schema.optional(
         Schema.Struct({

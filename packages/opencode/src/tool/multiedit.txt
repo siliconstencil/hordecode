@@ -4,6 +4,7 @@ Use this when you need to make several find-and-replace edits to the same file e
 
 Before using this tool:
 1. Use the `read` tool to understand the file's contents and context
+   (This tool does not check that the file was read; `edit` does.)
 2. Verify the directory path is correct
 
 To make multiple file edits, provide:

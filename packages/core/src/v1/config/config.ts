@@ -423,7 +423,11 @@ export const Info = Schema.Struct({
           action_streak: Schema.optional(Schema.Number),
           bash_retries: Schema.optional(Schema.Number),
         }),
-      ),
+      ).annotate({
+        // Fork-only field (no upstream v1.19.5 counterpart).
+        description:
+          "Try-best detector thresholds. The detector only runs when the environment variable HORDECODE_ENABLE_TRY_BEST_HANDOFF is set; this object only overrides its defaults and does not enable it.",
+      }),
       advisor: Schema.optional(
         Schema.Struct({
           enabled: Schema.optional(Schema.Boolean),

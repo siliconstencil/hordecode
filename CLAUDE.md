@@ -150,3 +150,11 @@ A port is complete only when all three land together: the code, the `hordecodeBa
   `core/src/session/llm-request-prefix.ts` are the unmounted core copies (the latter is still a stub).
   `SessionPrune.fireCheckpoints` runs only from the second step of a turn (it needs the previous
   assistant message's token count), so a one-shot `horde run` never checkpoints.
+- Read guard coverage: the read-before-edit guard (`tool/read-state.ts` with the per-session ledger in
+  `tool/read-ledger.ts`) covers `edit` and `notebook_edit`. `write`, `multiedit` and `apply_patch` have none;
+  neither upstream v1.19.5 nor MiMo v0.1.11 guards them (MiMo guards only `edit` and `notebook_edit`).
+  `write.txt` (upstream-owned) still says write fails without a prior read. Extending the guard is a product
+  decision.
+- Try-best handoff runs only when `HORDECODE_ENABLE_TRY_BEST_HANDOFF` is set (`opencode/src/session/processor.ts`);
+  `experimental.try_best` only tunes thresholds. The core copy in `core/src/session/processor.ts` runs it
+  unconditionally but is not mounted at runtime.
