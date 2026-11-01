@@ -11,7 +11,8 @@
     "./*": "./src/*.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "devDependencies": {
     "@tsconfig/bun": "catalog:",
