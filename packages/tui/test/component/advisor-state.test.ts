@@ -1,5 +1,9 @@
-import { describe, expect, test } from "bun:test"
-import { advisorActive, advisorEnabled, setAdvisorEnabled } from "../../src/component/advisor-state"
+import { afterEach, describe, expect, test } from "bun:test"
+import { advisorActive, advisorEnabled, loadAdvisorState, setAdvisorEnabled } from "../../src/component/advisor-state"
+
+// The runtime toggle is module state shared by every test file in the process; leave it unset so a later file
+// (dialog-advisor) sees the config value, not this file's last toggle.
+afterEach(() => loadAdvisorState({ advisor: { get: async () => ({ data: {} }), set: async () => ({}) } }))
 
 describe("advisor runtime toggle", () => {
   test("config decides when the toggle is unset", () => {
