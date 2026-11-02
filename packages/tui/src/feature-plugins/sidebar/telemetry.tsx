@@ -211,7 +211,7 @@ export function View(props: { api: TuiPluginApi; session_id: string }) {
             {open() ? "▼ " : "▶ "}Telemetry
           </b>
         </text>
-        <text fg={theme().textMuted}> {stats()?.turns ?? 0} turns</text>
+        <text fg={theme().textMuted}> {stats()?.turns ?? 0} replies</text>
       </box>
 
       {/* Collapsible key-value grid -- title left, value right */}

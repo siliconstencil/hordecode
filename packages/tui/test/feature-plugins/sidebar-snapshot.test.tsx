@@ -143,7 +143,7 @@ function TelemetryPanel() {
         <text>
           <b>Telemetry</b>
         </text>
-        <text> {turns} turns</text>
+        <text> {turns} replies</text>
       </box>
       <box flexDirection="row" justifyContent="space-between">
         <text>{"Context ".padEnd(8)}</text>

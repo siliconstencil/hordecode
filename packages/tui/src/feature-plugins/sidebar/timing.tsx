@@ -266,7 +266,7 @@ function ViewInternal(props: { api: TuiPluginApi; session_id: string }) {
               </text>
             </box>
             <box flexDirection="row" justifyContent="space-between">
-              <text fg={theme().text}>{"Turns   ".padEnd(8)}</text>
+              <text fg={theme().text}>{"Prompts ".padEnd(8)}</text>
               <text fg={theme().textMuted}>{userMessageCount()}</text>
             </box>
             <box flexDirection="row" justifyContent="space-between">

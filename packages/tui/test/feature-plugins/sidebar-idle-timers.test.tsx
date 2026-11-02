@@ -5,6 +5,7 @@ import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
 import { FINISHED_ROW_TTL_MS, View as SupervisorView, nextPruneDelay } from "../../src/feature-plugins/sidebar/supervisor"
 import { View as TelemetryView } from "../../src/feature-plugins/sidebar/telemetry"
 import { taskSpinnerActive } from "../../src/component/task-item"
+import { sessionTreeBusy } from "../../src/feature-plugins/sidebar/task"
 import { cacheTickDelay } from "../../src/util/cache-state"
 
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
@@ -159,5 +160,71 @@ describe("task spinner", () => {
     expect(taskSpinnerActive({ running: true, motion: true, busy: false })).toBe(false)
     expect(taskSpinnerActive({ running: true, motion: false, busy: true })).toBe(false)
     expect(taskSpinnerActive({ running: false, motion: true, busy: true })).toBe(false)
+  })
+})
+
+describe("task spinner session tree", () => {
+  const state = (input: {
+    status?: Record<string, string>
+    parents?: Record<string, string>
+    supervisor?: Array<{ session_id: string; mode: string }>
+  }) =>
+    ({
+      supervisor: () => (input.supervisor ?? []).map((r) => ({ supervisor_id: r.session_id, status: "running", agent: "a", description: "d", ...r })),
+      session: {
+        get: (id: string) => (input.parents?.[id] ? { parentID: input.parents[id] } : { parentID: null }),
+        status: (id: string) => (input.status?.[id] ? { type: input.status[id] } : undefined),
+      },
+    }) as never
+
+  test("the owning session being busy or retrying counts", () => {
+    expect(sessionTreeBusy("s1", state({ status: { s1: "busy" } }))).toBe(true)
+    expect(sessionTreeBusy("s1", state({ status: { s1: "retry" } }))).toBe(true)
+    expect(sessionTreeBusy("s1", state({ status: { s1: "idle" } }))).toBe(false)
+  })
+
+  test("an idle session with a busy subagent child stays animated", () => {
+    const st = state({
+      status: { s1: "idle", c1: "busy" },
+      parents: { c1: "s1" },
+      supervisor: [{ session_id: "c1", mode: "peer" }],
+    })
+    expect(sessionTreeBusy("s1", st)).toBe(true)
+  })
+
+  test("a retrying subagent child counts", () => {
+    const st = state({
+      status: { s1: "idle", c1: "retry" },
+      parents: { c1: "s1" },
+      supervisor: [{ session_id: "c1", mode: "peer" }],
+    })
+    expect(sessionTreeBusy("s1", st)).toBe(true)
+  })
+
+  test("an idle tree stays static, even with an idle child row", () => {
+    const st = state({
+      status: { s1: "idle", c1: "idle" },
+      parents: { c1: "s1" },
+      supervisor: [{ session_id: "c1", mode: "peer" }],
+    })
+    expect(sessionTreeBusy("s1", st)).toBe(false)
+  })
+
+  test("a busy session that is not a child of this session is ignored", () => {
+    const st = state({
+      status: { s1: "idle", other: "busy", c1: "idle" },
+      parents: { other: "s9", c1: "s1" },
+      supervisor: [{ session_id: "other", mode: "peer" }],
+    })
+    expect(sessionTreeBusy("s1", st)).toBe(false)
+  })
+
+  test("a mode=main row is not a subagent", () => {
+    const st = state({
+      status: { s1: "idle", c1: "busy" },
+      parents: { c1: "s1" },
+      supervisor: [{ session_id: "c1", mode: "main" }],
+    })
+    expect(sessionTreeBusy("s1", st)).toBe(false)
   })
 })

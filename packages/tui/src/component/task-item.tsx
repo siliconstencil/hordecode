@@ -14,11 +14,11 @@ export interface TaskItemProps {
   summary: string
   owner?: string
   depth: number
-  // False while the owning session is idle: the row keeps its in-progress marker but the spinner stops redrawing.
+  // False while the owning session and its subagent sessions are all idle: the row keeps its in-progress marker but the spinner stops redrawing.
   busy?: boolean
 }
 
-// The animated spinner only runs for an in-progress task whose session is working; every other case draws a static marker.
+// The animated spinner only runs for an in-progress task whose session tree is working; every other case draws a static marker.
 export function taskSpinnerActive(input: { running: boolean; motion: boolean; busy?: boolean }) {
   return input.running && input.motion && input.busy !== false
 }

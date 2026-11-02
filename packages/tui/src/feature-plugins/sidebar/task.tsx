@@ -2,6 +2,7 @@ import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plug
 import type { BuiltinTuiPlugin } from "../builtins"
 import { createMemo, Index, Show, createSignal } from "solid-js"
 import { TaskItem } from "../../component/task-item"
+import { filterSupervisorList } from "./supervisor"
 
 const id = "internal:sidebar-task"
 
@@ -13,15 +14,35 @@ function depthOf(taskId: string): number {
 
 const STATUS_ORDER: Record<string, number> = { in_progress: 0, open: 1, blocked: 2 }
 
+type TreeState = {
+  supervisor: () => Parameters<typeof filterSupervisorList>[0]
+  session: {
+    get(id: string): { parentID?: string | null } | undefined
+    status(id: string): { type: string } | undefined
+  }
+}
+
+// True while the session, or one of its subagent sessions (the same rows the Subagents panel lists:
+// filterSupervisorList, one level deep), is busy or retrying. Reads only the stores the sidebar already
+// subscribes to, so it adds no timer.
+export function sessionTreeBusy(sessionID: string, state: TreeState): boolean {
+  const working = (id: string) => {
+    const type = state.session.status(id)?.type
+    return type === "busy" || type === "retry"
+  }
+  if (working(sessionID)) return true
+  const children = filterSupervisorList(state.supervisor(), sessionID, {
+    get: (id) => state.session.get(id),
+  })
+  return children.some((row) => row.session_id !== sessionID && working(row.session_id))
+}
+
 function View(props: { api: TuiPluginApi; session_id: string }) {
   const [open, setOpen] = createSignal(true)
   const [doneExpanded, setDoneExpanded] = createSignal(false)
   const theme = () => props.api.theme.current
   const all = createMemo(() => props.api.state.session.task(props.session_id))
-  const busy = createMemo(() => {
-    const status = props.api.state.session.status(props.session_id)?.type
-    return status === "busy" || status === "retry"
-  })
+  const busy = createMemo(() => sessionTreeBusy(props.session_id, props.api.state))
   const active = createMemo(() =>
     all()
       .filter((t) => t.status === "open" || t.status === "in_progress" || t.status === "blocked")
