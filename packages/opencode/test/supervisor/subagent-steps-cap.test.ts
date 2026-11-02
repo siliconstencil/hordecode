@@ -37,6 +37,9 @@ describe("subagent steps cap", () => {
       const inputs = (yield* llm.inputs).filter((body) => !isTitleRequest(body))
       expect(inputs.length).toBe(TOOL_REPLIES + 1)
     }),
+    // Seven sequential model steps take about 3 s on an idle machine (instance setup included); the default 5 s
+    // budget fails whenever the suite runs under load.
+    20_000,
   )
 
   it.instance("steps: 2 caps the subagent loop at about two model calls", () =>
@@ -66,5 +69,6 @@ describe("subagent steps cap", () => {
       // Two steps plus at most one wrap-up call.
       expect(calls).toBeLessThanOrEqual(3)
     }),
+    20_000,
   )
 })
