@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, beforeAll } from "bun:test"
 
-const testDataDir = join(tmpdir(), `opencode-test-data-${process.pid}`)
+const testDataDir = join(process.env.HORDECODE_TEST_TMP || tmpdir(), `opencode-test-data-${process.pid}`)
 const testDbPath = join(testDataDir, "test.db")
 
 beforeAll(async () => {

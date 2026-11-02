@@ -6,7 +6,7 @@ import os from "node:os"
 import path from "node:path"
 
 const dbPath = path.join(
-  os.tmpdir(),
+  process.env.HORDECODE_TEST_TMP || os.tmpdir(),
   `hordecode-session-arming-${process.pid}-${Math.random().toString(36).slice(2)}.db`,
 )
 process.env.OPENCODE_DB = dbPath

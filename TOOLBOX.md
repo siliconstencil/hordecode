@@ -17,6 +17,11 @@ Substitute `opencode` with `core`, `agent`, `tui`, `skill`, etc. Most packages f
 - `bun run typecheck`: Run TypeScript type check (tsc --noEmit)
 - `bun test`: Run the test suite
 
+Test temp files: the test preloads write under `os.tmpdir()`. Set `HORDECODE_TEST_TMP=/some/dir` to move the
+preload-created databases and homes (opencode, server, supervisor, memory, inbox, worktree, core shared-db setup).
+Upstream-owned fixtures (`packages/opencode/test/fixture/fixture.ts`, `packages/tui/test/fixture/fixture.ts`,
+`packages/core/test/fixture/location.ts`, `effect-flock-worker.ts`) keep `os.tmpdir()`, which follows `TMPDIR`.
+
 Special case — packages/opencode has two test phases:
 
 ```bash

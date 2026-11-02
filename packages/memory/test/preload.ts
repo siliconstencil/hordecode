@@ -28,7 +28,7 @@ import { afterAll } from "bun:test"
 // same worker process by default, so per-pid is per-suite -- which
 // is what we want (suite-wide isolation, per-test cleanup is the
 // caller's job).
-const dir = path.join(os.tmpdir(), "hordecode-memory-test-" + process.pid)
+const dir = path.join((process.env.HORDECODE_TEST_TMP || os.tmpdir()), "hordecode-memory-test-" + process.pid)
 const homeDir = path.join(dir, "home")
 const testDbPath = path.join(dir, "test.db")
 

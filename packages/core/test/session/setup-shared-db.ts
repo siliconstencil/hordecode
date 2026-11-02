@@ -27,7 +27,7 @@ import { tmpdir } from "os"
 // process.env: the shared worker relies on the preload's OPENCODE_DB=":memory:"
 // and mutating it here would leak a file-backed path into every later test.
 if (process.env.HORDECODE_RUN_TRY_BEST_TESTS === "1") {
-  const dbFile = join(tmpdir(), `hordecode-p0-2-processor-${process.pid}.db`)
+  const dbFile = join(process.env.HORDECODE_TEST_TMP || tmpdir(), `hordecode-p0-2-processor-${process.pid}.db`)
   process.env.OPENCODE_DB = dbFile
   process.env.HORDECODE_DB = dbFile
   // The config loader reads module-level Global.Path.config (global.ts:23,
@@ -35,7 +35,7 @@ if (process.env.HORDECODE_RUN_TRY_BEST_TESTS === "1") {
   // every global path (config/data/cache/state) into a throwaway dir so the real
   // ~/.config/hordecode/ files are never parsed against the fork schema. Must be
   // set before global.ts is imported.
-  process.env.HORDECODE_HOME = join(tmpdir(), "hordecode-p0-2-home")
+  process.env.HORDECODE_HOME = join(process.env.HORDECODE_TEST_TMP || tmpdir(), "hordecode-p0-2-home")
   // The core processor mounts the try-best monitor only when this flag is set (core/src/session/processor.ts,
   // mirroring packages/opencode/src/session/processor.ts:263). Flag.HORDECODE_ENABLE_TRY_BEST_HANDOFF is read
   // once at module load, so this must run before any flag.ts import; this file is the first import of the test.

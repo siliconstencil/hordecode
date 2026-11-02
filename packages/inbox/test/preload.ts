@@ -4,7 +4,7 @@
 import os from "node:os"
 import path from "node:path"
 
-const dbPath = path.join(os.tmpdir(), `hordecode-inbox-isolated-${process.pid}-${Math.random().toString(36).slice(2)}.db`)
+const dbPath = path.join((process.env.HORDECODE_TEST_TMP || os.tmpdir()), `hordecode-inbox-isolated-${process.pid}-${Math.random().toString(36).slice(2)}.db`)
 process.env.OPENCODE_DB = dbPath
 process.env.HORDECODE_DB = dbPath
 
