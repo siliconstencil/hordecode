@@ -56,12 +56,16 @@ export const extractHarnessBundle = Effect.fn("Skill.extractHarnessBundle")(func
 
   if (!InstallationLocal && (yield* fsys.existsSafe(marker))) return harnessRoot
 
-  for (const [skillName, files] of Object.entries(HARNESS_BUNDLE)) {
-    const harnessDir = path.join(harnessRoot, "skills", skillName)
-    for (const [relPath, content] of Object.entries(files)) {
-      yield* fsys.writeWithDirs(path.join(harnessDir, relPath), content)
-    }
-  }
+  yield* Effect.forEach(
+    Object.entries(HARNESS_BUNDLE),
+    ([skillName, files]) =>
+      Effect.forEach(
+        Object.entries(files),
+        ([relPath, content]) => fsys.writeWithDirs(path.join(harnessRoot, "skills", skillName, relPath), content),
+        { concurrency: 16, discard: true },
+      ),
+    { concurrency: 4, discard: true },
+  )
   yield* fsys.writeWithDirs(marker, InstallationVersion)
   log.info("extracted harness skills", { harnessRoot })
   return harnessRoot

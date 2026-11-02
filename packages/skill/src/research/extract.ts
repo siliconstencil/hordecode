@@ -29,12 +29,16 @@ export const extractResearchBundle = Effect.fn("Skill.extractResearchBundle")(fu
 
   if (!InstallationLocal && (yield* fsys.existsSafe(marker))) return researchRoot
 
-  for (const [skillName, files] of Object.entries(RESEARCH_BUNDLE)) {
-    const dir = path.join(researchRoot, "skills", skillName)
-    for (const [relPath, content] of Object.entries(files)) {
-      yield* fsys.writeWithDirs(path.join(dir, relPath), content)
-    }
-  }
+  yield* Effect.forEach(
+    Object.entries(RESEARCH_BUNDLE),
+    ([skillName, files]) =>
+      Effect.forEach(
+        Object.entries(files),
+        ([relPath, content]) => fsys.writeWithDirs(path.join(researchRoot, "skills", skillName, relPath), content),
+        { concurrency: 16, discard: true },
+      ),
+    { concurrency: 4, discard: true },
+  )
   yield* fsys.writeWithDirs(marker, InstallationVersion)
   log.info("extracted research skills", { researchRoot })
   return researchRoot
