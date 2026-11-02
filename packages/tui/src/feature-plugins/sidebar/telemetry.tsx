@@ -217,10 +217,12 @@ export function View(props: { api: TuiPluginApi; session_id: string }) {
       {/* Collapsible key-value grid -- title left, value right */}
       <Show when={open()}>
         <box paddingTop={0} paddingBottom={0} gap={0}>
+          {/* Values never wrap: a value wider than the panel (e.g. Tokens once the rsn count appears) would give its row
+              a second line and shift the rows below; observed as a blank line under Tokens and merged Tools/Speed rows. */}
           {/* Row 1: Context */}
           <box flexDirection="row" justifyContent="space-between">
             <text fg={theme().text}>{"Context ".padEnd(8)}</text>
-            <text fg={theme().textMuted}>
+            <text fg={theme().textMuted} wrapMode="none">
               <span style={{ fg: theme().text }}>{formatTokens(contextStats().tokens)}</span>
               <Show when={contextStats().limit}>
                 {(lim) => <span style={{ fg: theme().textMuted }}>/{formatTokens(lim())}</span>}
@@ -240,7 +242,7 @@ export function View(props: { api: TuiPluginApi; session_id: string }) {
           {/* Row 2: Tokens -- compact, dots removed, single space */}
           <box flexDirection="row" justifyContent="space-between">
             <text fg={theme().text}>{"Tokens  ".padEnd(8)}</text>
-            <text fg={theme().textMuted}>
+            <text fg={theme().textMuted} wrapMode="none">
               {stats() ? (
                 <>
                   <span style={{ fg: theme().text }}>{formatTokens(stats()!.totalInput)}</span> in{" "}
@@ -258,7 +260,7 @@ export function View(props: { api: TuiPluginApi; session_id: string }) {
 
           <box flexDirection="row" justifyContent="space-between">
             <text fg={theme().text}>{"Cache   ".padEnd(8)}</text>
-            <text fg={theme().textMuted}>
+            <text fg={theme().textMuted} wrapMode="none">
               {stats()?.hitRate !== null && stats()?.hitRate !== undefined ? (
                 <>
                   <span style={{ fg: theme().text }}>{(stats()!.hitRate! * 100).toFixed(1)}%</span> (
@@ -272,7 +274,7 @@ export function View(props: { api: TuiPluginApi; session_id: string }) {
 
           <box flexDirection="row" justifyContent="space-between">
             <text fg={theme().text}>{"Tools   ".padEnd(8)}</text>
-            <text fg={theme().textMuted}>
+            <text fg={theme().textMuted} wrapMode="none">
               {toolStats().total === 0 ? (
                 "--"
               ) : (
@@ -290,7 +292,7 @@ export function View(props: { api: TuiPluginApi; session_id: string }) {
 
           <box flexDirection="row" justifyContent="space-between">
             <text fg={theme().text}>{"Speed   ".padEnd(8)}</text>
-            <text fg={theme().textMuted}>
+            <text fg={theme().textMuted} wrapMode="none">
               <Show when={tpsLabel()} fallback={"-- t/s"}>
                 {(label) => <span style={{ fg: theme().text }}>{label()}</span>}
               </Show>
@@ -302,14 +304,14 @@ export function View(props: { api: TuiPluginApi; session_id: string }) {
             {(label) => (
               <box flexDirection="row" justifyContent="space-between">
                 <text fg={theme().text}>{"TTL     ".padEnd(8)}</text>
-                <text fg={theme().textMuted}>{label()}</text>
+                <text fg={theme().textMuted} wrapMode="none">{label()}</text>
               </box>
             )}
           </Show>
 
           <box flexDirection="row" justifyContent="space-between">
             <text fg={theme().text}>{"Usage   ".padEnd(8)}</text>
-            <text fg={theme().textMuted}>
+            <text fg={theme().textMuted} wrapMode="none">
               <span style={{ fg: theme().text }}>{money.format(cost())}</span> spent · {formatTokens(totalTokens())} tkn
             </text>
           </box>
