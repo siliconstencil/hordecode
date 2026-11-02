@@ -9,6 +9,9 @@ import { NonInteractiveDeniedError } from "."
 // One JSON line per permission decision and per human reply, under the log directory,
 // rotated by size. Opt-in; a failed write never affects the permission flow.
 // Each line carries `prev`, the SHA-256 of the previous line, so `verify` can detect edits.
+// `<log>.head` records the hash of the newest line and of the oldest retained file's first line,
+// so `verify` also detects a truncated tail and a deleted oldest file. It lives next to the log:
+// it is not an external anchor, so someone who rewrites both can still pass verification.
 // Concurrency: two processes appending to the same file can interleave and break the chain;
 // this is not handled here.
 
@@ -53,6 +56,11 @@ function lastLine(target: string) {
     .at(-1)
 }
 
+function firstLine(target: string) {
+  if (!fs.existsSync(target)) return undefined
+  return fs.readFileSync(target, "utf8").split("\n")[0] || undefined
+}
+
 // Hash of the last line before the next append: cached per process, else read from disk.
 function previous(target: string) {
   const cached = last.get(target)
@@ -68,17 +76,51 @@ export function __resetForTest() {
   last.clear()
 }
 
+type Head = { first: string; last: string }
+
+const headFile = (target: string) => `${target}.head`
+
+function readHead(target: string): Head | undefined {
+  try {
+    const head = JSON.parse(fs.readFileSync(headFile(target), "utf8"))
+    if (typeof head?.first !== "string" || typeof head?.last !== "string") return undefined
+    return { first: head.first, last: head.last }
+  } catch {
+    return undefined
+  }
+}
+
+// Written through a temporary file so a crash never leaves a half-written head.
+function writeHead(target: string, head: Head) {
+  const tmp = `${headFile(target)}.tmp`
+  fs.writeFileSync(tmp, JSON.stringify(head) + "\n", { mode: 0o600 })
+  fs.renameSync(tmp, headFile(target))
+}
+
+// Hash of the first line of the oldest retained file; `pending` is the line being appended when none exists.
+function oldest(target: string, pending: string) {
+  for (const file of [`${target}.${KEEP}`, `${target}.2`, `${target}.1`, target]) {
+    const line = firstLine(file)
+    if (line !== undefined) return hash(line)
+  }
+  return hash(pending)
+}
+
 export function write(entry: Record<string, unknown>) {
   if (!enabled()) return
   try {
     const target = file()
+    const head = readHead(target)
     const text = JSON.stringify({ time: Date.now(), ...entry, prev: previous(target) })
     const line = text + "\n"
     fs.mkdirSync(path.dirname(target), { recursive: true })
     const size = fs.statSync(target, { throwIfNoEntry: false })?.size ?? 0
-    if (size > 0 && size + Buffer.byteLength(line) > maxBytes()) rotate(target)
+    const rotated = size > 0 && size + Buffer.byteLength(line) > maxBytes()
+    if (rotated) rotate(target)
     fs.appendFileSync(target, line, { mode: 0o600 })
     last.set(target, hash(text))
+    const first = rotated || !head ? oldest(target, text) : head.first
+    writeHead(target, { first, last: hash(text) })
   } catch {}
 }
 
@@ -94,7 +136,8 @@ export type Verification = {
   broken?: Broken
 }
 
-// Walks the rotated files oldest first and checks every chained line's `prev`.
+// Walks the rotated files oldest first and checks every chained line's `prev`, then checks the
+// oldest file's first line and the newest line against the head record.
 export function verify(target = file()): Verification {
   const files: string[] = []
   for (let i = KEEP; i >= 1; i--) if (fs.existsSync(`${target}.${i}`)) files.push(`${target}.${i}`)
@@ -105,6 +148,8 @@ export function verify(target = file()): Verification {
   let anchor: string | undefined
   let chained = false
   let expected: string | undefined
+  let firstText: string | undefined
+  let lastText: string | undefined
   const fail = (file: string, line: number, reason: string): Verification => ({
     ok: false,
     files,
@@ -121,6 +166,8 @@ export function verify(target = file()): Verification {
       const text = rows[i]!
       const where = i + 1
       lines++
+      firstText ??= text
+      lastText = text
       let entry: unknown
       try {
         entry = JSON.parse(text)
@@ -148,6 +195,20 @@ export function verify(target = file()): Verification {
       expected = hash(text)
     }
   }
+
+  const newest = files.at(-1) ?? target
+  if (!fs.existsSync(headFile(target))) {
+    // Logs written before the head record existed have no anchor yet; only chained lines need one.
+    if (anchor === undefined) return { ok: true, files, lines, legacy, anchor }
+    return fail(newest, lines + 1, "head record missing: truncation of the tail or of the oldest file cannot be checked")
+  }
+  const head = readHead(target)
+  if (!head) return fail(headFile(target), 1, "head record unreadable")
+  if (lastText === undefined || hash(lastText) !== head.last)
+    return fail(newest, lines, `tail mismatch: head expects last line ${head.last}, found ${lastText === undefined ? "none" : hash(lastText)}`)
+  const oldestFile = files[0] ?? target
+  if (firstText === undefined || hash(firstText) !== head.first)
+    return fail(oldestFile, 1, `oldest file mismatch: expected first line ${head.first}, found ${firstText === undefined ? "none" : hash(firstText)}`)
   return { ok: true, files, lines, legacy, anchor }
 }
 
@@ -165,12 +226,13 @@ function outcome(exit: Exit.Exit<void, PermissionV1.Error>) {
 export const ask =
   <R>(inner: (input: PermissionV1.AskInput) => Effect.Effect<void, PermissionV1.Error, R>) =>
   (request: PermissionV1.AskInput) => {
-    if (request.denyOnly) return inner(request)
     // The id is fixed here so a decision line and its reply line share one requestID.
     const input = { ...request, id: request.id ?? PermissionV1.ID.ascending() }
     return inner(input).pipe(
       Effect.onExit((exit) =>
-        Effect.sync(() =>
+        Effect.sync(() => {
+          // A deny-only probe that no deny rule answers decides nothing, so it is not logged.
+          if (request.denyOnly && Exit.isSuccess(exit)) return
           write({
             kind: "decision",
             requestID: input.id,
@@ -179,8 +241,8 @@ export const ask =
             patterns: input.patterns.map(redact),
             tool: input.tool?.callID,
             outcome: outcome(exit),
-          }),
-        ),
+          })
+        }),
       ),
     )
   }

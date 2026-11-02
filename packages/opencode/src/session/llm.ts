@@ -353,6 +353,9 @@ const live: Layer.Layer<
           }),
           experimental_telemetry: {
             isEnabled: cfg.experimental?.openTelemetry,
+            // Hordecode: prompt and output text are exported only with experimental.openTelemetryContent; upstream session/llm.ts:343-349 records them by default.
+            recordInputs: cfg.experimental?.openTelemetryContent === true,
+            recordOutputs: cfg.experimental?.openTelemetryContent === true,
             functionId: "session.llm",
             tracer: telemetryTracer,
             metadata: {

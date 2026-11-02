@@ -386,6 +386,9 @@ const InfoSchema = Schema.Struct({
       openTelemetry: Schema.optional(Schema.Boolean).annotate({
         description: "Enable OpenTelemetry spans for AI SDK calls (using the 'experimental_telemetry' flag)",
       }),
+      openTelemetryContent: Schema.optional(Schema.Boolean).annotate({
+        description: "Include prompt and response text in AI SDK OpenTelemetry spans (recordInputs and recordOutputs). Off by default because prompts and responses can carry source code and secrets. Takes effect only with experimental.openTelemetry.",
+      }),
       // Mirrors core/src/v1/config/config.ts so fork packages reading Config.Service see
       // the key the runtime parser keeps.
       primary_tools: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({

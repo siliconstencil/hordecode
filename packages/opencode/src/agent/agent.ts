@@ -589,6 +589,9 @@ const layer = Layer.effect(
         const params = {
           experimental_telemetry: {
             isEnabled: cfg.experimental?.openTelemetry,
+            // Hordecode: prompt and output text are exported only with experimental.openTelemetryContent; upstream agent/agent.ts:389-390 records them by default.
+            recordInputs: cfg.experimental?.openTelemetryContent === true,
+            recordOutputs: cfg.experimental?.openTelemetryContent === true,
             tracer,
             metadata: {
               userId: cfg.username ?? "unknown",

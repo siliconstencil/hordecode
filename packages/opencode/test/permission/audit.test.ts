@@ -25,7 +25,7 @@ const sessionID = SessionID.make("session_audit")
 
 const clear = () => {
   PermissionAudit.__resetForTest()
-  for (const suffix of ["", ".1", ".2", ".3", ".4"]) fs.rmSync(PermissionAudit.file() + suffix, { force: true })
+  for (const suffix of ["", ".1", ".2", ".3", ".4", ".head"]) fs.rmSync(PermissionAudit.file() + suffix, { force: true })
 }
 
 const rawLines = (suffix = "") =>
@@ -143,6 +143,25 @@ describe("permission audit log", () => {
       }),
     { git: true },
   )
+  it.instance(
+    "logs a deny-only probe that a deny rule answers, and not one that no deny rule answers",
+    () =>
+      audited(
+        Effect.gen(function* () {
+          yield* ask({
+            denyOnly: true,
+            patterns: ["rm x"],
+            ruleset: [{ permission: "bash", pattern: "*", action: "deny" }],
+          }).pipe(Effect.exit)
+          yield* ask({
+            denyOnly: true,
+            ruleset: [{ permission: "bash", pattern: "*", action: "allow" }],
+          })
+          expect(lines().map((line) => [line.kind, line.patterns, line.outcome])).toEqual([["decision", ["rm x"], "deny"]])
+        }),
+      ),
+    { git: true },
+  )
 })
 
 describe("permission audit helpers", () => {
@@ -258,6 +277,85 @@ describe("permission audit hash chain", () => {
       expect(broken.ok).toBe(false)
       expect(broken.broken).toMatchObject({ file: PermissionAudit.file(), line: 4 })
       expect(broken.broken?.reason).toContain("legacy line after a chained line")
+    })
+  })
+})
+
+describe("permission audit head record", () => {
+  const logged = (body: () => void) => {
+    clear()
+    process.env["HORDECODE_PERMISSION_AUDIT"] = "1"
+    try {
+      body()
+    } finally {
+      delete process.env["HORDECODE_PERMISSION_AUDIT"]
+      clear()
+    }
+  }
+
+  test("a tail truncated to an earlier line is reported", () => {
+    logged(() => {
+      for (let i = 0; i < 3; i++) PermissionAudit.write({ kind: "decision", n: i })
+      const raw = rawLines()
+      fs.writeFileSync(PermissionAudit.file(), raw.slice(0, 2).join("\n") + "\n")
+      const result = PermissionAudit.verify()
+      expect(result.ok).toBe(false)
+      expect(result.broken?.file).toBe(PermissionAudit.file())
+      expect(result.broken?.line).toBe(2)
+      expect(result.broken?.reason).toContain("tail mismatch")
+    })
+  })
+
+  test("a tail truncated to nothing is reported", () => {
+    logged(() => {
+      for (let i = 0; i < 2; i++) PermissionAudit.write({ kind: "decision", n: i })
+      fs.writeFileSync(PermissionAudit.file(), "")
+      const result = PermissionAudit.verify()
+      expect(result.ok).toBe(false)
+      expect(result.broken?.reason).toContain("tail mismatch")
+    })
+  })
+
+  test("a deleted oldest rotated file is reported", () => {
+    logged(() => {
+      process.env["HORDECODE_PERMISSION_AUDIT_MAX_BYTES"] = "400"
+      try {
+        for (let i = 0; i < 40; i++) PermissionAudit.write({ kind: "decision", n: i, pad: "x".repeat(60) })
+      } finally {
+        delete process.env["HORDECODE_PERMISSION_AUDIT_MAX_BYTES"]
+      }
+      expect(PermissionAudit.verify().ok).toBe(true)
+      fs.rmSync(`${PermissionAudit.file()}.3`)
+      const result = PermissionAudit.verify()
+      expect(result.ok).toBe(false)
+      expect(result.broken?.file).toBe(`${PermissionAudit.file()}.2`)
+      expect(result.broken?.line).toBe(1)
+      expect(result.broken?.reason).toContain("oldest file mismatch")
+    })
+  })
+
+  test("a missing head record is reported for a chained log", () => {
+    logged(() => {
+      for (let i = 0; i < 3; i++) PermissionAudit.write({ kind: "decision", n: i })
+      fs.rmSync(`${PermissionAudit.file()}.head`)
+      const result = PermissionAudit.verify()
+      expect(result.ok).toBe(false)
+      expect(result.broken?.reason).toContain("head record missing")
+    })
+  })
+
+  test("a fresh process keeps the head valid after rotation", () => {
+    logged(() => {
+      process.env["HORDECODE_PERMISSION_AUDIT_MAX_BYTES"] = "400"
+      try {
+        for (let i = 0; i < 20; i++) {
+          PermissionAudit.write({ kind: "decision", n: i, pad: "x".repeat(60) })
+          PermissionAudit.__resetForTest()
+        }
+      } finally {
+        delete process.env["HORDECODE_PERMISSION_AUDIT_MAX_BYTES"]
+      }
+      expect(PermissionAudit.verify().ok).toBe(true)
     })
   })
 })
