@@ -1,6 +1,6 @@
 import { NodeHttpServer } from "@effect/platform-node"
 import { describe, expect } from "bun:test"
-import { Context, Effect, Layer, Option, Ref } from "effect"
+import { Context, Effect, Layer, Logger, Option, Ref } from "effect"
 import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { Auth } from "../../src/auth"
@@ -10,6 +10,7 @@ import { Installation } from "../../src/installation"
 import { InstanceStore } from "../../src/project/instance-store"
 import { MoveSession } from "@opencode-ai/core/control-plane/move-session"
 import { ServerAuth } from "../../src/server/auth"
+import { disposeAllWhenIdle } from "../../src/server/deferred-dispose"
 import { RootHttpApi } from "../../src/server/routes/instance/httpapi/api"
 import { GlobalPaths } from "../../src/server/routes/instance/httpapi/groups/global"
 import { controlHandlers } from "../../src/server/routes/instance/httpapi/handlers/control"
@@ -22,6 +23,7 @@ import { testEffect } from "../lib/effect"
 // A changed global config disposes every instance, which interrupts running turns. The handler defers
 // the disposal until the status events on the global bus show no busy session.
 const disposed = Ref.makeUnsafe(0)
+const storeMock = Layer.mock(InstanceStore.Service)({ disposeAll: () => Ref.update(disposed, (n) => n + 1) })
 const layer = HttpRouter.serve(
   HttpApiBuilder.layer(RootHttpApi).pipe(
     Layer.provide([controlHandlers, controlPlaneHandlers, globalHandlers]),
@@ -46,7 +48,7 @@ const layer = HttpRouter.serve(
       upgrade: () => Effect.void,
     }),
   ),
-  Layer.provide(Layer.mock(InstanceStore.Service)({ disposeAll: () => Ref.update(disposed, (n) => n + 1) })),
+  Layer.provide(storeMock),
   Layer.provide(ServerAuth.Config.configLayer({ password: Option.none(), username: "opencode" })),
 )
 const it = testEffect(layer)
@@ -114,6 +116,60 @@ describe("global config update disposal", () => {
         payload: { type: "server.instance.disposed", properties: { directory: "/work/gone" } },
       })
       expect(yield* waitFor(() => Ref.get(disposed).pipe(Effect.map((n) => n >= 1)))).toBe(true)
+    }),
+  )
+
+  it.live("warns once after the timeout, names the busy session, and keeps waiting until it is idle", () =>
+    Effect.gen(function* () {
+      yield* reset
+      yield* Ref.set(disposed, 0)
+      status("ses_stuck", "busy")
+
+      const messages: unknown[] = []
+      const logger = Logger.layer([
+        Logger.make<unknown, void>((options) => {
+          messages.push(options.message)
+        }),
+      ])
+      // The stuck session goes idle well after the 50 ms timeout; the running turn must not be aborted by disposal.
+      setTimeout(() => status("ses_stuck", "idle"), 400)
+      const started = Date.now()
+      yield* disposeAllWhenIdle({ source: "test", timeoutMs: 50 }).pipe(Effect.provide(logger), Effect.provide(storeMock))
+
+      expect(Date.now() - started).toBeGreaterThanOrEqual(350)
+      expect(yield* Ref.get(disposed)).toBe(1)
+      expect(messages.filter((m) => Array.isArray(m) && m[0] === "sessions still busy; instance disposal keeps waiting")).toHaveLength(1)
+      expect(messages).toContainEqual([
+        "sessions still busy; instance disposal keeps waiting",
+        expect.objectContaining({ source: "test", timeoutMs: 50, busySessions: ["ses_stuck"] }),
+      ])
+      expect(messages).toContainEqual([
+        "instance disposal requested by a global config write",
+        expect.objectContaining({ source: "test" }),
+      ])
+    }),
+  )
+
+  it.live("does not wait out the timeout when the busy session goes idle first", () =>
+    Effect.gen(function* () {
+      yield* reset
+      yield* Ref.set(disposed, 0)
+      status("ses_quick", "busy")
+
+      const messages: unknown[] = []
+      const logger = Logger.layer([
+        Logger.make<unknown, void>((options) => {
+          messages.push(options.message)
+        }),
+      ])
+      setTimeout(() => status("ses_quick", "idle"), 50)
+      yield* disposeAllWhenIdle({ source: "test", timeoutMs: 60_000 }).pipe(Effect.provide(logger), Effect.provide(storeMock))
+
+      expect(yield* Ref.get(disposed)).toBe(1)
+      expect(messages).not.toContainEqual([
+        "sessions still busy; instance disposal keeps waiting",
+        expect.anything(),
+      ])
     }),
   )
 })

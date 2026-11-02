@@ -80,7 +80,7 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       const result = yield* config.updateGlobal(ctx.payload)
       // Deferred until no session is busy: upstream v1.19.5 handlers/global.ts:79-81 disposes at once, which
       // interrupts running turns (MiMo v0.1.11 server/routes/global.ts:214 does the same).
-      if (result.changed) bridge.fork(disposeAllWhenIdle())
+      if (result.changed) bridge.fork(disposeAllWhenIdle({ source: "PATCH /global/config (handlers/global.ts configUpdate)" }))
       return result.info
     })
 
