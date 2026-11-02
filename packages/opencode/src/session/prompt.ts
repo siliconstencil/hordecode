@@ -91,6 +91,8 @@ import { spawnRef } from "@opencode-ai/supervisor/spawn-ref"
 import { sessionPromptRef, inboxServiceRef, defaultModelRef } from "@opencode-ai/inbox/inbox-ref"
 import { TuiEvent } from "@opencode-ai/cli/cmd/tui/event"
 import { prefixCaptureRef } from "@opencode-ai/core/session/prefix-capture-ref"
+import { parseDsmlToolCalls } from "@opencode-ai/core/session/dsml"
+import { Flag } from "@opencode-ai/core/flag/flag"
 import type { ModelMessage } from "ai"
 import { ProviderTransform } from "@/provider/transform"
 import { ToolJsonSchema } from "@/tool/json-schema"
@@ -1440,6 +1442,7 @@ const layer = Layer.effect(
         const ctx = yield* InstanceState.context
         let structured: unknown
         let step = 0
+        let textToolCallRetries = 0
         let skipOverflowCheck = false
         const compactionGuard = CompactionGuard.make()
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
@@ -1560,6 +1563,55 @@ const layer = Layer.effect(
                 tool: orphan.tool,
                 callID: orphan.callID,
               })
+            }
+            // DSML tool call written as the end of a normal stop (DeepSeek V3.2/V4 without structured calls).
+            // Detection mirrors core/src/session/classify.ts:3b (classifyAssistantStep). FORK_DELTA: the retry
+            // mirrors core/src/session/prompt.ts:1960-2003 (autoRetryTextToolCall, same retry cap flag and same
+            // corrective reminder) used at core/src/session/prompt.ts:2234. Differences: the discarded turn is
+            // marked UnknownError, because the v1 session error union has no TextToolCallError; on cap
+            // exhaustion the turn ends as before, without the core error event.
+            const dsmlToolCallStop =
+              lastAssistant.finish === "stop" &&
+              !lastAssistant.error &&
+              !lastAssistantMsg?.parts.some((part) => part.type === "tool") &&
+              (lastAssistantMsg?.parts.some((part) => {
+                if (part.type !== "text" || part.synthetic || part.ignored) return false
+                const parsed = parseDsmlToolCalls(part.text)
+                return parsed.complete && parsed.trailing && parsed.calls.length > 0
+              }) ??
+                false)
+            if (dsmlToolCallStop && textToolCallRetries < Flag.HORDECODE_TEXT_TOOL_CALL_RETRY_LIMIT) {
+              textToolCallRetries++
+              lastAssistant.error = new NamedError.Unknown({
+                message: "Model emitted a tool call as text instead of a structured tool call.",
+              }).toObject()
+              yield* sessions.updateMessage(lastAssistant)
+              yield* Effect.logInfo("dsml:retry", { "session.id": sessionID, attempt: textToolCallRetries })
+              const reentry = yield* sessions.updateMessage({
+                id: MessageID.ascending(),
+                role: "user",
+                sessionID,
+                agent: lastUser.agent,
+                model: lastUser.model,
+                tools: lastUser.tools,
+                format: lastUser.format,
+                time: { created: Date.now() },
+              } satisfies SessionV1.User)
+              yield* sessions.updatePart({
+                id: PartID.ascending(),
+                messageID: reentry.id,
+                sessionID,
+                type: "text",
+                synthetic: true,
+                text: [
+                  "<system-reminder>",
+                  "Your previous response wrote a tool call as plain text instead of invoking the tool.",
+                  "Re-issue it through the real tool channel: emit a structured tool call, not text.",
+                  "Do not paste the tool call as text again.",
+                  "</system-reminder>",
+                ].join("\n"),
+              } satisfies SessionV1.TextPart)
+              continue
             }
             if (lastUser && (yield* taskGate(lastUser))) continue
             // Goal stop-condition gate (only for main agent, not subagents).

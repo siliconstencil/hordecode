@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 
 // DeepSeek V3.2 / V4 tool calls written as text. A model that does not return structured tool calls
-// can emit them as DSML markup:
+// can emit them as DSML markup. Shape with ASCII bars (the real marker uses the full-width bar U+FF5C):
 //
 //   <|DSML|function_calls>
 //   <|DSML|invoke name="bash">
@@ -10,16 +10,20 @@ import { Schema } from "effect"
 //   </|DSML|invoke>
 //   </|DSML|function_calls>
 //
-// (the sample is drawn with ASCII bars) string="true" carries raw text, string="false" a JSON value.
-// The real marker uses the full-width bar U+FF5C; an ASCII bar is accepted too. Sources: the vLLM deepseek_v32 tool parser docs, sglang
+// string="true" carries raw text, string="false" a JSON value. Accepted variants, observed in DeepSeek
+// output: one or two bars, optional whitespace after the closing bars, and the wrapper tag word
+// `calls` as well as `function_calls`. Sources: the vLLM deepseek_v32 tool parser docs, sglang
 // issue 14695 and opencode issue 14050 (raw DSML tags shown instead of tools running).
 
-const BAR = "[\\u{FF5C}|]"
-const OPEN = new RegExp(`<${BAR}DSML${BAR}function_calls>`, "u")
-const CLOSE = new RegExp(`</${BAR}DSML${BAR}function_calls>`, "u")
-const INVOKE = new RegExp(`<${BAR}DSML${BAR}invoke\\s+name="([^"]+)"\\s*>([\\s\\S]*?)</${BAR}DSML${BAR}invoke>`, "gu")
+const BAR = "[\\u{FF5C}|]{1,2}"
+const OPEN = new RegExp(`<${BAR}DSML${BAR}\\s*(?:function_calls|calls)>`, "u")
+const CLOSE = new RegExp(`</${BAR}DSML${BAR}\\s*(?:function_calls|calls)>`, "u")
+const INVOKE = new RegExp(
+  `<${BAR}DSML${BAR}\\s*invoke\\s+name="([^"]+)"\\s*>([\\s\\S]*?)</${BAR}DSML${BAR}\\s*invoke>`,
+  "gu",
+)
 const PARAMETER = new RegExp(
-  `<${BAR}DSML${BAR}parameter\\s+name="([^"]+)"(?:\\s+string="(true|false)")?\\s*>([\\s\\S]*?)</${BAR}DSML${BAR}parameter>`,
+  `<${BAR}DSML${BAR}\\s*parameter\\s+name="([^"]+)"(?:\\s+string="(true|false)")?\\s*>([\\s\\S]*?)</${BAR}DSML${BAR}\\s*parameter>`,
   "gu",
 )
 

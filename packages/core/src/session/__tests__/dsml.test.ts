@@ -70,4 +70,40 @@ describe("DSML tool call parser", () => {
     expect(hasDsmlToolCall('<invoke name="bash"></invoke>')).toBe(false)
     expect(hasDsmlToolCall(block(""))).toBe(true)
   })
+
+  test("accepts the real DeepSeek form: two full-width bars, a space before the tag word, and calls", () => {
+    const B = "\uFF5C\uFF5C"
+    const D = `${B}DSML${B}`
+    const text = [
+      `<${D} calls>`,
+      `<${D} invoke name="edit">`,
+      `<${D} parameter name="filePath" string="true">/x/y.rs</${D} parameter>`,
+      `<${D} parameter name="count" string="false">2</${D} parameter>`,
+      `</${D} invoke>`,
+      `</${D} calls>`,
+    ].join("\n")
+    expect(hasDsmlToolCall(text)).toBe(true)
+    expect(parseDsmlToolCalls(text)).toEqual({
+      calls: [{ name: "edit", arguments: { filePath: "/x/y.rs", count: 2 } }],
+      complete: true,
+      trailing: true,
+    })
+  })
+
+  test("accepts a single full-width bar with function_calls and the spaced tag words", () => {
+    const D = "\uFF5CDSML\uFF5C"
+    const text = `<${D} function_calls>\n<${D} invoke name="x">\n<${D} parameter name="a" string="true">1</${D} parameter>\n</${D} invoke>\n</${D} function_calls>\n`
+    expect(parseDsmlToolCalls(text)).toEqual({ calls: [{ name: "x", arguments: { a: "1" } }], complete: true, trailing: true })
+  })
+
+  test("mixed bar counts and an ASCII form with a space before the tag word parse the same", () => {
+    const text = "<||DSML|| calls><|DSML| invoke name=\"x\"><|DSML| parameter name=\"a\" string=\"true\">1</|DSML| parameter></|DSML| invoke></||DSML|| calls>"
+    expect(parseDsmlToolCalls(text)).toEqual({ calls: [{ name: "x", arguments: { a: "1" } }], complete: true, trailing: true })
+  })
+
+  test("prose that names DSML without a call block is not a tool call", () => {
+    const text = "DeepSeek writes tool calls as DSML markup, and the wrapper word is calls or function_calls. Nothing here is a block."
+    expect(hasDsmlToolCall(text)).toBe(false)
+    expect(parseDsmlToolCalls(text)).toEqual({ calls: [], complete: false, trailing: false })
+  })
 })
