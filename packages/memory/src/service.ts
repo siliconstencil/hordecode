@@ -8,7 +8,7 @@ import { Global } from "@opencode-ai/core/global"
 import { Database } from "@opencode-ai/core/database/database"
 import { Config } from "@opencode-ai/core/config/index"
 import { MemoryFtsTable } from "./fts.sql"
-import { reconcileMemory } from "./reconcile"
+import { reconcileMemory, recordGcTombstones } from "./reconcile"
 import { WRITE_SCOPES, assertInsideRoot, assertSegment } from "./paths"
 import { buildFtsQuery } from "./fts-query"
 import { adaptiveFtsWeight, distanceGate, fuseRrf, fuseRrfWeighted, mmrSelect, sigmoid, timeDecay, typeBoost, RRF_K } from "./rrf"
@@ -601,6 +601,19 @@ export const layer: Layer.Layer<Service, never, Database.Service | Config.Servic
       const dropVectors = (ids: number[]) => {
         if (Option.isSome(vecOpt)) for (const id of ids) vecOpt.value.invalidate(String(id))
       }
+      // The files stay on disk, so each removed row leaves a tombstone or the next reconcile would index it again.
+      const tombstoneRows = (ids: number[]) =>
+        Effect.gen(function* () {
+          const removed = yield* database.db
+            .all<{ path: string; fingerprint: string }>(
+              sql`SELECT path, fingerprint FROM memory_fts WHERE id IN (${sql.join(
+                ids.map((id) => sql`${id}`),
+                sql`, `,
+              )})`,
+            )
+            .pipe(Effect.orDie)
+          yield* recordGcTombstones(database.db, removed)
+        })
       // Retention: collapse near-duplicate progress.md before exact-fingerprint gc
       const progressRows = yield* database.db
         .all<{ id: number; path: string; body: string; last_indexed_at: number }>(
@@ -610,6 +623,7 @@ export const layer: Layer.Layer<Service, never, Database.Service | Config.Servic
       const retentionIds = selectRetentionVictims(progressRows)
       let removedRetention = 0
       if (retentionIds.length > 0) {
+        yield* tombstoneRows(retentionIds)
         yield* database.db
           .run(sql`DELETE FROM memory_fts WHERE id IN (${sql.join(
             retentionIds.map((id) => sql`${id}`),
@@ -657,6 +671,7 @@ export const layer: Layer.Layer<Service, never, Database.Service | Config.Servic
       }
       let removedDuplicates = 0
       if (idsToDelete.length > 0) {
+        yield* tombstoneRows(idsToDelete)
         yield* database.db
           .run(sql`DELETE FROM memory_fts WHERE id IN (${sql.join(
             idsToDelete.map((id) => sql`${id}`),

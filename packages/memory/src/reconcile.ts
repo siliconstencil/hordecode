@@ -109,6 +109,34 @@ export function backfillEmbeddings(db: DrizzleDb, deps: ReconcileDeps): Effect.E
   })
 }
 
+// memory_gc removes index rows, not the markdown files behind them. Without a record of what it removed, the next
+// reconcile pass sees an unindexed file and indexes it again, which undoes the dedup. A tombstone (path plus the
+// file fingerprint at removal) keeps that file out of the index until its size or mtime changes.
+export const ensureGcTombstones = (db: DrizzleDb) =>
+  db
+    .run(
+      sql`CREATE TABLE IF NOT EXISTS memory_gc_tombstones (
+        path TEXT PRIMARY KEY,
+        fingerprint TEXT NOT NULL,
+        removed_at INTEGER NOT NULL
+      )`,
+    )
+    .pipe(Effect.orDie)
+
+export const recordGcTombstones = (db: DrizzleDb, rows: ReadonlyArray<{ path: string; fingerprint: string }>) =>
+  Effect.gen(function* () {
+    if (rows.length === 0) return
+    yield* ensureGcTombstones(db)
+    const now = Date.now()
+    for (const row of rows) {
+      yield* db
+        .run(
+          sql`INSERT OR REPLACE INTO memory_gc_tombstones (path, fingerprint, removed_at) VALUES (${row.path}, ${row.fingerprint}, ${now})`,
+        )
+        .pipe(Effect.orDie)
+    }
+  })
+
 export function reconcileMemory(
   roots: { hordecode: string; cc?: string },
   db: DrizzleDb,
@@ -138,6 +166,19 @@ export function reconcileMemory(
       .pipe(Effect.orDie)
 
     const indexed = new Map<string, string>(rows.map((r) => [r.path, r.fingerprint]))
+
+    yield* ensureGcTombstones(db)
+    const tombstones = new Map<string, string>(
+      (yield* db.all<{ path: string; fingerprint: string }>(sql`SELECT path, fingerprint FROM memory_gc_tombstones`).pipe(Effect.orDie)).map(
+        (r) => [r.path, r.fingerprint],
+      ),
+    )
+    // A tombstone for a file that is gone has nothing left to suppress.
+    for (const p of tombstones.keys()) {
+      if (diskPaths.has(p)) continue
+      yield* db.run(sql`DELETE FROM memory_gc_tombstones WHERE path = ${p}`).pipe(Effect.orDie)
+      tombstones.delete(p)
+    }
 
     let pruned = 0
     for (const p of indexed.keys()) {
@@ -173,6 +214,7 @@ export function reconcileMemory(
           if (!stat) continue
           const fingerprint = `${stat.size}-${stat.mtimeMs}`
           if (indexed.get(p) === fingerprint) continue
+          if (tombstones.get(p) === fingerprint) continue
           const body = yield* Effect.tryPromise(() => Bun.file(p).text()).pipe(Effect.orDie)
           const finalType = bodyType === "cc" ? (parseCcFrontmatterType(body) ?? "free") : loc.type
           pending.push({ absPath: p, loc, bodyType, body, fingerprint, finalType })
@@ -264,6 +306,8 @@ export function reconcileMemory(
       } catch {
         // entities table may not exist yet
       }
+      // The file changed since gc removed its row, so it counts as new content again.
+      if (tombstones.has(p.absPath)) yield* db.run(sql`DELETE FROM memory_gc_tombstones WHERE path = ${p.absPath}`).pipe(Effect.orDie)
       indexedCount++
     }
 

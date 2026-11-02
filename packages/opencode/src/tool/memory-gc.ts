@@ -8,7 +8,7 @@ export const MemoryGcTool = Tool.define(
     const memory = yield* Memory.Service
     return {
       description:
-        "Memory GC: retention sweep of near-duplicate progress.md records + duplicate-fingerprint sweep (keeps newest by last_indexed_at/id) + orphan-edge sweep. Safe deletions only, no merge or rewrite. Returns {removedRetention, removedDuplicates, removedOrphans, totalRemoved} where totalRemoved is the sum of the three.",
+        "Memory GC: retention sweep of near-duplicate progress.md records + duplicate-fingerprint sweep (keeps newest by last_indexed_at/id) + orphan-edge sweep. Safe deletions only, no merge or rewrite. It removes index rows, never the markdown files: a removed duplicate stays out of the index until its file changes, so the next search does not undo the dedup. Returns {removedRetention, removedDuplicates, removedOrphans, totalRemoved} where totalRemoved is the sum of the three.",
       parameters: Schema.Struct({}),
       execute: () =>
         Effect.gen(function* () {

@@ -29,6 +29,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `memory_gc` results stick: a duplicate or retention row removed by gc stays out of the index until its file
+  changes (the markdown files are never deleted), instead of being re-indexed by the next search.
+- Plugin installs apply the project and user `.npmrc` (omit, registry, auth); `webfetch` and its SSRF check are
+  testable without DNS; bundled skills are extracted concurrently; the first memory embedding check no longer
+  blocks while the model library loads.
 - `session create` peers obey the subagent depth limit and count toward `supervisor.max_subagents` while their
   first turn runs; a refusal happens before any worktree is created.
 - Supervisor rows orphaned by a restart name how to resume them (`supervisor` run with the id, `send` for a
