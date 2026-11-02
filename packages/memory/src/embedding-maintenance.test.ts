@@ -155,6 +155,11 @@ describe("memory embedding backfill", () => {
         const second = yield* mem.reconcile()
         expect(second.indexed).toBe(0)
         expect(second.backfilled).toBe(Math.min(nullRows.length, BACKFILL_BATCH))
+        // Backfill takes the lowest ids first; with other tests' NULL rows in the shared root this file's row can sit
+        // beyond the first batch, so keep passing until the queue drains (each pass takes one more batch).
+        for (let pass = 0; pass < Math.ceil(nullRows.length / BACKFILL_BATCH); pass++) {
+          if ((yield* mem.reconcile()).backfilled === 0) break
+        }
         const done = yield* db.select({ embedding: MemoryFtsTable.embedding }).from(MemoryFtsTable).where(sql`${MemoryFtsTable.path} = ${file}`).get()
         expect(done!.embedding).not.toBeNull()
 
