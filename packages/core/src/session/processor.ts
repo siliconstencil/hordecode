@@ -3,6 +3,7 @@ import * as Stream from "effect/Stream"
 import { Agent } from "@opencode-ai/agent/agent"
 import { Bus } from "@opencode-ai/bus"
 import { Metrics } from "@opencode-ai/core/metrics"
+import { Flag } from "@opencode-ai/core/flag/flag"
 import { Config } from "../config/index"
 import { Permission } from "../permission/index"
 import { Plugin } from "../plugin"
@@ -274,13 +275,17 @@ export const layer = Layer.effect(
 
       const cfg = yield* config.get()
       const tryBestConfig = cfg.experimental?.try_best
-      const tryBest = tryBestMonitor(input.sessionID, input.assistantMessage.agentID, tryBestConfig)
+      // Gated like the runtime copy: packages/opencode/src/session/processor.ts:263-265 only mounts the
+      // try-best monitor when HORDECODE_ENABLE_TRY_BEST_HANDOFF is set.
+      const tryBest = Flag.HORDECODE_ENABLE_TRY_BEST_HANDOFF
+        ? tryBestMonitor(input.sessionID, input.assistantMessage.agentID, tryBestConfig)
+        : undefined
 
       const detectTryBest = (part: MessageV2.ToolPart): Effect.Effect<void, never, never> => {
         if (ctx.blocked) return Effect.void
-        const incident = tryBest.consume(part)
+        const incident = tryBest?.consume(part)
         if (!incident) return Effect.void
-        tryBest.reset()
+        tryBest?.reset()
         ctx.blocked = true
         const detail = describeTryBest(incident)
         return Effect.gen(function* () {

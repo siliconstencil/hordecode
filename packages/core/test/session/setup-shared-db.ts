@@ -36,4 +36,8 @@ if (process.env.HORDECODE_RUN_TRY_BEST_TESTS === "1") {
   // ~/.config/hordecode/ files are never parsed against the fork schema. Must be
   // set before global.ts is imported.
   process.env.HORDECODE_HOME = join(tmpdir(), "hordecode-p0-2-home")
+  // The core processor mounts the try-best monitor only when this flag is set (core/src/session/processor.ts,
+  // mirroring packages/opencode/src/session/processor.ts:263). Flag.HORDECODE_ENABLE_TRY_BEST_HANDOFF is read
+  // once at module load, so this must run before any flag.ts import; this file is the first import of the test.
+  process.env.HORDECODE_ENABLE_TRY_BEST_HANDOFF = "1"
 }

@@ -124,8 +124,9 @@ A port is complete only when all three land together: the code, the `hordecodeBa
 - Fork package tests: `agent`, `control-plane`, `shared`, `task`, `team`, `worktree` and `memory` have a `test`
   script; `project` tests cover project ids, workspace trust and the directory guard. Task registry lifecycle
   tests live in `packages/opencode/test/task` (they need the app database layer). `global` has no scripts at all.
-  `packages/worktree` (used by the workflow runtime) names branches `hordecode/<name>`, while the runtime
-  `opencode/src/worktree` names them `opencode/<name>`.
+  Two branch prefixes are in use and both are kept: runtime isolated children (`isolate`) are created by
+  `packages/opencode/src/worktree/index.ts:183` as `opencode/<name>`, while the workflow package
+  (`packages/worktree/src/index.ts:219`) names its branches `hordecode/<name>`. Users see both; refs are not renamed.
 - `packages/docs` is untouched upstream scaffolding; the fork subsystems are undocumented there.
 - Type shortcuts: the session hot path is clean (`core/src/session/prompt.ts` 0 `as any`,
   `processor.ts` 2, `max-mode.ts` 5, `opencode/src/session/processor.ts` 0); the remaining
@@ -158,6 +159,6 @@ A port is complete only when all three land together: the code, the `hordecodeBa
   neither upstream v1.19.5 nor MiMo v0.1.11 guards them (MiMo guards only `edit` and `notebook_edit`).
   `write.txt` (upstream-owned) still says write fails without a prior read. Extending the guard is a product
   decision.
-- Try-best handoff runs only when `HORDECODE_ENABLE_TRY_BEST_HANDOFF` is set (`opencode/src/session/processor.ts`);
-  `experimental.try_best` only tunes thresholds. The core copy in `core/src/session/processor.ts` runs it
-  unconditionally but is not mounted at runtime.
+- Try-best handoff runs only when `HORDECODE_ENABLE_TRY_BEST_HANDOFF` is set (`opencode/src/session/processor.ts:263`);
+  `experimental.try_best` only tunes thresholds. The core copy in `core/src/session/processor.ts` applies the same
+  gate and is not mounted at runtime; its suite sets the flag in `core/test/session/setup-shared-db.ts`.

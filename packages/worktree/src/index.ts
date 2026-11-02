@@ -1,3 +1,6 @@
+// Branch prefix note: this workflow package names its isolated worktree branches `hordecode/<name>`
+// (see candidate(), below). The runtime isolated children created by packages/opencode/src/worktree/index.ts:183
+// use `opencode/<name>` instead. Both prefixes are live; refs are not renamed.
 import z from "zod"
 import { NamedError } from "@opencode-ai/shared/util/error"
 import { Global } from "@opencode-ai/core/global"

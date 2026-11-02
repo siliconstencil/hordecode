@@ -353,7 +353,7 @@ export const Info = Schema.Struct({
     Schema.Struct({
       auto: Schema.optional(Schema.Boolean).annotate({
         description:
-          "Auto-trigger distill workflow packaging on new session start. Default: false (no background work without opting in).",
+          "Auto-trigger distill workflow packaging on new session start. Default: false (off unless set to true; no background work without opting in).",
       }),
       interval_days: Schema.optional(NonNegativeInt).annotate({
         description: "Minimum days between automatic distill runs. Default: 30.",

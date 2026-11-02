@@ -1,7 +1,7 @@
 ---
 name: research
-description: "Use to run the research pipeline end-to-end: ask -> scope -> gather -> verify -> filter -> synthesize -> decide -> eval"
-trigger: "Use to run the research pipeline end-to-end: ask -> scope -> gather -> verify -> filter -> synthesize -> decide -> eval"
+description: "Use to run the research pipeline end-to-end: ask -> scope -> plan -> gather -> verify -> filter -> synthesize -> decide -> eval"
+trigger: "Use to run the research pipeline end-to-end: ask -> scope -> plan -> gather -> verify -> filter -> synthesize -> decide -> eval"
 ---
 
 # Research Pipeline -- Root Orchestrator
@@ -11,7 +11,7 @@ Orchestrate a complete research pipeline run. Mirrors `harness` root skill.
 ## Pipeline Phases
 
 ```
-ASK -> SCOPE -> GATHER -> VERIFY -> FILTER -> SYNTHESIZE -> DECIDE -> EVAL
+ASK -> SCOPE -> PLAN -> GATHER -> VERIFY -> FILTER -> SYNTHESIZE -> DECIDE -> EVAL
 ```
 
 ## When to Use

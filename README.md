@@ -39,7 +39,7 @@ plugin process.
 - **Memory that stays local.** Seven memory tools keep project knowledge across sessions.
   Keyword search (BM25) works out of the box; semantic search is opt-in and runs on-device.
 - **Skill pipelines ship with the binary.** A harness set of 16 skills (plan, tdd, debug,
-  review, verify, ...) and a separate research set of 16 skills.
+  review, verify, ...) and a separate research set (the research skill and 15 research:* skills).
 - **Visible, not a black box.** Running agents, subagents and scheduled jobs show in the
   sidebar with status and elapsed time.
 - **A maintained base.** The core, CLI, server and TUI track the opencode 1.x line, so
@@ -157,10 +157,11 @@ fixed discipline, and **research** for a question that needs sources and a decis
 
 - **harness** loads the 16 `harness:*` skills: ask, brainstorm, debug, deliberate, eval,
   execute, feedback, merge, parallel, plan, report, review, subagent, tdd, verify, worktree.
-- **research** loads the 16 `research:*` skills and runs ask, scope, gather, verify, filter,
-  synthesize, decide and eval. Gathering runs up to five sub-agents in parallel, each with
-  its own context; the report is written once from the verified evidence, with a citation
-  table, and every run ends with a decision record.
+- **research** loads the `research` skill and its 15 `research:*` skills and runs ask, scope,
+  plan, gather, verify, filter, synthesize, decide and eval. Gathering spreads the work over
+  parallel sub-agents (the skill asks for up to five), each with its own context; the report
+  is written once from the verified evidence, with a citation table, and every run ends with
+  a decision record.
 
 ### Memory search: keyword by default, semantic opt-in
 
@@ -176,6 +177,16 @@ directory; recall uses keyword search while the model loads, then becomes hybrid
 (keyword + semantic). The on-device index ships in every package except the musl ones and darwin-x64, which use
 keyword search. `memory-status` reports the current
 mode and vector count, and `horde debug embedding-check` verifies the pipeline.
+
+## Repository layout
+
+Current Hordecode documentation lives at [hordecode.com/docs](https://hordecode.com/docs).
+
+Some trees here are upstream sources kept at parity so they can be ported: `packages/web`,
+`packages/docs`, the translated READMEs (`README.*.md`) and the other upstream-only site and
+infrastructure trees (`infra/`, `github/`, `sst.config.ts`). They are not Hordecode documentation
+and are not edited by hand. Hordecode's own text is this README, the files in [docs/](docs/) and
+the packages marked Hordecode in [docs/UPSTREAM-MAP.md](docs/UPSTREAM-MAP.md).
 
 ## Network access
 
