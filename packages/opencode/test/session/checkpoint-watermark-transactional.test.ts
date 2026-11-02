@@ -4,7 +4,7 @@
 // Unset before app-runtime is imported so both worlds share the test data dir DB.
 delete process.env["OPENCODE_DB"]
 
-import { afterEach, beforeAll, describe, expect, it } from "bun:test"
+import { afterEach, beforeAll, describe, expect, it, afterAll } from "bun:test"
 import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "path"
@@ -130,6 +130,12 @@ const readWatermark = (sessionID: SessionID) =>
   )
 
 describe("checkpoint watermark is transactional (fork behavioral)", () => {
+  const originalMemory = Global.Path.memory
+  afterAll(() => {
+    // Global.Path is process-wide; later test files must not inherit this proof directory.
+    Object.assign(Global.Path, { memory: originalMemory })
+  })
+
   beforeAll(() => {
     Object.assign(Global.Path, { memory: path.join(proofDir, "memory") })
   })

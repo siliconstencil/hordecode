@@ -7,16 +7,17 @@ delete process.env["OPENCODE_DB"]
 
 import { describe, expect, it } from "bun:test"
 
-const [{ spawnRef }, { memoMap }, { AppLayer }] = await Promise.all([
+const [{ spawnRef }, { AppLayer }] = await Promise.all([
   import("@opencode-ai/supervisor/spawn-ref"),
-  import("@opencode-ai/core/effect/memo-map"),
   import("@/effect/app-runtime"),
 ])
-const { Effect, ManagedRuntime } = await import("effect")
+const { Effect, Layer, ManagedRuntime } = await import("effect")
 
 describe("supervisor defaultLayer wiring", () => {
   it("populates spawnRef.current via AppLayer merge", async () => {
-    const rt = ManagedRuntime.make(AppLayer, { memoMap })
+    // A private memo map: tests that reset spawnRef after the shared map built the supervisor layer would leave it
+    // undefined here, because a built layer is not rebuilt.
+    const rt = ManagedRuntime.make(AppLayer, { memoMap: Layer.makeMemoMapUnsafe() })
     try {
       await rt.runPromise(
         Effect.gen(function* () {
