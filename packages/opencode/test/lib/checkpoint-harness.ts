@@ -83,7 +83,9 @@ export const getProofDir = (): string => proofDir
 // Set up Global.Path.memory + the two late-bound refs that SessionCheckpoint
 // reads at call time. Call this before the first test runs (or in beforeAll
 // of the describe block that uses the harness).
+let originalMemory: string | undefined
 export const useCheckpointHarness = () => {
+  originalMemory ??= Global.Path.memory
   Object.assign(Global.Path, { memory: path.join(proofDir, "memory") })
   spawnRef.current = stubSupervisor
   prefixCaptureRef.current = stubPrefixCapture
@@ -92,6 +94,8 @@ export const useCheckpointHarness = () => {
 // Tear down the two refs and resolve any orphaned Deferreds so the next
 // test starts clean. Wire into afterEach in the test file.
 export const resetCheckpointHarness = () => {
+  // Put the real memory path back: Global.Path is process-wide and later test files must not inherit this proof dir.
+  if (originalMemory !== undefined) Object.assign(Global.Path, { memory: originalMemory })
   spawnRef.current = undefined
   prefixCaptureRef.current = undefined
   for (const d of spawned) {

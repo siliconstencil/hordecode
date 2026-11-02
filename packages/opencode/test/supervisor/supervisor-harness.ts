@@ -16,6 +16,7 @@ import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Database } from "@opencode-ai/core/storage"
 import { InboxTable } from "@opencode-ai/inbox/inbox.sql"
+import { sessionPromptRef } from "@opencode-ai/inbox/inbox-ref"
 import { MessageID } from "@/session/schema"
 import type { Context } from "@/tool/tool"
 
@@ -30,7 +31,11 @@ export const run = <A, E, R>(body: Effect.Effect<A, E, R>, extra?: Layer.Layer<a
   const rt = ManagedRuntime.make(layer as Layer.Layer<any, any, never>, { memoMap })
   return rt
     .runPromise(
-      body.pipe(
+      // The layer mounts the prompt loop as the inbox wake target. A wake drains the row it was woken for into a
+      // session message, so these tests would race the drain; they assert the durable row, so wake is switched off.
+      Effect.sync(() => {
+        sessionPromptRef.current = undefined
+      }).pipe(Effect.andThen(body)).pipe(
         Effect.provideService(InstanceRef, {
           directory: dir,
           worktree: dir,
