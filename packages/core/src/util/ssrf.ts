@@ -1,5 +1,8 @@
 import { lookup } from "dns/promises"
 
+// Resolver seam: tests replace `resolver.lookup` so a hostname check never depends on the machine having DNS.
+export const resolver = { lookup }
+
 const BLOCKED_HOSTNAMES = new Set([
   "metadata.google.internal",
   "metadata.goog",
@@ -102,7 +105,7 @@ export async function assertSafeUrl(url: string): Promise<void> {
 
   // DNS resolution check to prevent DNS rebinding
   try {
-    const { address, family } = await lookup(hostname)
+    const { address, family } = await resolver.lookup(hostname)
     if (family === 4 && isBlockedIPv4(address)) {
       throw new Error(`SSRF protection: hostname "${hostname}" resolves to blocked IP "${address}"`)
     }

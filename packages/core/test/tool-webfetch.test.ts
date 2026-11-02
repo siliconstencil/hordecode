@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { Duration, Effect, Fiber, Layer, Schema } from "effect"
 import * as TestClock from "effect/testing/TestClock"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
@@ -9,11 +9,22 @@ import { PermissionV2 } from "@opencode-ai/core/permission"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { WebFetchTool } from "@opencode-ai/core/tool/webfetch"
+import { resolver } from "@opencode-ai/core/util/ssrf"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { testEffect } from "./lib/effect"
 import { toolIdentity, executeTool, settleTool, toolDefinitions } from "./lib/tool"
 
 const sessionID = SessionV2.ID.make("ses_webfetch_test")
+
+// The SSRF check resolves hostnames and fails closed when DNS is unreachable; resolve to a public address so the
+// ordinary-hostname tests do not need network access (fork delta, upstream v1.19.5 has no SSRF resolver).
+const realLookup = resolver.lookup
+beforeAll(() => {
+  resolver.lookup = (async () => ({ address: "93.184.216.34", family: 4 })) as unknown as typeof resolver.lookup
+})
+afterAll(() => {
+  resolver.lookup = realLookup
+})
 const requests: Array<{ readonly url: string; readonly headers: Record<string, string> }> = []
 const assertions: PermissionV2.AssertInput[] = []
 let respond = (_request: HttpClientRequest.HttpClientRequest) =>
