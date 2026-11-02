@@ -69,11 +69,51 @@ export function alignVectors(pending: Pick<Pending, "absPath">[], vecs: Float32A
   return out
 }
 
+// Rows indexed while no embedding provider was ready keep a NULL embedding; reconcile skips an
+// unchanged file, so they are embedded here instead. Bounded per call so a search or index pass
+// never waits on the whole backlog.
+export const BACKFILL_BATCH = 16
+
+export function backfillEmbeddings(db: DrizzleDb, deps: ReconcileDeps): Effect.Effect<number, never, never> {
+  return Effect.gen(function* () {
+    if (!deps.embedding || !deps.vectorStore) return 0
+    const available = yield* deps.embedding.available.pipe(Effect.orDie)
+    if (!available) return 0
+    const rows = yield* db
+      .select({ id: MemoryFtsTable.id, body: MemoryFtsTable.body })
+      .from(MemoryFtsTable)
+      .where(sql`${MemoryFtsTable.embedding} IS NULL AND ${MemoryFtsTable.body} <> ''`)
+      .orderBy(MemoryFtsTable.id)
+      .limit(BACKFILL_BATCH)
+      .all()
+      .pipe(Effect.orDie)
+    if (rows.length === 0) return 0
+    const vecs = (yield* deps.embedding
+      .embedBatch(rows.map((r) => r.body.slice(0, 8000)))
+      .pipe(Effect.orElseSucceed(() => [] as Float32Array[]), Effect.orDie)) as Float32Array[]
+    let embedded = 0
+    for (let i = 0; i < rows.length; i++) {
+      const vec = vecs[i]
+      if (!vec || vec.length === 0) continue
+      const blob = Buffer.from(vec.buffer as ArrayBuffer, vec.byteOffset, vec.byteLength)
+      yield* db
+        .update(MemoryFtsTable)
+        .set({ embedding: blob as Buffer | null })
+        .where(eq(MemoryFtsTable.id, rows[i]!.id))
+        .run()
+        .pipe(Effect.orDie)
+      deps.vectorStore.upsert(String(rows[i]!.id), vec)
+      embedded++
+    }
+    return embedded
+  })
+}
+
 export function reconcileMemory(
   roots: { hordecode: string; cc?: string },
   db: DrizzleDb,
   deps?: ReconcileDeps,
-): Effect.Effect<{ indexed: number; pruned: number }, never, never> {
+): Effect.Effect<{ indexed: number; pruned: number; backfilled: number }, never, never> {
   return Effect.gen(function* () {
     const hordecodeFiles = new Set<string>(
       yield* Effect.tryPromise({
@@ -102,8 +142,10 @@ export function reconcileMemory(
     let pruned = 0
     for (const p of indexed.keys()) {
       if (!diskPaths.has(p)) {
+        // The vector cache is keyed by row id, not by path (see reconcileMemory's upsert below).
+        const gone = yield* db.select({ id: MemoryFtsTable.id }).from(MemoryFtsTable).where(eq(MemoryFtsTable.path, p)).get().pipe(Effect.orDie)
         yield* db.delete(MemoryFtsTable).where(eq(MemoryFtsTable.path, p)).run().pipe(Effect.orDie)
-        deps?.vectorStore?.invalidate(p)
+        if (gone) deps?.vectorStore?.invalidate(String(gone.id))
         pruned++
       }
     }
@@ -140,7 +182,9 @@ export function reconcileMemory(
     yield* collect(hordecodeFiles, "hordecode", parsePath)
     yield* collect(ccFiles, "cc", parseCcPath)
 
-    if (pending.length === 0) return { indexed: 0, pruned }
+    const backfilled = deps ? yield* backfillEmbeddings(db, deps) : 0
+
+    if (pending.length === 0) return { indexed: 0, pruned, backfilled }
 
     let vectors: Map<string, Float32Array> = new Map()
     if (deps?.embedding) {
@@ -190,14 +234,16 @@ export function reconcileMemory(
         })
         .run()
         .pipe(Effect.orDie)
-      if (vec && deps?.vectorStore) {
+      if (deps?.vectorStore) {
+        // A re-indexed row whose new embedding is NULL must not keep the previous body's vector in the cache.
         const row = yield* db
           .select({ id: MemoryFtsTable.id })
           .from(MemoryFtsTable)
           .where(eq(MemoryFtsTable.path, p.absPath))
           .get()
           .pipe(Effect.orDie)
-        if (row) deps.vectorStore.upsert(String(row.id), vec)
+        if (row && vec) deps.vectorStore.upsert(String(row.id), vec)
+        if (row && !vec) deps.vectorStore.invalidate(String(row.id))
       }
       // sync entities shadow table for this memory_id (non-blocking but awaited)
       try {
@@ -221,6 +267,6 @@ export function reconcileMemory(
       indexedCount++
     }
 
-    return { indexed: indexedCount, pruned }
+    return { indexed: indexedCount, pruned, backfilled }
   })
 }

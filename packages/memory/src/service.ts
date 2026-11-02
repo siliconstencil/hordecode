@@ -596,6 +596,11 @@ export const layer: Layer.Layer<Service, never, Database.Service | Config.Servic
     })
 
     const gc = Effect.fn("Memory.gc")(function* () {
+      const { vecOpt } = yield* embedDeps()
+      // Rows removed here must leave the vector cache too, or search keeps scoring ids that no longer exist.
+      const dropVectors = (ids: number[]) => {
+        if (Option.isSome(vecOpt)) for (const id of ids) vecOpt.value.invalidate(String(id))
+      }
       // Retention: collapse near-duplicate progress.md before exact-fingerprint gc
       const progressRows = yield* database.db
         .all<{ id: number; path: string; body: string; last_indexed_at: number }>(
@@ -611,6 +616,7 @@ export const layer: Layer.Layer<Service, never, Database.Service | Config.Servic
             sql`, `,
           )})`)
           .pipe(Effect.orDie)
+        dropVectors(retentionIds)
         yield* database.db
           .run(sql`DELETE FROM memory_entities WHERE memory_id IN (${sql.join(
             retentionIds.map((id) => sql`${id}`),
@@ -657,6 +663,7 @@ export const layer: Layer.Layer<Service, never, Database.Service | Config.Servic
             sql`, `,
           )})`)
           .pipe(Effect.orDie)
+        dropVectors(idsToDelete)
         // cascade delete entities for removed rows (FK cascade may handle, but explicit for :memory: without FK enforcement)
         yield* database.db
           .run(sql`DELETE FROM memory_entities WHERE memory_id IN (${sql.join(
