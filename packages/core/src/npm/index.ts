@@ -14,6 +14,7 @@ import { NodeFileSystem } from "@effect/platform-node"
 import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { Global } from "@opencode-ai/core/global"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
+import { NpmConfig } from "../npm-config"
 
 import { makeRuntime } from "../effect/runtime"
 
@@ -87,7 +88,11 @@ export const layer = Layer.effect(
       Effect.gen(function* () {
         yield* flock.acquire(`npm-install:${input.dir}`)
         const { Arborist } = yield* Effect.promise(() => import("@npmcli/arborist"))
+        // Project and user .npmrc settings (omit, registry, auth) apply to installs, as in upstream v1.19.5
+        // packages/core/src/npm.ts:93-105; npm/v2.ts carries the same call.
+        const npmOptions = yield* NpmConfig.load(input.dir)
         const arborist = new Arborist({
+          ...npmOptions,
           path: input.dir,
           binLinks: true,
           progress: false,
@@ -97,6 +102,7 @@ export const layer = Layer.effect(
         return yield* Effect.tryPromise({
           try: () =>
             arborist.reify({
+              ...npmOptions,
               add: input?.add || [],
               save: true,
               saveType: "prod",
