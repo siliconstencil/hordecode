@@ -6,7 +6,7 @@ import { WorkspaceRoutingMiddleware, WorkspaceRoutingQuery } from "../middleware
 import { described } from "./metadata"
 
 // Hordecode diagnostics for the TUI: unknown config keys (config/unknown-keys.ts) and the OpenTelemetry
-// export targets. Values come from this server process, so `horde attach` shows the server's settings.
+// export targets, and the advisor runtime toggle. Values come from this server process, so `horde attach` shows the server's settings.
 const root = "/hordecode"
 
 const UnknownConfigKey = Schema.Struct({
@@ -26,6 +26,15 @@ export const HordecodeDiagnostics = Schema.Struct({
   otel: OtelTargets,
 }).annotate({ identifier: "HordecodeDiagnostics" })
 
+// The advisor's runtime on/off (session/advisor/runtime.ts): unset means the config value applies.
+export const HordecodeAdvisorState = Schema.Struct({
+  override: Schema.optional(Schema.Boolean),
+}).annotate({ identifier: "HordecodeAdvisorState" })
+
+export const HordecodeAdvisorSet = Schema.Struct({
+  enabled: Schema.Boolean,
+}).annotate({ identifier: "HordecodeAdvisorSet" })
+
 export const DiagnosticsApi = HttpApi.make("diagnostics").add(
   HttpApiGroup.make("diagnostics")
     .add(
@@ -38,6 +47,28 @@ export const DiagnosticsApi = HttpApi.make("diagnostics").add(
           summary: "Get Hordecode diagnostics",
           description:
             "Unknown configuration keys found while loading config, and the OpenTelemetry export URLs in use (credentials and query strings removed).",
+        }),
+      ),
+      HttpApiEndpoint.get("advisorGet", `${root}/advisor`, {
+        query: WorkspaceRoutingQuery,
+        success: described(HordecodeAdvisorState, "Advisor runtime state"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "advisor.get",
+          summary: "Get the advisor runtime toggle",
+          description: "The advisor on/off set for this server process; unset means the config value applies.",
+        }),
+      ),
+      HttpApiEndpoint.put("advisorSet", `${root}/advisor`, {
+        query: WorkspaceRoutingQuery,
+        payload: HordecodeAdvisorSet,
+        success: described(HordecodeAdvisorState, "Advisor runtime state"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "advisor.set",
+          summary: "Set the advisor runtime toggle",
+          description:
+            "Turns the advisor on or off for this server process without writing config.",
         }),
       ),
     )

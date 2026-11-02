@@ -465,7 +465,7 @@ const InfoSchema = Schema.Struct({
         }),
       ).annotate({
         description:
-          "Advisor (experimental, off by default): a second model reviews the agent when the work looks risky (many files touched, repeated tool failures, high context use) and adds short notes for the next step. Runs only when enabled is true and model is set.",
+          "Advisor (experimental, off by default): a second model reviews the agent when the work looks risky (many files touched, repeated tool failures, high context use) and adds short notes for the next step. Runs only when it is on and model is set. enabled: true turns it on in every session; the TUI toggle (/advisor) turns it on or off for the running process only.",
       }),
     }),
   ),

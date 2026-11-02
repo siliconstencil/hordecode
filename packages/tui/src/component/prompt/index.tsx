@@ -60,6 +60,7 @@ import { useLocation } from "../../context/location"
 import { usePromptWorkspace } from "./workspace"
 import { usePromptMove } from "./move"
 import { readLocalAttachment } from "./local-attachment"
+import { advisorActive } from "../advisor-state"
 
 export type PromptProps = {
   sessionID?: string
@@ -162,7 +163,7 @@ export function Prompt(props: PromptProps) {
   const advisorOn = createMemo(() => {
     const advisor = (sync.data.config as { experimental?: { advisor?: { enabled?: boolean; model?: string } } })
       .experimental?.advisor
-    return advisor?.enabled === true && !!advisor.model?.trim()
+    return advisorActive(advisor)
   })
   const tuiConfig = useTuiConfig()
   const dialog = useDialog()

@@ -3,6 +3,10 @@
 import { client } from "./client.gen.js"
 import { buildClientParams, type Client, type Options as Options2, type TDataShape } from "./client/index.js"
 import type {
+  AdvisorGetErrors,
+  AdvisorGetResponses,
+  AdvisorSetErrors,
+  AdvisorSetResponses,
   AgentPartInput,
   AppAgentsErrors,
   AppAgentsResponses,
@@ -90,6 +94,7 @@ import type {
   GlobalHealthResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
+  HordecodeAdvisorSet,
   InstanceDisposeErrors,
   InstanceDisposeResponses,
   LocationRef,
@@ -1567,6 +1572,75 @@ export class Diagnostics extends HeyApiClient {
       url: "/hordecode/diagnostics",
       ...options,
       ...params,
+    })
+  }
+}
+
+export class Advisor extends HeyApiClient {
+  /**
+   * Get the advisor runtime toggle
+   *
+   * The advisor on/off set for this server process; unset means the config value applies.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<AdvisorGetResponses, AdvisorGetErrors, ThrowOnError>({
+      url: "/hordecode/advisor",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Set the advisor runtime toggle
+   *
+   * Turns the advisor on or off for this server process without writing config.
+   */
+  public set<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      hordecodeAdvisorSet?: HordecodeAdvisorSet
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "hordecodeAdvisorSet", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<AdvisorSetResponses, AdvisorSetErrors, ThrowOnError>({
+      url: "/hordecode/advisor",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 }
@@ -7544,6 +7618,11 @@ export class OpencodeClient extends HeyApiClient {
   private _diagnostics?: Diagnostics
   get diagnostics(): Diagnostics {
     return (this._diagnostics ??= new Diagnostics({ client: this.client }))
+  }
+
+  private _advisor?: Advisor
+  get advisor(): Advisor {
+    return (this._advisor ??= new Advisor({ client: this.client }))
   }
 
   private _tool?: Tool

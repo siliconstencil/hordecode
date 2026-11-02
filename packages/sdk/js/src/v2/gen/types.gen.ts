@@ -2347,6 +2347,14 @@ export type HordecodeDiagnostics = {
   }
 }
 
+export type HordecodeAdvisorState = {
+  override?: boolean
+}
+
+export type HordecodeAdvisorSet = {
+  enabled: boolean
+}
+
 export type ExperimentalCapabilities = {
   backgroundSubagents: boolean
 }
@@ -7881,6 +7889,62 @@ export type DiagnosticsGetResponses = {
 }
 
 export type DiagnosticsGetResponse = DiagnosticsGetResponses[keyof DiagnosticsGetResponses]
+
+export type AdvisorGetData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/hordecode/advisor"
+}
+
+export type AdvisorGetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type AdvisorGetError = AdvisorGetErrors[keyof AdvisorGetErrors]
+
+export type AdvisorGetResponses = {
+  /**
+   * Advisor runtime state
+   */
+  200: HordecodeAdvisorState
+}
+
+export type AdvisorGetResponse = AdvisorGetResponses[keyof AdvisorGetResponses]
+
+export type AdvisorSetData = {
+  body?: HordecodeAdvisorSet
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/hordecode/advisor"
+}
+
+export type AdvisorSetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type AdvisorSetError = AdvisorSetErrors[keyof AdvisorSetErrors]
+
+export type AdvisorSetResponses = {
+  /**
+   * Advisor runtime state
+   */
+  200: HordecodeAdvisorState
+}
+
+export type AdvisorSetResponse = AdvisorSetResponses[keyof AdvisorSetResponses]
 
 export type ExperimentalCapabilitiesGetData = {
   body?: never

@@ -1,5 +1,6 @@
 import { Config } from "@/config/config"
 import { listUnknownConfigKeys } from "@/config/unknown-keys"
+import { AdvisorRuntime } from "@/session/advisor/runtime"
 import { Otlp } from "@opencode-ai/core/observability/otlp"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
@@ -44,6 +45,20 @@ export const diagnosticsHandlers = HttpApiBuilder.group(InstanceHttpApi, "diagno
       }
     })
 
-    return handlers.handle("get", get)
+    const state = () => {
+      const override = AdvisorRuntime.get()
+      return override === undefined ? {} : { override }
+    }
+    const advisorGet = Effect.fn("DiagnosticsHttpApi.advisorGet")(function* () {
+      return state()
+    })
+    const advisorSet = Effect.fn("DiagnosticsHttpApi.advisorSet")(function* (ctx: {
+      payload: { readonly enabled: boolean }
+    }) {
+      AdvisorRuntime.set(ctx.payload.enabled)
+      return state()
+    })
+
+    return handlers.handle("get", get).handle("advisorGet", advisorGet).handle("advisorSet", advisorSet)
   }),
 )

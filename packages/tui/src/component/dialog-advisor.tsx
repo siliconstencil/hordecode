@@ -7,8 +7,10 @@ import { useSDK } from "../context/sdk"
 import { useSync } from "../context/sync"
 import { useToast } from "../ui/toast"
 import { dict } from "../i18n/en"
+import { advisorEnabled, setAdvisorEnabled } from "./advisor-state"
 
-// Fork addition (FORK_ONLY). Edits the `experimental.advisor` config key: an optional second model that
+// Fork addition (FORK_ONLY). Edits the `experimental.advisor` config key (model, sensitivity, notes; on/off is
+// a runtime toggle, see advisor-state.ts): an optional second model that
 // reviews the agent and leaves notes. The server reads the key on every step, so no restart is needed.
 
 export type AdvisorSensitivity = "low" | "default" | "high"
@@ -90,7 +92,7 @@ export function advisorSummary(settings: AdvisorSettings, t: Translate = english
         ? "tui.advisor.notes.blockers"
         : "tui.advisor.notes.important"
   return {
-    enabled: t(settings.enabled ? "tui.advisor.enabled.on" : "tui.advisor.enabled.off"),
+    enabled: t(advisorEnabled(settings) ? "tui.advisor.enabled.on" : "tui.advisor.enabled.off"),
     model: settings.model
       ? t("tui.advisor.model", { value: settings.model })
       : t("tui.advisor.model_not_set"),
@@ -171,14 +173,20 @@ export function DialogAdvisor(props: { settings?: AdvisorSettings }) {
 
   async function toggleEnabled() {
     const current = settings()
-    const enabled = !current.enabled
-    // Turning the advisor on without a model opens the model picker; it saves enabled after a pick.
+    const enabled = !advisorEnabled(current)
+    // Turning the advisor on without a model opens the model picker; it turns the advisor on after a pick.
     if (enabled && !current.model) {
       DialogAdvisorModel.show(dialog, current, true)
       return
     }
-    const next = await saveAdvisor(sdk, toast, t, current, { enabled })
-    if (next) DialogAdvisor.show(dialog, next)
+    // On/off is a runtime toggle for this process (advisor-state.ts); it is never written to config.
+    const error = await setAdvisorEnabled(sdk.client, enabled)
+    if (error) {
+      toast.show({ variant: "error", message: error })
+      return
+    }
+    toast.show({ variant: "success", message: t("tui.advisor.updated"), duration: 3000 })
+    DialogAdvisor.show(dialog, current)
   }
 
   async function toggleNotes() {
@@ -259,13 +267,20 @@ export function DialogAdvisorModel(props: {
   const toast = useToast()
 
   async function choose(ref: ModelRef) {
+    // The model is a saved preference; on/off is not (advisor-state.ts).
     const change: Partial<AdvisorSettings> = { model: `${ref.providerID}/${ref.modelID}` }
-    if (props.enableOnSelect) change.enabled = true
     // Set before the save so the picker's close does not re-open the main view; undone if the save fails.
     props.setDone(true)
     const next = await saveAdvisor(sdk, toast, t, props.settings, change)
-    if (next) DialogAdvisor.show(dialog, next)
-    else props.setDone(false)
+    if (!next) {
+      props.setDone(false)
+      return
+    }
+    if (props.enableOnSelect) {
+      const error = await setAdvisorEnabled(sdk.client, true)
+      if (error) toast.show({ variant: "error", message: error })
+    }
+    DialogAdvisor.show(dialog, next)
   }
 
   const options = (): DialogSelectOption<ModelRef>[] => {

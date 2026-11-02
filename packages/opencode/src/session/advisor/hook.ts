@@ -14,6 +14,7 @@ import { collectFacts, currentTurn } from "./facts"
 import { PRESETS, evaluate } from "./trigger"
 import { advise, isActive, renderReminder, renderTranscript, stateFor, type AdvisorConfig } from "./run"
 import type { Note } from "./emission-guard"
+import { AdvisorRuntime } from "./runtime"
 
 export interface Advice {
   reminder?: string
@@ -56,7 +57,8 @@ export const maybeAdvise = (input: {
   parentSessionID?: string
 }): Effect.Effect<Advice | undefined> =>
   Effect.gen(function* () {
-    const cfg = input.cfg
+    // The runtime toggle (runtime.ts) wins over config for this process.
+    const cfg = AdvisorRuntime.apply(input.cfg)
     if (!isActive(cfg)) return undefined
     // Primary sessions only, like omp (it reviews primary turns): subagent sessions would multiply
     // the cost and their parent already sees their result.

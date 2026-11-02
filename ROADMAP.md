@@ -57,3 +57,7 @@ How a port is done and recorded: [docs/UPSTREAM-MAP.md](docs/UPSTREAM-MAP.md) an
 
 - Port each new opencode 1.x release.
 - Publish the benchmark method and results in the repository.
+- Local usage report: `horde stats --html` writes the statistics `horde stats` shows (cost and
+  tokens per day, models, tools, errors, cache hit rate, Advisor notes) to one self-contained
+  HTML file, read from the local database with no server and no network. Later, if users ask,
+  a live page on the existing Hordecode server.

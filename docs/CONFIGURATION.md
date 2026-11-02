@@ -243,7 +243,7 @@ The triggers are checked at each step:
 
 | Key | Meaning |
 | --- | --- |
-| `enabled` | `true` turns the advisor on. `model` must be set as well. |
+| `enabled` | `true` turns the advisor on in every session. `model` must be set as well. |
 | `model` | A `provider/model` value or a model group name. |
 | `sensitivity` | `low`, `default` or `high`. Sets the presets below. |
 | `min_severity` | The lowest note that is kept: `nit`, `concern` (the default) or `blocker`. |
@@ -264,4 +264,6 @@ Within a turn, a review does not repeat for the same triggers, only when a new t
 
 The **Advisor** command (palette: Advisor, or `/advisor`) turns the advisor on or off, picks its model from
 the connected providers, sets the sensitivity and switches the notes between all notes and concerns and
-blockers only. Changes apply without a restart.
+blockers only. Changes apply without a restart. Turning it on or off there applies to the running `horde`
+only and is not saved, so a new terminal starts with the configured value (off unless `enabled` is `true`).
+The model, sensitivity and notes choices are saved to the global config.
