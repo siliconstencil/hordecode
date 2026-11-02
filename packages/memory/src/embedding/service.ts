@@ -208,12 +208,16 @@ export const layer: Layer.Layer<Service> = Layer.effect(
     const kickoff = () => {
       if (initStarted || initAttempted) return
       initStarted = true
+      state = "loading"
       // Effect.runFork is the v4 process-global runner (see
       // packages/opencode/src/effect/bridge.ts:67). It starts the effect on
       // a fiber we don't need to await. Effect.ignore silences any
       // unexpected failure -- tryInit already logged a single warn above
       // if anything went wrong, so swallowing here is intentional.
-      Effect.runFork(tryInit.pipe(Effect.ignore))
+      // The fiber starts running on the calling stack, and tryInit begins with a synchronous require of the vendored
+      // transformers module (2.7 s cold), which made the first available() block for that long. Sleeping first hands
+      // control back to the caller before the heavy work starts.
+      Effect.runFork(Effect.sleep(Duration.millis(0)).pipe(Effect.andThen(tryInit), Effect.ignore))
     }
 
     const available = Effect.gen(function* () {
