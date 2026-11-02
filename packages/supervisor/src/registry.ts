@@ -21,6 +21,19 @@ const SCAN_INTERVAL_MS = 60 * 1000 // every 60s
 // but risks leaving truly dead orphans pending longer; 5min is the tighter, safer default for two-process tests.
 const ORPHAN_LIVENESS_THRESHOLD_MS = 5 * 60 * 1000 // 5 minutes
 
+// last_error for a run the restart cut off. The prefix is the stable marker; the rest names the
+// existing supervisor tool action that resumes it, with the ids the tool needs (opencode
+// tool/supervisor.ts: run/spawn resume a finished subagent by supervisor_id and subagent_type;
+// send wakes an idle peer by to_supervisor_id). Nothing resumes automatically.
+export const ORPHAN_ERROR_PREFIX = "orphaned: process restarted"
+export function orphanMessage(row: { supervisor_id: string; mode: string; agent: string }) {
+  if (row.mode === "subagent")
+    return `${ORPHAN_ERROR_PREFIX}. To resume it, call the supervisor tool with action "run" or "spawn", supervisor_id "${row.supervisor_id}" and subagent_type "${row.agent}"; the prompt runs as a new turn in its session.`
+  if (row.mode === "peer")
+    return `${ORPHAN_ERROR_PREFIX}. To resume it, call the supervisor tool with action "send", to_supervisor_id "${row.supervisor_id}"; the message runs as its next turn.`
+  return `${ORPHAN_ERROR_PREFIX}. To continue this session, send a new message in it.`
+}
+
 type SupervisorRow = typeof SupervisorRegistryTable.$inferSelect
 type Db = Parameters<Parameters<typeof Database.use>[0]>[0]
 
@@ -779,28 +792,37 @@ export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
           else deadIds.push(otherId)
         }
 
+        // Marks the matching pending/running rows idle with a per-row message (orphanMessage).
+        const orphan = (where: ReturnType<typeof and>) => {
+          const rows = db
+            .select({
+              session_id: SupervisorRegistryTable.session_id,
+              supervisor_id: SupervisorRegistryTable.supervisor_id,
+              mode: SupervisorRegistryTable.mode,
+              agent: SupervisorRegistryTable.agent,
+            })
+            .from(SupervisorRegistryTable)
+            .where(where)
+            .all()
+          for (const row of rows) {
+            db.update(SupervisorRegistryTable)
+              .set({ status: "idle", last_outcome: "failure", last_error: orphanMessage(row), time_updated: now, time_completed: now })
+              .where(and(eq(SupervisorRegistryTable.session_id, row.session_id), eq(SupervisorRegistryTable.supervisor_id, row.supervisor_id)))
+              .run()
+          }
+          return rows.length
+        }
+
         let orphanedDead = 0
         let orphanedLegacy = 0
 
         // Orphan dead instances (pending/running rows for each dead instance_id).
         for (const deadId of deadIds) {
-          const res = db
-            .update(SupervisorRegistryTable)
-            .set({ status: "idle", last_outcome: "failure", last_error: "orphaned: process restarted", time_updated: now, time_completed: now })
-            .where(and(sql`status IN ('pending', 'running')`, eq(SupervisorRegistryTable.instance_id, deadId)))
-            .returning()
-            .all()
-          orphanedDead += res.length
+          orphanedDead += orphan(and(sql`status IN ('pending', 'running')`, eq(SupervisorRegistryTable.instance_id, deadId)))
         }
 
         // Always orphan legacy rows (NULL or empty instance_id) that are pending/running.
-        const legacyRes = db
-          .update(SupervisorRegistryTable)
-          .set({ status: "idle", last_outcome: "failure", last_error: "orphaned: process restarted", time_updated: now, time_completed: now })
-          .where(sql`status IN ('pending', 'running') AND (instance_id IS NULL OR instance_id = '')`)
-          .returning()
-          .all()
-        orphanedLegacy = legacyRes.length
+        orphanedLegacy = orphan(sql`status IN ('pending', 'running') AND (instance_id IS NULL OR instance_id = '')`)
 
         log.info("orphan recovery complete", {
           instanceID,

@@ -2,7 +2,7 @@ import * as Tool from "./tool"
 import type { ExecuteResult } from "./tool"
 import DESCRIPTION from "./session.txt"
 import SHELL_DESCRIPTION from "./session.shell.txt"
-import { Effect, Cause, Deferred, Schema } from "effect"
+import { Effect, Cause, Deferred, Exit, Schema } from "effect"
 import { tokenize } from "./shell-tokenize"
 import { joinGroup } from "@opencode-ai/supervisor/group"
 import { Session } from "../session/session"
@@ -24,6 +24,16 @@ import type { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Instance } from "@opencode-ai/project/instance"
 import { InstanceRef } from "../effect/instance-ref"
 import { Worktree } from "../worktree"
+import { Config } from "../config/config"
+import {
+  acquireSubagentSlot,
+  maxSubagentsLimit,
+  rootSessionOf,
+  subagentBreadthRefusal,
+  subagentDepthLimit,
+  subagentDepthOf,
+  subagentDepthRefusal,
+} from "./subagent-limits"
 import { Integrate } from "../worktree/integrate"
 import { ShellID } from "./shell/id"
 import { assembleFleet, deriveLiveness, renderFleetTable } from "./fleet"
@@ -640,7 +650,7 @@ export function recoverSessionArgs(rawArgs: unknown): unknown {
 export const SessionTool = Tool.define<
   typeof Parameters,
   Metadata,
-  Session.Service | Provider.Service | SupervisorRegistryService.Service | Inbox.Service | Bus.Service | Worktree.Service
+  Session.Service | Provider.Service | SupervisorRegistryService.Service | Inbox.Service | Bus.Service | Worktree.Service | Config.Service
 >(
   id,
   Effect.gen(function* () {
@@ -649,6 +659,7 @@ export const SessionTool = Tool.define<
     const supervisorReg = yield* SupervisorRegistryService.Service
     const inboxSvc = yield* Inbox.Service
     const bus = yield* Bus.Service
+    const config = yield* Config.Service
 
     // Children a user can treat as conversations. Same gate as the TUI session
     // list (tui component/dialog-session-list.tsx:85): a child hosting a
@@ -742,79 +753,105 @@ export const SessionTool = Tool.define<
             }
           }
 
-          const targetDir = createOp.dir ?? (yield* InstanceState.directory)
-          const isolateInput: { effectiveDir: string; isolateNotice: string; branch?: string } = yield* Effect.gen(function* () {
-            if (!createOp.isolate) return { effectiveDir: targetDir, isolateNotice: "" }
-            const derivedName = (createOp.title ?? createOp.topic ?? (createOp.task ?? "").slice(0, 30)).trim().slice(0, 40)
-            const wtOutcome = yield* Effect.gen(function* () {
-              const wtSvc = yield* Worktree.Service
-              const info = yield* wtSvc.create(derivedName ? { name: derivedName } : undefined)
-              return { ok: true as const, info }
-            }).pipe(
-              Effect.catch((error: unknown) => {
-                const tagged = error as { _tag?: string; message?: string }
-                const msg = error instanceof Error ? error.message : (tagged.message ?? String(error))
-                return Effect.succeed({ ok: false as const, tag: tagged._tag, message: msg })
-              }),
-              Effect.catchDefect((defect: unknown) => Effect.succeed({ ok: false as const, tag: undefined as string | undefined, message: String(defect) })),
-            )
-            if (wtOutcome.ok) return { effectiveDir: wtOutcome.info.directory, isolateNotice: "", branch: wtOutcome.info.branch }
-            if (wtOutcome.tag === "WorktreeNotGitError")
-              return { effectiveDir: targetDir, isolateNotice: " (note: --isolate ignored — directory is not a git repo; running shared)" }
-            return {
-              effectiveDir: targetDir,
-              isolateNotice: ` (note: --isolate worktree creation failed (${wtOutcome.message}); running shared)`,
-            }
-          })
-          const effectiveDir = isolateInput.effectiveDir
-          const isolateNotice = isolateInput.isolateNotice
-          const isolatedBranch = isolateInput.branch
+          // Nesting and breadth limits, the same checks the supervisor tool applies to subagents.
+          // Peers count toward the breadth limit while their first turn runs. Checked before the
+          // worktree is created, so a refusal leaves nothing behind.
+          const cfg = yield* config.get()
+          const depthLimit = subagentDepthLimit(cfg.subagent_depth)
+          const depth = yield* subagentDepthOf(sessions, supervisorReg, ctx.sessionID as SessionID, depthLimit)
+          if (depth >= depthLimit) return yield* Effect.die(new Error(subagentDepthRefusal(depthLimit)))
+          const rootSessionID = yield* rootSessionOf(sessions, ctx.sessionID as SessionID)
+          const slotLimit = maxSubagentsLimit(cfg.supervisor?.max_subagents)
+          const subagentSlot = yield* acquireSubagentSlot(supervisorReg, rootSessionID, slotLimit)
+          if (!subagentSlot) return yield* Effect.die(new Error(subagentBreadthRefusal(slotLimit)))
+          // Any failure before the spawn (or in the steps after it) releases the slot here.
+          return yield* Effect.gen(function* () {
+            const targetDir = createOp.dir ?? (yield* InstanceState.directory)
+            const isolateInput: { effectiveDir: string; isolateNotice: string; branch?: string } = yield* Effect.gen(function* () {
+              if (!createOp.isolate) return { effectiveDir: targetDir, isolateNotice: "" }
+              const derivedName = (createOp.title ?? createOp.topic ?? (createOp.task ?? "").slice(0, 30)).trim().slice(0, 40)
+              const wtOutcome = yield* Effect.gen(function* () {
+                const wtSvc = yield* Worktree.Service
+                const info = yield* wtSvc.create(derivedName ? { name: derivedName } : undefined)
+                return { ok: true as const, info }
+              }).pipe(
+                Effect.catch((error: unknown) => {
+                  const tagged = error as { _tag?: string; message?: string }
+                  const msg = error instanceof Error ? error.message : (tagged.message ?? String(error))
+                  return Effect.succeed({ ok: false as const, tag: tagged._tag, message: msg })
+                }),
+                Effect.catchDefect((defect: unknown) => Effect.succeed({ ok: false as const, tag: undefined as string | undefined, message: String(defect) })),
+              )
+              if (wtOutcome.ok) return { effectiveDir: wtOutcome.info.directory, isolateNotice: "", branch: wtOutcome.info.branch }
+              if (wtOutcome.tag === "WorktreeNotGitError")
+                return { effectiveDir: targetDir, isolateNotice: " (note: --isolate ignored — directory is not a git repo; running shared)" }
+              return {
+                effectiveDir: targetDir,
+                isolateNotice: ` (note: --isolate worktree creation failed (${wtOutcome.message}); running shared)`,
+              }
+            })
+            const effectiveDir = isolateInput.effectiveDir
+            const isolateNotice = isolateInput.isolateNotice
+            const isolatedBranch = isolateInput.branch
 
-          const taskText = createOp.task
-          if (!taskText)
-            return yield* Effect.fail(
-              new Tool.InvalidArgumentsError({ tool: id, detail: "create requires task" }),
-            )
-          const model = createOp.model
-            ? yield* provider
-                .resolveModelRef(createOp.model, undefined)
-                .pipe(
-                  Effect.map((m) => ({
-                    providerID: toLegacyProviderID(m.providerID),
-                    modelID: toLegacyModelID(m.id),
-                  })),
+            const taskText = createOp.task
+            if (!taskText)
+              return yield* Effect.fail(
+                new Tool.InvalidArgumentsError({ tool: id, detail: "create requires task" }),
+              )
+            const model = createOp.model
+              ? yield* provider
+                  .resolveModelRef(createOp.model, undefined)
+                  .pipe(
+                    Effect.map((m) => ({
+                      providerID: toLegacyProviderID(m.providerID),
+                      modelID: toLegacyModelID(m.id),
+                    })),
+                  )
+              : undefined
+            const result = yield* supervisor.spawn({
+              mode: "peer",
+              sessionID: ctx.sessionID as SessionID,
+              agentType: createOp.mode ?? "build",
+              task: isolatedBranch ? `${taskText}\n\n${isolationNote(isolatedBranch)}` : taskText,
+              description: createOp.title ?? taskText.slice(0, 40),
+              context: "none" as const,
+              tools: "INHERIT" as const,
+              background: true,
+              parentSupervisorID: ctx.supervisorID,
+              lifecycle: "persistent" as const,
+              cwd: effectiveDir,
+              ...(model ? { model } : {}),
+            }).pipe(
+              // A failed spawn frees its slot at once; a started peer frees it when its first turn resolves
+              // (success, failure or cancel), as supervisor.ts does for subagents.
+              Effect.onExit((exit) => {
+                if (!Exit.isSuccess(exit)) return subagentSlot.release
+                subagentSlot.bind(exit.value.sessionID, exit.value.supervisorID)
+                return Deferred.await(exit.value.outcome).pipe(
+                  Effect.ensuring(subagentSlot.release),
+                  Effect.forkDetach,
+                  Effect.asVoid,
                 )
-            : undefined
-          const result = yield* supervisor.spawn({
-            mode: "peer",
-            sessionID: ctx.sessionID as SessionID,
-            agentType: createOp.mode ?? "build",
-            task: isolatedBranch ? `${taskText}\n\n${isolationNote(isolatedBranch)}` : taskText,
-            description: createOp.title ?? taskText.slice(0, 40),
-            context: "none" as const,
-            tools: "INHERIT" as const,
-            background: true,
-            parentSupervisorID: ctx.supervisorID,
-            lifecycle: "persistent" as const,
-            cwd: effectiveDir,
-            ...(model ? { model } : {}),
-          })
-          if (createOp.topic) {
-            const topic = createOp.topic
-            const base = createOp.title ?? `${createOp.mode ?? "build"}: ${taskText.slice(0, 40)}`
-            yield* sessions.setTitle({ sessionID: result.sessionID, title: tagTitle(topic, base) })
-          } else if (createOp.title) yield* sessions.setTitle({ sessionID: result.sessionID, title: createOp.title })
-          return {
-            title: `Session created: ${result.sessionID}`,
-            output:
-              `Created child session ${result.sessionID} (mode: ${createOp.mode ?? "build"}) in ${effectiveDir}.` +
-              (createOp.topic ? ` Tagged with topic '${createOp.topic}' for reuse.` : ``) +
-              (createOp.isolate && !isolateNotice
-              ? ` Isolated in its own worktree${isolatedBranch ? ` on branch ${isolatedBranch}; the child was told to commit its work there. Integrate it with \`session merge ${result.sessionID}\`` : ""}.`
-              : isolateNotice) +
-              ` Running in background.`,
-            metadata: { sessionID: result.sessionID as string },
-          }
+              }),
+            )
+            if (createOp.topic) {
+              const topic = createOp.topic
+              const base = createOp.title ?? `${createOp.mode ?? "build"}: ${taskText.slice(0, 40)}`
+              yield* sessions.setTitle({ sessionID: result.sessionID, title: tagTitle(topic, base) })
+            } else if (createOp.title) yield* sessions.setTitle({ sessionID: result.sessionID, title: createOp.title })
+            return {
+              title: `Session created: ${result.sessionID}`,
+              output:
+                `Created child session ${result.sessionID} (mode: ${createOp.mode ?? "build"}) in ${effectiveDir}.` +
+                (createOp.topic ? ` Tagged with topic '${createOp.topic}' for reuse.` : ``) +
+                (createOp.isolate && !isolateNotice
+                ? ` Isolated in its own worktree${isolatedBranch ? ` on branch ${isolatedBranch}; the child was told to commit its work there. Integrate it with \`session merge ${result.sessionID}\`` : ""}.`
+                : isolateNotice) +
+                ` Running in background.`,
+              metadata: { sessionID: result.sessionID as string },
+            }
+          }).pipe(Effect.onExit((exit) => (Exit.isSuccess(exit) ? Effect.void : subagentSlot.release)))
         }
 
         if (action === "switch") {

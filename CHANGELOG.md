@@ -29,6 +29,10 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `session create` peers obey the subagent depth limit and count toward `supervisor.max_subagents` while their
+  first turn runs; a refusal happens before any worktree is created.
+- Supervisor rows orphaned by a restart name how to resume them (`supervisor` run with the id, `send` for a
+  peer, a new message for a main row).
 - Idle sidebar timers: the subagent panel arms one timeout to the next row expiry, the cache line ticks only
   while the prompt cache is warm, and in-progress task spinners stop while their session is idle.
 - Polling timers stop while a session is idle: the supervisor re-fetch, the workflow run poll after the run ends,

@@ -16,6 +16,7 @@ import { MessageID, SessionID } from "../../src/session/schema"
 import { Bus } from "@opencode-ai/bus"
 import { spawnRef } from "@opencode-ai/supervisor/spawn-ref"
 import { Worktree } from "../../src/worktree"
+import { Config } from "../../src/config/config"
 import type { Context } from "../../src/tool/tool"
 import { testEffect } from "../lib/effect"
 import type { SpawnInput } from "@opencode-ai/supervisor/spawn"
@@ -69,6 +70,10 @@ const layer = Layer.mergeAll(
   }),
   Layer.mock(Truncate.Service, {
     output: (text: string) => Effect.succeed({ content: text, truncated: false } as const),
+  }),
+  // The create path reads the subagent limits from config; defaults apply when unset.
+  Layer.mock(Config.Service, {
+    get: () => Effect.succeed({} as never),
   }),
   Layer.mock(Worktree.Service, {
     makeWorktreeInfo: () => Effect.succeed({ name: "test", directory: "/tmp/test", branch: "opencode/test" }),

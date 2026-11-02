@@ -119,8 +119,11 @@ A port is complete only when all three land together: the code, the `hordecodeBa
   workers -> helpers); `subagent_depth` sets 0..MAX_SUBAGENT_DEPTH (8, the bound of the interrupt
   cascade and descendant lookup). This is a
   Hordecode decision: supervisors delegate through levels of subagents, unlike upstream's task
-  tool (default 1) and MiMo 0.1.12 (no nested delegation). Peers and system spawns do not count.
-  Open: nesting through `session ask`, `session create` and the workflow runtime is not checked.
+  tool (default 1) and MiMo 0.1.12 (no nested delegation). Peers and system spawns do not count
+  toward depth. `session create` applies the same depth check and takes a breadth slot
+  (`supervisor.max_subagents`) while the peer's first turn runs (`tool/subagent-limits.ts`).
+  Open: nesting through `session ask` and the workflow runtime is not checked; a chain of peers is
+  not bounded by depth.
 - Fork package tests: `agent`, `control-plane`, `shared`, `task`, `team`, `worktree` and `memory` have a `test`
   script; `project` tests cover project ids, workspace trust and the directory guard. Task registry lifecycle
   tests live in `packages/opencode/test/task` (they need the app database layer). `global` has no scripts at all.

@@ -15,6 +15,7 @@ import { SessionTool } from "../../src/tool/session"
 import { MessageID, SessionID } from "../../src/session/schema"
 import { Bus } from "@opencode-ai/bus"
 import { Worktree } from "../../src/worktree"
+import { Config } from "../../src/config/config"
 import type { Context } from "../../src/tool/tool"
 import { testEffect } from "../lib/effect"
 
@@ -67,6 +68,10 @@ const layer = Layer.mergeAll(
   }),
   Layer.mock(Truncate.Service, {
     output: (text: string) => Effect.succeed({ content: text, truncated: false } as const),
+  }),
+  // The create path reads the subagent limits from config; defaults apply when unset.
+  Layer.mock(Config.Service, {
+    get: () => Effect.succeed({} as never),
   }),
   Layer.mock(Worktree.Service, {} as unknown as Worktree.Interface),
 )
