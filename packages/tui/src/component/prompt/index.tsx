@@ -1488,19 +1488,21 @@ export function Prompt(props: PromptProps) {
                 <Show when={local.agent.current()} fallback={<box height={1} />}>
                   {(agent) => (
                     <>
-                      <text fg={fadeColor(highlight(), agentMetaAlpha())}>
+                      {/* Hordecode: labels never wrap mid-word in the narrow home prompt; the provider label gives way
+                          first (wrapMode="none" as upstream prompt/index.tsx:1667). */}
+                      <text fg={fadeColor(highlight(), agentMetaAlpha())} wrapMode="none" flexShrink={0}>
                         {store.mode === "shell" ? "Shell" : Locale.titlecase(agent().name)}
                       </text>
                       <Show when={store.mode === "normal" && permission.mode === "auto"}>
-                        <text fg={fadeColor(theme.error, agentMetaAlpha())}>auto</text>
+                        <text fg={fadeColor(theme.error, agentMetaAlpha())} wrapMode="none" flexShrink={0}>auto</text>
                       </Show>
                       <Show when={store.mode === "normal" && permission.mode === "careful"}>
-                        <text fg={fadeColor(theme.warning, agentMetaAlpha())}>careful</text>
+                        <text fg={fadeColor(theme.warning, agentMetaAlpha())} wrapMode="none" flexShrink={0}>careful</text>
                       </Show>
                       {/* Hordecode: the advisor is on (experimental.advisor with a model); next to the
                           guardrail label after upstream's agent name (prompt/index.tsx:1450). */}
                       <Show when={store.mode === "normal" && advisorOn()}>
-                        <text fg={fadeColor(theme.accent, agentMetaAlpha())}>advisor</text>
+                        <text fg={fadeColor(theme.accent, agentMetaAlpha())} wrapMode="none" flexShrink={0}>advisor</text>
                       </Show>
                       <Show when={store.mode === "normal"}>
                         <box flexDirection="row" gap={1}>
@@ -1511,7 +1513,9 @@ export function Prompt(props: PromptProps) {
                           >
                             {local.model.parsed().model}
                           </text>
-                          <text fg={fadeColor(theme.textMuted, modelMetaAlpha())}>{currentProviderLabel()}</text>
+                          <text fg={fadeColor(theme.textMuted, modelMetaAlpha())} wrapMode="none" flexShrink={1}>
+                            {currentProviderLabel()}
+                          </text>
                           <Show when={showVariant()}>
                             <text fg={fadeColor(theme.textMuted, variantMetaAlpha())}>·</text>
                             <text>
