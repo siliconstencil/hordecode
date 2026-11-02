@@ -1196,8 +1196,15 @@ export function toPublicInfo(provider: Info): Info {
   )
 }
 
+// A provider with no models (e.g. the opencode tier without a key) has no default and is left out;
+// upstream v1.19.5 provider.ts:1199-1201 reads [0].id and throws on it.
 export function defaultModelIDs<T extends { models: Record<string, { id: string }> }>(providers: Record<string, T>) {
-  return mapValues(providers, (item) => sort(Object.values(item.models))[0].id)
+  return Object.fromEntries(
+    Object.entries(providers).flatMap(([id, item]) => {
+      const [model] = sort(Object.values(item.models))
+      return model ? [[id, model.id]] : []
+    }),
+  )
 }
 
 export class ModelNotFoundError extends Schema.TaggedErrorClass<ModelNotFoundError>()("ProviderModelNotFoundError", {
@@ -2102,9 +2109,16 @@ const layer = Layer.effect(
         return { providerID: entry.providerID, modelID: entry.modelID }
       }
 
+      // Providers without models cannot serve a default; skipping them (upstream v1.19.5 provider.ts:2057-2061 takes
+      // the first match) keeps a keyless opencode tier from failing every prompt that names no model.
       const configured = Object.keys(cfg.provider ?? {})
-      const provider = Object.values(s.providers).find((p) => configured.length === 0 || configured.includes(p.id))
-      if (!provider) return yield* new NoProvidersError()
+      const all = Object.values(s.providers)
+      const withModels = all.filter((p) => Object.keys(p.models).length > 0)
+      const provider = withModels.find((p) => configured.length === 0 || configured.includes(p.id)) ?? withModels[0]
+      if (!provider) {
+        const empty = all.find((p) => configured.length === 0 || configured.includes(p.id))
+        return yield* empty ? new NoModelsError({ providerID: empty.id }) : new NoProvidersError()
+      }
       const [model] = sort(Object.values(provider.models))
       if (!model) return yield* new NoModelsError({ providerID: provider.id })
       return {
