@@ -29,6 +29,7 @@ fi
 # The scored text: the phase's gate evidence plus its deliverable(s), when present.
 case "${PHASE}" in
   scope) DELIVERABLES=("${FINDINGS_DIR}/brief.md") ;;
+  plan) DELIVERABLES=("${FINDINGS_DIR}/manifest.yaml") ;;
   gather) DELIVERABLES=("${FINDINGS_DIR}"/evidence-*.md) ;;
   verify) DELIVERABLES=("${FINDINGS_DIR}/verified-evidence.md") ;;
   filter) DELIVERABLES=("${FINDINGS_DIR}/filtered-evidence.md") ;;
@@ -124,6 +125,18 @@ case "${PHASE}" in
       check axes 0 "(Decision Axes with a filled CONFIRMED line)"
     fi
     check vocabulary "$(family 'success criteria|acceptance' 'perspective' 'assumption' 'risk|constraint')" "(bounded word check)"
+    ;;
+  plan)
+    KEYS=0
+    for k in run_id intent brief agents subtopics budgets gates; do
+      grep -qE "^${k}:" "${INPUT_FILE}" && KEYS=$((KEYS + 1))
+    done
+    check manifest_keys "$(capped "${KEYS}" 7)" "(${KEYS}/7 manifest keys present)"
+    block() { awk -v key="$1" '$0 ~ "^" key ":" { on = 1; next } /^[a-z_]+:/ { on = 0 } on && /^  (SCOPE|GATHER|VERIFY|FILTER|SYNTHESIZE|DECIDE|EVAL):/ { n++ } END { print n + 0 }' "${INPUT_FILE}"; }
+    BUD=$(block budgets)
+    check budgets "$(capped "${BUD}" 7)" "(${BUD}/7 phase budgets)"
+    GAT=$(block gates)
+    check gates "$(capped "${GAT}" 7)" "(${GAT}/7 phase gates)"
     ;;
   gather)
     SRC=$(count_rows 'sources')

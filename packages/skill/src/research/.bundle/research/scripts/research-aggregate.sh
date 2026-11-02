@@ -14,7 +14,7 @@ if [[ ! -d "${FINDINGS_DIR}" ]]; then
   exit 1
 fi
 
-PHASES="scope gather verify filter synthesize decide eval"
+PHASES="scope plan gather verify filter synthesize decide eval"
 TOTAL=0
 COUNT=0
 MIN="1.0"
@@ -73,4 +73,4 @@ cat > "${FINDINGS_DIR}/aggregate.json" << EOF
 EOF
 
 # Output summary
-echo "Run ${RUN_ID}: avg=${AVG} min=${MIN} (${MIN_PHASE}) gate=${GATE} phases=${COUNT}/7"
+echo "Run ${RUN_ID}: avg=${AVG} min=${MIN} (${MIN_PHASE}) gate=${GATE} phases=${COUNT}/8"

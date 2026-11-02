@@ -2,7 +2,7 @@
 # research-gate.sh -- per-phase evidence gate for research runs
 # Usage: ./research-gate.sh <run-id> <phase>
 # Exit 0 = gate pass, exit 1 = gate fail
-# Phases: scope gather verify filter synthesize decide eval validation
+# Phases: ask scope plan gather verify filter synthesize decide eval (plus the any-phase gates debug and validation)
 
 set -euo pipefail
 
@@ -109,8 +109,8 @@ EVIDENCE_FILE="${FINDINGS_DIR}/${PHASE}.evidence"
 
 # Validate phase name (S1: ask/debug added as any-phase gates, Section 21)
 case "${PHASE}" in
-  scope|ask|debug|gather|verify|filter|synthesize|decide|eval|validation) ;;
-  *) echo "ERROR: unknown phase '${PHASE}'. Valid: scope ask debug gather verify filter synthesize decide eval validation" >&2; exit 2 ;;
+  scope|ask|debug|plan|gather|verify|filter|synthesize|decide|eval|validation) ;;
+  *) echo "ERROR: unknown phase '${PHASE}'. Valid: ask scope plan gather verify filter synthesize decide eval debug validation" >&2; exit 2 ;;
 esac
 
 # Check findings dir exists
@@ -190,6 +190,20 @@ case "${PHASE}" in
       echo "FAIL: debug evidence needs >=2 If X then Y hypotheses (found ${HYP_COUNT}, S1)" >&2
       exit 1
     fi
+    ;;
+  plan)
+    # research:plan writes findings/<run-id>/manifest.yaml; the gate needs it and its run_id, agents, budgets and gates.
+    MANIFEST="${FINDINGS_DIR}/manifest.yaml"
+    if [[ ! -s "${MANIFEST}" ]]; then
+      echo "FAIL: plan manifest not found or empty: ${MANIFEST}" >&2
+      exit 1
+    fi
+    for key in run_id agents budgets gates; do
+      if ! grep -qE "^${key}:" "${MANIFEST}"; then
+        echo "FAIL: plan manifest missing '${key}:' (research:plan manifest format)" >&2
+        exit 1
+      fi
+    done
     ;;
   gather)
     # Must have sources listed
