@@ -29,6 +29,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `horde run` without `--model` no longer fails with "Unexpected server error" when none of the providers named in
+  the `provider` config block has loaded: the default model falls back to a loaded provider that has models.
+- The research gate, score and aggregate scripts know the `plan` phase that SKILL.md lists, so a run that follows
+  step 3 can pass its own gate.
+- `run` ends within 5 seconds if disposing the instance hangs after the answer was printed.
 - `memory_gc` results stick: a duplicate or retention row removed by gc stays out of the index until its file
   changes (the markdown files are never deleted), instead of being re-indexed by the next search.
 - Plugin installs apply the project and user `.npmrc` (omit, registry, auth); `webfetch` and its SSRF check are
