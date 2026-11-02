@@ -1,76 +1,50 @@
-import { describe, it, expect, afterEach } from "bun:test"
-import { Effect } from "effect"
-import { Scheduler, layer as schedLayer } from "../src/scheduler"
-import { getSessionCronTasks, clearSessionCronTasks, addSessionCronTask } from "../src/cron-task"
-import * as LoopState from "../src/loop-state"
-import { getSessionCronFilePath } from "../src/cron-task"
-import { getLoopStateFilePath } from "../src/loop-state"
-import { unlink } from "fs/promises"
+import { describe, it, expect } from "bun:test"
+import { mkdtempSync, rmSync } from "fs"
+import { tmpdir } from "os"
+import path from "path"
 
-// gap in design a: assert the cron boot-rt 'tick skipped' warn is ACTUALLY emitted to
-// process.stderr.write (the Logger sink), not console.warn. The logger sink is
-// `process.stderr.write` (log.ts:66-69) and never calls console.warn, so a
-// console.warn/console.* spy can never observe it. We patch process.stderr.write
-// directly: save original, swap with a recorder, run the boot-rt skip path,
-// assert the literal 'cron tick skipped' substring was written, then restore.
+// The cron boot-runtime 'tick skipped' line must reach process.stderr.write (the Logger sink, log.ts:66-69)
+// exactly once however many boot ticks run, and never through console.warn.
+//
+// The "logged once" latch is module state of the process-wide scheduler singleton, so any earlier test in the same
+// process that ticked the boot runtime would use the single log up. The scenario therefore runs in a fresh process.
+const script = `
+import { Effect } from "effect"
+import { Scheduler, layer } from ${JSON.stringify(path.join(import.meta.dir, "../src/scheduler"))}
+import { addSessionCronTask } from ${JSON.stringify(path.join(import.meta.dir, "../src/cron-task"))}
+const warns = []
+console.warn = (...args) => warns.push(args.join(" "))
+const program = Effect.gen(function* () {
+  const sched = yield* Scheduler
+  addSessionCronTask({ id: "boot-warn-probe", cron: "* * * * *", prompt: "boot warn probe", createdAt: Date.now() - 120000, recurring: false })
+  yield* sched.tickOnce()
+  yield* sched.tickOnce()
+})
+await Effect.runPromise(Effect.provide(program, layer))
+process.stdout.write("CONSOLE_WARNS=" + JSON.stringify(warns))
+process.exit(0)
+`
 
 describe("boot-rt warn assertion (process.stderr.write)", () => {
-  let origWrite: typeof process.stderr.write
-  let recorded: string
-  let origWarn: typeof console.warn
-  let consoleWarns: string[]
-
-  const patchStderr = () => {
-    origWrite = process.stderr.write
-    origWarn = console.warn
-    recorded = ""
-    consoleWarns = []
-    // @ts-ignore - process.stderr.write has overloaded signatures
-    process.stderr.write = (chunk: string | Uint8Array): boolean => {
-      recorded += typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk)
-      return true
-    }
-    console.warn = (...args: unknown[]) => {
-      consoleWarns.push(args.map((a) => (typeof a === "string" ? a : String(a))).join(" "))
-    }
-  }
-
-  const restoreStderr = () => {
-    process.stderr.write = origWrite
-    console.warn = origWarn
-  }
-
-  afterEach(async () => {
-    restoreStderr()
-    LoopState.clearAllLoopStates()
-    clearSessionCronTasks()
-    await unlink(getSessionCronFilePath()).catch(() => {})
-    await unlink(getLoopStateFilePath()).catch(() => {})
-  })
-
   it("emits 'cron tick skipped' to stderr exactly once across boot-rt ticks", async () => {
-    patchStderr()
-    const program = Effect.gen(function* () {
-      const sched = yield* Scheduler
-      // Do NOT call start() -- keep the boot runtime (rt.isBoot === true).
-      // Prime a session task so the test would fire if the guard were absent.
-      addSessionCronTask({
-        id: "boot-warn-probe",
-        cron: "* * * * *",
-        prompt: "boot warn probe",
-        createdAt: Date.now() - 120_000,
-        recurring: false,
+    const home = mkdtempSync(path.join(process.env.HORDECODE_TEST_TMP || tmpdir(), "cron-boot-warn-"))
+    try {
+      const proc = Bun.spawn([process.execPath, "-e", script], {
+        cwd: path.join(import.meta.dir, ".."),
+        env: { ...process.env, HORDECODE_HOME: home },
+        stdout: "pipe",
+        stderr: "pipe",
       })
-      // Call tickOnce twice to verify the once-only logging behavior.
-      yield* sched.tickOnce()
-      yield* sched.tickOnce()
-      expect(getSessionCronTasks().find((t) => t.id === "boot-warn-probe")).toBeDefined()
-    })
-    await Effect.runPromise(Effect.provide(program, schedLayer))
-    // Logged once at INFO on the first boot-rt tick, silent on later ticks.
-    const matches = (recorded.match(/cron tick skipped/g) || []).length
-    expect(matches).toBe(1)
-    // The message must come from the Log sink, not console.warn.
-    expect(consoleWarns.some((w) => w.includes("cron tick skipped"))).toBe(false)
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ])
+      expect(code).toBe(0)
+      expect((stderr.match(/cron tick skipped/g) || []).length).toBe(1)
+      expect(stdout).toBe("CONSOLE_WARNS=[]")
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
   })
 })
