@@ -20,6 +20,7 @@ import { open } from "node:fs/promises"
 import { Effect } from "effect"
 import { UI } from "../ui"
 import { effectCmd } from "../effect-cmd"
+import { armShutdownWatchdog } from "../run-shutdown"
 import { EOL } from "os"
 import { Filesystem } from "@/util/filesystem"
 import { createOpencodeClient, type OpencodeClient, type ToolPart } from "@opencode-ai/sdk/v2"
@@ -962,7 +963,8 @@ export const RunCommand = effectCmd({
       })
       await execute(sdk)
     })
-  }),
+  // Bound the unbounded dispose in effect-cmd.ts; upstream v1.19.5 cli/cmd/tui.ts:265 uses withTimeout(..., 5000) for the worker.
+  }, Effect.ensuring(Effect.sync(() => void armShutdownWatchdog()))),
 })
 
 type MiniCommandInput = {
