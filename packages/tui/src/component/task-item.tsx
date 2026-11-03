@@ -23,18 +23,18 @@ export function taskSpinnerActive(input: { running: boolean; motion: boolean; bu
   return input.running && input.motion && input.busy !== false
 }
 
+// Static marker inside `[ ]` for a task that is not running.
+export function taskGlyph(status: string) {
+  return status === "done" ? "✓" : status === "blocked" ? "⏸" : status === "abandoned" ? "✗" : " "
+}
+
 export function TaskItem(props: TaskItemProps) {
   const { theme } = useTheme()
   const visual = useVisualMode()
   const running = () => props.status === "in_progress"
-  const glyph =
-    props.status === "done"
-      ? "✓"
-      : props.status === "blocked"
-        ? "⏸"
-        : props.status === "abandoned"
-          ? "✗"
-          : " "
+  // A function, not a value read once: the sidebar renders rows with <Index>, which keeps a row's component
+  // and changes its props when a task moves from open to done, so the marker has to follow props.status.
+  const glyph = () => taskGlyph(props.status)
   const fg = () => (running() ? theme.warning : theme.textMuted)
   const indent = "  ".repeat(props.depth)
 
@@ -47,7 +47,7 @@ export function TaskItem(props: TaskItemProps) {
         when={running()}
         fallback={
           <text flexShrink={0} style={{ fg: fg() }}>
-            [{glyph}]{" "}
+            [{glyph()}]{" "}
           </text>
         }
       >

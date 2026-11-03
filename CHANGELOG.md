@@ -68,6 +68,8 @@ All notable changes to this project will be documented in this file.
 - `memory_gc` removes a duplicate only when its body matches a newer row with the same fingerprint, so two
   different notes with the same size and modification time are both kept.
 - The sidebar task spinner runs while the session or one of its subagents works.
+- A sidebar task row that moves to done in place shows its check mark; the marker used to keep the glyph it was
+  first drawn with.
 - Sidebar Telemetry values and the prompt footer labels no longer wrap, which had left a blank line under Tokens,
   overlapping Tools and Speed rows, and words split across lines in a narrow home prompt.
 
