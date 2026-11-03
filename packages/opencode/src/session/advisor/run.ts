@@ -19,6 +19,7 @@ export interface AdvisorConfig {
     tool_failures?: number
     same_error?: number
     context_percent?: number
+    no_progress?: number
   }
   sensitivity?: "low" | "default" | "high"
   min_severity?: Severity

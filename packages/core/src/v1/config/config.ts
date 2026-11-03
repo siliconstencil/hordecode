@@ -442,6 +442,7 @@ export const Info = Schema.Struct({
               tool_failures: Schema.optional(Schema.Number),
               same_error: Schema.optional(Schema.Number),
               context_percent: Schema.optional(Schema.Number),
+              no_progress: Schema.optional(Schema.Number),
             }),
           ),
           sensitivity: Schema.optional(Schema.Literals(["low", "default", "high"])).annotate({

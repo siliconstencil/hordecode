@@ -155,3 +155,29 @@ describe("shell exit codes", () => {
     expect(facts.maxSameError).toBe(2)
   })
 })
+
+describe("callsSinceWrite", () => {
+  test("counts trailing tool calls after the last file write in the turn", () => {
+    const messages = [
+      user("go"),
+      tool("read", "completed", { filePath: "/a" }),
+      tool("edit", "completed", { filePath: "/a" }),
+      tool("read", "completed", { filePath: "/b" }),
+      tool("grep", "completed", { pattern: "x" }),
+      tool("bash", "error", { command: "ls" }, "boom"),
+    ]
+    expect(collectFacts(messages, undefined).callsSinceWrite).toBe(3)
+  })
+
+  test("counts every call when the turn has no write", () => {
+    const messages = [user("go"), tool("read", "completed", {}), tool("read", "completed", {})]
+    expect(collectFacts(messages, undefined).callsSinceWrite).toBe(2)
+  })
+
+  test("is 0 right after a write and ignores calls from before the user turn", () => {
+    const messages = [tool("read", "completed", {}), user("go"), tool("write", "completed", { filePath: "/a" })]
+    expect(collectFacts(messages, undefined).callsSinceWrite).toBe(0)
+    expect(collectFacts([user("hi")], undefined).callsSinceWrite).toBe(0)
+  })
+})
+

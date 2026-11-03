@@ -9,6 +9,8 @@ export interface AdvisorFacts {
   toolFailures: number
   maxSameError: number
   contextPercent: number | null
+  // Tool calls at the end of the current turn since the last file-writing call (all calls when none wrote).
+  callsSinceWrite: number
 }
 
 type Message = SessionV1.WithParts
@@ -98,7 +100,10 @@ export function collectFacts(messages: Message[], contextLimit: number | undefin
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
 
+  const lastWrite = tools.findLastIndex((part) => FILE_TOOLS.has(part.tool))
+
   return {
+    callsSinceWrite: tools.length - (lastWrite + 1),
     filesTouched: files.size,
     toolFailures: errors.length,
     maxSameError: Math.max(0, ...counts.values()),
