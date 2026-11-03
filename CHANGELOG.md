@@ -65,6 +65,8 @@ All notable changes to this project will be documented in this file.
   once and keeps waiting; running turns are never cut off.
 - `memory_gc` and prune drop the vector cache entry of each removed row, and an index pass embeds rows that were
   stored while no embedding provider was ready (16 per pass).
+- Memory search with `scope`, `scope_id` or `type` (`memory`, `memory_recall`) no longer returns rows from other
+  scopes that only the semantic (vector) branch found; they get the same filter as the keyword branch.
 - `memory_gc` removes a duplicate only when its body matches a newer row with the same fingerprint, so two
   different notes with the same size and modification time are both kept.
 - The sidebar task spinner runs while the session or one of its subagents works.

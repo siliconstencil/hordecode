@@ -193,3 +193,28 @@ describe("memory embedding backfill", () => {
     )
   })
 })
+
+describe("hybrid search scope filter", () => {
+  test("vector-only hits outside the requested scope, scope_id or type are not returned", async () => {
+    await withStack(({ mem, emb }) =>
+      Effect.gen(function* () {
+        emb.state.ready = true
+        yield* mem.add({ scope: "sessions", scope_id: "s1", type: "concept", body: "alpha inside the scope" })
+        yield* mem.add({ scope: "global", type: "concept", body: "alpha global row" })
+        yield* mem.add({ scope: "sessions", scope_id: "s2", type: "concept", body: "alpha other session" })
+        yield* mem.add({ scope: "sessions", scope_id: "s1", type: "decision", body: "alpha other type" })
+        // "inside" matches only the first row lexically; the vector store returns every alpha row.
+        const scoped = yield* mem.search({ query: "alpha inside", scope: "sessions", scope_id: "s1", type: "concept", reconcileOnSearch: false })
+        expect(scoped.length).toBeGreaterThan(0)
+        for (const hit of scoped as Array<{ scope: string; scope_id: string; type: string }>) {
+          expect(hit.scope).toBe("sessions")
+          expect(hit.scope_id).toBe("s1")
+          expect(hit.type).toBe("concept")
+        }
+        const unscoped = yield* mem.search({ query: "alpha inside", reconcileOnSearch: false })
+        expect(unscoped.length).toBeGreaterThan(1)
+      }),
+    )
+  })
+})
+

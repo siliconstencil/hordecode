@@ -448,7 +448,19 @@ export const layer: Layer.Layer<Service, never, Database.Service | Config.Servic
           const extra = yield* database.db
             .select({ id: MemoryFtsTable.id, path: MemoryFtsTable.path, scope: MemoryFtsTable.scope, scope_id: MemoryFtsTable.scope_id, type: MemoryFtsTable.type, body: MemoryFtsTable.body, last_indexed_at: MemoryFtsTable.last_indexed_at })
             .from(MemoryFtsTable)
-            .where(sql`${MemoryFtsTable.id} IN (${sql.join(missingIds.map((n) => sql`${n}`), sql`, `)})`)
+            // The vector store is not scoped, so rows it adds get the same scope/scope_id/type filter as the FTS query;
+            // an id outside the filter is not loaded and drops out of the fused list below.
+            .where(
+              sql.join(
+                [
+                  sql`${MemoryFtsTable.id} IN (${sql.join(missingIds.map((n) => sql`${n}`), sql`, `)})`,
+                  ...(input.scope ? [sql`${MemoryFtsTable.scope} = ${input.scope}`] : []),
+                  ...(input.scope_id ? [sql`${MemoryFtsTable.scope_id} = ${input.scope_id}`] : []),
+                  ...(input.type ? [sql`${MemoryFtsTable.type} = ${input.type}`] : []),
+                ],
+                sql` AND `,
+              ),
+            )
             .all()
             .pipe(Effect.orDie)
           for (const r of extra) {
