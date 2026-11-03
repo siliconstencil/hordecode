@@ -127,7 +127,7 @@ Prefer a markdown file (`.hordecode/agent/<name>.md`, body = system prompt) for 
 |-----|---------|
 | `dream.auto` / `dream.interval_days` | Auto memory consolidation on session start (default true / 7 days) |
 | `distill.auto` / `distill.interval_days` | Auto workflow packaging (default true / 30 days) |
-| `harness` | Harness mode config (`docs` dir default `docs/harness`, `docs_absolute`) |
+| `harness` | Harness mode config (`docs` dir default `docs/harness`, `docs_absolute`, `triage` default false: routine requests skip brainstorm/plan/tdd) |
 | `workflow.maxConcurrentAgents` | Process-wide subagent concurrency ceiling (default min(16, 2×cores)) |
 | `workflow.maxDepth` | Max workflow nesting depth (default 8) |
 

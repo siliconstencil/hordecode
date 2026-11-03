@@ -11,6 +11,10 @@ export const Info = Schema.Struct({
     description:
       "Whether the docs directory injected into the harness prompt is an absolute path. When false (default), a relative `docs` value is passed through verbatim. When true, a relative `docs` is resolved against the active worktree root so it is unambiguous regardless of the agent's working directory. Ignored when `docs` is already absolute.",
   }),
+  triage: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "Classify each request as routine or complex from its length, the files it names and any explicit plan request. For a routine request the harness agent skips brainstorm, plan and tdd and goes straight to execute and verify. Default false: the harness prompt is unchanged.",
+  }),
 }).pipe(withStatics((s) => ({ zod: zod(s) })))
 
 export type Info = Schema.Schema.Type<typeof Info>
