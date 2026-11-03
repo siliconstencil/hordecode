@@ -1,8 +1,10 @@
 import { Effect } from "effect"
 import { join } from "path"
 import { mkdir, readFile, rename, unlink, writeFile, open } from "fs/promises"
-import { readFileSync } from "fs"
+import { readFileSync, realpathSync } from "fs"
+import { createHash } from "crypto"
 import { Log } from "@opencode-ai/core/util"
+import { Global } from "@opencode-ai/core/global"
 
 const log = Log.create({ service: "cron-lock" })
 
@@ -14,7 +16,18 @@ export type LockInfo = {
 
 const PROC_STARTED_AT = Date.now() - Math.floor(process.uptime() * 1000)
 
-export const getLockFilePath = (dir?: string) => join(dir ?? process.cwd(), ".hordecode", ".cron-lock")
+// The lock lives in the global state dir, keyed by the project's real path, so it never appears in the
+// user's working tree (an in-project .hordecode/.cron-lock showed up as an untracked file in git status).
+// Same project -> same path in every process, so cross-process single-fire semantics are unchanged.
+export const getLockFilePath = (dir?: string) => {
+  const abs = join(dir ?? process.cwd())
+  let real = abs
+  try {
+    real = realpathSync(abs)
+  } catch {}
+  const key = createHash("sha256").update(real).digest("hex").slice(0, 32)
+  return join(Global.Path.state, "cron-locks", `${key}.lock`)
+}
 
 const parseLockInfo = (raw: string): LockInfo | null => {
   const obj = Effect.runSync(

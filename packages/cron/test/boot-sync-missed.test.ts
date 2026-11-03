@@ -1,3 +1,4 @@
+import { getLockFilePath } from "../src/cron-lock"
 import { describe, it, expect, beforeEach } from "bun:test"
 import { Effect } from "effect"
 import { Scheduler, layer as schedLayer } from "../src/scheduler"
@@ -231,7 +232,7 @@ describe("boot / sync / missed-task", () => {
     const dir = mkTmpDir()
     await mkdir(join(dir, ".hordecode"), { recursive: true }).catch(() => {})
     // Ensure no stale lock from prior test interferes with ownership
-    await unlink(join(dir, ".hordecode", ".cron-lock")).catch(() => {})
+    await unlink(getLockFilePath(dir)).catch(() => {})
     // Write a durable one-shot whose next run is already past (created yesterday at 09:00)
     const yesterday = Date.now() - 86_400_000
     const missedTask = {

@@ -1,3 +1,4 @@
+import { getLockFilePath } from "../src/cron-lock"
 import { describe, it, expect, beforeEach } from "bun:test"
 import { Effect } from "effect"
 import { Scheduler, layer as schedLayer } from "../src/scheduler"
@@ -42,7 +43,7 @@ describe("start() re-entry: same-dir second start must upgrade callbacks (no sil
   it("second start() with same dir but new onFire callback must route fires to the new callback (was silently dropped pre-fix)", async () => {
     const dir = mkTmpDir()
     await mkdir(join(dir, ".hordecode"), { recursive: true }).catch(() => {})
-    await unlink(join(dir, ".hordecode", ".cron-lock")).catch(() => {})
+    await unlink(getLockFilePath(dir)).catch(() => {})
 
     // Write a missed durable one-shot on disk. Pre-fix, the second start()
     // would skip missed-task backfill due to the early-return guard, so the
@@ -120,7 +121,7 @@ describe("start() re-entry: same-dir second start must upgrade callbacks (no sil
   it("second start() with same dir re-runs missed-task backfill so a task added between starts surfaces", async () => {
     const dir = mkTmpDir()
     await mkdir(join(dir, ".hordecode"), { recursive: true }).catch(() => {})
-    await unlink(join(dir, ".hordecode", ".cron-lock")).catch(() => {})
+    await unlink(getLockFilePath(dir)).catch(() => {})
 
     const firesA: string[] = []
     const firesB: string[] = []
