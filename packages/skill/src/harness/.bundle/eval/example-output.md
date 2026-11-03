@@ -81,11 +81,11 @@ occurrence_count: 1
 
 ## Step 5: Write Results
 
-### JSON trace: `docs/harness/eval/2026-07-20-EVAL-001.json`
+### JSON trace: `<harness-docs>/eval/2026-07-20-EVAL-001.json`
 
 (See eval-template.md for full structure)
 
-### Summary: `docs/harness/eval/SUMMARY.md`
+### Summary: `<harness-docs>/eval/SUMMARY.md`
 
 ```markdown
 ## 2026-07-20 Pipeline EVAL-001

@@ -4,7 +4,7 @@ Use this template when writing eval results.
 
 ## JSON Trace
 
-Write to `docs/harness/eval/<YYYY-MM-DD>-<pipeline-id>.json`:
+Write to `<harness-docs>/eval/<YYYY-MM-DD>-<pipeline-id>.json`:
 
 ```json
 {
@@ -53,7 +53,7 @@ Write to `docs/harness/eval/<YYYY-MM-DD>-<pipeline-id>.json`:
       "stage": "brainstorm",
       "scores": { "completeness": 0.85, "user_alignment": 0.80 },
       "verdict": "PASS",
-      "evidence": "docs/harness/stages/<pipeline-id>/brainstorm.md"
+      "evidence": "<harness-docs>/stages/<pipeline-id>/brainstorm.md"
     }
   ],
   "token_usage": [
@@ -74,7 +74,7 @@ Write to `docs/harness/eval/<YYYY-MM-DD>-<pipeline-id>.json`:
 
 ## Summary Entry
 
-Append to `docs/harness/eval/SUMMARY.md`:
+Append to `<harness-docs>/eval/SUMMARY.md`:
 
 ```markdown
 ## <YYYY-MM-DD> Pipeline <pipeline-id>

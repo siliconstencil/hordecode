@@ -21,7 +21,7 @@ This pipeline has skipped harness:eval and harness:merge itself, repeatedly, acr
 runs — a recurring pattern, not a one-off. harness:report's own prose ("MANDATORY, do not skip")
 did not stop that. This step is the mechanical backstop: merge refuses to proceed on trust alone.
 Run both gate calls in this skill from the project root; the gate reads
-`.hordecode/harness/evidence/` relative to the working directory.
+`<harness-evidence>/` relative to the working directory.
 
 ```bash
 bash <harness:eval>/scripts/harness-gate.sh <run-id> eval
@@ -31,13 +31,13 @@ bash <harness:eval>/scripts/harness-gate.sh <run-id> eval
   Step 1.
 - **Non-zero exit:** eval did NOT actually happen (or happened without real evidence). STOP.
   Do not present merge options. Go run harness:eval for real, write
-  `.hordecode/harness/evidence/<run-id>/eval.evidence`, then re-run this gate before returning here.
+  `<harness-evidence>/<run-id>/eval.evidence`, then re-run this gate before returning here.
   A pipeline that reaches merge without a passing eval gate is not done, regardless of what any
   earlier step claimed.
 
 After this gate passes, write the passing gate output and the merge decision (the commit SHA it
 applies to, or `keep-as-is`) to
-`.hordecode/harness/evidence/<run-id>/merge.evidence` before Step 4 (Execute Choice) — this is the same
+`<harness-evidence>/<run-id>/merge.evidence` before Step 4 (Execute Choice) — this is the same
 mechanical-evidence discipline, applied to merge's own completion, not just eval's. Then run:
 
 ```bash

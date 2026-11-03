@@ -63,12 +63,12 @@ Write stage summaries in harness:report Step 6.5, AFTER the final report is writ
 
 Stage summaries are written to:
 ```
-docs/harness/stages/<pipeline-id>/<skill-name>.md
+<harness-docs>/stages/<pipeline-id>/<skill-name>.md
 ```
 
 Example:
 ```
-docs/harness/stages/20260721-143022-a7f3/harness-tdd.md
-docs/harness/stages/20260721-143022-a7f3/harness-execute.md
-docs/harness/stages/20260721-143022-a7f3/harness-verify.md
+<harness-docs>/stages/20260721-143022-a7f3/harness-tdd.md
+<harness-docs>/stages/20260721-143022-a7f3/harness-execute.md
+<harness-docs>/stages/20260721-143022-a7f3/harness-verify.md
 ```

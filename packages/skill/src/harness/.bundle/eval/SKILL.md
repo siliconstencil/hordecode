@@ -43,7 +43,7 @@ You MUST complete each step in order.
 
 ### Step 1: Read Pipeline History
 
-**Evidence priority:** Stage summaries under `docs/harness/stages/<pipeline-id>/`
+**Evidence priority:** Stage summaries under `<harness-docs>/stages/<pipeline-id>/`
 are the PRIMARY evidence source. Read them first. Conversation history (last 50 messages)
 is the FALLBACK for stages without summaries and for cross-stage interaction analysis.
 
@@ -62,7 +62,7 @@ For each harness skill found:
 
 ### Step 2: Read Historical Baseline
 
-Read `docs/harness/eval/SUMMARY.md` to check existing patterns:
+Read `<harness-docs>/eval/SUMMARY.md` to check existing patterns:
 
 - If a failure_type appeared 3+ times: flag as **PATTERN**, prioritize fix
 - If a stage score dropped >0.1 from last run: flag as **REGRESSION**
@@ -93,7 +93,7 @@ Record the recurring pattern in the eval JSON under `recurring_failures`:
 
 For EACH harness skill invoked in this pipeline (from Step 1):
 
-1. **Locate the stage summary** at `docs/harness/stages/<pipeline-id>/<skill-name>.md`
+1. **Locate the stage summary** at `<harness-docs>/stages/<pipeline-id>/<skill-name>.md`
    (written by harness:report step 6.5). If missing, fall back to conversation evidence.
 2. **Run keyword scoring:** `<harness:eval>/scripts/score-helper.sh <stage> <stage-summary-file>`
    to get keyword-based initial scores. The script also outputs estimated_tokens and budget_status.
@@ -132,7 +132,7 @@ Write two files:
 
 **1. JSON trace** (machine-readable):
 ```
-File: docs/harness/eval/<YYYYMMDD>-<HHMMSS>-<random4>.json
+File: <harness-docs>/eval/<YYYYMMDD>-<HHMMSS>-<random4>.json
 ```
 Format: date-time + 4 random hex chars (e.g. `20260721-143022-a7f3.json`). This prevents collision when multiple evals run in the same second.
 
@@ -140,7 +140,7 @@ Use the template at `<harness:eval>/eval-template.md`.
 
 **2. Summary** (human-readable, append-only):
 ```
-File: docs/harness/eval/SUMMARY.md
+File: <harness-docs>/eval/SUMMARY.md
 ```
 
 Append a new section. NEVER overwrite existing entries.

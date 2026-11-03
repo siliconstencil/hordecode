@@ -4,7 +4,7 @@ import type { Agent } from "@opencode-ai/agent/agent"
 import type { InstanceContext } from "@opencode-ai/project/instance"
 import { modeSkillsBlock } from "@opencode-ai/skill/harness/extract"
 import type { Config } from "../config/index"
-import { resolveDocsDir } from "../config/harness"
+import { harnessPaths } from "../config/harness"
 import type { MessageV2 } from "./message-v2"
 import { PartID } from "./schema"
 import PROMPT_HARNESS from "./prompt/harness.txt"
@@ -39,10 +39,11 @@ export const applyHarnessInjection = Effect.fn("SessionPrompt.applyHarnessInject
 
   const skillsBlock = modeSkillsBlock(pipeline)
   const harnessCfg = cfg.harness
-  const docsDir = resolveDocsDir(ctx.worktree, harnessCfg)
+  const paths = harnessPaths(ctx.worktree, harnessCfg)
+  const docsDir = paths.docs
   const text = promptText
     .replace("{{harness_skills}}", skillsBlock)
-    .replace("{{harness_docs_dir}}", `Save ${pipeline} skill outputs: specs in \`${path.join(docsDir, "specs")}\`, plans in \`${path.join(docsDir, "plans")}\`, reports in \`${path.join(docsDir, "reports")}\`.`)
+    .replace("{{harness_docs_dir}}", `Save ${pipeline} skill outputs: specs in \`${path.join(docsDir, "specs")}\`, plans in \`${path.join(docsDir, "plans")}\`, reports in \`${path.join(docsDir, "reports")}\`. Stage summaries go in \`${paths.stages}/<pipeline-id>/\`, eval JSON in \`${paths.eval}/\`, the eval summary in \`${paths.evalSummary}\`, and run evidence in \`${paths.evidence}/<run-id>/\`. In harness skills, \`<harness-docs>\` is \`${paths.docs}\` and \`<harness-evidence>\` is \`${paths.evidence}\`. Run the gate scripts as \`HORDECODE_HARNESS_DOCS=${paths.docs} HORDECODE_HARNESS_EVIDENCE=${paths.evidence} bash <script> ...\`.`)
   userMsg.parts.unshift({
     id: PartID.ascending(),
     messageID: userMsg.info.id,

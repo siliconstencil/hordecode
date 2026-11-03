@@ -42,13 +42,13 @@ Skip any step = lying, not verifying
 The steps above are self-discipline; self-discipline alone has not held (recurring
 skip/skip-claim pattern this pipeline has hit repeatedly). Every harness pipeline run has a
 run id (minted at step 1 of the pipeline; if none was recorded yet, mint it now and create
-`.hordecode/harness/evidence/<run-id>/`). Close this step with a real artifact, not just a
+`<harness-evidence>/<run-id>/`). Close this step with a real artifact, not just a
 stated claim:
 
 1. Write the full command output from step 2/3 above to
-   `.hordecode/harness/evidence/<run-id>/verify.evidence` — the actual stdout/exit code, not a summary.
+   `<harness-evidence>/<run-id>/verify.evidence` — the actual stdout/exit code, not a summary.
 2. From the project root, run `bash <harness:eval>/scripts/harness-gate.sh <run-id> verify` (the gate
-   reads `.hordecode/harness/evidence/` relative to the working directory).
+   reads `<harness-evidence>/` relative to the working directory).
 3. Non-zero exit means the evidence file is missing, empty, or doesn't contain real
    output markers — that means step 5 above ("make the claim") did not earn its evidence.
    Fix the evidence file, don't argue with the gate.

@@ -22,4 +22,23 @@ export function resolveDocsDir(worktree: string, cfg?: Info) {
   if (path.isAbsolute(configured) || cfg?.docs_absolute === true) return path.resolve(worktree, configured)
   return configured
 }
+export const DEFAULT_EVIDENCE_DIR = ".hordecode/harness/evidence"
+
+/**
+ * Every harness output location, derived from `harness.docs`. With the default config the layout is
+ * unchanged (evidence stays in `.hordecode/harness/evidence`); with a custom `docs` the stage summaries,
+ * eval files, the eval SUMMARY and the evidence all move under it.
+ */
+export function harnessPaths(worktree: string, cfg?: Info) {
+  const docs = resolveDocsDir(worktree, cfg)
+  const custom = cfg?.docs !== undefined && cfg.docs !== DEFAULT_DOCS_DIR
+  const join = (...parts: string[]) => (path.isAbsolute(docs) ? path.join(docs, ...parts) : [docs, ...parts].join("/"))
+  return {
+    docs,
+    stages: join("stages"),
+    eval: join("eval"),
+    evalSummary: join("eval", "SUMMARY.md"),
+    evidence: custom ? join("evidence") : DEFAULT_EVIDENCE_DIR,
+  }
+}
 export * as ConfigHarness from "./harness"
