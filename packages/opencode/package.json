@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "hordecodeBase": "1.19.5",
   "name": "hordecode",
   "type": "module",
