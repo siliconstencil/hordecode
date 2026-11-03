@@ -75,8 +75,8 @@ describe("memory gc vector cache", () => {
     await withStack(({ mem, db, emb, store }) =>
       Effect.gen(function* () {
         emb.state.ready = true
-        const stale = yield* mem.add({ scope: "global", type: "concept", body: "alpha stale entry", fingerprint: "fp-gc-dup" })
-        const kept = yield* mem.add({ scope: "global", type: "concept", body: "beta current entry", fingerprint: "fp-gc-dup" })
+        const stale = yield* mem.add({ scope: "global", type: "concept", body: "alpha repeated entry", fingerprint: "fp-gc-dup" })
+        const kept = yield* mem.add({ scope: "global", type: "concept", body: "alpha repeated entry", fingerprint: "fp-gc-dup" })
         const stalePath = (yield* db.select({ path: MemoryFtsTable.path }).from(MemoryFtsTable).where(sql`${MemoryFtsTable.id} = ${stale.id}`).get()).path
         expect(store.cache.has(String(stale.id))).toBe(true)
 

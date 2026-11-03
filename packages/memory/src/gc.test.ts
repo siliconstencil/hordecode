@@ -45,7 +45,7 @@ describe("memory_gc", () => {
             scope: "global",
             scope_id: "",
             type: "concept",
-            body: "old body",
+            body: "dup body",
             fingerprint: "fp-dup",
             last_indexed_at: 1000,
           })
@@ -57,7 +57,7 @@ describe("memory_gc", () => {
             scope: "global",
             scope_id: "",
             type: "concept",
-            body: "new body",
+            body: "dup body",
             fingerprint: "fp-dup",
             last_indexed_at: 2000,
           })
@@ -108,11 +108,11 @@ describe("memory_gc", () => {
       return Effect.gen(function* () {
         yield* db
           .insert(MemoryFtsTable)
-          .values({ path: "a.md", scope: "global", scope_id: "", type: "t", body: "a", fingerprint: "fp-x", last_indexed_at: 1000 })
+          .values({ path: "a.md", scope: "global", scope_id: "", type: "t", body: "x", fingerprint: "fp-x", last_indexed_at: 1000 })
           .pipe(Effect.orDie)
         yield* db
           .insert(MemoryFtsTable)
-          .values({ path: "b.md", scope: "global", scope_id: "", type: "t", body: "b", fingerprint: "fp-x", last_indexed_at: 2000 })
+          .values({ path: "b.md", scope: "global", scope_id: "", type: "t", body: "x", fingerprint: "fp-x", last_indexed_at: 2000 })
           .pipe(Effect.orDie)
 
         const first = yield* (memory as any).gc()
@@ -133,11 +133,11 @@ describe("memory_gc", () => {
         // Insert two with same fingerprint and same timestamp; later insert has higher id
         yield* db
           .insert(MemoryFtsTable)
-          .values({ path: "first.md", scope: "global", scope_id: "", type: "t", body: "first", fingerprint: "fp-tie", last_indexed_at: 5000 })
+          .values({ path: "first.md", scope: "global", scope_id: "", type: "t", body: "tie", fingerprint: "fp-tie", last_indexed_at: 5000 })
           .pipe(Effect.orDie)
         yield* db
           .insert(MemoryFtsTable)
-          .values({ path: "second.md", scope: "global", scope_id: "", type: "t", body: "second", fingerprint: "fp-tie", last_indexed_at: 5000 })
+          .values({ path: "second.md", scope: "global", scope_id: "", type: "t", body: "tie", fingerprint: "fp-tie", last_indexed_at: 5000 })
           .pipe(Effect.orDie)
 
         const result = yield* (memory as any).gc()
@@ -158,12 +158,12 @@ describe("memory_gc", () => {
     await withMemoryService((memory, db) => {
       return Effect.gen(function* () {
         // Group A: 2 dup
-        yield* db.insert(MemoryFtsTable).values({ path: "a1.md", scope: "global", scope_id: "", type: "t", body: "a1", fingerprint: "fp-a", last_indexed_at: 100 }).pipe(Effect.orDie)
-        yield* db.insert(MemoryFtsTable).values({ path: "a2.md", scope: "global", scope_id: "", type: "t", body: "a2", fingerprint: "fp-a", last_indexed_at: 200 }).pipe(Effect.orDie)
+        yield* db.insert(MemoryFtsTable).values({ path: "a1.md", scope: "global", scope_id: "", type: "t", body: "a", fingerprint: "fp-a", last_indexed_at: 100 }).pipe(Effect.orDie)
+        yield* db.insert(MemoryFtsTable).values({ path: "a2.md", scope: "global", scope_id: "", type: "t", body: "a", fingerprint: "fp-a", last_indexed_at: 200 }).pipe(Effect.orDie)
         // Group B: 3 dup
-        yield* db.insert(MemoryFtsTable).values({ path: "b1.md", scope: "global", scope_id: "", type: "t", body: "b1", fingerprint: "fp-b", last_indexed_at: 100 }).pipe(Effect.orDie)
-        yield* db.insert(MemoryFtsTable).values({ path: "b2.md", scope: "global", scope_id: "", type: "t", body: "b2", fingerprint: "fp-b", last_indexed_at: 300 }).pipe(Effect.orDie)
-        yield* db.insert(MemoryFtsTable).values({ path: "b3.md", scope: "global", scope_id: "", type: "t", body: "b3", fingerprint: "fp-b", last_indexed_at: 200 }).pipe(Effect.orDie)
+        yield* db.insert(MemoryFtsTable).values({ path: "b1.md", scope: "global", scope_id: "", type: "t", body: "b", fingerprint: "fp-b", last_indexed_at: 100 }).pipe(Effect.orDie)
+        yield* db.insert(MemoryFtsTable).values({ path: "b2.md", scope: "global", scope_id: "", type: "t", body: "b", fingerprint: "fp-b", last_indexed_at: 300 }).pipe(Effect.orDie)
+        yield* db.insert(MemoryFtsTable).values({ path: "b3.md", scope: "global", scope_id: "", type: "t", body: "b", fingerprint: "fp-b", last_indexed_at: 200 }).pipe(Effect.orDie)
 
         const result = yield* (memory as any).gc()
         // group A removes 1, group B removes 2 => total 3

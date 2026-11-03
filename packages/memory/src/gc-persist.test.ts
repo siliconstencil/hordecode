@@ -37,14 +37,15 @@ const run = <A>(fn: (memory: MemoryService.Interface, db: any) => Effect.Effect<
   )
 }
 
-// Two files with the same size and mtime share a fingerprint, which is what gc's duplicate sweep collapses.
-const writePair = (name: string) => {
+// Two files with the same size and mtime share a fingerprint; with the same body they are what gc's duplicate sweep
+// collapses.
+const writePair = (name: string, bodies: [string, string] = ["same body", "same body"]) => {
   const dir = path.join(memoryRoot, "global", name)
   mkdirSync(dir, { recursive: true })
   const a = path.join(dir, "a.md")
   const b = path.join(dir, "b.md")
-  writeFileSync(a, "same size A")
-  writeFileSync(b, "same size B")
+  writeFileSync(a, bodies[0])
+  writeFileSync(b, bodies[1])
   const when = new Date(1_700_000_000_000)
   utimesSync(a, when, when)
   utimesSync(b, when, when)
@@ -78,8 +79,8 @@ describe("memory_gc result sticks", () => {
       }),
     )
     expect(existsSync(a) && existsSync(b)).toBe(true)
-    expect(readFileSync(a, "utf8")).toBe("same size A")
-    expect(readFileSync(b, "utf8")).toBe("same size B")
+    expect(readFileSync(a, "utf8")).toBe("same body")
+    expect(readFileSync(b, "utf8")).toBe("same body")
   })
 
   test("editing the removed file indexes it again", async () => {
@@ -108,11 +109,25 @@ describe("memory_gc result sticks", () => {
         const removed = [a, b].find((p) => !kept.includes(p))!
         rmSync(removed)
         yield* reconcileMemory({ hordecode: memoryRoot }, db)
-        writeFileSync(removed, "same size A")
+        writeFileSync(removed, "same body")
         const when = new Date(1_700_000_000_000)
         utimesSync(removed, when, when)
         const again = yield* reconcileMemory({ hordecode: memoryRoot }, db)
         expect(again.indexed).toBe(1)
+      }),
+    )
+  })
+
+  test("two different notes with the same size and mtime are not duplicates", async () => {
+    const { a, b } = writePair("distinct", ["same size A", "same size B"])
+    await run((memory, db) =>
+      Effect.gen(function* () {
+        yield* reconcileMemory({ hordecode: memoryRoot }, db)
+        // The shared root also holds the identical pairs of the tests above, so only this pair is checked.
+        yield* memory.gc()
+        const paths = yield* indexedPaths(db)
+        expect(paths).toContain(a)
+        expect(paths).toContain(b)
       }),
     )
   })

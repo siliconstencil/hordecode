@@ -663,11 +663,18 @@ export const layer: Layer.Layer<Service, never, Database.Service | Config.Servic
       const idsToDelete: number[] = []
       for (const { fingerprint } of dupFingerprints) {
         const rows = yield* database.db
-          .all<{ id: number; last_indexed_at: number }>(
-            sql`SELECT id, last_indexed_at FROM memory_fts WHERE fingerprint = ${fingerprint} ORDER BY last_indexed_at DESC, id DESC`,
+          .all<{ id: number; last_indexed_at: number; body: string }>(
+            sql`SELECT id, last_indexed_at, body FROM memory_fts WHERE fingerprint = ${fingerprint} ORDER BY last_indexed_at DESC, id DESC`,
           )
           .pipe(Effect.orDie)
-        for (let i = 1; i < rows.length; i++) idsToDelete.push(rows[i]!.id)
+        // A file row's fingerprint is size-mtime (reconcile.ts), so two different notes can share it; only a row whose
+        // body matches a newer row with the same fingerprint is a duplicate. gc tombstones what it removes, so a false
+        // match would keep a distinct note out of the index until its file changes.
+        const keptBodies = new Set<string>()
+        for (const row of rows) {
+          if (keptBodies.has(row.body)) idsToDelete.push(row.id)
+          else keptBodies.add(row.body)
+        }
       }
       let removedDuplicates = 0
       if (idsToDelete.length > 0) {
