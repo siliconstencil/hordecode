@@ -70,6 +70,26 @@ it.instance("build agent has correct default properties", () =>
   }),
 )
 
+it.instance("pipeline skills are only available to their own agent", () =>
+  Effect.gen(function* () {
+    const skill = (agent: Agent.Info | undefined, name: string) =>
+      Permission.evaluate("skill", name, agent!.permission).action
+    const build = yield* load((svc) => svc.get("build"))
+    const general = yield* load((svc) => svc.get("general"))
+    const harness = yield* load((svc) => svc.get("harness"))
+    const research = yield* load((svc) => svc.get("research"))
+    for (const agent of [build, general]) {
+      expect(skill(agent, "harness:plan")).toBe("deny")
+      expect(skill(agent, "research:scope")).toBe("deny")
+      expect(skill(agent, "deep-research")).toBe("allow")
+    }
+    expect(skill(harness, "harness:plan")).toBe("allow")
+    expect(skill(harness, "research:scope")).toBe("deny")
+    expect(skill(research, "research:scope")).toBe("allow")
+    expect(skill(research, "harness:plan")).toBe("deny")
+  }),
+)
+
 it.instance("plan agent denies edits except .opencode/plans/*", () =>
   Effect.gen(function* () {
     const plan = yield* load((svc) => svc.get("plan"))

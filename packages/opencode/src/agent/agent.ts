@@ -147,6 +147,14 @@ const layer = Layer.effect(
         const defaults = Permission.fromConfig({
           "*": "allow",
           doom_loop: "ask",
+          // Pipeline skills are listed and loadable only in the agent that runs the pipeline; the harness and
+          // research agents allow their own namespace below. Mirrors MiMo Code v0.1.11
+          // packages/opencode/src/agent/agent.ts:112-115 ("compose:*": "deny").
+          skill: {
+            "*": "allow",
+            "harness:*": "deny",
+            "research:*": "deny",
+          },
           external_directory: {
             "*": "ask",
             ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
