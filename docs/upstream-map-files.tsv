@@ -2803,7 +2803,9 @@ FORK_ONLY	packages/opencode/src/session/cache-watch.ts
 FORK_ONLY	packages/opencode/src/session/chat-span.ts
 FORK_ONLY	packages/opencode/src/session/compaction-guard.ts
 FORK_DELTA	packages/opencode/src/session/compaction.ts
+FORK_ONLY	packages/opencode/src/session/contract/checkpoint.ts
 FORK_ONLY	packages/opencode/src/session/contract/command.ts
+FORK_ONLY	packages/opencode/src/session/contract/envelope.ts
 FORK_ONLY	packages/opencode/src/session/contract/gate.ts
 FORK_ONLY	packages/opencode/src/session/contract/integrity.ts
 FORK_ONLY	packages/opencode/src/session/contract/report.ts
@@ -3393,7 +3395,9 @@ FORK_ONLY	packages/opencode/test/session/compaction-guard.test.ts
 FORK_ONLY	packages/opencode/test/session/compaction-overflow-hallucination.test.ts
 FORK_DELTA	packages/opencode/test/session/compaction.test.ts
 FORK_ONLY	packages/opencode/test/session/config-dispose-busy.test.ts
+FORK_ONLY	packages/opencode/test/session/contract/checkpoint.test.ts
 FORK_ONLY	packages/opencode/test/session/contract/contract-turn.test.ts
+FORK_ONLY	packages/opencode/test/session/contract/envelope.test.ts
 FORK_ONLY	packages/opencode/test/session/contract/integrity.test.ts
 FORK_ONLY	packages/opencode/test/session/contract/report.test.ts
 FORK_ONLY	packages/opencode/test/session/contract/runner.test.ts
@@ -7189,6 +7193,7 @@ PARITY	README.uk.md
 PARITY	README.vi.md
 PARITY	README.zh.md
 PARITY	README.zht.md
+FORK_ONLY	reports/rnd/rnd-task-contract-slice1.md
 FORK_ONLY	ROADMAP.md
 PARITY	screenshot-uk.png
 FORK_DELTA	script/beta.ts
