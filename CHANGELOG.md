@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Advisor `no_progress` trigger: consecutive tool calls in the turn without a file write (default 25, high 15,
+  low 0 = off). `NO_PROGRESS_REARM` (off) lets it fire again after the count grows by its threshold.
+- `HORDECODE_DSML_SALVAGE=1`: when the text tool-call retry cap is exhausted, complete DSML calls run as real
+  tool calls through the normal permission path (default off).
+- `HORDECODE_HARNESS_DOCS` and `HORDECODE_HARNESS_EVIDENCE` for the harness gate and aggregate scripts.
+
+### Changed
+
+- The cron scheduler lock moved from `<project>/.hordecode/.cron-lock` to the global state dir
+  (`cron-locks/<hash of the project path>.lock`); nothing is left in the project.
+- Harness stage summaries, eval files, the eval summary and run evidence follow `harness.docs`
+  (default layout unchanged).
+- A turn that ends because the model kept writing a tool call as text now says so
+  (`HORDECODE_DSML_NOTICE=0` restores the silent end).
+- `script/fork-release.sh verify` runs the installer check under `env -i` with an isolated HOME and a minimal PATH.
+
 ## [0.1.5] - 2026-11-03
 
 ### Added
