@@ -2,13 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased] - 0.1.5
+## [0.1.5] - 2026-11-02
 
 ### Added
 
 - `session merge <id> [--into <branch>]` merges an isolated child's branch after a conflict check; it asks
   permission, refuses on conflicts and refuses a detached main checkout unless a target is named.
 - DSML tool calls (DeepSeek V3.2/V4 markup written as text) are detected when a step ends with them.
+- `experimental.openTelemetryContent` (off by default): prompt and response text is recorded in OpenTelemetry
+  spans only when it is `true`.
 - Tests and a `test` script for the fork packages `agent`, `control-plane`, `shared`, `task`, `team`, `worktree`
   and `memory`; the `project` package gains tests for project ids, workspace trust and the directory guard.
 
@@ -26,6 +28,12 @@ All notable changes to this project will be documented in this file.
   lines are written at debug level.
 - The `experimental.try_best` description says the detector runs only when `HORDECODE_ENABLE_TRY_BEST_HANDOFF`
   is set; `multiedit` is documented as having no read guard.
+- The Advisor on/off toggle is runtime only and is never written to the global config, so switching it does not
+  dispose the running instances; model, sensitivity and notes are still saved.
+- The permission audit log keeps a head record (`<log>.head`, first and last line hash). `horde debug audit-verify`
+  reports a cut tail, a missing oldest file or a missing head. An audit log written before 0.1.5 reports
+  "head record missing" until the next logged decision writes the head. Probes answered by a deny rule are logged.
+- The sidebar Telemetry header counts `replies` and the Activity panel counts `Prompts`.
 
 ### Fixed
 
@@ -50,6 +58,18 @@ All notable changes to this project will be documented in this file.
 - A global config write no longer interrupts running turns: instance disposal waits until no session is busy.
 - The read-before-edit guard keeps a per-session ledger (path, mtime, size) that survives compaction, counts
   writes and edits, and refuses an edit of a file changed on disk since it was last read or written.
+- A step that ends with DSML tool-call text is re-prompted (up to `HORDECODE_TEXT_TOOL_CALL_RETRY_LIMIT`) instead
+  of ending the turn; the detector accepts every observed DeepSeek variant (one or two ASCII or full-width bars,
+  `calls` or `function_calls`).
+- Instance disposal after a global config write logs its source and, if sessions stay busy for 10 minutes, warns
+  once and keeps waiting; running turns are never cut off.
+- `memory_gc` and prune drop the vector cache entry of each removed row, and an index pass embeds rows that were
+  stored while no embedding provider was ready (16 per pass).
+- `memory_gc` removes a duplicate only when its body matches a newer row with the same fingerprint, so two
+  different notes with the same size and modification time are both kept.
+- The sidebar task spinner runs while the session or one of its subagents works.
+- Sidebar Telemetry values and the prompt footer labels no longer wrap, which had left a blank line under Tokens,
+  overlapping Tools and Speed rows, and words split across lines in a narrow home prompt.
 
 ## [0.1.4] - 2026-10-27
 
