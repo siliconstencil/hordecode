@@ -1436,6 +1436,78 @@ const layer = Layer.effect(
       return MEMORY_WRITE_OFF_FALLBACK_NOTICE
     })
 
+    // DSML salvage: run the complete text-form calls of a finished assistant message as real tool calls.
+    // handle.replay records the tool parts on that message and executes them through the same resolved tools
+    // (SessionTools.resolve, so permission asks, denials and plugin hooks are the normal ones). Returns
+    // "continue" when the loop should go on (results go back to the model), "stop" when a denial or error
+    // ended the turn (visible in the tool part), undefined when nothing ran (the caller shows the notice).
+    const salvageDsmlCalls = Effect.fn("SessionPrompt.salvageDsmlCalls")(function* (input: {
+      lastUser: SessionV1.User
+      lastAssistant: SessionV1.Assistant
+      msgs: SessionV1.WithParts[]
+      calls: readonly { name: string; arguments: Record<string, unknown> }[]
+      agentID?: string
+      task_id?: string
+      session: Session.Info
+    }) {
+      const { lastUser, lastAssistant, session } = input
+      const sessionID = session.id
+      const agent = yield* agents.get(lastUser.agent)
+      if (!agent) return undefined
+      const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
+      const handle = yield* processor.create({ assistantMessage: lastAssistant, sessionID, model })
+      const supervisorRow = lastUser.agentID
+        ? yield* supervisorRegistry.get(sessionID, lastUser.agentID).pipe(Effect.orElseSucceed(() => undefined))
+        : undefined
+      const askSupervisor =
+        lastUser.agent && session.parentID
+          ? supervisorRow
+            ? {
+                agent: supervisorRow.agent,
+                background: supervisorRow.background,
+                mode: supervisorRow.mode,
+                parentSupervisorID: supervisorRow.parentSupervisorID,
+              }
+            : { agent: lastUser.agent, background: true, mode: "subagent", parentSupervisorID: undefined }
+          : undefined
+      const toolWhitelist = supervisorRow && Array.isArray(supervisorRow.tools) ? [...supervisorRow.tools] : undefined
+      const tools = yield* SessionTools.resolve({
+        agent,
+        session,
+        model,
+        processor: handle,
+        bypassAgentCheck: false,
+        messages: input.msgs,
+        promptOps: yield* ops(),
+        askSupervisor,
+        taskId: input.task_id,
+        supervisorID: lastUser.agentID ?? "main",
+        toolWhitelist,
+      }).pipe(
+        Effect.provideService(Plugin.Service, plugin),
+        Effect.provideService(Permission.Service, permission),
+        Effect.provideService(ToolRegistry.Service, registry),
+        Effect.provideService(MCP.Service, mcp),
+        Effect.provideService(Truncate.Service, truncate),
+        Effect.provideService(RuntimeFlags.Service, flags),
+      )
+      // An unknown tool name, or one the supervisor allowlist hides, is not run: all or nothing.
+      const allowed = (name: string) => name in tools && (toolWhitelist === undefined || toolWhitelist.includes(name))
+      if (!input.calls.every((call) => allowed(call.name))) return undefined
+      yield* Effect.logInfo("dsml:salvage", { "session.id": sessionID, calls: input.calls.length })
+      const result = yield* handle.replay({
+        toolCalls: input.calls.map((call, index) => ({
+          toolCallId: `dsml_${lastAssistant.id}_${index}`,
+          toolName: call.name,
+          input: call.arguments,
+        })),
+        finishReason: "tool-calls",
+        tools: tools as never,
+        messages: [],
+      })
+      return result === "continue" ? ("continue" as const) : ("stop" as const)
+    })
+
     // task_id: Ported from MiMo prompt.ts:2675 (runLoop task_id parameter).
     const runLoop: (sessionID: SessionID, agentID?: string, task_id?: string, steps?: number) => Effect.Effect<SessionV1.WithParts> =
       Effect.fn("SessionPrompt.run")(function* (sessionID: SessionID, agentID?: string, task_id?: string, steps?: number) {
@@ -1569,7 +1641,7 @@ const layer = Layer.effect(
             // mirrors core/src/session/prompt.ts:1960-2003 (autoRetryTextToolCall, same retry cap flag and same
             // corrective reminder) used at core/src/session/prompt.ts:2234. Differences: the discarded turn is
             // marked UnknownError, because the v1 session error union has no TextToolCallError; on cap
-            // exhaustion the turn ends as before, without the core error event.
+            // exhaustion see the salvage/notice block below (HORDECODE_DSML_SALVAGE, HORDECODE_DSML_NOTICE).
             const dsmlToolCallStop =
               lastAssistant.finish === "stop" &&
               !lastAssistant.error &&
@@ -1612,6 +1684,37 @@ const layer = Layer.effect(
                 ].join("\n"),
               } satisfies SessionV1.TextPart)
               continue
+            }
+            if (dsmlToolCallStop && lastAssistant && lastAssistantMsg) {
+              // Retry cap exhausted. FORK_ONLY: no upstream or MiMo counterpart (core/src/session/prompt.ts:1969
+              // publishes a TextToolCallError and stops; this port keeps that end and adds salvage plus a notice).
+              const text = lastAssistantMsg.parts.flatMap((part) =>
+                part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : [],
+              )
+              const calls = text.map(parseDsmlToolCalls).find((parsed) => parsed.complete && parsed.calls.length > 0)?.calls
+              const salvaged =
+                Flag.HORDECODE_DSML_SALVAGE && calls
+                  ? yield* salvageDsmlCalls({ lastUser, lastAssistant, msgs, calls, agentID, task_id, session }).pipe(
+                      Effect.catchCause((cause) =>
+                        Effect.logWarning("dsml:salvage failed", {
+                          "session.id": sessionID,
+                          error: Cause.pretty(cause),
+                        }).pipe(Effect.as(undefined)),
+                      ),
+                    )
+                  : undefined
+              if (salvaged === "continue") continue
+              if (salvaged === undefined && Flag.HORDECODE_DSML_NOTICE) {
+                const error = new NamedError.Unknown({
+                  message: Flag.HORDECODE_DSML_SALVAGE
+                    ? "The model wrote a tool call as plain text after every retry and it could not be run, so this turn was stopped. Ask again or switch model."
+                    : `The model wrote a tool call as plain text ${textToolCallRetries + 1} times and it was not run, so this turn was stopped. Ask again or switch model. Set HORDECODE_DSML_SALVAGE=1 to run such calls.`,
+                }).toObject()
+                lastAssistant.error = error
+                yield* sessions.updateMessage(lastAssistant)
+                yield* events.publish(Session.Event.Error, { sessionID, error })
+                yield* Effect.logWarning("dsml:notice", { "session.id": sessionID, salvage: Flag.HORDECODE_DSML_SALVAGE })
+              }
             }
             if (lastUser && (yield* taskGate(lastUser))) continue
             // Goal stop-condition gate (only for main agent, not subagents).

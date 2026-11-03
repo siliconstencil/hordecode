@@ -331,3 +331,143 @@ it.instance("prose that names DSML without a call block is not retried", () =>
     expect(yield* reminders(chat.id)).toHaveLength(0)
   }),
 )
+
+// Salvage and notice (retry cap exhausted: two reminders, third DSML stop).
+const withEnv = <A, E, R>(env: Record<string, string>, effect: Effect.Effect<A, E, R>) =>
+  Effect.acquireUseRelease(
+    Effect.sync(() => {
+      const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]))
+      Object.assign(process.env, env)
+      return previous
+    }),
+    () => effect,
+    (previous) =>
+      Effect.sync(() => {
+        for (const [key, value] of Object.entries(previous)) {
+          if (value === undefined) delete process.env[key]
+          else process.env[key] = value
+        }
+      }),
+  )
+
+const readCall = (file: string) =>
+  [
+    `<${D} calls>`,
+    `<${D} invoke name="read">`,
+    `<${D} parameter name="filePath" string="true">${file}</${D} parameter>`,
+    `</${D} invoke>`,
+    `</${D} calls>`,
+  ].join("\n")
+
+const toolParts = Effect.fn("dsml-retry.toolParts")(function* (sessionID: SessionID) {
+  const msgs = yield* MessageV2.filterCompactedEffect(sessionID)
+  return msgs.flatMap((m) => m.parts).filter((p) => p.type === "tool")
+})
+
+const sessionErrors = Effect.fn("dsml-retry.sessionErrors")(function* (sessionID: SessionID) {
+  const msgs = yield* MessageV2.filterCompactedEffect(sessionID)
+  return msgs.flatMap((m) => (m.info.role === "assistant" && m.info.error ? [m.info.error] : []))
+})
+
+it.instance("DSML salvage runs the complete calls as real tool calls when the retry cap is exhausted", () =>
+  withEnv(
+    { HORDECODE_DSML_SALVAGE: "1" },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const fs = yield* FSUtil.Service
+      const file = path.join(dir, "salvage.txt")
+      yield* fs.writeWithDirs(file, "salvaged-content")
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "DSML salvage", permission: allowAll })
+
+      yield* llm.text(readCall(file))
+      yield* llm.text(readCall(file))
+      yield* llm.text(readCall(file))
+      yield* llm.text("done")
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+      expect(yield* llm.calls).toBe(4)
+      const parts = yield* toolParts(chat.id)
+      expect(parts).toHaveLength(1)
+      expect(parts[0].tool).toBe("read")
+      expect(parts[0].state.status).toBe("completed")
+      expect(JSON.stringify(parts[0].state)).toContain("salvaged-content")
+    }),
+  ),
+)
+
+it.instance("DSML salvage goes through the permission path: a denied tool is not run and the error goes back to the model", () =>
+  withEnv(
+    { HORDECODE_DSML_SALVAGE: "1" },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const fs = yield* FSUtil.Service
+      const file = path.join(dir, "denied.txt")
+      yield* fs.writeWithDirs(file, "secret-content")
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({
+        title: "DSML denied",
+        permission: [...allowAll, { permission: "read", pattern: "*", action: "deny" as const }],
+      })
+
+      yield* llm.text(readCall(file))
+      yield* llm.text(readCall(file))
+      yield* llm.text(readCall(file))
+      yield* llm.text("understood, read is denied")
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+      // Same as a structured call under a deny rule: DeniedError is a tool error the model sees.
+      expect(yield* llm.calls).toBe(4)
+      const parts = yield* toolParts(chat.id)
+      expect(parts).toHaveLength(1)
+      expect(parts[0].state.status).toBe("error")
+      expect(JSON.stringify(parts[0].state)).not.toContain("secret-content")
+    }),
+  ),
+)
+
+it.instance("DSML cap with salvage off ends the turn with a visible notice", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "DSML notice", permission: allowAll })
+
+    yield* llm.text(dsmlCall)
+    yield* llm.text(dsmlCall)
+    yield* llm.text(dsmlCall)
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+    expect(yield* llm.calls).toBe(3)
+    expect(yield* toolParts(chat.id)).toHaveLength(0)
+    const errors = yield* sessionErrors(chat.id)
+    const messages = errors.map((e) => (e.data as { message?: string }).message ?? "")
+    expect(messages.some((m) => m.includes("wrote a tool call as plain text") && m.includes("HORDECODE_DSML_SALVAGE"))).toBe(true)
+  }),
+)
+
+it.instance("DSML notice can be switched off and the turn then ends silently as before", () =>
+  withEnv(
+    { HORDECODE_DSML_NOTICE: "0" },
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig()
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "DSML silent", permission: allowAll })
+
+      yield* llm.text(dsmlCall)
+      yield* llm.text(dsmlCall)
+      yield* llm.text(dsmlCall)
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+      const messages = (yield* sessionErrors(chat.id)).map((e) => (e.data as { message?: string }).message ?? "")
+      expect(messages.some((m) => m.includes("HORDECODE_DSML_SALVAGE"))).toBe(false)
+    }),
+  ),
+)
