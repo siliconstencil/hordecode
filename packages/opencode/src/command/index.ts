@@ -51,6 +51,7 @@ export const Default = {
   DREAM: "dream",
   DISTILL: "distill",
   GOAL: "goal",
+  // FORK_DELTA: opencode v1.19.5 packages/opencode/src/command/index.ts:46-49 (Default)
   CONTRACT: "contract",
   DEEP_RESEARCH: "deep-research",
   LOOPS: "loops",
@@ -163,7 +164,7 @@ const layer = Layer.effect(
         },
         hints: ["$ARGUMENTS"],
       }
-      // FORK_DELTA: /contract, registered next to /goal above (command/index.ts:155); handled in session/prompt.ts.
+      // FORK_DELTA: opencode v1.19.5 packages/opencode/src/command/index.ts:79-89 (after the REVIEW registration)
       commands[Default.CONTRACT] = {
         name: Default.CONTRACT,
         description: "arm an acceptance contract: /contract <objective> ;; <criterion command> ;; ... ; /contract clear to drop",

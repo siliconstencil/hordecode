@@ -40,6 +40,7 @@ import { node as VectorStoreNode } from "@opencode-ai/memory/embedding/vector-st
 import { TaskRegistry } from "@opencode-ai/task/registry"
 import { TaskGate, MAX_TASK_GATE_MAIN_REACT } from "@opencode-ai/task/gate"
 import { TaskGateState } from "@opencode-ai/task/gate-state"
+// FORK_DELTA: opencode v1.19.5 packages/opencode/src/session/prompt.ts:27-35 (import block)
 import * as ContractGate from "./contract/gate"
 import * as ContractCommand from "./contract/command"
 import { ConfigMarkdown } from "@/config/markdown"
@@ -1497,7 +1498,7 @@ const layer = Layer.effect(
           return true
         })
 
-        // FORK_DELTA: contract stop gate; built next to taskGate above (prompt.ts:1454), called after the goal gate.
+        // FORK_DELTA: opencode v1.19.5 packages/opencode/src/session/prompt.ts:1088 (before `while (true)` in runLoop)
         const contractGate = ContractGate.make({ sessionID, agentID, directory: ctx.directory, sessions, permission, agents })
 
         while (true) {
@@ -1643,7 +1644,7 @@ const layer = Layer.effect(
               )
               if (shouldReenter) continue
             }
-            // FORK_DELTA: contract gate, same stop site as taskGate (prompt.ts:1616) and Goal.runGate above.
+            // FORK_DELTA: opencode v1.19.5 packages/opencode/src/session/prompt.ts:1128 ("exiting loop" before `break`)
             if (lastUser && (yield* contractGate(lastUser))) continue
             yield* Effect.logInfo("exiting loop", { "session.id": sessionID })
             yield* Effect.logInfo("rl:exit", { "session.id": sessionID, step, site: "finish-gate" })
@@ -2420,7 +2421,7 @@ const layer = Layer.effect(
               )
               if (shouldReenter) continue
             }
-            // FORK_DELTA: contract gate, same stop site as taskGate (prompt.ts:2395) and Goal.runGate above.
+            // FORK_DELTA: opencode v1.19.5 packages/opencode/src/session/prompt.ts:1334 (`if (outcome === "break") break`)
             if (lastUser && (yield* contractGate(lastUser))) continue
             yield* Effect.logInfo("rl:exit", { "session.id": sessionID, step, site: "outcome:break" })
             break
@@ -2492,7 +2493,7 @@ const layer = Layer.effect(
         yield* goal.set(input.sessionID, condition)
       }
 
-      // FORK_DELTA: /contract hook, next to the /goal hook above (prompt.ts:2470).
+      // FORK_DELTA: opencode v1.19.5 packages/opencode/src/session/prompt.ts:1370-1372 (after `agentName`, before `raw`)
       if (input.command === Command.Default.CONTRACT) {
         const reply = yield* ContractCommand.run({
           sessionID: input.sessionID,
