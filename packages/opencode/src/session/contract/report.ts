@@ -25,6 +25,17 @@ export function render(c: TaskContract.Contract, audit = { enabled: PermissionAu
     `Session: ${c.session_id}`,
     `Armed: ${iso(c.created_at)}  Updated: ${iso(c.updated_at)}`,
     `Re-entries: ${c.reentries} of ${c.envelope.max_react}`,
+    ...(c.unattended
+      ? [`Unattended: criteria approved once at arm time${c.approved_at !== undefined ? ` (${iso(c.approved_at)})` : ""}; explicit deny rules still apply`]
+      : []),
+    ...(c.baseline.git_checkpoint
+      ? [`Git checkpoint: ${c.baseline.git_checkpoint.ref} -> ${c.baseline.git_checkpoint.sha}`]
+      : c.baseline.git_checkpoint_skipped
+        ? [`Git checkpoint: skipped (${c.baseline.git_checkpoint_skipped})`]
+        : []),
+    ...(Object.entries({ wall_ms: c.envelope.max_wall_ms, tool_calls: c.envelope.max_tool_calls, cost_usd: c.envelope.max_cost_usd })
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => `Envelope cap ${k}: ${v}`)),
     "",
     "## Criteria",
     "",
@@ -41,11 +52,15 @@ export function render(c: TaskContract.Contract, audit = { enabled: PermissionAu
     "",
     ...(c.evidence.length === 0
       ? ["No criterion has run yet."]
-      : c.evidence.flatMap((e) => [
-          `- ${e.criterion_id} attempt ${e.attempt}: exit ${e.timed_out ? "timeout" : e.exit_code}, ${e.duration_ms} ms, started ${iso(e.started_at)}`,
-          `  output sha256: ${e.output_sha256}`,
-          ...(e.log_path ? [`  log: ${e.log_path}`] : []),
-        ])),
+      : c.evidence.flatMap((e) =>
+          e.breach
+            ? [`- ${e.criterion_id}: cap ${e.breach.cap} limit ${e.breach.limit}, observed ${e.breach.observed}`, `  output sha256: ${e.output_sha256}`]
+            : [
+                `- ${e.criterion_id} attempt ${e.attempt}: exit ${e.timed_out ? "timeout" : e.exit_code}, ${e.duration_ms} ms, started ${iso(e.started_at)}`,
+                `  output sha256: ${e.output_sha256}`,
+                ...(e.log_path ? [`  log: ${e.log_path}`] : []),
+              ],
+        )),
     "",
     "## Test integrity",
     "",

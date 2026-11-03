@@ -8,8 +8,10 @@ export const CONTRACT_DECISIONS = {
   storage: "session",
   /** 2. Where criteria run. Only "session-directory" is implemented. */
   criteriaCwd: "session-directory",
-  /** 3. "ask-each-run": every criterion run goes through the permission system. "trust-once-armed": one permission ask at arm time, none per run. */
-  criteriaPermission: "ask-each-run" as "ask-each-run" | "trust-once-armed",
+  /** 3. Default of the contract-level unattended flag (`;; unattended` in the spec). false: every criterion run asks the permission system. true: the criteria are approved once at arm time and runs only honor explicit deny rules. */
+  unattended: false as boolean,
+  /** 8. Create the lightweight ref refs/hordecode/contract/<session> at HEAD when a contract is armed. Never a commit or stash. */
+  checkpointRef: false as boolean,
   /** 5. "all-test-files": every test file in the project plus named paths. "named-only": only paths named in the contract. */
   protect: "all-test-files" as "all-test-files" | "named-only",
   /** 5. A new test file after arm time is an integrity violation when false. */
@@ -20,6 +22,10 @@ export const CONTRACT_DECISIONS = {
   maxReact: 3,
   /** 6. Wall-time limit of one criterion run. A timeout is a failed criterion. */
   criterionTimeoutMs: 120_000,
+  /** 6. Safety envelope; 0 = off. A breach ends the contract as blocked with the breach recorded as evidence. */
+  maxWallMs: 0 as number,
+  maxToolCalls: 0 as number,
+  maxCostUsd: 0 as number,
   /** Cap on protected files hashed at arm time; arming fails above it. */
   maxProtectedFiles: 5000,
   /** Bytes of output kept per run for the log and the re-entry text. */

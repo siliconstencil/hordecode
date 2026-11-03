@@ -252,6 +252,10 @@ const allowAll = [{ permission: "*", pattern: "*", action: "allow" as const }]
 
 import { TaskContract, CONTRACT_DECISIONS } from "@opencode-ai/task"
 import * as Integrity from "../../../src/session/contract/integrity"
+import * as Report from "../../../src/session/contract/report"
+import { PermissionAudit } from "../../../src/permission/audit"
+import { spawnSync } from "node:child_process"
+import fs from "node:fs"
 
 const reentries = Effect.fn("contract.reentries")(function* (sessionID: SessionID) {
   const msgs = yield* MessageV2.filterCompactedEffect(sessionID)
@@ -265,7 +269,7 @@ const arm = (sessionID: SessionID, dir: string, criteria: string[]) =>
   Effect.promise(async () =>
     TaskContract.arm({
       session_id: sessionID,
-      spec: { objective: "create done.txt", criteria, protect: [] },
+      spec: { objective: "create done.txt", criteria, protect: [], unattended: false },
       protected_hashes: await Integrity.snapshot({ dir, mode: CONTRACT_DECISIONS.protect, named: [], max: 100 }),
     }),
   )
@@ -410,5 +414,282 @@ it.instance("/contract arms from the command, runs the spec as the task and repo
     expect(c.status).toBe("verified")
     expect(c.objective).toBe("create done.txt")
     expect(yield* llm.calls).toBe(2)
+  }),
+)
+
+// --- safety envelope (caps default OFF; tests arm with explicit caps) ---
+
+const armWith = (sessionID: SessionID, dir: string, criteria: string[], extra: Partial<Parameters<typeof TaskContract.arm>[0]>) =>
+  Effect.promise(async () =>
+    TaskContract.arm({
+      session_id: sessionID,
+      spec: { objective: "create done.txt", criteria, protect: [], unattended: false },
+      protected_hashes: await Integrity.snapshot({ dir, mode: CONTRACT_DECISIONS.protect, named: [], max: 100 }),
+      ...extra,
+    }),
+  )
+
+const breachOf = (id: SessionID) => TaskContract.get(id)!.evidence.filter((e) => e.breach)
+
+it.instance("wall-time cap: breach before the first model call ends the contract as blocked with the breach as evidence", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract wall", permission: allowAll })
+    yield* armWith(chat.id, dir, ["true"], { envelope: { max_wall_ms: 0 } })
+    yield* llm.text("never asked")
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "do it" }] })
+
+    expect(yield* llm.calls).toBe(0)
+    const c = TaskContract.get(chat.id)!
+    expect(c.status).toBe("blocked")
+    expect(c.reason).toContain("wall_ms")
+    expect(breachOf(chat.id).map((e) => e.breach!.cap)).toEqual(["wall_ms"])
+    expect(c.evidence.every((e) => e.breach)).toBe(true)
+  }),
+)
+
+it.instance("tool-call cap: the loop stops after the capped step, no criterion runs, no further model call", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract tools", permission: allowAll })
+    yield* armWith(chat.id, dir, ["false"], { envelope: { max_tool_calls: 1 } })
+    yield* llm.tool("bash", touch)
+    yield* llm.text("never asked")
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "do it" }] })
+
+    expect(yield* llm.calls).toBe(1)
+    const c = TaskContract.get(chat.id)!
+    expect(c.status).toBe("blocked")
+    expect(breachOf(chat.id)[0]!.breach).toEqual({ cap: "tool_calls", limit: 1, observed: 1 })
+    expect(c.criteria[0]!.state).toBe("pending")
+    expect(yield* reentries(chat.id)).toHaveLength(0)
+  }),
+)
+
+it.instance("USD cap: enforced at the stop site before the criteria run, so a passing criterion cannot verify an over-budget run", () =>
+  Effect.gen(function* () {
+    const { dir: d, llm } = yield* useServerConfig()
+    const fsu = yield* FSUtil.Service
+    const priced = cfg(llm.url) as { provider: { test: { models: { "test-model": { cost: unknown } } } } }
+    priced.provider.test.models["test-model"].cost = { input: 1_000_000, output: 1_000_000 }
+    yield* fsu.writeWithDirs(
+      path.join(d, "opencode.json"),
+      JSON.stringify({ $schema: "https://opencode.ai/config.json", ...priced }),
+    )
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract usd", permission: allowAll })
+    yield* armWith(chat.id, d, ["true"], { envelope: { max_cost_usd: 0.5 } })
+    yield* llm.text("done", { usage: { input: 1, output: 1 } })
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "do it" }] })
+
+    expect(yield* llm.calls).toBe(1)
+    const c = TaskContract.get(chat.id)!
+    expect(c.status).toBe("blocked")
+    expect(c.reason).toContain("cost_usd")
+    expect(breachOf(chat.id)[0]!.breach!.observed).toBeGreaterThanOrEqual(0.5)
+    expect(c.criteria[0]!.state).toBe("pending")
+    expect(c.evidence).toHaveLength(1)
+  }),
+)
+
+// --- git checkpoint and unattended mode through the /contract command ---
+
+const withDecisions = <A, E, R>(patch: Record<string, unknown>, effect: Effect.Effect<A, E, R>) =>
+  Effect.acquireUseRelease(
+    Effect.sync(() => {
+      const target = CONTRACT_DECISIONS as unknown as Record<string, unknown>
+      const saved = Object.fromEntries(Object.keys(patch).map((k) => [k, target[k]]))
+      Object.assign(target, patch)
+      return saved
+    }),
+    () => effect,
+    (saved) => Effect.sync(() => void Object.assign(CONTRACT_DECISIONS as unknown as Record<string, unknown>, saved)),
+  )
+
+const refs = (dir: string) => spawnSync("git", ["-C", dir, "for-each-ref", "refs/hordecode"], { encoding: "utf8" }).stdout.trim()
+
+const gitRepo = (dir: string) => {
+  const run = (...a: string[]) => spawnSync("git", ["-C", dir, ...a], { encoding: "utf8" })
+  run("init", "-q", "-b", "main")
+  run("config", "user.email", "t@example.com")
+  run("config", "user.name", "t")
+  fs.writeFileSync(path.join(dir, "seed.txt"), "seed")
+  run("add", "seed.txt")
+  run("commit", "-q", "-m", "seed")
+  return run("rev-parse", "HEAD").stdout.trim()
+}
+
+it.instance("git checkpoint is OFF by default: arming creates no ref", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    gitRepo(dir)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract ckpt off", permission: allowAll })
+    yield* llm.tool("bash", touch)
+    yield* llm.text("created")
+
+    yield* prompt.command({ sessionID: chat.id, command: "contract", arguments: "create done.txt ;; test -f done.txt", agent: "build" })
+
+    expect(refs(dir)).toBe("")
+    expect(TaskContract.get(chat.id)!.baseline.git_checkpoint).toBeUndefined()
+  }),
+)
+
+it.instance("git checkpoint ON: a ref at arm-time HEAD, sha in the contract and in the report", () =>
+  withDecisions(
+    { checkpointRef: true },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const head = gitRepo(dir)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Contract ckpt on", permission: allowAll })
+      yield* llm.tool("bash", touch)
+      yield* llm.text("created")
+
+      yield* prompt.command({ sessionID: chat.id, command: "contract", arguments: "create done.txt ;; test -f done.txt", agent: "build" })
+
+      const ref = `refs/hordecode/contract/${chat.id}`
+      const c = TaskContract.get(chat.id)!
+      expect(c.baseline.git_checkpoint).toEqual({ ref, sha: head })
+      expect(spawnSync("git", ["-C", dir, "rev-parse", ref], { encoding: "utf8" }).stdout.trim()).toBe(head)
+      expect(spawnSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim()).toBe(head)
+      expect(spawnSync("git", ["-C", dir, "stash", "list"], { encoding: "utf8" }).stdout.trim()).toBe("")
+      const report = yield* Effect.promise(() => Bun.file(path.join(Report.dir(chat.id), "report.md")).text())
+      expect(report).toContain(`Git checkpoint: ${ref} -> ${head}`)
+    }),
+  ),
+)
+
+const auditLines = (sessionID: SessionID) =>
+  fs
+    .readFileSync(PermissionAudit.file(), "utf8")
+    .split("\n")
+    .filter((l) => l.includes(sessionID))
+    .map((l) => JSON.parse(l) as Record<string, unknown>)
+
+const withAudit = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.acquireUseRelease(
+    Effect.sync(() => {
+      const saved = process.env["HORDECODE_PERMISSION_AUDIT"]
+      process.env["HORDECODE_PERMISSION_AUDIT"] = "1"
+      return saved
+    }),
+    () => effect,
+    (saved) =>
+      Effect.sync(() => {
+        if (saved === undefined) delete process.env["HORDECODE_PERMISSION_AUDIT"]
+        else process.env["HORDECODE_PERMISSION_AUDIT"] = saved
+      }),
+  )
+
+const criterionAsks = (sessionID: SessionID, text: string) =>
+  auditLines(sessionID).filter(
+    (l) => l["kind"] === "decision" && l["permission"] === "bash" && (l["patterns"] as string[]).some((p) => p.includes(text)),
+  )
+
+it.instance("attended (default): every criterion run asks the permission system", () =>
+  withAudit(
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig()
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Contract attended", permission: allowAll })
+      yield* llm.text("done")
+      yield* llm.tool("bash", touch)
+      yield* llm.text("created")
+
+      yield* prompt.command({ sessionID: chat.id, command: "contract", arguments: "create done.txt ;; test -f done.txt", agent: "build" })
+
+      expect(TaskContract.get(chat.id)!.unattended).toBe(false)
+      expect(criterionAsks(chat.id, "test -f done.txt")).toHaveLength(2)
+      expect(auditLines(chat.id).filter((l) => l["kind"] === "contract_approval")).toHaveLength(0)
+    }),
+  ),
+)
+
+it.instance("unattended: approved once at arm time, written to the audit chain, no ask on the runs", () =>
+  withAudit(
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig()
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Contract unattended", permission: allowAll })
+      yield* llm.text("done")
+      yield* llm.tool("bash", touch)
+      yield* llm.text("created")
+
+      yield* prompt.command({
+        sessionID: chat.id,
+        command: "contract",
+        arguments: "create done.txt ;; test -f done.txt ;; unattended",
+        agent: "build",
+      })
+
+      const c = TaskContract.get(chat.id)!
+      expect(c.unattended).toBe(true)
+      expect(c.approved_at).toBeDefined()
+      expect(c.criteria.map((k) => k.command)).toEqual(["test -f done.txt"])
+      expect(c.status).toBe("verified")
+      expect(c.evidence.filter((e) => !e.breach)).toHaveLength(2)
+      expect(criterionAsks(chat.id, "test -f done.txt")).toHaveLength(1)
+      const approvals = auditLines(chat.id).filter((l) => l["kind"] === "contract_approval")
+      expect(approvals).toHaveLength(1)
+      expect(approvals[0]).toMatchObject({ granted: true, contractID: c.id, commands: ["test -f done.txt"] })
+      expect(PermissionAudit.verify().ok).toBe(true)
+    }),
+  ),
+)
+
+it.instance("unattended: a denied approval at arm time arms nothing and is audited as not granted", () =>
+  withAudit(
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig()
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Contract unattended denied", permission: [{ permission: "bash", pattern: "*", action: "deny" as const }] })
+      yield* llm.text("unused")
+
+      yield* prompt.command({ sessionID: chat.id, command: "contract", arguments: "obj ;; test -f done.txt ;; unattended", agent: "build" })
+
+      expect(TaskContract.get(chat.id)).toBeUndefined()
+      expect(yield* llm.calls).toBe(0)
+      expect(auditLines(chat.id).filter((l) => l["kind"] === "contract_approval")).toMatchObject([{ granted: false }])
+    }),
+  ),
+)
+
+it.instance("unattended: an explicit deny rule still stops a run (unverified, never verified)", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract unattended deny rule", permission: [{ permission: "bash", pattern: "*", action: "deny" as const }] })
+    yield* armWith(chat.id, dir, ["true"], {})
+    TaskContract.disarm(chat.id)
+    yield* Effect.promise(async () =>
+      TaskContract.arm({
+        session_id: chat.id,
+        spec: { objective: "o", criteria: ["true"], protect: [], unattended: true },
+        protected_hashes: {},
+      }),
+    )
+    yield* llm.text("done")
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "do it" }] })
+
+    const c = TaskContract.get(chat.id)!
+    expect(c.status).toBe("unverified")
+    expect(c.criteria[0]!.state).toBe("blocked")
+    expect(c.evidence).toHaveLength(0)
   }),
 )

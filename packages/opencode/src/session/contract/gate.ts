@@ -8,6 +8,7 @@ import type { Permission } from "@/permission"
 import { Agent } from "@/agent/agent"
 import { ShellID } from "@/tool/shell/id"
 import { PermissionAudit } from "@/permission/audit"
+import * as Envelope from "./envelope"
 import * as Integrity from "./integrity"
 import * as Report from "./report"
 import * as Runner from "./runner"
@@ -21,12 +22,13 @@ type Deps = {
   agents: Agent.Interface
 }
 
-/** Ask the permission system to run one criterion command. False when it is denied, rejected or times out. */
+/** Ask the permission system to run criterion commands. With denyOnly only an explicit deny rule stops them (the unattended contract, approved once at arm time). False when denied, rejected or timed out. */
 export const allowed = (
   deps: Pick<Deps, "sessionID" | "sessions" | "permission" | "agents">,
   agent: string,
   commands: string[],
   contractID: string,
+  denyOnly = false,
 ) =>
   Effect.gen(function* () {
     const session = yield* deps.sessions.get(deps.sessionID).pipe(Effect.orDie)
@@ -38,6 +40,7 @@ export const allowed = (
         patterns: commands,
         always: commands,
         metadata: { command: commands.join("\n"), source: "contract", contract: contractID },
+        ...(denyOnly ? { denyOnly: true } : {}),
         ruleset: info ? Agent.runtimePermission(info, session.permission) : (session.permission ?? []),
       })
       .pipe(
@@ -49,22 +52,55 @@ export const allowed = (
 const persist = (c: TaskContract.Contract | undefined) =>
   c ? Effect.promise(() => Report.write(c)).pipe(Effect.ignore) : Effect.void
 
-/**
- * Contract stop gate. Returns true when it injected a synthetic user turn (the caller continues the
- * loop). With no armed contract, a subagent or a peer it returns false before doing anything.
- */
-export const make = (deps: Deps) =>
-  Effect.fn("ContractGate.run")(function* (lastUser: SessionV1.User) {
-    if ((deps.agentID ?? "main") !== "main") return false
+/** The armed, active contract of a main-agent root session; undefined for everything else, without side effects. */
+const active = (deps: Deps) =>
+  Effect.gen(function* () {
+    if ((deps.agentID ?? "main") !== "main") return undefined
     const armed = TaskContract.get(deps.sessionID)
-    if (!armed || armed.status !== "active") return false
+    if (!armed || armed.status !== "active") return undefined
     const session = yield* deps.sessions.get(deps.sessionID).pipe(Effect.orDie)
-    if (session.parentID) return false
+    return session.parentID ? undefined : armed
+  })
+
+/** End the contract as blocked when a cap of its envelope is breached. True on a breach. */
+const enforce = (deps: Deps, armed: TaskContract.Contract, msgs: SessionV1.WithParts[]) =>
+  Effect.gen(function* () {
+    const breach = Envelope.check(armed, msgs, Date.now())
+    if (!breach) return false
+    const evidence = Envelope.evidence(breach, Date.now())
+    TaskContract.addEvidence(deps.sessionID, evidence)
+    PermissionAudit.write({
+      kind: "contract_evidence",
+      sessionID: deps.sessionID,
+      contractID: armed.id,
+      criterionID: evidence.criterion_id,
+      breach,
+      output_sha256: evidence.output_sha256,
+    })
+    yield* persist(TaskContract.finish(deps.sessionID, "blocked", Envelope.describe(breach)))
+    return true
+  })
+
+/**
+ * Contract gates. `stop` returns true when it injected a synthetic user turn (the caller continues
+ * the loop). `envelope` runs once per loop iteration and returns true when a cap is breached (the
+ * caller ends the loop). With no armed contract, a subagent or a peer both return false before
+ * doing anything.
+ */
+export const make = (deps: Deps) => ({
+  envelope: Effect.fn("ContractGate.envelope")(function* (msgs: SessionV1.WithParts[]) {
+    const armed = yield* active(deps)
+    return armed ? yield* enforce(deps, armed, msgs) : false
+  }),
+  stop: Effect.fn("ContractGate.run")(function* (lastUser: SessionV1.User, msgs: SessionV1.WithParts[]) {
+    const armed = yield* active(deps)
+    if (!armed) return false
+    if (yield* enforce(deps, armed, msgs)) return false
 
     const failed: { criterion: TaskContract.Criterion; evidence: TaskContract.Evidence; output: string }[] = []
     let blocked = ""
     for (const criterion of armed.criteria.filter((k) => k.required)) {
-      if (!armed.trusted && !(yield* allowed(deps, lastUser.agent, [criterion.command], armed.id))) {
+      if (!(yield* allowed(deps, lastUser.agent, [criterion.command], armed.id, armed.unattended))) {
         TaskContract.record(deps.sessionID, criterion.id, "blocked")
         blocked = `permission to run \`${PermissionAudit.redact(criterion.command)}\` was not granted`
         break
@@ -169,4 +205,5 @@ export const make = (deps: Deps) =>
       synthetic: true,
     } satisfies SessionV1.TextPart)
     return true
-  })
+  }),
+})

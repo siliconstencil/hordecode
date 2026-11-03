@@ -3,14 +3,14 @@ import { TaskContract } from "../src/index"
 import { CONTRACT_DECISIONS } from "../src/contract-decisions"
 
 const sid = "ses_contract_store"
-const spec = { objective: "o", criteria: ["true", "false"], protect: [] }
+const spec = { objective: "o", criteria: ["true", "false"], protect: [], unattended: false }
 
 beforeEach(() => TaskContract.__resetForTest())
 
 describe("parseSpec", () => {
   test("splits objective, criteria and protect paths on newlines and ' ;; '", () => {
     const spec = TaskContract.parseSpec("Fix parser ;; bun test ;; ./check.sh --strict\nprotect: fixtures")
-    expect(spec).toEqual({ objective: "Fix parser", criteria: ["bun test", "./check.sh --strict"], protect: ["fixtures"] })
+    expect(spec).toEqual({ objective: "Fix parser", criteria: ["bun test", "./check.sh --strict"], protect: ["fixtures"], unattended: false })
   })
 
   test("rejects a missing objective, missing criteria and an empty protect path", () => {
@@ -24,7 +24,52 @@ describe("parseSpec", () => {
       objective: "obj",
       criteria: ["case x in a) echo;; esac"],
       protect: [],
+      unattended: false,
     })
+  })
+})
+
+describe("unattended flag and envelope constants", () => {
+  const decisions = CONTRACT_DECISIONS as unknown as Record<string, unknown>
+  const withConstants = (patch: Record<string, unknown>, run: () => void) => {
+    const saved = Object.fromEntries(Object.keys(patch).map((k) => [k, decisions[k]]))
+    Object.assign(decisions, patch)
+    try {
+      run()
+    } finally {
+      Object.assign(decisions, saved)
+    }
+  }
+
+  test("a bare 'unattended' segment sets the flag and is not a criterion; default is attended", () => {
+    expect(TaskContract.parseSpec("obj ;; bun test ;; unattended")).toEqual({ objective: "obj", criteria: ["bun test"], protect: [], unattended: true })
+    expect((TaskContract.parseSpec("obj ;; bun test") as TaskContract.Spec).unattended).toBe(false)
+  })
+
+  test("the unattended constant is the default of the flag", () => {
+    withConstants({ unattended: true }, () => expect((TaskContract.parseSpec("obj ;; bun test") as TaskContract.Spec).unattended).toBe(true))
+  })
+
+  test("all constants default to OFF: no caps, no checkpoint, attended", () => {
+    expect([CONTRACT_DECISIONS.maxWallMs, CONTRACT_DECISIONS.maxToolCalls, CONTRACT_DECISIONS.maxCostUsd]).toEqual([0, 0, 0])
+    expect([CONTRACT_DECISIONS.checkpointRef, CONTRACT_DECISIONS.unattended]).toEqual([false, false])
+    expect(TaskContract.arm({ session_id: sid, spec, protected_hashes: {} }).envelope).toEqual({ max_react: CONTRACT_DECISIONS.maxReact })
+  })
+
+  test("a constant above 0 is copied into the envelope at arm time and survives a later flip", () => {
+    withConstants({ maxWallMs: 60_000, maxToolCalls: 40, maxCostUsd: 2.5 }, () => {
+      const c = TaskContract.arm({ session_id: sid, spec, protected_hashes: {} })
+      expect(c.envelope).toEqual({ max_react: CONTRACT_DECISIONS.maxReact, max_wall_ms: 60_000, max_tool_calls: 40, max_cost_usd: 2.5 })
+    })
+    expect(TaskContract.get(sid)!.envelope.max_cost_usd).toBe(2.5)
+  })
+
+  test("arm records the checkpoint sha or the skip reason, and the approval time", () => {
+    const sha = "a".repeat(40)
+    const ok = TaskContract.arm({ session_id: sid, spec, protected_hashes: {}, git_checkpoint: { ref: "refs/hordecode/contract/x", sha }, approved_at: 7 })
+    expect([ok.baseline.git_checkpoint, ok.approved_at]).toEqual([{ ref: "refs/hordecode/contract/x", sha }, 7])
+    const skipped = TaskContract.arm({ session_id: sid, spec, protected_hashes: {}, git_checkpoint: { skipped: "no commit" } })
+    expect([skipped.baseline.git_checkpoint, skipped.baseline.git_checkpoint_skipped]).toEqual([undefined, "no commit"])
   })
 })
 
