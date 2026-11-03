@@ -40,6 +40,8 @@ import { node as VectorStoreNode } from "@opencode-ai/memory/embedding/vector-st
 import { TaskRegistry } from "@opencode-ai/task/registry"
 import { TaskGate, MAX_TASK_GATE_MAIN_REACT } from "@opencode-ai/task/gate"
 import { TaskGateState } from "@opencode-ai/task/gate-state"
+import * as ContractGate from "./contract/gate"
+import * as ContractCommand from "./contract/command"
 import { ConfigMarkdown } from "@/config/markdown"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@opencode-ai/core/util/error"
@@ -1495,6 +1497,9 @@ const layer = Layer.effect(
           return true
         })
 
+        // FORK_DELTA: contract stop gate; built next to taskGate above (prompt.ts:1454), called after the goal gate.
+        const contractGate = ContractGate.make({ sessionID, agentID, directory: ctx.directory, sessions, permission, agents })
+
         while (true) {
           // Intentional divergence from v0.1.11 (packages/opencode/src/session/prompt.ts:3251,3661),
           // which uses while(true) + agent.steps ?? Infinity. Fork caps at 100/200
@@ -1638,6 +1643,8 @@ const layer = Layer.effect(
               )
               if (shouldReenter) continue
             }
+            // FORK_DELTA: contract gate, same stop site as taskGate (prompt.ts:1616) and Goal.runGate above.
+            if (lastUser && (yield* contractGate(lastUser))) continue
             yield* Effect.logInfo("exiting loop", { "session.id": sessionID })
             yield* Effect.logInfo("rl:exit", { "session.id": sessionID, step, site: "finish-gate" })
             break
@@ -2413,6 +2420,8 @@ const layer = Layer.effect(
               )
               if (shouldReenter) continue
             }
+            // FORK_DELTA: contract gate, same stop site as taskGate (prompt.ts:2395) and Goal.runGate above.
+            if (lastUser && (yield* contractGate(lastUser))) continue
             yield* Effect.logInfo("rl:exit", { "session.id": sessionID, step, site: "outcome:break" })
             break
           }
@@ -2481,6 +2490,27 @@ const layer = Layer.effect(
           })
         }
         yield* goal.set(input.sessionID, condition)
+      }
+
+      // FORK_DELTA: /contract hook, next to the /goal hook above (prompt.ts:2470).
+      if (input.command === Command.Default.CONTRACT) {
+        const reply = yield* ContractCommand.run({
+          sessionID: input.sessionID,
+          arguments: input.arguments,
+          directory: (yield* InstanceState.context).directory,
+          agent: agentName ?? input.agent ?? "build",
+          sessions,
+          permission,
+          agents,
+        })
+        if (reply !== undefined)
+          return yield* prompt({
+            sessionID: input.sessionID,
+            messageID: input.messageID,
+            agent: agentName,
+            parts: [{ type: "text", text: reply, synthetic: true }],
+            noReply: true,
+          })
       }
 
       const raw = input.arguments.match(argsRegex) ?? []

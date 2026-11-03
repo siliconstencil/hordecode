@@ -51,6 +51,7 @@ export const Default = {
   DREAM: "dream",
   DISTILL: "distill",
   GOAL: "goal",
+  CONTRACT: "contract",
   DEEP_RESEARCH: "deep-research",
   LOOPS: "loops",
   REBUILD: "rebuild",
@@ -155,6 +156,17 @@ const layer = Layer.effect(
       commands[Default.GOAL] = {
         name: Default.GOAL,
         description: "set a stop-condition goal; runs until a judge says it's met. /goal clear to abort",
+        source: "command",
+        subtask: false,
+        get template() {
+          return "$ARGUMENTS"
+        },
+        hints: ["$ARGUMENTS"],
+      }
+      // FORK_DELTA: /contract, registered next to /goal above (command/index.ts:155); handled in session/prompt.ts.
+      commands[Default.CONTRACT] = {
+        name: Default.CONTRACT,
+        description: "arm an acceptance contract: /contract <objective> ;; <criterion command> ;; ... ; /contract clear to drop",
         source: "command",
         subtask: false,
         get template() {
