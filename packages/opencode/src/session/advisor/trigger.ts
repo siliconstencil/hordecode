@@ -33,6 +33,11 @@ export const PRESETS: Record<Sensitivity, { triggers: AdvisorTriggers; cooldown:
   high: { triggers: { files_touched: 5, tool_failures: 2, same_error: 2, context_percent: 60, no_progress: 15 }, cooldown: 2 },
 }
 
+// Opt-in (default OFF): repeat suppression compares trigger names only, so no_progress fires once per
+// session until another trigger name joins it. With re-arm, no_progress may fire again when its count has
+// grown by its threshold since the last fire, or when a new streak (after a write) reaches the threshold.
+export const NO_PROGRESS_REARM = false
+
 export interface TriggerState {
   lastFiredStep: number | undefined
   // Reason strings from the last fire. Only the trigger name (text before the first
@@ -62,12 +67,29 @@ function collectReasons(facts: AdvisorFacts, triggers: AdvisorTriggers): string[
   )
 }
 
+// Value of the no_progress count recorded in the last fire ("no_progress 25 >= 25" -> 25).
+function lastNoProgress(state: TriggerState) {
+  const reason = state.lastReasons.find((r) => reasonName(r) === "no_progress")
+  const value = reason === undefined ? NaN : Number(reason.split(" ")[1])
+  return Number.isFinite(value) ? value : undefined
+}
+
+// A grown count (value - last >= threshold), or a new streak after a write (value < last, value >= threshold).
+function noProgressGrew(facts: AdvisorFacts, triggers: AdvisorTriggers, state: TriggerState) {
+  const threshold = triggers.no_progress
+  const last = lastNoProgress(state)
+  if (threshold <= 0 || last === undefined) return false
+  const base = facts.callsSinceWrite >= last ? last : 0
+  return facts.callsSinceWrite - base >= threshold
+}
+
 export function evaluate(
   facts: AdvisorFacts,
   triggers: AdvisorTriggers,
   state: TriggerState,
   step: number,
   cooldownSteps: number,
+  options: { rearmNoProgress?: boolean } = {},
 ): { fire: boolean; reasons: string[] } {
   const reasons = collectReasons(facts, triggers)
   if (reasons.length === 0) return { fire: false, reasons }
@@ -79,6 +101,9 @@ export function evaluate(
   // Known gap: a value that grew past the previous fire without a new name does not re-fire.
   const previous = names(state.lastReasons)
   if (previous.length > 0 && names(reasons).every((name) => previous.includes(name))) {
+    if ((options.rearmNoProgress ?? NO_PROGRESS_REARM) && noProgressGrew(facts, triggers, state)) {
+      return { fire: true, reasons }
+    }
     return { fire: false, reasons }
   }
   return { fire: true, reasons }
