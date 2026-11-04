@@ -1,4 +1,4 @@
-import { Effect, Layer, Context, Option } from "effect"
+import { Effect, Layer, Context, Option, Cause } from "effect"
 import { generateObject, streamObject, type ModelMessage } from "ai"
 import z from "zod"
 import * as OtelTracer from "@effect/opentelemetry/Tracer"
@@ -204,7 +204,7 @@ export const defaultLayer = Layer.suspend(() =>
  * supervisors' MAX_PRE_REACT (=3) because main-session goals are usually larger.
  * MAX_GOAL_REACT is a fixed constant; it is not read from hordecode.json.
  */
-const MAX_GOAL_REACT = 12
+export const MAX_GOAL_REACT = 12
 
 /**
  * Goal stop-condition gate (main agent only). Before honoring a stop,
@@ -244,9 +244,14 @@ export const runGate = Effect.fn("Goal.runGate")(function* (input: {
       model: input.lastUser.model,
     })
     .pipe(
-      Effect.catch((err) =>
+      // evaluate() wraps generateObject/streamObject in Effect.promise (never Effect.tryPromise), so a
+      // rejected promise -- a real provider failure, the only way this call actually fails -- surfaces
+      // as an Effect defect, not a typed failure. Effect.catch only catches the typed (E) channel, so
+      // it could never fire here; catchCause is required to make "fail-open on any judge error" (this
+      // function's own stated intent, see core/src/session/__tests__/goal-gate.test.ts) actually true.
+      Effect.catchCause((cause) =>
         Effect.gen(function* () {
-          yield* slog.warn("goal judge failed; allowing stop", { error: String(err) })
+          yield* slog.warn("goal judge failed; allowing stop", { error: String(Cause.squash(cause)) })
           return { ok: true, reason: "judge error", judgeFailed: true } as unknown as Verdict & {
             judgeFailed: true
           }
