@@ -2141,6 +2141,13 @@ export type Config = {
           [key: string]: number | string
         }
   }
+  contract?: {
+    max_wall_ms?: number
+    max_tool_calls?: number
+    max_cost_usd?: number
+    checkpoint?: boolean
+    unattended?: boolean
+  }
   checkpoint?: {
     thresholds?: Array<string>
     reserved?: number
@@ -2191,6 +2198,7 @@ export type Config = {
     disable_paste_summary?: boolean
     batch_tool?: boolean
     openTelemetry?: boolean
+    openTelemetryContent?: boolean
     primary_tools?: Array<string>
     switches?: {
       workspaces?: boolean
