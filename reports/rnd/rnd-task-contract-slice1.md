@@ -14,8 +14,8 @@ envelope, git checkpoint, unattended flag). Usage and the open-decision table ar
 | f8dd6dbdc | Round 2: safety envelope, git checkpoint, unattended flag, docs, this report |
 | cb2425f67 | Round 2: ownership map regenerated for the envelope files |
 | 24e1ae5a7 | Round 3: review findings F1 to F4 (code and tests) |
-| DOCS_SHA | Round 3: docs and report |
-| MAP_SHA | Round 3: ownership map regenerated (separate commit) |
+| 00e00e0b5 | Round 3: docs and report |
+| (none) | Round 3: ownership map regenerated against v1.19.5: empty diff (no new files, classes unchanged), nothing to commit |
 
 ## Observation, root cause, action, evidence
 
