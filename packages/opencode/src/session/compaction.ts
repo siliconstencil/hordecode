@@ -524,7 +524,7 @@ const layer = Layer.effect(
       }
 
       if (result === "stop") return yield* rollback("Compaction failed before producing a summary")
-      if (!(yield* MessageV2.parts(msg.id)).some((part) => part.type === "text" && part.text.trim().length > 0))
+      if (!(yield* MessageV2.parts(msg.id).pipe(Effect.provideService(Database.Service, database))).some((part) => part.type === "text" && part.text.trim().length > 0))
         return yield* rollback("Compaction produced no usable summary")
 
       if (compactionPart && selected.tail_start_id && compactionPart.tail_start_id !== selected.tail_start_id) {
