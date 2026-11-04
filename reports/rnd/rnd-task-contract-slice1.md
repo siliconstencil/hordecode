@@ -16,6 +16,12 @@ envelope, git checkpoint, unattended flag). Usage and the open-decision table ar
 | 24e1ae5a7 | Round 3: review findings F1 to F4 (code and tests) |
 | 00e00e0b5 | Round 3: docs and report |
 | (none) | Round 3: ownership map regenerated against v1.19.5: empty diff (no new files, classes unchanged), nothing to commit |
+| b0f3bb62c | Round 3: shas recorded in the report |
+| f991254e6 | Round 4: `contract` config block (schema) |
+| 16d166dbe | Round 4: SDK types regenerated with the generator |
+| 1a7663d15 | Round 4: findings F1 to F8 (code and tests) |
+| DOCS_SHA | Round 4: docs and report |
+| MAP_SHA | Round 4: ownership map regenerated (separate commit) |
 
 ## Observation, root cause, action, evidence
 
@@ -122,3 +128,55 @@ The 24 failures are the same test names on base and head (sorted lists identical
 F5 remainder (a criterion that writes into a protected directory fails the contract), F8 (store leak, `case`
 split, server auth), not run on the installed binary, no token cap, no notification delivery, envelope cannot
 interrupt a step in flight, a setsid child outlives the runner. The `v1.17.18` tag is local only.
+
+## Round 4: second review (origin/rnd/reviews-0.1.6, review2)
+
+Failing test first for each item; detail table in `docs/task-contract-slice1.md` ("Review findings (round 4)").
+
+1. F1 (HIGH) caps reset at compaction. Observation: with 40 tool calls and $5 recorded before a compaction
+   boundary and a 30-call cap, the model was still called (test expected 0 calls, got 1). Root cause: usage was
+   summed over `filterCompacted` messages. Action: totals live in the contract record (`usage`), are read from
+   the message and part tables and only ever raised (`recordUsage` takes the maximum), so compaction and revert
+   do not lower them. Evidence: tool-call and USD tests pass, ledger unit tests pass, mutant "overwrite instead
+   of max" fails 2 tests.
+2. F4 delegated work. Observation: child and grandchild tool calls (6) and child cost ($3) did not count
+   toward caps of 5 calls and $2. Action: one recursive query over the `parent_id` chain; unrelated sessions are
+   not counted; with no tool or USD cap nothing is read. Evidence: 3 tests pass; mutant "children ignored"
+   fails 2 tests.
+3. F2 reachability. `/contract` segments `cap: wall|tools|cost`, `checkpoint`, any-case `unattended`, plus a
+   `contract` config block; precedence segment, config, constant; defaults off. Schema and SDK types were
+   regenerated with `packages/sdk/js/script/build.ts` (not hand-edited); the JSON schema produced by
+   `packages/opencode/script/schema.ts` carries the block with `exclusiveMinimum: 0` on the USD cap.
+4. F5 checkpoint. `git -c core.hooksPath=<null device> update-ref`; ref per contract id; a test with a
+   `reference-transaction` hook shows no marker; dirty, staged and stashed repository unchanged. The ref still
+   pins objects and `git push --mirror` publishes it: OPEN DECISION 8, cleanup commands in the doc.
+5. F6, F7, F8. F6: usage read fresh at each call, test calls the stop gate directly, mutant E2 now fails 1
+   test. F7: report says when no audit line was written. F8: keyword parsing fixed, dirty-repository fixture
+   added. F3 re-check: the round-3 compound-command tests pass and an `external_directory` deny stops a
+   criterion that reads outside the project.
+
+## Measured (round 4)
+
+`NODE_OPTIONS=--max-old-space-size=12000`, same commands on base (v0.1.5, separate worktree) and head 1a7663d15.
+
+| Command | Base v0.1.5 | Head | Previous head b0f3bb62c |
+|---|---|---|---|
+| `cd packages/task && bun test` | 14 pass, 0 fail | 36 pass, 0 fail | 29 pass, 0 fail |
+| `cd packages/task && bun run typecheck` | clean | clean | clean |
+| `cd packages/opencode && bun test test/session/contract` | no such test files | 86 pass, 0 fail | 72 pass, 0 fail |
+| `cd packages/opencode && bun run typecheck` | clean | clean | clean |
+
+The wider opencode set was not re-run this round (last round: 809/24 base, 881/24 head, same 24 tests).
+
+## OPEN DECISIONS after round 4
+
+- 8: the checkpoint ref pins objects and `git push --mirror` publishes it; no automatic deletion.
+- 5: other runner configs and scripts named in a criterion are not hashed.
+- 3: `unattended` approves the command string once; script content can change afterwards.
+- 1: durable storage across restart is deferred.
+
+## Not done
+
+Restart loses the armed contract; wall time includes human wait; `context_from` children not counted; bundled
+config reference not updated; token cap, notification delivery, installed-binary run; a setsid child outlives
+the runner; round-3 gaps (F5 remainder, F8 store leak and `case` split, server auth) unchanged.

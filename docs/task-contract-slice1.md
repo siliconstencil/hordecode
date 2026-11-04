@@ -8,12 +8,15 @@ resume, per-model gating, changes to the three existing gates.
 ## Usage
 
 Arm a contract in a session with the `/contract` command. Segments are separated by a newline or by
-` ;; `. The first segment is the objective, `protect: <path>` names an extra protected path, a bare
-`unattended` segment sets the unattended flag, every other segment is a criterion command.
+` ;; `. The first segment is the objective (it can not be a keyword). After it: `protect: <path>` names an
+extra protected path, `cap: wall <30s|90m|2h>`, `cap: tools <n>` and `cap: cost <usd>` set the envelope
+caps, a bare `checkpoint` or `unattended` (any case) sets that flag, every other segment is a criterion
+command. A bad or repeated cap is rejected with a message instead of armed with a guess.
 
 ```
 /contract Make the parser reject empty input ;; bun test ;; ./scripts/check.sh --strict ;; protect: fixtures
 /contract Fix the build ;; bun run build ;; unattended
+/contract Refactor the parser ;; bun test ;; cap: wall 90m ;; cap: tools 200 ;; cap: cost 2.50 ;; checkpoint
 /contract status
 /contract clear
 ```
@@ -33,7 +36,7 @@ What happens:
    asked and denied per part, an allow rule for `bun test*` does not cover the `rm`. The agent's claims
    in text do not count.
    With the `unattended` flag the criteria are approved once at arm time instead (one permission
-   ask, written to the audit chain as a `contract_approval` line, granted or not); a run then only
+   ask, written as a `contract_approval` audit line, granted or not, only when `HORDECODE_PERMISSION_AUDIT=1`; the report always records the approval time and says when no line was written); a run then only
    honors explicit deny rules (a deny-only permission probe). If the arm-time approval is not
    granted the contract is not armed.
 3. Each run records exit code, a deterministic output hash and a log file. With
@@ -44,8 +47,9 @@ What happens:
 5. A failing criterion injects a synthetic user turn naming the command, the exit code and the output
    tail, and the loop continues. After 3 re-entries the contract becomes `blocked`, never `verified`.
 6. If permission for a criterion is not granted the contract becomes `unverified`.
-7. Optional, OFF by default (constants below): a safety envelope with a wall-time, tool-call and USD
-   cap, and a git checkpoint at arm time. See "Opt-in constants".
+7. Optional, OFF by default: a safety envelope with a wall-time, tool-call and USD cap, and a git
+   checkpoint at arm time. Set per contract with the segments above, as defaults in the `contract`
+   config block, or (lowest precedence) in the constants. See "Opt-in settings".
 
 Final states: `verified`, `failed` (test integrity), `blocked` (re-entries exhausted or an envelope
 cap breached), `unverified` (could not judge). With no contract armed nothing changes.
@@ -88,35 +92,65 @@ Overnight: with the attended default, a criterion that is not already allowed by
 human reply (5 minute bound) and then the contract is `unverified`. Arm with `;; unattended` while
 you are present, or allow the commands with a `bash` permission rule.
 
-## Opt-in constants (all default OFF)
+## Opt-in settings (all default OFF)
 
-Keys in `CONTRACT_DECISIONS` (`packages/task/src/contract-decisions.ts`); 0 or false = off.
+Precedence, highest first: the `/contract` segment, the `contract` config block (`hordecode.json`,
+`opencode.json`; schema and SDK types are generated from `packages/core/src/v1/config/config.ts`), the
+`CONTRACT_DECISIONS` constant (`packages/task/src/contract-decisions.ts`). Nothing is on unless one of
+them sets it.
 
-| Key | Default | Effect when set |
-|---|---|---|
-| `maxWallMs` | 0 | Wall time since arm. |
-| `maxToolCalls` | 0 | Tool parts of assistant messages since arm. |
-| `maxCostUsd` | 0 | Sum of the per-step `cost` stored on the assistant messages since arm (the advisor cost is already added to that message). |
-| `checkpointRef` | false | At arm time `git update-ref refs/hordecode/contract/<session> HEAD`: a lightweight ref, never a commit or stash, no change to branch, index or working tree. The sha is in the report. Skipped with a reason outside a git repo, with no commit at HEAD, or for an unsafe session id. |
-| `unattended` | false | Default of the per-contract `unattended` flag. |
-| `allowAddedTests` | true | false: a new test file after arm time fails the contract. |
-| `protectScripts` | true | false: package.json test scripts are not protected. |
-| `protect` | all-test-files | `named-only`: only `protect:` paths. |
-| `onIntegrityViolation` | fail | `reenter`: nudge like a failed criterion, blocked at the cap. |
+| Setting | Segment | Config key | Constant | Effect |
+|---|---|---|---|---|
+| Wall time | `cap: wall 90m` | `contract.max_wall_ms` | `maxWallMs` | Elapsed time since arm, including time spent waiting for a human reply or idle between turns. |
+| Tool calls | `cap: tools 200` | `contract.max_tool_calls` | `maxToolCalls` | Tool parts of the contract session and every descendant session since arm. |
+| USD | `cap: cost 2.50` | `contract.max_cost_usd` | `maxCostUsd` | Sum of the per-step `cost` stored on assistant messages of the session tree since arm (the advisor cost is already in it). |
+| Git checkpoint | `checkpoint` | `contract.checkpoint` | `checkpointRef` | See "Git checkpoint". |
+| Unattended | `unattended` | `contract.unattended` | `unattended` | Approve the criteria once at arm time; runs honor explicit deny rules only. |
 
-Envelope behavior: the caps are copied into the contract at arm time. They are checked once per
-loop iteration (before the model call) and again at the stop gate before any criterion runs, so an
-over-budget run cannot verify. A breach ends the contract as `blocked`, adds an evidence row
-(`envelope:<cap>`, limit and observed value, hash of the breach record), writes a `contract_evidence`
-audit line and the report, and ends the loop. It does not interrupt a step already in flight.
+Constants only (no segment or config key): `allowAddedTests` (true; false makes a new test file fail the
+contract), `protectScripts` (true), `protect` (`all-test-files`; `named-only` protects only `protect:`
+paths), `onIntegrityViolation` (`fail`; `reenter` nudges like a failed criterion, blocked at the cap),
+`maxReact`, `criterionTimeoutMs`.
+
+Envelope behavior: the caps are copied into the contract at arm time. The usage totals live in the
+contract record (not in the loop): at every loop iteration and again at the stop gate, before any
+criterion runs, the product reads the tool-call count and the cost of the session and all descendant
+sessions (parent chain: task, supervisor, workflow and peer children) from the message and part tables
+since arm and raises the stored totals to at least that reading. Compaction only hides rows from the
+model, `/undo` removes them, and a deleted child disappears; none of that lowers the stored totals. With
+no tool-call or USD cap the tables are not read. A breach ends the contract as `blocked`, adds an
+evidence row (`envelope:<cap>`, limit and observed value, hash of the breach record), writes a
+`contract_evidence` audit line and the report, and ends the loop. It does not interrupt a step already in
+flight. The record itself is per process: after a restart the armed contract and its totals are gone
+(decision 1; durable resume is deferred), but within a running process they survive compaction, stops
+and new prompts in the same session.
+
+## Git checkpoint
+
+`refs/hordecode/contract/<session id>/<contract id>` points at HEAD, written with
+`git -c core.hooksPath=<null device> update-ref`, so no repository hook runs. It is a lightweight ref:
+no commit, no stash, no change to branch, index or working tree (dirty and staged state is not
+captured, only HEAD). One ref per contract id, so a second contract in the same session does not
+overwrite the first. The sha is in the report. It is skipped with a reason outside a git repository,
+with no commit at HEAD, or for an unsafe id.
+
+Risks and cleanup (OPEN DECISION 8): the ref pins its objects against `git gc`, and
+`git push --mirror` (or an explicit `refs/hordecode/*` refspec) publishes it; `git push`, `git push --all`
+and `git push --tags` do not. Nothing deletes the ref for you. List and delete:
+
+```bash
+git for-each-ref refs/hordecode/contract
+git update-ref -d refs/hordecode/contract/<session id>/<contract id>
+```
 
 ## Where the code is
 
 | File | Class | Content |
 |---|---|---|
-| `packages/task/src/contract.ts` | FORK_ONLY (new) | schema, in-memory store, `/contract` parser, re-entry text |
+| `packages/task/src/contract.ts` | FORK_ONLY (new) | schema, in-memory store with the usage ledger, `/contract` parser, re-entry text |
 | `packages/task/src/contract-decisions.ts` | FORK_ONLY (new) | one constant per open decision |
-| `packages/opencode/src/session/contract/{runner,integrity,report,gate,command,envelope,checkpoint}.ts` | FORK_ONLY (new) | runner, integrity check, report writer, stop gate and envelope gate, command handler, caps, git checkpoint |
+| `packages/opencode/src/session/contract/{runner,integrity,report,gate,command,envelope,usage,checkpoint}.ts` | FORK_ONLY (new) | runner, integrity check, report writer, stop gate and envelope gate, command handler, caps, usage reader, git checkpoint |
+| `packages/core/src/{v1/,}config/config.ts` | upstream-owned, see map | `contract` config block (schema; SDK types regenerated by `packages/sdk/js/script/build.ts`) |
 | `packages/task/src/index.ts` | FORK_ONLY | two export lines |
 | `packages/opencode/src/session/prompt.ts` | FORK_DELTA | 2 imports, 1 gate construction, 1 envelope line per loop iteration, 2 stop-gate lines (after `Goal.runGate`, both stop sites), 1 `/contract` hook. Every hunk carries a one-line citation of the opencode v1.19.5 `session/prompt.ts` line it sits at (1088, 1098, 1128, 1334, 1370-1372, imports 27-35) |
 | `packages/opencode/src/tool/shell.ts` | FORK_DELTA | 3 lines before `return yield* run(` (upstream `tool/shell.ts:631`): `authorizeOnly` returns after the permission block without executing |
@@ -136,9 +170,9 @@ Each is a key in `CONTRACT_DECISIONS` (`packages/task/src/contract-decisions.ts`
 | 3 Permission | Attended: ask on each run through the bash tool's own per-sub-command check. Unattended is a per-contract flag (`;; unattended`), default OFF: one ask at arm time, audited, deny rules still apply. | `unattended` (default of the flag). |
 | 4 Verifier | Not in this slice (deferred by the note). No code, no model call. | n/a |
 | 5 Protected set | Every test file, package.json test scripts and named paths; a new test file is ignored; modified or deleted protected files fail. Other runner configs (`conftest.py`, `jest.config.*`, `Makefile`) and scripts named in a criterion are NOT hashed: OPEN DECISION, the residual hole stays. | `protect: "named-only"`, `allowAddedTests`, `protectScripts`. |
-| 6 Caps | Re-entry cap 3 and a 120 s per-criterion timeout (a timeout is a failed criterion). Wall, tool-call and USD caps exist but are OFF (0); a breach stops the run as `blocked` (not parked resumable). No token cap. | `maxReact`, `criterionTimeoutMs`, `maxWallMs`, `maxToolCalls`, `maxCostUsd`. |
+| 6 Caps | Re-entry cap 3 and a 120 s per-criterion timeout (a timeout is a failed criterion). Wall, tool-call and USD caps exist but are OFF; a breach stops the run as `blocked` (not parked resumable). Caps cover the session tree and survive compaction. No token cap. | `cap:` segments, `contract.*` config keys, `maxReact`, `criterionTimeoutMs`, `maxWallMs`, `maxToolCalls`, `maxCostUsd`. |
 | 7 Gate placement | Beside the existing gates, after task gate and goal gate, so criteria run once when the others agree to stop. The three existing gates are untouched. | Structural (the order of two lines in `prompt.ts`), not a constant. |
-| 8 Git checkpoint | A lightweight ref at arm time, one per contract (not per step), default OFF; never a commit, stash or worktree. | `checkpointRef`. |
+| 8 Git checkpoint | A lightweight ref at arm time, one per contract id (not per step), default OFF, hooks disabled; never a commit, stash or worktree. Not deleted automatically; `git push --mirror` would publish it (see "Git checkpoint"). | `checkpoint` segment, `contract.checkpoint`, `checkpointRef`. |
 | 9 Notification | File only, outside the project tree. | `reportDir` (name under the data dir). |
 | 10 Mode/agent edit | Invisible, always available as `/contract`. The agent has no tool that writes a contract; only the user-typed command does. Re-arming while active is refused until `/contract clear`. | n/a |
 
@@ -160,37 +194,58 @@ finding was reproduced with a failing test before the fix.
 | F7 stale citations | cited local lines | cited upstream v1.19.5 lines (round 2), all re-checked in round 3 against the checkout, including the new `shell.ts` hunk | n/a |
 | F8 store leak, `case ;;` split, server auth | not changed | OPEN, see gaps | n/a |
 
+## Review findings (round 4)
+
+Second independent review `reports/rnd/review2-rnd-task-contract-slice1.md` on `origin/rnd/reviews-0.1.6`.
+Failing test first for each item.
+
+| Finding | Reproduction (before) | Fix | Test now |
+|---|---|---|---|
+| F1 HIGH caps reset at compaction | history with 40 tool calls and $5 before a compaction boundary, cap 30 calls: the model was still called | totals live in the contract record, read from the message and part tables (compaction hides rows from the model only), and only ever raised | breach at observed 40 with 0 model calls; same for a $4 USD cap; ledger never lowers (unit) |
+| F4 delegated work outside the caps | child and grandchild sessions with 6 tool calls, cap 5: the model was still called | recursive read over the parent chain | child plus grandchild counted (6 of 5); child cost counted ($3 of $2); an unrelated session ignored; with no cap the tables are not read |
+| F2 not reachable | caps and checkpoint only settable under test | `cap:` / `checkpoint` / any-case `unattended` segments and a `contract` config block (schema, SDK types regenerated with `packages/sdk/js/script/build.ts`); defaults off | segments set all three; config supplies defaults, a segment overrides; no segment, no config: nothing on |
+| F5 checkpoint | a `reference-transaction` hook ran; a second contract overwrote the ref | `core.hooksPath` at the null device; ref per contract id; cleanup and `--mirror` risk documented (OPEN DECISION 8) | hook leaves no marker; two contracts, two refs; dirty, staged and stashed repository untouched |
+| F3 (round 3, re-check) | n/a | holds | round-3 compound test still passes; `external_directory` deny now stops a criterion that reads `/etc/passwd` |
+| F6 stale stop-site data, mutant E2 | stop-site `enforce` removed: all tests passed | usage read fresh at every call; test calls the stop gate directly | mutant E2 now fails 1 test |
+| F7 audit only when enabled | n/a | report states when no `contract_approval` line was written; doc wording corrected | report test |
+| F8 parse edges, checkpoint fixture | `Unattended` became a criterion; clean-repo fixture | keywords case-insensitive, keyword or prefix as the first segment rejected, dirty-repository fixture | parser and checkpoint tests |
+
+Mutants applied to the new code and restored afterwards: stop-site enforce removed (1 test fails), usage ignores
+children (2 fail), ledger overwrites instead of taking the maximum (2 fail).
+
 ## Verification (measured)
 
-All with `NODE_OPTIONS=--max-old-space-size=12000`. Base is `094f510aa6` (v0.1.5) in a separate
-worktree with its own `bun install`; head is the commit named in `reports/rnd/rnd-task-contract-slice1.md`.
+All with `NODE_OPTIONS=--max-old-space-size=12000`. Base is `094f510aa6` (v0.1.5) in a separate worktree with
+its own `bun install`; head is `1a7663d15` (code and tests of round 4). Same commands in both.
 
-| Command | Base v0.1.5 | Head |
-|---|---|---|
-| `cd packages/task && bun test` | 14 pass, 0 fail | 29 pass, 0 fail |
-| `cd packages/opencode && bun test test/session/contract` | no such test files | 72 pass, 0 fail (6 files) |
-| `cd packages/opencode && bun test test/cli/help test/session test/permission test/command test/task` | 809 pass, 24 fail (842 tests, 85 files) | 881 pass, 24 fail (914 tests, 91 files) |
-| `bun run typecheck` (task, opencode) | not run on base | clean, clean |
+| Command | Base v0.1.5 | Head 1a7663d15 | Previous head b0f3bb62c (last round) |
+|---|---|---|---|
+| `cd packages/task && bun test` | 14 pass, 0 fail | 36 pass, 0 fail | 29 pass, 0 fail |
+| `cd packages/task && bun run typecheck` | clean | clean | clean |
+| `cd packages/opencode && bun test test/session/contract` | no such test files | 86 pass, 0 fail | 72 pass, 0 fail |
+| `cd packages/opencode && bun run typecheck` | clean | clean | clean |
 
-The 24 failing tests are the same names on base and head (diff of the sorted failing-test lists is
-empty): checkpoint writer, rebuild, drain, interrupt-scope and task-binding tests. None is a contract
-test. Core `goal.test.ts` was not re-run this round (10 pass in round 2).
+The wider set (`test/cli/help test/session test/permission test/command test/task`) was not re-run this
+round; last round: base 809 pass / 24 fail, head 881 pass / 24 fail, the same 24 tests on both.
 
 ## Not done / evidence gaps
 
-- Citations: every `FORK_DELTA: opencode v1.19.5` comment was resolved against `../repos/opencode-1.19.5`
-  (tag v1.19.5); the lines cited are the upstream lines the hunks sit at.
-- Map regenerated with `bun run script/upstream-map.ts --base v1.17.18 --ref ../repos/opencode-1.19.5`
-  (local `v1.17.18` tag on `b1fc81139`, equal to the upstream tag sha, not pushed).
-- Not run on the installed binary (FORK-RULES section 7).
-- F5 remainder: a criterion that itself writes into a protected directory (snapshots, golden files) still
-  fails the contract, because the integrity compare runs after the criteria.
-- F4 remainder: runner configs other than package.json scripts are not protected (decision 5).
-- F8: the store is a module-level map, never cleared on session delete; criteria split on newline or
-  ` ;; ` so a shell `case ... ;; ... esac` needs one criterion per line or a script; the guarantee that the
-  agent cannot arm a contract is as strong as the server auth (no agent tool arms one).
-- The envelope cannot interrupt a step in flight; token cap and notification delivery are not implemented.
-- A daemonized child that leaves the process group (setsid) keeps running; the runner stops waiting for it
-  but cannot kill it.
-- Evidence log files keep the redacted output tail only (16 KiB); the hash covers the full output.
-- The store is per process: a restart loses the armed contract (decision 1).
+- Process restart still loses the armed contract and its totals (decision 1, durable resume deferred); the
+  totals survive compaction, revert, stops and new prompts inside one process.
+- Wall time is elapsed time: it includes waiting for a human reply and idle time between turns.
+- Child sessions are found through `parent_id`. A session linked only through `context_from` is not counted.
+- `unattended`: the approval is for the command string; the content of a script it calls can change after
+  approval, and a `careful` session that would re-ask each run does not (deny-only probes). This is the cost
+  of not asking at every run.
+- `git push --mirror` publishes the checkpoint ref; nothing deletes it (OPEN DECISION 8).
+- The bundled skill reference `packages/skill/src/builtin/.bundle/hordecode/reference/config.md` does not list
+  the `contract` block yet.
+- `types.gen.ts` regeneration also picked up one pre-existing line (`openTelemetryContent`) that was missing
+  from the committed file; it is generator output, not a hand edit.
+- F5 remainder from round 3: a criterion that writes into a protected directory still fails the contract.
+- Runner configs other than package.json scripts are not protected (decision 5).
+- Store never cleared on session delete; `case ... ;; ... esac` criteria need one criterion per line or a
+  script; the guarantee that the agent cannot arm a contract is as strong as the server auth.
+- A daemonized child that leaves the process group outlives the runner. Evidence logs keep a 16 KiB redacted
+  tail; the hash covers the full output. Not run on the installed binary (FORK-RULES section 7).
+- Token cap and notification delivery are not implemented; the envelope cannot interrupt a step in flight.
