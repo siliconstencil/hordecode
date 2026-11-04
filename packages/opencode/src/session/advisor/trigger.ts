@@ -8,8 +8,8 @@ export interface AdvisorTriggers {
   tool_failures: number
   same_error: number
   context_percent: number
-  // Consecutive tool calls in the current turn without a file write. Catches a session that keeps
-  // reading and running commands without producing anything.
+  // Consecutive read-only tool calls (read, grep, glob, list, webfetch and similar) at the end of the turn.
+  // Catches a session that keeps looking without producing anything; bash, edits and delegation reset it.
   no_progress: number
 }
 
@@ -60,7 +60,7 @@ function collectReasons(facts: AdvisorFacts, triggers: AdvisorTriggers): string[
     ["tool_failures", facts.toolFailures, triggers.tool_failures],
     ["same_error", facts.maxSameError, triggers.same_error],
     ["context_percent", facts.contextPercent, triggers.context_percent],
-    ["no_progress", facts.callsSinceWrite, triggers.no_progress],
+    ["no_progress", facts.readOnlyStreak, triggers.no_progress],
   ]
   return checks.flatMap(([name, value, threshold]) =>
     threshold > 0 && value !== null && value >= threshold ? [`${name} ${value} >= ${threshold}`] : [],
@@ -79,8 +79,8 @@ function noProgressGrew(facts: AdvisorFacts, triggers: AdvisorTriggers, state: T
   const threshold = triggers.no_progress
   const last = lastNoProgress(state)
   if (threshold <= 0 || last === undefined) return false
-  const base = facts.callsSinceWrite >= last ? last : 0
-  return facts.callsSinceWrite - base >= threshold
+  const base = facts.readOnlyStreak >= last ? last : 0
+  return facts.readOnlyStreak - base >= threshold
 }
 
 export function evaluate(

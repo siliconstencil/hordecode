@@ -156,28 +156,51 @@ describe("shell exit codes", () => {
   })
 })
 
-describe("callsSinceWrite", () => {
-  test("counts trailing tool calls after the last file write in the turn", () => {
+describe("readOnlyStreak", () => {
+  const read = (name = "read") => tool(name, "completed", { filePath: "/a", pattern: "x" })
+
+  test("counts trailing read-only calls after the last non-read-only call", () => {
     const messages = [
       user("go"),
-      tool("read", "completed", { filePath: "/a" }),
+      read(),
       tool("edit", "completed", { filePath: "/a" }),
-      tool("read", "completed", { filePath: "/b" }),
-      tool("grep", "completed", { pattern: "x" }),
-      tool("bash", "error", { command: "ls" }, "boom"),
+      read("read"),
+      read("grep"),
+      read("glob"),
+      tool("webfetch", "error", { url: "u" }, "boom"),
     ]
-    expect(collectFacts(messages, undefined).callsSinceWrite).toBe(3)
+    expect(collectFacts(messages, undefined).readOnlyStreak).toBe(4)
   })
 
-  test("counts every call when the turn has no write", () => {
-    const messages = [user("go"), tool("read", "completed", {}), tool("read", "completed", {})]
-    expect(collectFacts(messages, undefined).callsSinceWrite).toBe(2)
+  test("counts every call when the turn has only read-only calls", () => {
+    expect(collectFacts([user("go"), read(), read("list"), read("websearch")], undefined).readOnlyStreak).toBe(3)
   })
 
-  test("is 0 right after a write and ignores calls from before the user turn", () => {
-    const messages = [tool("read", "completed", {}), user("go"), tool("write", "completed", { filePath: "/a" })]
-    expect(collectFacts(messages, undefined).callsSinceWrite).toBe(0)
-    expect(collectFacts([user("hi")], undefined).callsSinceWrite).toBe(0)
+  test("a bash call resets the streak: writes through the shell are progress", () => {
+    const messages = [user("go"), read(), read(), tool("bash", "completed", { command: "sed -i s/a/b/ f" }), read()]
+    expect(collectFacts(messages, undefined).readOnlyStreak).toBe(1)
+  })
+
+  test("delegated work resets the streak: task, supervisor, workflow and session calls", () => {
+    for (const name of ["task", "supervisor", "workflow", "session"]) {
+      const messages = [user("go"), read(), read(), tool(name, "completed", { prompt: "do it" }), read()]
+      expect(collectFacts(messages, undefined).readOnlyStreak).toBe(1)
+    }
+  })
+
+  test("edit, write, multiedit and apply_patch reset the streak, a failed one too", () => {
+    for (const name of ["edit", "write", "multiedit", "apply_patch"]) {
+      const messages = [user("go"), read(), read(), tool(name, "error", { filePath: "/a" }, "failed")]
+      expect(collectFacts(messages, undefined).readOnlyStreak).toBe(0)
+    }
+  })
+
+  test("an unknown tool (MCP, plugin) is not read-only and resets the streak", () => {
+    expect(collectFacts([user("go"), read(), tool("some_mcp_tool", "completed", {})], undefined).readOnlyStreak).toBe(0)
+  })
+
+  test("is 0 without tools and ignores calls from before the user turn", () => {
+    expect(collectFacts([read(), user("go")], undefined).readOnlyStreak).toBe(0)
+    expect(collectFacts([user("hi")], undefined).readOnlyStreak).toBe(0)
   })
 })
-

@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test"
 import { DEFAULT_TRIGGERS, NO_PROGRESS_REARM, PRESETS, evaluate, reasonName, type AdvisorTriggers, type TriggerState } from "../../../src/session/advisor/trigger"
 import type { AdvisorFacts } from "../../../src/session/advisor/facts"
 
-const quiet: AdvisorFacts = { filesTouched: 0, toolFailures: 0, maxSameError: 0, contextPercent: null, callsSinceWrite: 0 }
+const quiet: AdvisorFacts = { filesTouched: 0, toolFailures: 0, maxSameError: 0, contextPercent: null, readOnlyStreak: 0 }
 const fresh: TriggerState = { lastFiredStep: undefined, lastReasons: [] }
 const off: AdvisorTriggers = { files_touched: 0, tool_failures: 0, same_error: 0, context_percent: 0, no_progress: 0 }
 
@@ -42,8 +42,8 @@ describe("advisor trigger", () => {
   test("no_progress fires at its threshold, not below", () => {
     const n = DEFAULT_TRIGGERS.no_progress
     expect(n).toBeGreaterThan(0)
-    expect(evaluate({ ...quiet, callsSinceWrite: n - 1 }, DEFAULT_TRIGGERS, fresh, 1, 0).fire).toBe(false)
-    expect(evaluate({ ...quiet, callsSinceWrite: n }, DEFAULT_TRIGGERS, fresh, 1, 0)).toEqual({
+    expect(evaluate({ ...quiet, readOnlyStreak: n - 1 }, DEFAULT_TRIGGERS, fresh, 1, 0).fire).toBe(false)
+    expect(evaluate({ ...quiet, readOnlyStreak: n }, DEFAULT_TRIGGERS, fresh, 1, 0)).toEqual({
       fire: true,
       reasons: [`no_progress ${n} >= ${n}`],
     })
@@ -51,12 +51,12 @@ describe("advisor trigger", () => {
 
   test("no_progress is disabled in the low preset and by a zero threshold", () => {
     expect(PRESETS.low.triggers.no_progress).toBe(0)
-    expect(evaluate({ ...quiet, callsSinceWrite: 500 }, PRESETS.low.triggers, fresh, 1, 0).fire).toBe(false)
-    expect(evaluate({ ...quiet, callsSinceWrite: 500 }, { ...DEFAULT_TRIGGERS, no_progress: 0 }, fresh, 1, 0).fire).toBe(false)
+    expect(evaluate({ ...quiet, readOnlyStreak: 500 }, PRESETS.low.triggers, fresh, 1, 0).fire).toBe(false)
+    expect(evaluate({ ...quiet, readOnlyStreak: 500 }, { ...DEFAULT_TRIGGERS, no_progress: 0 }, fresh, 1, 0).fire).toBe(false)
   })
 
   test("a threshold of 0 disables that trigger", () => {
-    const facts: AdvisorFacts = { filesTouched: 99, toolFailures: 99, maxSameError: 99, contextPercent: 99, callsSinceWrite: 99 }
+    const facts: AdvisorFacts = { filesTouched: 99, toolFailures: 99, maxSameError: 99, contextPercent: 99, readOnlyStreak: 99 }
     expect(evaluate(facts, off, fresh, 1, 0)).toEqual({ fire: false, reasons: [] })
   })
 
@@ -99,7 +99,7 @@ describe("repeat suppression with a subset", () => {
       lastFiredStep: 1,
       lastReasons: ["files_touched 9 >= 8", "tool_failures 3 >= 3"],
     }
-    const facts = { filesTouched: 9, toolFailures: 0, maxSameError: 0, contextPercent: null, callsSinceWrite: 0 }
+    const facts = { filesTouched: 9, toolFailures: 0, maxSameError: 0, contextPercent: null, readOnlyStreak: 0 }
     expect(evaluate(facts, DEFAULT_TRIGGERS, state, 10, 3).fire).toBe(false)
   })
 })
@@ -107,7 +107,7 @@ describe("repeat suppression with a subset", () => {
 describe("no_progress re-arm (opt-in)", () => {
   const n = DEFAULT_TRIGGERS.no_progress
   const fired = (value: number): TriggerState => ({ lastFiredStep: 1, lastReasons: [`no_progress ${value} >= ${n}`] })
-  const facts = (callsSinceWrite: number): AdvisorFacts => ({ ...quiet, callsSinceWrite })
+  const facts = (readOnlyStreak: number): AdvisorFacts => ({ ...quiet, readOnlyStreak })
   const rearm = { rearmNoProgress: true }
 
   test("the constant is OFF by default and the default behaviour is unchanged", () => {
