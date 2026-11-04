@@ -52,8 +52,8 @@ const parseLockInfo = (raw: string): LockInfo | null => {
 // Returns null on non-Linux, on read failure, or on parse failure. The caller
 // uses this to detect PID recycling: if /proc reports a start time AFTER what's
 // stored in the lock, the original owner died and the PID was reassigned.
-const readPidStartJiffies = (pid: number): number | null => {
-  if (process.platform !== "linux") return null
+const readPidStartJiffies = (pid: number, platform: NodeJS.Platform = process.platform): number | null => {
+  if (platform !== "linux") return null
   return Effect.runSync(
     Effect.try({
       try: () => {
@@ -73,8 +73,8 @@ const readPidStartJiffies = (pid: number): number | null => {
 
 // Read /proc/uptime and return current system uptime in ms.
 // /proc/uptime format: "<seconds-since-boot> <idle-seconds>", both floats.
-const readUptimeMs = (): number | null => {
-  if (process.platform !== "linux") return null
+const readUptimeMs = (platform: NodeJS.Platform = process.platform): number | null => {
+  if (platform !== "linux") return null
   return Effect.runSync(
     Effect.try({
       try: () => {
@@ -145,7 +145,12 @@ const getMsPerJiffy = (): number | null => {
 // scheduler running under a different uid than the current lock owner would
 // take over and become a second concurrent owner. Plain sync JS with a real
 // try/catch matches the intent.
-const isPidAlive = (pid: number, lockStartedAtMs: number): boolean => {
+type PidState = "dead" | "verified" | "unverified"
+
+// "dead": the pid does not exist. "verified": it exists and (Linux) its start time matches the lock.
+// "unverified": it exists but the recycle check cannot run (non-Linux, /proc unreadable), so the pid may
+// belong to an unrelated process that reused the number.
+const pidState = (pid: number, lockStartedAtMs: number, platform: NodeJS.Platform = process.platform): PidState => {
   try {
     process.kill(pid, 0)
   } catch (e) {
@@ -153,13 +158,13 @@ const isPidAlive = (pid: number, lockStartedAtMs: number): boolean => {
     // EPERM = pid exists but we can't signal it (different uid). Treat as
     // alive so we don't take over a foreign-user's lock and double-fire.
     // ESRCH (or anything else) = truly dead -> treat as dead.
-    return code === "EPERM"
+    return code === "EPERM" ? "unverified" : "dead"
   }
   // Liveness probe says yes. Check for PID recycling on Linux.
-  const otherJiffies = readPidStartJiffies(pid)
+  const otherJiffies = readPidStartJiffies(pid, platform)
   const msPerJiffy = getMsPerJiffy()
-  const uptimeMs = readUptimeMs()
-  if (otherJiffies === null || msPerJiffy === null || uptimeMs === null) return true
+  const uptimeMs = readUptimeMs(platform)
+  if (otherJiffies === null || msPerJiffy === null || uptimeMs === null) return "unverified"
 
   // Reconstruct when THIS pid actually started, in epoch ms.
   const bootTimeMs = Date.now() - uptimeMs
@@ -169,8 +174,14 @@ const isPidAlive = (pid: number, lockStartedAtMs: number): boolean => {
   // matches the claimed startedAt (within slop). Any material discrepancy --
   // pid younger than claim OR older than claim -- means the pid has been
   // reassigned since the lock was written. 2s slop for clock/jiffy rounding.
-  return Math.abs(otherStartedAtMs - lockStartedAtMs) <= 2_000
+  return Math.abs(otherStartedAtMs - lockStartedAtMs) <= 2_000 ? "verified" : "dead"
 }
+
+const isPidAlive = (pid: number, lockStartedAtMs: number): boolean => pidState(pid, lockStartedAtMs) !== "dead"
+
+// A legacy (in-project) lock whose owner cannot be verified is trusted for this long, then ignored: the old
+// version never refreshed the file, so on hosts without /proc a recycled pid would block cron forever.
+export const LEGACY_LOCK_MAX_AGE_MS = 7 * 86_400_000
 
 // Returns "created" on success, "exists" if file already present, "error" otherwise.
 const writeLockExclusive = (path: string, info: LockInfo) =>
@@ -212,7 +223,7 @@ const readLockFile = (path: string) =>
     catch: () => null,
   }).pipe(Effect.orElseSucceed(() => null as string | null))
 
-export const tryAcquireSchedulerLock = (opts?: { dir?: string; lockIdentity?: string }) =>
+export const tryAcquireSchedulerLock = (opts?: { dir?: string; lockIdentity?: string; platform?: NodeJS.Platform }) =>
   Effect.gen(function* () {
     const path = getLockFilePath(opts?.dir)
     yield* Effect.tryPromise({
@@ -222,9 +233,20 @@ export const tryAcquireSchedulerLock = (opts?: { dir?: string; lockIdentity?: st
 
     const legacyRaw = yield* readLockFile(getLegacyLockFilePath(opts?.dir))
     const legacy = legacyRaw === null ? null : parseLockInfo(legacyRaw)
-    if (legacy !== null && legacy.pid !== process.pid && isPidAlive(legacy.pid, legacy.startedAt)) {
-      log.debug("legacy in-project lock held by live process", { pid: legacy.pid })
-      return false
+    if (legacy !== null && legacy.pid !== process.pid) {
+      const state = pidState(legacy.pid, legacy.startedAt, opts?.platform)
+      const stale = state === "dead" || (state === "unverified" && Date.now() - legacy.startedAt > LEGACY_LOCK_MAX_AGE_MS)
+      if (!stale) {
+        log.warn("legacy in-project cron lock held by a live process; the cron scheduler is not started here", {
+          pid: legacy.pid,
+          verified: state === "verified",
+          file: getLegacyLockFilePath(opts?.dir),
+        })
+        return false
+      }
+      if (state === "unverified") {
+        log.warn("ignoring an old legacy cron lock whose pid cannot be verified", { pid: legacy.pid, startedAt: legacy.startedAt })
+      }
     }
 
     const self: LockInfo = {

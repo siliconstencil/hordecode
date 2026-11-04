@@ -70,4 +70,56 @@ describe("upgrade overlap with the legacy in-project lock", () => {
     expect(existsSync(legacy(clean))).toBe(false)
     await Effect.runPromise(releaseSchedulerLock({ dir: clean }))
   })
+
+  // Hosts without /proc (macOS, BSD): the PID-recycle check cannot run, so a live pid alone proves nothing.
+  describe("on a host where the pid start time cannot be verified", () => {
+    const DAY = 86_400_000
+    const acquire = (dir: string) => Effect.runPromise(tryAcquireSchedulerLock({ dir, platform: "darwin" }))
+
+    it("a young legacy lock with a live pid still blocks", async () => {
+      const dir = mk()
+      const child = Bun.spawn(["sleep", "30"])
+      try {
+        await writeLegacy(dir, { pid: child.pid, startedAt: Date.now() - 3_600_000 })
+        expect(await acquire(dir)).toBe(false)
+      } finally {
+        child.kill()
+        await child.exited
+      }
+    })
+
+    it("an old legacy lock with a live (probably recycled) pid is stale: max age", async () => {
+      const dir = mk()
+      const child = Bun.spawn(["sleep", "30"])
+      try {
+        await writeLegacy(dir, { pid: child.pid, startedAt: Date.now() - 8 * DAY })
+        expect(await acquire(dir)).toBe(true)
+        await Effect.runPromise(releaseSchedulerLock({ dir }))
+      } finally {
+        child.kill()
+        await child.exited
+      }
+    })
+
+    it("a dead pid is stale by kill(pid, 0) whatever the age", async () => {
+      const dir = mk()
+      await writeLegacy(dir, { pid: 2 ** 22 + 777, startedAt: Date.now() })
+      expect(await acquire(dir)).toBe(true)
+      await Effect.runPromise(releaseSchedulerLock({ dir }))
+    })
+
+    it("on Linux the recycle check still decides, not the age", async () => {
+      const dir = mk()
+      const child = Bun.spawn(["sleep", "30"])
+      try {
+        await writeLegacy(dir, { pid: child.pid, startedAt: Date.now() - 8 * DAY })
+        // startedAt is a week before the pid's real start time: /proc says the pid was reassigned.
+        expect(await Effect.runPromise(tryAcquireSchedulerLock({ dir }))).toBe(true)
+        await Effect.runPromise(releaseSchedulerLock({ dir }))
+      } finally {
+        child.kill()
+        await child.exited
+      }
+    })
+  })
 })
