@@ -180,3 +180,149 @@ The wider opencode set was not re-run this round (last round: 809/24 base, 881/2
 Restart loses the armed contract; wall time includes human wait; `context_from` children not counted; bundled
 config reference not updated; token cap, notification delivery, installed-binary run; a setsid child outlives
 the runner; round-3 gaps (F5 remainder, F8 store leak and `case` split, server auth) unchanged.
+
+## Round 5: final hardening (review3, origin/rnd/reviews-0.1.6)
+
+### Commits
+
+| Commit | Content |
+|---|---|
+| 658aaf9ad | `contract.baseline` config key (schema) |
+| eb5ed0ae0 | SDK types regenerated (one line: `baseline?: boolean`) |
+| 0f0389b85 | R1 to R6 code and tests |
+| 20f27b31d | `docs/task-contract-slice1.md` rewritten for users |
+| 6ea7cff85 | Ownership map regenerated (+2 FORK_ONLY rows: `testcount.ts` and its test; FORK_DELTA and PARITY unchanged) |
+| (head) | This report with the shas above |
+
+### Observation, root cause, action, evidence
+
+1. R1 (HIGH) a new test file neutralizes the suite. Observation: a failing suite plus one added file that calls
+   `process.exit(0)` makes `bun test` exit 0 with no summary line (probed: output ends at the failing test, exit 0).
+   Root cause: `allowAddedTests` lets the file pass and exit 0 was the only check. Action: arm-time baseline
+   (each criterion runs once through the permission check; the runner's own summary is parsed for bun, jest,
+   vitest, pytest, cargo and go -v; unparseable output records "no baseline"). At the end an exit-0 run still
+   fails on 0 tests, on fewer tests than the baseline, or when the baseline had a summary and the output no
+   longer does (this is what catches the `process.exit(0)` file). Added test files stay allowed and are listed in
+   the report. Evidence: 10 of the 12 new turn tests fail on the previous head `ad6616a3d` (the other two pin
+   behavior that already held); parser fixtures are real output captured from bun 1.4.4, go 1.24, cargo 1.97 and
+   pytest; jest and vitest fixtures follow their documented summary lines and were not run live. Mutant "note logic
+   off" fails 3 tests; mutant "baseline run skipped" fails 4.
+2. R2 (HIGH) runner configuration. Added to the default protected set when present: `bunfig.toml`,
+   `jest.config.*`, `vitest.config.*`, `vitest.workspace.*`, `pytest.ini`, `conftest.py`, `tox.ini`, `setup.cfg`,
+   `pyproject.toml`, `go.mod`, `Cargo.toml`; one added after arming is a blocking violation even though added test
+   files are allowed. package.json: the scripts reached from test/pretest/posttest through npm|pnpm|yarn|bun run
+   (with pre/post hooks) are hashed, which closes the `"test": "npm run unit"` case. Mutant "added runner config
+   not blocking" fails 2 tests; the pretest/posttest/preunit cases are now tested (they were an untested survivor).
+3. R3 (MEDIUM) files behind a symlinked directory are hashed through the link, with loop protection. R4 (MEDIUM)
+   the approved command list is stored and an unattended run of any command that is not on it is blocked
+   (structural, not only a loop property); a test with several criteria asserts one arm-time ask each and none at
+   run time; mutants "authorize only the first command" and "approval check removed" each fail 1 test.
+4. R5/R6. Observation: the round-3 runner test "a background child in the same process group is killed" could not
+   fail. Root cause (mine): the shell wrapper expands `$$` in the outer shell before `eval`, so the pid file named
+   the already-exited parent. Action: the replacement finds the child by a unique `sleep` argument and uses a child
+   that ignores HUP and TERM, plus a test that the probe sees the child while the command runs; mutant "no group
+   kill on exit" now fails it, the bounded-drain test kills mutant "drain 60 s", and a signal death is asserted to
+   be a failure. R6: a test asserts authorizing a criterion executes nothing. Plugin `tool.execute.before` hooks are
+   still not applied to criterion runs (documented).
+
+### Measured (full suites, same command on both)
+
+Base is `094f510aa6` (v0.1.5) in a separate worktree with its own install; head is the commit named above
+(code frozen at `0f0389b85`). `NODE_OPTIONS=--max-old-space-size=12000`. Package test scripts: opencode
+`bun test --timeout 30000`, core and task `bun test`.
+
+| Package | Test, base | Test, head | Typecheck base / head |
+|---|---|---|---|
+| packages/task | 14 pass, 0 fail (2 files) | 40 pass, 0 fail (3 files) | clean / clean |
+| packages/core | 1461 pass, 10 skip, 2 fail (1473 tests, 189 files, 50 s) | 1461 pass, 10 skip, 2 fail (same) | clean / clean |
+| packages/opencode | 4482 pass, 25 skip, 1 todo, 3 fail (4511 tests, 415 files, 741 s) | 4603 pass, 25 skip, 1 todo, 3 fail (4632 tests, 422 files, 846 s) | clean / clean |
+
+Every failing test, and whether it also fails on base (the sorted failure lists are identical):
+
+| Test | Package | Also on base | Cause seen |
+|---|---|---|---|
+| util.effect-flock > fails on unwritable lock roots | core | yes | the container runs as root, so a read-only directory is writable |
+| util.flock > fails clearly on unwritable lock roots | core | yes | same |
+| HttpApi Server.listen > default in-process handler does not emit Effect HTTP response logs | opencode | yes | expected 200, received 500 (not investigated further) |
+| continues loading tui config when legacy source cannot be stripped | opencode | yes | not investigated further |
+| tool.write > error handling > throws error when OS denies write access | opencode | yes | same root-user cause as the flock tests |
+
+Head versus base: +121 passing opencode tests and +26 task tests, which are this branch's tests; no new failure.
+Contract suite at head: `bun test test/session/contract` in packages/opencode.
+
+### OPEN DECISIONS (full list, owner's)
+
+1 storage (process memory, lost on restart); 2 where criteria run (session directory); 3 permission (attended by
+default, `unattended` per contract); 4 LLM verifier (not built); 5 protected set (test files, runner configs,
+test scripts; new test file allowed; Makefile/CI/scripts a criterion calls are not hashed); 6 caps (re-entries 3,
+120 s, wall/tools/USD off, breach stops as `blocked`); 7 gate placement (after the task and goal gates); 8 git
+checkpoint (ref per contract, off, `--mirror` publishes it); 9 notification (report file only); 10 mode and
+agent edit (invisible, always available); 11 baseline run at arm time (on; executes each criterion once); 12
+runner configs in the protected set (on; a legitimate dependency edit fails the contract); 13 integrity
+violation (`failed` at once; `reenter` available); 14 plugin hooks on criterion runs (not applied); 15
+durability across restart (none). Details and flips are in `docs/task-contract-slice1.md`.
+
+### Not done
+
+No token cap, no notification delivery, no LLM verifier, not run on the installed binary; jest and vitest parsers
+not checked against live runs; the reason for two of the five base failures was not investigated; cargo and go
+counts are not trusted past the 256 KiB parse window.
+
+## Appendix A: round 3 review findings (from the previous doc)
+
+## Review findings (round 3)
+
+Independent review `reports/rnd/review-rnd-task-contract-slice1.md` on `origin/rnd/reviews-0.1.6`. Each
+finding was reproduced with a failing test before the fix.
+
+| Finding | Reproduction (before) | Fix | Test now |
+|---|---|---|---|
+| F1 compound command bypassed a wildcard allow rule | `echo ok ; rm -f marker.txt` with allow `echo ok*`, deny `rm *`: the marker was deleted | authorize through the bash tool (`authorizeOnly`), per sub-command | marker kept, criterion `blocked`, contract `unverified`; a fully allowed compound still verifies |
+| F2 runner hang | `setsid sleep 6 & exit 0`, 500 ms timeout: test timed out at 5 s; a same-group child kept the pipes open | exit code taken on `exit`, group killed on exit and timeout, 1 s bounded drain, 2 s kill deadline | 10 runner tests: background child exit 0 in under 3 s, group child killed, real timeout still `timed_out` |
+| F3 protection gaps | gitignored `protect:` path hashed 0 files; symlink swap and retarget invisible; package.json scripts unprotected | named paths walked directly + warning + empty path fails; symlinks hashed through the target; scripts hashed; new test file allowed | 16 integrity tests, turn-level warning, empty path, scripts and added-file tests |
+| F4/F6 untested switches, surviving mutant | timeout counted as a pass: 28 tests passed | turn-level tests for `unattended` default, `reenter` (restore verifies, never restored blocks), `named-only`, `allowAddedTests`, timeout | mutant "timeout is a pass" now fails 1 test; mutant "verified when violated" fails 2 |
+| F5 defaults | new test file failed the contract | `allowAddedTests` default true | see above |
+| F7 stale citations | cited local lines | cited upstream v1.19.5 lines (round 2), all re-checked in round 3 against the checkout, including the new `shell.ts` hunk | n/a |
+| F8 store leak, `case ;;` split, server auth | not changed | OPEN, see gaps | n/a |
+
+## Review findings (round 4)
+
+Second independent review `reports/rnd/review2-rnd-task-contract-slice1.md` on `origin/rnd/reviews-0.1.6`.
+Failing test first for each item.
+
+| Finding | Reproduction (before) | Fix | Test now |
+|---|---|---|---|
+| F1 HIGH caps reset at compaction | history with 40 tool calls and $5 before a compaction boundary, cap 30 calls: the model was still called | totals live in the contract record, read from the message and part tables (compaction hides rows from the model only), and only ever raised | breach at observed 40 with 0 model calls; same for a $4 USD cap; ledger never lowers (unit) |
+| F4 delegated work outside the caps | child and grandchild sessions with 6 tool calls, cap 5: the model was still called | recursive read over the parent chain | child plus grandchild counted (6 of 5); child cost counted ($3 of $2); an unrelated session ignored; with no cap the tables are not read |
+| F2 not reachable | caps and checkpoint only settable under test | `cap:` / `checkpoint` / any-case `unattended` segments and a `contract` config block (schema, SDK types regenerated with `packages/sdk/js/script/build.ts`); defaults off | segments set all three; config supplies defaults, a segment overrides; no segment, no config: nothing on |
+| F5 checkpoint | a `reference-transaction` hook ran; a second contract overwrote the ref | `core.hooksPath` at the null device; ref per contract id; cleanup and `--mirror` risk documented (OPEN DECISION 8) | hook leaves no marker; two contracts, two refs; dirty, staged and stashed repository untouched |
+| F3 (round 3, re-check) | n/a | holds | round-3 compound test still passes; `external_directory` deny now stops a criterion that reads `/etc/passwd` |
+| F6 stale stop-site data, mutant E2 | stop-site `enforce` removed: all tests passed | usage read fresh at every call; test calls the stop gate directly | mutant E2 now fails 1 test |
+| F7 audit only when enabled | n/a | report states when no `contract_approval` line was written; doc wording corrected | report test |
+| F8 parse edges, checkpoint fixture | `Unattended` became a criterion; clean-repo fixture | keywords case-insensitive, keyword or prefix as the first segment rejected, dirty-repository fixture | parser and checkpoint tests |
+
+Mutants applied to the new code and restored afterwards: stop-site enforce removed (1 test fails), usage ignores
+children (2 fail), ledger overwrites instead of taking the maximum (2 fail).
+
+
+## Appendix B: round 4 review findings (from the previous doc)
+
+## Review findings (round 4)
+
+Second independent review `reports/rnd/review2-rnd-task-contract-slice1.md` on `origin/rnd/reviews-0.1.6`.
+Failing test first for each item.
+
+| Finding | Reproduction (before) | Fix | Test now |
+|---|---|---|---|
+| F1 HIGH caps reset at compaction | history with 40 tool calls and $5 before a compaction boundary, cap 30 calls: the model was still called | totals live in the contract record, read from the message and part tables (compaction hides rows from the model only), and only ever raised | breach at observed 40 with 0 model calls; same for a $4 USD cap; ledger never lowers (unit) |
+| F4 delegated work outside the caps | child and grandchild sessions with 6 tool calls, cap 5: the model was still called | recursive read over the parent chain | child plus grandchild counted (6 of 5); child cost counted ($3 of $2); an unrelated session ignored; with no cap the tables are not read |
+| F2 not reachable | caps and checkpoint only settable under test | `cap:` / `checkpoint` / any-case `unattended` segments and a `contract` config block (schema, SDK types regenerated with `packages/sdk/js/script/build.ts`); defaults off | segments set all three; config supplies defaults, a segment overrides; no segment, no config: nothing on |
+| F5 checkpoint | a `reference-transaction` hook ran; a second contract overwrote the ref | `core.hooksPath` at the null device; ref per contract id; cleanup and `--mirror` risk documented (OPEN DECISION 8) | hook leaves no marker; two contracts, two refs; dirty, staged and stashed repository untouched |
+| F3 (round 3, re-check) | n/a | holds | round-3 compound test still passes; `external_directory` deny now stops a criterion that reads `/etc/passwd` |
+| F6 stale stop-site data, mutant E2 | stop-site `enforce` removed: all tests passed | usage read fresh at every call; test calls the stop gate directly | mutant E2 now fails 1 test |
+| F7 audit only when enabled | n/a | report states when no `contract_approval` line was written; doc wording corrected | report test |
+| F8 parse edges, checkpoint fixture | `Unattended` became a criterion; clean-repo fixture | keywords case-insensitive, keyword or prefix as the first segment rejected, dirty-repository fixture | parser and checkpoint tests |
+
+Mutants applied to the new code and restored afterwards: stop-site enforce removed (1 test fails), usage ignores
+children (2 fail), ledger overwrites instead of taking the maximum (2 fail).
+
