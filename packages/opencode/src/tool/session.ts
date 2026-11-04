@@ -33,6 +33,7 @@ import {
   subagentDepthLimit,
   subagentDepthOf,
   subagentDepthRefusal,
+  type SubagentSlot,
 } from "./subagent-limits"
 import { Integrate } from "../worktree/integrate"
 import { ShellID } from "./shell/id"
@@ -140,6 +141,7 @@ function forkQuery(
   supervisor: SupervisorInterface,
   targetSessionID: SessionID,
   question: string,
+  slot?: SubagentSlot,
 ) {
   return Effect.gen(function* () {
     // Slice selection as in MiMo Code 0.1.11 packages/opencode/src/tool/session.ts:77-84: the main conversation when it has a
@@ -210,6 +212,7 @@ function forkQuery(
         model: { providerID: pID, modelID: mID },
       } satisfies ForkContext,
     })
+    slot?.bind(result.sessionID, result.supervisorID)
     const outcome = yield* Deferred.await(result.outcome)
     if (outcome.status === "success") return outcome.finalText ?? "(no answer)"
     const reason = outcome.status === "failure" ? outcome.error : outcome.status
@@ -966,7 +969,17 @@ export const SessionTool = Tool.define<
           const supervisor = yield* requireSupervisor()
           const q = input.operation.question
           if (!q) return yield* Effect.fail(new Tool.InvalidArgumentsError({ tool: id, detail: "ask requires question" }))
-          const answer = yield* forkQuery(sessions, provider, supervisor, s as SessionID, q)
+          const cfg = yield* config.get()
+          const depthLimit = subagentDepthLimit(cfg.subagent_depth)
+          const depth = yield* subagentDepthOf(sessions, supervisorReg, s as SessionID, depthLimit)
+          if (depth >= depthLimit) return yield* Effect.die(new Error(subagentDepthRefusal(depthLimit)))
+          const rootSessionID = yield* rootSessionOf(sessions, s as SessionID)
+          const slotLimit = maxSubagentsLimit(cfg.supervisor?.max_subagents)
+          const subagentSlot = yield* acquireSubagentSlot(supervisorReg, rootSessionID, slotLimit)
+          if (!subagentSlot) return yield* Effect.die(new Error(subagentBreadthRefusal(slotLimit)))
+          const answer = yield* forkQuery(sessions, provider, supervisor, s as SessionID, q, subagentSlot).pipe(
+            Effect.onExit(() => subagentSlot.release),
+          )
           return { title: `Asked ${s}`, output: answer, metadata: { sessionID: s } as Metadata }
         }
 
