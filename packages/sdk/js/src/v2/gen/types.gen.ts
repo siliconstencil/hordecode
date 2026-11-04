@@ -2146,6 +2146,7 @@ export type Config = {
     max_tool_calls?: number
     max_cost_usd?: number
     checkpoint?: boolean
+    baseline?: boolean
     unattended?: boolean
   }
   checkpoint?: {
