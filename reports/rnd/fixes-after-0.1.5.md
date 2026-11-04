@@ -36,14 +36,14 @@ Behaviour at cap exhaustion:
 
 | Salvage flag | Calls parse complete | Outcome |
 |---|---|---|
-| off (default) | any | no tool runs; assistant message gets an `UnknownError` naming the cause and the flag; `Session.Event.Error` published; turn ends |
+| off (default) | any | no tool runs; a display-only (ignored, synthetic) text part with the notice is added to the assistant message; the message is not marked as an error and no error event is published; turn ends |
 | on | yes, all tools known and allowed for the supervisor | calls recorded on the last assistant message and run via `handle.replay` over `SessionTools.resolve` tools (same permission asks, denials, plugin hooks as a structured call); loop continues with the results |
-| on | unknown tool, supervisor allowlist hides it, or any failure | nothing runs (all or nothing); notice as above |
+| on | a name that is not a resolved tool (unknown, `Object.prototype` names), step budget spent, per-session cap reached, or any failure | nothing runs (all or nothing); notice as above. A tool hidden by the supervisor allowlist is rejected by `SessionTools.resolve` ("Tool not permitted") exactly as for a structured call |
 
 Notes:
 - A tool denied by rule (DeniedError) is a tool error returned to the model, same as a structured call under a deny rule (processor.ts `failToolCall` blocks the turn only for RejectedError). The test asserts this, not turn end.
 - The DSML text part stays on the message. Tool call ids are `dsml_<assistantID>_<n>`.
-- `HORDECODE_DSML_NOTICE=0` restores the silent end.
+- `HORDECODE_DSML_NOTICE=0` removes the note.
 - Provenance: FORK_ONLY. Upstream v1.19.5 and MiMo v0.1.11 have no DSML handling (reference checkouts `../repos/` were not available in this container; not re-verified). The core copy (`core/src/session/prompt.ts:1969`, unmounted) publishes `TextToolCallError` and stops; the new code keeps that end and adds the notice.
 - Tests (`opencode/test/session/dsml-retry-turn.test.ts`, fake LLM): salvage parse+execute, permission-denied path, notice path, notice switched off. Three of the four fail without the source change; the switched-off test passes either way (it pins the old behaviour).
 - Resolved in round 3: per-session cap `DSML_SALVAGE_LIMIT = 3` (171af18).
@@ -53,7 +53,7 @@ Notes:
 - `NO_PROGRESS_REARM = false` exported from `trigger.ts`; `evaluate(..., options.rearmNoProgress)` overrides it (used by tests; the hook does not pass it, so production follows the constant).
 - Rule when on and repeat suppression would block: fire again if `callsSinceWrite - base >= no_progress`, where `base` is the count recorded in the last fire, or 0 when the count is now below it (a write reset the streak).
 - Unchanged: cooldown, thresholds, severity, delivery, suppression of every other trigger name.
-- OPEN DECISION: the hook wires the constant only. A config key (`experimental.advisor.rearm`) would need a schema and SDK change.
+- Resolved in round 4: `experimental.advisor.rearm` (74b0ed6).
 
 ### 4. fork-release verify
 
@@ -68,7 +68,7 @@ Change (script/fork-release.sh):
 Dry explanation (what a run does now): download `install.sh` -> `env -i HOME=$base/home PATH=/usr/bin:/bin bash install.sh --version 0.1.x` -> installer sees no horde, downloads the GitHub asset, verifies the checksum, writes `$base/home/.hordecode/bin/horde` -> `env -i ... horde --version` must equal `$VER`. Not executed against the network here (no release to verify).
 
 Verification: `bash -n script/fork-release.sh` ok; `bash script/fork-release.test.sh` 10/10 ok, 0 against the old script (the helper is missing). `shellcheck` is not installed in this container, so it was not run.
-- OPEN DECISION: the minimal PATH `/usr/bin:/bin` assumes curl, tar, gzip and uname live there; on NixOS or Homebrew-only hosts add the directories explicitly.
+- Round 4: `HORDECODE_VERIFY_PATH` overrides the minimal PATH; the proxy/CA drop is documented in the script comment (8153157).
 
 ## Round 3 (review `origin/rnd/reviews-0.1.6:reports/rnd/review-rnd-fixes-after-0.1.5.md`)
 
@@ -105,17 +105,36 @@ Verification: `bash -n script/fork-release.sh` ok; `bash script/fork-release.tes
 
 - Upstream v1.19.5 (checkout `../repos/opencode-1.19.5`, tag v1.19.5) has no advisor and no `files_touched`; its experimental block is `packages/core/src/v1/config/config.ts:169-173`. MiMo v0.1.11 `packages/opencode/src/config/config.ts` has no advisor. The `no_progress` key is `FORK_DELTA` (`core/src/v1/config/config.ts`, comment at the key) and `FORK_ONLY` (`core/src/config/config.ts`); `packages/sdk/js/src/v2/gen/types.gen.ts:2227` is generator output.
 
+## Round 4 (review `origin/rnd/reviews-0.1.6:reports/rnd/review2-rnd-fixes-after-0.1.5.md`)
+
+| Finding | Commit | Result |
+|---|---|---|
+| F1 step budget | 0445eac | Salvage skipped when `step >= steps ?? agent.steps ?? 100` (the loop's own limit). Test: `agent.build.steps = 1`, three DSML `read` calls: before the fix 1 completed tool part, now 0 parts and the notice. |
+| F2 notice behaviour | 969572f | Notice is an ignored synthetic text part; no `lastAssistant.error`, no `Session.Event.Error`. Comparison test runs one scenario twice (`HORDECODE_DSML_NOTICE=0` = the 0.1.5 end, and default) and requires identical normalized message history (minus the notice part), identical model request body of the next prompt, identical assistant errors and identical error events; it failed on the old implementation (notice count 0, error set). |
+| F3 mutants D1, D2 (+D3) | 866b801 | New tests: block with an unknown tool runs nothing; `constructor` block runs nothing; two-call block runs both in order; allowlist through a real supervisor row. Redundant allowlist check removed. Re-run mutants: D1 (always true) 2 tests fail, D3 (`some`) 2 fail, `in` operator 1 fail, loop agentID dropped 1 fail. D6 (`bypassAgentCheck`) and D7 (Plugin service) are not asserted: no behaviour of the tools used differs (stricter flag; hook has no fixture here). |
+| F4 | 866b801 | `Object.hasOwn` instead of `in`; salvage uses the same part the trigger matched (complete and trailing); `messages: []` is not an issue: tools receive messages through `SessionTools.resolve` (`input.messages`), and no tool reads `options.messages` (grep). |
+| F5 re-arm | 74b0ed6 | `experimental.advisor.rearm` (schema in both core configs, SDK regenerated: the diff is the one field, no other drift). Hook tests: default off and `false` stay quiet, `true` fires again. |
+| F6 release verify | 8153157 | Real `phase_verify` run against stub npm/gh/curl and a stub installer: pin (`--version 0.0.9`), env (maintainer secret and proxy absent, `PATH=/usr/bin:/bin`), guard (fails before the installer runs). Mutants: pin removed and guard disabled both exit 1. Proxy/CA drop documented in the script comment; `HORDECODE_VERIFY_PATH` added. |
+| docs | e4819e8 | CHANGELOG. |
+
+Findings of the audit not covered by a code change:
+- Found while testing F3: the DSML retry re-entry user message carries no `agentID`, so after retries `lastUser.agentID` is empty and the loop loses the supervisor row (allowlist, ask routing) for the retried step. Salvage now reads the loop's own `agentID`. The retry itself is 0.1.5 behaviour and is unchanged on purpose (F2: with salvage off, nothing but the notice may change). OPEN DECISION: add `agentID` to the retry re-entry message.
+- The existing text-call retry still loops past the step cap (pre-existing, not new; only the tool execution is gated now).
+- OPEN DECISION (owner, F2): keep the notice on by default (now display-only).
+- Not asserted: `tool.execute.before` plugin hooks and `bypassAgentCheck` on the salvage path (D6, D7); both are inherited from the shared `SessionTools.resolve` and are not specific to salvage.
+
 ## Verification (measured)
 
-Base = `094f510aa6` (v0.1.5), checked out as a separate worktree with its own install; head = branch tip before this report commit, `55da04f`. Same container, NODE_OPTIONS=--max-old-space-size=8192.
+Base = `094f510aa6` (v0.1.5, separate worktree with its own install); head = `e4819e8` (the branch tip before this report commit). Same container, NODE_OPTIONS=--max-old-space-size=8192, base re-measured this round.
 
 | Package | typecheck base / head | tests base | tests head |
 |---|---|---|---|
 | cron | clean / clean | 46 pass, 0 fail | 51 pass, 0 fail |
 | skill | clean / clean | 39 pass, 0 fail | 43 pass, 0 fail |
 | core | clean / clean | 1467 pass, 4 skip, 2 fail | 1477 pass, 4 skip, 2 fail |
-| opencode | clean / clean | 4482 pass, 25 skip, 3 fail | 4503 pass, 25 skip, 3 fail |
+| opencode | clean / clean | 4482 pass, 25 skip, 3 fail | 4511 pass, 25 skip, 3 fail |
+| script | `bash -n` ok | - | `script/fork-release.test.sh` 17 checks ok (10 before round 4) |
 
-- The failing tests are the same set on base and head: core `util.flock` and `util.effect-flock` "unwritable lock roots" (container runs as root); opencode `HttpApi Server.listen` response logs, `config/tui` legacy source, `tool.write` OS denies write.
-- New passing tests: cron +5, skill +4, core +10, opencode +21.
-- The base worktree is `/home/user/hordecode-base` (registered with `git worktree`; remove with `git worktree remove /home/user/hordecode-base` when no longer needed).
+- Failing tests are the same set on base and head: core `util.flock` and `util.effect-flock` "unwritable lock roots" (container runs as root); opencode `HttpApi Server.listen` response logs, `config/tui` legacy source, `tool.write` OS denies write.
+- Round 3 to round 4 (head): opencode 4503 -> 4511 pass (+8: step budget, comparison, unknown tool, prototype name, two-call block, allowlist, two re-arm hook tests, minus none). Cron, skill and core unchanged by round 4 (51, 43, 1477).
+- The base worktree is `/home/user/hordecode-base` (remove with `git worktree remove /home/user/hordecode-base`).
