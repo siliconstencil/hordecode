@@ -20,7 +20,7 @@ Reference points:
 | kept (upstream removed) | Hordecode still carries a file upstream deleted | Decide per file at the next port. |
 | UPSTREAM_ONLY | present in 1.19.5, absent here | Not yet ported (deliberately dropped: `packages/console`, `packages/stats`). |
 
-Totals: PARITY 4933, LAGGING 55, FORK_DELTA 899, FORK_ONLY 1333, FORK_KEPT_UPSTREAM_REMOVED 11, UPSTREAM_ONLY 30.
+Totals: PARITY 4930, LAGGING 55, FORK_DELTA 902, FORK_ONLY 1348, FORK_KEPT_UPSTREAM_REMOVED 11, UPSTREAM_ONLY 30.
 
 ## Packages that are entirely Hordecode's
 
@@ -32,18 +32,18 @@ agent, bus, control-plane, cron, global, inbox, memory, project, shared, skill, 
 
 | path | parity | lagging | fork delta | fork only | kept (upstream removed) | upstream only |
 |---|---|---|---|---|---|---|
-| packages/opencode | 590 | 0 | 236 | 277 | 4 | 5 |
-| packages/core | 369 | 0 | 119 | 337 | 0 | 5 |
+| packages/opencode | 589 | 0 | 237 | 280 | 4 | 5 |
+| packages/core | 369 | 0 | 119 | 343 | 0 | 5 |
 | packages/tui | 122 | 1 | 116 | 156 | 0 | 5 |
 | packages/desktop | 140 | 0 | 165 | 3 | 1 | 1 |
-| packages/app | 549 | 14 | 81 | 0 | 4 | 0 |
+| packages/app | 548 | 14 | 82 | 0 | 4 | 0 |
 | packages/web | 635 | 13 | 57 | 0 | 0 | 0 |
 | packages/ui | 1651 | 0 | 45 | 0 | 0 | 1 |
 | packages/server | 27 | 0 | 4 | 15 | 0 | 0 |
 | packages/cli | 22 | 0 | 3 | 7 | 0 | 0 |
 | packages/client | 11 | 0 | 10 | 0 | 0 | 0 |
 | packages/plugin | 35 | 0 | 6 | 4 | 0 | 1 |
-| packages/schema | 67 | 0 | 7 | 0 | 0 | 0 |
+| packages/schema | 66 | 0 | 8 | 0 | 0 | 0 |
 | packages/sdk | 42 | 0 | 6 | 0 | 0 | 0 |
 | packages/enterprise | 18 | 14 | 4 | 0 | 0 | 0 |
 | packages/protocol | 23 | 0 | 3 | 0 | 0 | 0 |
@@ -71,7 +71,8 @@ A package with zero LAGGING and zero UPSTREAM_ONLY rows is at parity. LAGGING an
 |---|---|---|---|---|---|---|
 | .github | 30 | 0 | 7 | 4 | 2 | 0 |
 | docs | 0 | 0 | 0 | 7 | 0 | 0 |
-| script | 14 | 1 | 3 | 3 | 0 | 2 |
+| script | 14 | 1 | 3 | 4 | 0 | 2 |
+| reports | 0 | 0 | 0 | 3 | 0 | 0 |
 | patches | 19 | 0 | 1 | 1 | 0 | 0 |
 | .gitignore | 0 | 0 | 1 | 0 | 0 | 0 |
 | .husky | 0 | 0 | 1 | 0 | 0 | 0 |
@@ -86,7 +87,6 @@ A package with zero LAGGING and zero UPSTREAM_ONLY rows is at parity. LAGGING an
 | LICENSE | 0 | 0 | 1 | 0 | 0 | 0 |
 | package.json | 0 | 0 | 1 | 0 | 0 | 0 |
 | README.md | 0 | 0 | 1 | 0 | 0 | 0 |
-| reports | 0 | 0 | 0 | 1 | 0 | 0 |
 | ROADMAP.md | 0 | 0 | 0 | 1 | 0 | 0 |
 | sdks | 12 | 3 | 1 | 0 | 0 | 0 |
 | SECURITY.md | 0 | 0 | 1 | 0 | 0 | 0 |

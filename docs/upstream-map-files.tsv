@@ -719,7 +719,7 @@ PARITY	packages/app/src/utils/diffs.test.ts
 PARITY	packages/app/src/utils/diffs.ts
 PARITY	packages/app/src/utils/draft-store.ts
 PARITY	packages/app/src/utils/file-manager.ts
-PARITY	packages/app/src/utils/id.ts
+FORK_DELTA	packages/app/src/utils/id.ts
 PARITY	packages/app/src/utils/menu-dismiss-controller.ts
 FORK_KEPT_UPSTREAM_REMOVED	packages/app/src/utils/notification-click.test.ts
 FORK_KEPT_UPSTREAM_REMOVED	packages/app/src/utils/notification-click.ts
@@ -1313,7 +1313,9 @@ FORK_DELTA	packages/core/src/session/execution/local.ts
 FORK_ONLY	packages/core/src/session/external-import.sql.ts
 FORK_ONLY	packages/core/src/session/external-import.ts
 FORK_ONLY	packages/core/src/session/goal.ts
+FORK_ONLY	packages/core/src/session/harness-env.ts
 FORK_ONLY	packages/core/src/session/harness-injection.ts
+FORK_ONLY	packages/core/src/session/harness-triage.ts
 PARITY	packages/core/src/session/history.ts
 FORK_ONLY	packages/core/src/session/index.ts
 PARITY	packages/core/src/session/info.ts
@@ -1555,6 +1557,7 @@ PARITY	packages/core/test/config/agent.test.ts
 PARITY	packages/core/test/config/command.test.ts
 FORK_DELTA	packages/core/test/config/config.test.ts
 PARITY	packages/core/test/config/fixtures/plugin/directory-plugin.ts
+FORK_ONLY	packages/core/test/config/harness-paths.test.ts
 FORK_DELTA	packages/core/test/config/plugin.test.ts
 PARITY	packages/core/test/config/provider-options.test.ts
 FORK_DELTA	packages/core/test/config/provider.test.ts
@@ -1591,6 +1594,7 @@ PARITY	packages/core/test/github-copilot/convert-to-copilot-messages.test.ts
 PARITY	packages/core/test/github-copilot/copilot-chat-model.test.ts
 PARITY	packages/core/test/github-copilot/openai-responses-language-model.test.ts
 FORK_DELTA	packages/core/test/global.test.ts
+FORK_ONLY	packages/core/test/id/id-wrap.test.ts
 FORK_ONLY	packages/core/test/installation-version.test.ts
 FORK_DELTA	packages/core/test/instruction-context.test.ts
 PARITY	packages/core/test/integration.test.ts
@@ -1709,6 +1713,8 @@ FORK_ONLY	packages/core/test/session/checkpoint-thresholds.test.ts
 FORK_ONLY	packages/core/test/session/checkpoint-validator.test.ts
 FORK_ONLY	packages/core/test/session/checkpoint-writer-prompt-schema.test.ts
 FORK_ONLY	packages/core/test/session/checkpoint-writer-wait.test.ts
+FORK_ONLY	packages/core/test/session/harness-injection.test.ts
+FORK_ONLY	packages/core/test/session/harness-triage.test.ts
 FORK_ONLY	packages/core/test/session/processor-try-best.test.ts
 FORK_ONLY	packages/core/test/session/retry-cap.test.ts
 FORK_ONLY	packages/core/test/session/setup-shared-db.ts
@@ -1761,6 +1767,7 @@ FORK_ONLY	packages/cron/src/shell-approval.ts
 FORK_ONLY	packages/cron/test/boot-rt-warn-assert.test.ts
 FORK_ONLY	packages/cron/test/boot-sync-missed.test.ts
 FORK_ONLY	packages/cron/test/cron-expr.test.ts
+FORK_ONLY	packages/cron/test/cron-lock-location.test.ts
 FORK_ONLY	packages/cron/test/cron-task.test.ts
 FORK_ONLY	packages/cron/test/idle-scan.test.ts
 FORK_ONLY	packages/cron/test/keepalive-sentinel-log-field.test.ts
@@ -2812,6 +2819,7 @@ FORK_ONLY	packages/opencode/src/session/contract/report.ts
 FORK_ONLY	packages/opencode/src/session/contract/runner.ts
 FORK_ONLY	packages/opencode/src/session/contract/testcount.ts
 FORK_ONLY	packages/opencode/src/session/contract/usage.ts
+FORK_ONLY	packages/opencode/src/session/dsml-salvage.ts
 FORK_DELTA	packages/opencode/src/session/instruction.ts
 FORK_DELTA	packages/opencode/src/session/llm.ts
 PARITY	packages/opencode/src/session/llm/AGENTS.md
@@ -3395,6 +3403,7 @@ FORK_ONLY	packages/opencode/test/session/checkpoint-writer-wait-timeout.test.ts
 FORK_ONLY	packages/opencode/test/session/compaction-cron.test.ts
 FORK_ONLY	packages/opencode/test/session/compaction-guard.test.ts
 FORK_ONLY	packages/opencode/test/session/compaction-overflow-hallucination.test.ts
+FORK_ONLY	packages/opencode/test/session/compaction-rollback.test.ts
 FORK_DELTA	packages/opencode/test/session/compaction.test.ts
 FORK_ONLY	packages/opencode/test/session/config-dispose-busy.test.ts
 FORK_ONLY	packages/opencode/test/session/contract/checkpoint.test.ts
@@ -3406,6 +3415,7 @@ FORK_ONLY	packages/opencode/test/session/contract/runner.test.ts
 FORK_ONLY	packages/opencode/test/session/contract/testcount.test.ts
 FORK_ONLY	packages/opencode/test/session/dsml-retry-turn.test.ts
 FORK_ONLY	packages/opencode/test/session/fork-context.test.ts
+FORK_ONLY	packages/opencode/test/session/id-wrap.test.ts
 FORK_DELTA	packages/opencode/test/session/instruction.test.ts
 FORK_ONLY	packages/opencode/test/session/interrupt-cancel-scope.test.ts
 PARITY	packages/opencode/test/session/llm-native-recorded.test.ts
@@ -3428,7 +3438,7 @@ FORK_DELTA	packages/opencode/test/session/schema-decoding.test.ts
 FORK_ONLY	packages/opencode/test/session/session-arming.test.ts
 FORK_ONLY	packages/opencode/test/session/session-cron-latch.test.ts
 PARITY	packages/opencode/test/session/session-schema.test.ts
-PARITY	packages/opencode/test/session/session.test.ts
+FORK_DELTA	packages/opencode/test/session/session.test.ts
 FORK_DELTA	packages/opencode/test/session/snapshot-tool-race.test.ts
 FORK_DELTA	packages/opencode/test/session/structured-output-integration.test.ts
 PARITY	packages/opencode/test/session/structured-output.test.ts
@@ -3637,7 +3647,7 @@ PARITY	packages/schema/src/file-diff.ts
 PARITY	packages/schema/src/filesystem-watcher.ts
 PARITY	packages/schema/src/filesystem.ts
 PARITY	packages/schema/src/ide-event.ts
-PARITY	packages/schema/src/identifier.ts
+FORK_DELTA	packages/schema/src/identifier.ts
 PARITY	packages/schema/src/index.ts
 PARITY	packages/schema/src/installation-event.ts
 PARITY	packages/schema/src/integration-id.ts
@@ -3941,6 +3951,7 @@ FORK_ONLY	packages/shared/src/util/module.ts
 FORK_ONLY	packages/shared/src/util/path.ts
 FORK_ONLY	packages/shared/src/util/slug.ts
 FORK_ONLY	packages/shared/test/filesystem.test.ts
+FORK_ONLY	packages/shared/test/identifier-wrap.test.ts
 FORK_ONLY	packages/shared/test/util.test.ts
 FORK_ONLY	packages/shared/tsconfig.json
 FORK_ONLY	packages/skill/package.json
@@ -4229,6 +4240,7 @@ FORK_ONLY	packages/skill/src/research/LICENSE-superpowers
 FORK_ONLY	packages/skill/test/builtin-bundle-scripts.test.ts
 FORK_ONLY	packages/skill/test/builtin-extract.test.ts
 FORK_ONLY	packages/skill/test/discovery.test.ts
+FORK_ONLY	packages/skill/test/harness-gate-paths.test.ts
 FORK_ONLY	packages/skill/test/research-gate.test.ts
 FORK_ONLY	packages/skill/tsconfig.json
 PARITY	packages/slack/.env.example
@@ -7196,6 +7208,8 @@ PARITY	README.uk.md
 PARITY	README.vi.md
 PARITY	README.zh.md
 PARITY	README.zht.md
+FORK_ONLY	reports/rnd/fixes-after-0.1.5.md
+FORK_ONLY	reports/rnd/rnd-harness-triage.md
 FORK_ONLY	reports/rnd/rnd-task-contract-slice1.md
 FORK_ONLY	ROADMAP.md
 PARITY	screenshot-uk.png
@@ -7204,6 +7218,7 @@ PARITY	script/changelog.ts
 PARITY	script/duplicate-pr.ts
 FORK_ONLY	script/fork-check.ts
 FORK_ONLY	script/fork-release.sh
+FORK_ONLY	script/fork-release.test.sh
 PARITY	script/format.ts
 PARITY	script/generate.ts
 PARITY	script/github/close-issues.ts
