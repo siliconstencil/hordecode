@@ -1,7 +1,10 @@
 import { randomBytes } from "crypto"
 
 export namespace Identifier {
+  // Payload is always 26 chars: sort mark ("g" ascending, "-" descending) + 16 hex of the 64-bit time field + base62.
+  // v1 was 12 hex + 14 base62 (48-bit time, wrapped on 2026-08-14); "g" > "f" and "-" < "0" keep v2 order-compatible.
   const LENGTH = 26
+  const TIME_BYTES = 8
 
   // State for monotonic ID generation
   let lastTimestamp = 0
@@ -38,11 +41,11 @@ export namespace Identifier {
 
     now = descending ? ~now : now
 
-    const timeBytes = Buffer.alloc(6)
-    for (let i = 0; i < 6; i++) {
-      timeBytes[i] = Number((now >> BigInt(40 - 8 * i)) & BigInt(0xff))
+    const timeBytes = Buffer.alloc(TIME_BYTES)
+    for (let i = 0; i < TIME_BYTES; i++) {
+      timeBytes[i] = Number((now >> BigInt(56 - 8 * i)) & BigInt(0xff))
     }
 
-    return timeBytes.toString("hex") + randomBase62(LENGTH - 12)
+    return (descending ? "-" : "g") + timeBytes.toString("hex") + randomBase62(LENGTH - 1 - TIME_BYTES * 2)
   }
 }

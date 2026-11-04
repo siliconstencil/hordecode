@@ -13,7 +13,11 @@ const prefixes = {
   workspace: "wrk",
 } as const
 
+// Payload is always 26 chars: sort mark ("g" ascending, "-" descending) + 16 hex of the 64-bit time field + base62.
+// MiMo Code 54ec2d5e, packages/cli/src/id/id.ts:75-107 at v0.1.16 (MiMo keeps session ids unmarked; this keeps the mark everywhere so
+// v2 stays order-compatible with v1: "g" > "f", "-" < "0").
 const LENGTH = 26
+const TIME_BYTES = 8
 
 // State for monotonic ID generation
 let lastTimestamp = 0
@@ -61,33 +65,25 @@ export function create(prefix: string, direction: "descending" | "ascending", ti
 
   now = direction === "descending" ? ~now : now
 
-  const timeBytes = Buffer.alloc(6)
-  for (let i = 0; i < 6; i++) {
-    timeBytes[i] = Number((now >> BigInt(40 - 8 * i)) & BigInt(0xff))
+  const timeBytes = Buffer.alloc(TIME_BYTES)
+  for (let i = 0; i < TIME_BYTES; i++) {
+    timeBytes[i] = Number((now >> BigInt(56 - 8 * i)) & BigInt(0xff))
   }
 
-  return prefix + "_" + timeBytes.toString("hex") + randomBase62(LENGTH - 12)
+  return prefix + "_" + (direction === "descending" ? "-" : "g") + timeBytes.toString("hex") + randomBase62(LENGTH - 1 - TIME_BYTES * 2)
 }
 
 /** Extract timestamp from an ascending ID. Does not work with descending IDs. */
-export function timestamp(id: string): number {
+export function timestamp(id: string, now = Date.now()): number {
   const prefix = id.split("_")[0]
-  const hex = id.slice(prefix.length + 1, prefix.length + 13)
-  const encoded = BigInt("0x" + hex)
-  const low = Number(encoded / BigInt(0x1000))
-  const P = 68719476736
-  const now = Date.now()
-  const base = Math.floor(now / P) * P
-  let best = base + low
-  let bestDiff = Math.abs(best - now)
-  for (const cand of [best - P, best + P]) {
-    const d = Math.abs(cand - now)
-    if (d < bestDiff) {
-      best = cand
-      bestDiff = d
-    }
-  }
-  return best
+  const body = id.slice(prefix.length + 1)
+  const v2 = body[0] === "g" || body[0] === "-"
+  const raw = Number(BigInt("0x" + (v2 ? body.slice(1, 17) : body.slice(0, 12))) / BigInt(0x1000))
+  if (v2) return raw
+  // v1 stored ts % 2^36. Restore the latest cycle that does not exceed `now`.
+  const cycle = 2 ** 36
+  const recovered = Math.floor(now / cycle) * cycle + raw
+  return recovered > now ? recovered - cycle : recovered
 }
 
 export * as Identifier from "./id"

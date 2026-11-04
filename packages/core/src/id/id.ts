@@ -45,24 +45,16 @@ export function create(prefix: string, direction: "descending" | "ascending", ti
 }
 
 /** Extract timestamp from an ascending ID. Does not work with descending IDs. */
-export function timestamp(id: string): number {
+export function timestamp(id: string, now = Date.now()): number {
   const prefix = id.split("_")[0]
-  const hex = id.slice(prefix.length + 1, prefix.length + 13)
-  const encoded = BigInt("0x" + hex)
-  const low = Number(encoded / BigInt(0x1000))
-  const P = 68719476736
-  const now = Date.now()
-  const base = Math.floor(now / P) * P
-  let best = base + low
-  let bestDiff = Math.abs(best - now)
-  for (const cand of [best - P, best + P]) {
-    const d = Math.abs(cand - now)
-    if (d < bestDiff) {
-      best = cand
-      bestDiff = d
-    }
-  }
-  return best
+  const body = id.slice(prefix.length + 1)
+  const v2 = body[0] === "g" || body[0] === "-"
+  const raw = Number(BigInt("0x" + (v2 ? body.slice(1, 17) : body.slice(0, 12))) / BigInt(0x1000))
+  if (v2) return raw
+  // v1 stored ts % 2^36. Restore the latest cycle that does not exceed `now`.
+  const cycle = 2 ** 36
+  const recovered = Math.floor(now / cycle) * cycle + raw
+  return recovered > now ? recovered - cycle : recovered
 }
 
 export * as Identifier from "./id"

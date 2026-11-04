@@ -13,7 +13,7 @@ const root = "/workflows"
 // builds a filesystem path from the id; these read routes only do an in-memory
 // runtime map lookup, so the wider (still traversal-proof -- no `.`/`/`) charset is
 // safe here.
-export const READ_RUN_ID = /^wf_(?:[0-9A-Za-z]{26}|[0-9a-f]{64})$/
+export const READ_RUN_ID = /^wf_(?:[0-9A-Za-z-]{26}|[0-9a-f]{64})$/
 
 // Strict shape, NOT just startsWith("wf"): runID flows into
 // scriptPath = join(scriptDir, runID + ".js"), so a value like
@@ -22,7 +22,7 @@ export const READ_RUN_ID = /^wf_(?:[0-9A-Za-z]{26}|[0-9a-f]{64})$/
 // so it is traversal-proof by construction. The `{26}` tracks
 // Identifier.LENGTH -- if that constant ever changes, widen this too (the
 // in-depth persistence guard uses `+`, so it stays correct regardless).
-export const RESUME_RUN_ID = /^wf_[0-9A-Za-z]{26}$/
+export const RESUME_RUN_ID = /^wf_[0-9A-Za-z-]{26}$/
 
 export const WorkflowPaths = {
   list: root,

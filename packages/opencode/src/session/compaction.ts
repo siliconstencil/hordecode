@@ -14,6 +14,7 @@ import { Config } from "@/config/config"
 import { NotFoundError } from "@/storage/storage"
 
 import { Effect, Layer, Context } from "effect"
+import { NamedError } from "@opencode-ai/core/util/error"
 import { InstanceState } from "@/effect/instance-state"
 import { isOverflow as overflow, usable } from "./overflow"
 import { serviceUse } from "@opencode-ai/core/effect/service-use"
@@ -498,6 +499,19 @@ const layer = Layer.effect(
         model,
       })
 
+      // FORK_DELTA: MiMo Code e743bbe4, packages/cli/src/session/compaction.ts:453-483 at v0.1.16 (MiMo v0.1.11 has no
+      // rollback; upstream opencode v1.19.5 has no counterpart). A boundary whose summary did not land must go:
+      // filterCompacted cuts the history at a boundary whose summary finished without error, even an empty one.
+      const rollback = Effect.fn("SessionCompaction.rollback")(function* (message: string) {
+        if (!processor.message.error) {
+          processor.message.error = new NamedError.Unknown({ message }).toObject()
+          processor.message.finish = "error"
+          yield* session.updateMessage(processor.message)
+        }
+        yield* session.removeMessage({ sessionID: input.sessionID, messageID: input.parentID })
+        return "stop" as const
+      })
+
       if (result === "compact") {
         processor.message.error = new SessionV1.ContextOverflowError({
           message: replay
@@ -506,8 +520,12 @@ const layer = Layer.effect(
         }).toObject()
         processor.message.finish = "error"
         yield* session.updateMessage(processor.message)
-        return "stop"
+        return yield* rollback("Compaction exceeded the model context limit")
       }
+
+      if (result === "stop") return yield* rollback("Compaction failed before producing a summary")
+      if (!(yield* MessageV2.parts(msg.id).pipe(Effect.provideService(Database.Service, database))).some((part) => part.type === "text" && part.text.trim().length > 0))
+        return yield* rollback("Compaction produced no usable summary")
 
       if (compactionPart && selected.tail_start_id && compactionPart.tail_start_id !== selected.tail_start_id) {
         yield* session.updatePart({

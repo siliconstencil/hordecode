@@ -14,7 +14,7 @@ type JournalEvent =
 
 const ROOT_DIR = path.join(Global.Path.data, "workflow-journals")
 
-const RUN_ID = /^wf_[0-9A-Za-z]+$/
+const RUN_ID = /^wf_[0-9A-Za-z-]+$/
 const safeRunID = (runID: string) => {
   if (!RUN_ID.test(runID)) throw new Error(`invalid workflow runID: ${JSON.stringify(runID)}`)
   return runID

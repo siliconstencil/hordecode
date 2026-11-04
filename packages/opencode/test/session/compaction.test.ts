@@ -204,7 +204,21 @@ function fake(
     },
     updateToolCall: Effect.fn("TestSessionProcessor.updateToolCall")(() => Effect.succeed(undefined)),
     completeToolCall: Effect.fn("TestSessionProcessor.completeToolCall")(() => Effect.void),
-    process: Effect.fn("TestSessionProcessor.process")(() => Effect.succeed(result)),
+    // FORK_DELTA: upstream v1.19.5 packages/opencode/test/session/compaction.test.ts:207. A "continue" result now stands
+    // for a summary that landed, so it writes summary text (compaction rolls back an empty summary, see src/session/compaction.ts).
+    process: Effect.fn("TestSessionProcessor.process")(
+      () =>
+        (result === "continue"
+          ? SessionNs.use.updatePart({
+              id: PartID.ascending(),
+              messageID: msg.id,
+              sessionID: msg.sessionID,
+              type: "text",
+              text: "summary",
+            })
+          : Effect.void
+        ).pipe(Effect.as(result)) as Effect.Effect<typeof result>,
+    ),
     replay: Effect.fn("TestSessionProcessor.replay")(() => Effect.succeed(result)),
   } satisfies SessionProcessorModule.SessionProcessor.Handle
 }

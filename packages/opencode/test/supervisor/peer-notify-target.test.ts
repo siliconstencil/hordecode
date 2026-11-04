@@ -39,7 +39,7 @@ describe("peer terminal notification reaches the parent", () => {
           { operation: { action: "create", task: "peer notify probe task", mode: "build" } } as never,
           ctxFor(parent.id as SessionID, "build"),
         )
-        const childID = (created.output.match(/ses_[A-Za-z0-9]+/) ?? [])[0] as SessionID
+        const childID = (created.output.match(/ses_[A-Za-z0-9-]+/) ?? [])[0] as SessionID
         const rows = yield* registry.listBySession(childID)
         const peer = rows.find((r) => r.supervisorID !== "main")
         if (!peer) throw new Error(`no peer row for child ${childID}`)
