@@ -249,6 +249,10 @@ export const Info = Schema.Struct({
         description:
           "Create the lightweight git ref refs/hordecode/contract/<session>/<contract id> at HEAD when a contract is armed (no commit, no stash, no hooks). Default: false. It pins objects against gc and `git push --mirror` publishes it; delete it with `git update-ref -d <ref>`.",
       }),
+      baseline: Schema.optional(Schema.Boolean).annotate({
+        description:
+          "Run each criterion once when a contract is armed and record the test count of a recognized summary (bun test, jest, vitest, pytest, cargo test, go test -v); a later run with fewer tests, none, or an unreadable summary fails the criterion. Default: true. Set false to skip the arm-time run; a `no-baseline` segment of /contract does the same for one contract.",
+      }),
       unattended: Schema.optional(Schema.Boolean).annotate({
         description:
           "Approve the criteria commands once at arm time instead of asking at every run (explicit deny rules still apply). Default: false. A bare `unattended` segment of /contract turns it on for one contract.",
