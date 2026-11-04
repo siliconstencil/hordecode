@@ -46,8 +46,7 @@ Notes:
 - `HORDECODE_DSML_NOTICE=0` restores the silent end.
 - Provenance: FORK_ONLY. Upstream v1.19.5 and MiMo v0.1.11 have no DSML handling (reference checkouts `../repos/` were not available in this container; not re-verified). The core copy (`core/src/session/prompt.ts:1969`, unmounted) publishes `TextToolCallError` and stops; the new code keeps that end and adds the notice.
 - Tests (`opencode/test/session/dsml-retry-turn.test.ts`, fake LLM): salvage parse+execute, permission-denied path, notice path, notice switched off. Three of the four fail without the source change; the switched-off test passes either way (it pins the old behaviour).
-- OPEN DECISION: should salvage also cover the case where a DSML block is present but the retry limit is 0? Today `dsmlToolCallStop` is evaluated the same way, so yes it applies; not separately tested.
-- OPEN DECISION: salvage is per message and unbounded across turns; a model that always writes DSML would be salvaged every turn. A per-session cap is not implemented.
+- Resolved in round 3: per-session cap `DSML_SALVAGE_LIMIT = 3` (171af18).
 
 ### 3. Advisor re-arm
 
@@ -71,15 +70,52 @@ Dry explanation (what a run does now): download `install.sh` -> `env -i HOME=$ba
 Verification: `bash -n script/fork-release.sh` ok; `bash script/fork-release.test.sh` 10/10 ok, 0 against the old script (the helper is missing). `shellcheck` is not installed in this container, so it was not run.
 - OPEN DECISION: the minimal PATH `/usr/bin:/bin` assumes curl, tar, gzip and uname live there; on NixOS or Homebrew-only hosts add the directories explicitly.
 
-## Verification (measured, rnd/fixes-after-0.1.5 at 5b8a89e)
+## Round 3 (review `origin/rnd/reviews-0.1.6:reports/rnd/review-rnd-fixes-after-0.1.5.md`)
 
-| Package | typecheck | tests |
+| Finding | Commit | Result |
 |---|---|---|
-| cron | clean | 48 pass, 0 fail |
-| skill | clean | 42 pass, 0 fail |
-| core | clean | 1470 pass, 2 fail |
-| opencode | clean | 4496 pass, 3 fail |
+| F6 SDK drift | 44fabd6 | `chore(sdk)`: generator output adds `experimental.openTelemetryContent` only. |
+| F1, F2, F3 harness | 334d008 | See below. |
+| F4 advisor | b752f10 | `no_progress` counts only consecutive read-only calls. |
+| DSML cap | 171af18 | `DSML_SALVAGE_LIMIT = 3` per session, then the notice. |
+| F5 cron overlap | 45a07bd | Live legacy `.hordecode/.cron-lock` is honoured. |
+| F6 citations | 44d9a41 | Upstream and MiMo status cited at the `no_progress` config key. |
+| docs | b752f10, 55da04f | `docs/CONFIGURATION.md` (trigger + preset table), CHANGELOG. |
 
-- core 2 failures: `util.flock` and `util.effect-flock` "unwritable lock roots" (container runs as root; fail on the baseline).
-- opencode 3 failures: `httpapi-listen` (response logs), `config/tui` (legacy source), `tool/write` (OS denies write). Identical on `prep/0.1.5`.
-- opencode typecheck and the pre-push hook need `NODE_OPTIONS=--max-old-space-size=8192` here (default heap aborts).
+### Harness (F1, F2, F3)
+
+- `harnessPaths(worktree, cfg)` now returns absolute paths. Default docs dir: evidence stays `<worktree>/.hordecode/harness/evidence`. Custom `harness.docs`: evidence is `<state>/harness-evidence/<sha256(worktree)[:32]>`, never in the docs tree. "Custom" compares resolved paths, so `./docs/harness` and `docs/harness/` are the default (F2 edge case); `docs_absolute` with the default string keeps the default evidence location.
+- The harness agent's injection (`core/src/session/harness-injection.ts`) states absolute paths and marks the session in `HarnessEnv` (`core/src/session/harness-env.ts`). The shell tool (`opencode/src/tool/shell.ts` `shellEnv`) exports `HORDECODE_HARNESS_DOCS` and `HORDECODE_HARNESS_EVIDENCE` for that session; `Session.createNext` copies the mapping to every session created under it (`opencode/src/session/session.ts`). Supervisors that run inside the same session share the session id. Sessions of other agents get a paths-only block when they are marked (subagents), so no model substitution and no env prefix are needed. The gate script reads the env; evidence is no longer derived from `HORDECODE_HARNESS_DOCS`.
+- Research: the injection is gated on `skillPipeline`. The research agent receives exactly the 0.1.5 text (test compares against the base formula); build and unmarked sessions are untouched.
+- Provenance: MiMo Code v0.1.11 `packages/opencode/src/session/prompt.ts:936-944` injects the docs text only when the user message agent is `compose`, resolves only specs/plans/reports and uses no env or evidence path (checkout `../repos/mimocode-v0.1.11`, tag v0.1.11). `config/compose.ts:18-23` is the relative-passthrough `resolveDocsDir` that the fork keeps for the research text. The env export and evidence relocation are fork additions.
+- Tests: `core/test/config/harness-paths.test.ts` (5), `core/test/session/harness-injection.test.ts` (5: paths, session mark, subagent block, research byte-identical, build untouched), `opencode/test/tool/shell.test.ts` (env reaches a child session's command, not another session), `opencode/test/session/session.test.ts` (child inherits), `skill/test/harness-gate-paths.test.ts`. Each failed before the change; the shell and session tests were re-run with their source line disabled (0 pass / 1 fail each).
+- Still model-dependent: skills tell the model to write files at `<harness-docs>/...`; the injected text gives the absolute value, but a write through the `write` tool is not intercepted. The gate scripts and everything run through the shell no longer depend on the model.
+- OPEN DECISION: the minimal-injection block for marked sessions reaches any session created under a harness session, including non-harness subagents (by design, F1 scenario B).
+
+### Advisor (F4)
+
+- Fact renamed `readOnlyStreak`: trailing terminal read-only calls (`read grep glob list ls webfetch websearch codesearch lsp view_image skill`); any other tool call, including bash, task, supervisor, workflow, session, edits and unknown MCP tools, resets it, whatever its status. Default 25 kept (high 15, low off).
+- Remaining F4 points not changed: repeat suppression by trigger name (re-arm constant stays OFF), default-on for existing advisor users (OPEN DECISION: ship 25 or default 0).
+
+### Cron (F5)
+
+- `tryAcquireSchedulerLock` reads the legacy lock first and declines when its owner is a live process other than this one (uses the existing PID-recycle check). It never writes or deletes the legacy file. One-sided: a previous-version process started after the new one cannot see the state-dir lock; closing that would mean writing the legacy file again. Dead, malformed and own-pid legacy locks are ignored. Stale legacy files stay (zero delete); the dead `.cron-lock` entries in the generated `.gitignore` are left as they are.
+
+### Citations (F6)
+
+- Upstream v1.19.5 (checkout `../repos/opencode-1.19.5`, tag v1.19.5) has no advisor and no `files_touched`; its experimental block is `packages/core/src/v1/config/config.ts:169-173`. MiMo v0.1.11 `packages/opencode/src/config/config.ts` has no advisor. The `no_progress` key is `FORK_DELTA` (`core/src/v1/config/config.ts`, comment at the key) and `FORK_ONLY` (`core/src/config/config.ts`); `packages/sdk/js/src/v2/gen/types.gen.ts:2227` is generator output.
+
+## Verification (measured)
+
+Base = `094f510aa6` (v0.1.5), checked out as a separate worktree with its own install; head = branch tip before this report commit, `55da04f`. Same container, NODE_OPTIONS=--max-old-space-size=8192.
+
+| Package | typecheck base / head | tests base | tests head |
+|---|---|---|---|
+| cron | clean / clean | 46 pass, 0 fail | 51 pass, 0 fail |
+| skill | clean / clean | 39 pass, 0 fail | 43 pass, 0 fail |
+| core | clean / clean | 1467 pass, 4 skip, 2 fail | 1477 pass, 4 skip, 2 fail |
+| opencode | clean / clean | 4482 pass, 25 skip, 3 fail | 4503 pass, 25 skip, 3 fail |
+
+- The failing tests are the same set on base and head: core `util.flock` and `util.effect-flock` "unwritable lock roots" (container runs as root); opencode `HttpApi Server.listen` response logs, `config/tui` legacy source, `tool.write` OS denies write.
+- New passing tests: cron +5, skill +4, core +10, opencode +21.
+- The base worktree is `/home/user/hordecode-base` (registered with `git worktree`; remove with `git worktree remove /home/user/hordecode-base` when no longer needed).
