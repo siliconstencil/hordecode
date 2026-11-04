@@ -12,6 +12,7 @@ import {
   type Info as TuiConfigInfo,
   useTuiConfig,
 } from "../src/config"
+import { CommandMap, Definitions } from "../src/config/keybind"
 
 const decodeInfo = Schema.decodeUnknownSync(Info)
 const decodePlugin = Schema.decodeUnknownSync(PluginSpec)
@@ -139,4 +140,19 @@ test("provides resolved config through Solid context", async () => {
 
 test("requires the config provider", () => {
   expect(() => useTuiConfig()).toThrow("TuiConfigProvider is missing")
+})
+
+test("restores diff_open and session_move as rebindable commands", () => {
+  const definitions = Definitions as Record<string, { default: unknown }>
+  const commands = CommandMap as Record<string, string>
+  expect(definitions.diff_open).toBeDefined()
+  expect(definitions.session_move).toBeDefined()
+  expect(commands.diff_open).toBe("diff.open")
+  expect(commands.session_move).toBe("session.move")
+
+  const config = resolve({ keybinds: { diff_open: "ctrl+j", session_move: "ctrl+o" } } as never, {
+    terminalSuspend: true,
+  })
+  expect(config.keybinds.get("diff.open")).toMatchObject([{ key: "ctrl+j" }])
+  expect(config.keybinds.get("session.move")).toMatchObject([{ key: "ctrl+o" }])
 })
