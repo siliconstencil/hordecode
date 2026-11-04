@@ -59,6 +59,23 @@ it.instance("returns default native agents when no config", () =>
   }),
 )
 
+it.instance("hides the max agent when experimental.maxMode is not configured", () =>
+  Effect.gen(function* () {
+    const agents = yield* load((svc) => svc.list())
+    expect(agents.map((a) => a.name)).not.toContain("max")
+  }),
+)
+
+it.instance(
+  "lists the max agent when experimental.maxMode is configured",
+  () =>
+    Effect.gen(function* () {
+      const agents = yield* load((svc) => svc.list())
+      expect(agents.map((a) => a.name)).toContain("max")
+    }),
+  { config: { experimental: { maxMode: {} } } },
+)
+
 it.instance("build agent has correct default properties", () =>
   Effect.gen(function* () {
     const build = yield* load((svc) => svc.get("build"))
