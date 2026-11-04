@@ -123,18 +123,47 @@ Findings of the audit not covered by a code change:
 - OPEN DECISION (owner, F2): keep the notice on by default (now display-only).
 - Not asserted: `tool.execute.before` plugin hooks and `bypassAgentCheck` on the salvage path (D6, D7); both are inherited from the shared `SessionTools.resolve` and are not specific to salvage.
 
-## Verification (measured)
+## Round 5, final (review `origin/rnd/reviews-0.1.6:reports/rnd/review3-rnd-fixes-after-0.1.5.md`)
 
-Base = `094f510aa6` (v0.1.5, separate worktree with its own install); head = `e4819e8` (the branch tip before this report commit). Same container, NODE_OPTIONS=--max-old-space-size=8192, base re-measured this round.
+| Finding | Commit | Result |
+|---|---|---|
+| R1 evidence outside the worktree | 829a0bd | `assertExternalDirectoryEffect` exempts the resolved evidence dir of the session's own `HarnessEnv` mapping (child sessions inherit it). Tests: evidence dir and files granted, sibling dir, look-alike prefix (`<dir>-evil`) and other state files still ask, a session without a mapping still asks, a child inherits. The tests failed before the change (2 of 3). Docs dir outside the worktree is not exempted (OPEN DECISION below). |
+| R2 stale legacy lock without /proc | 88e6b8c | Owner classified dead (`kill(pid,0)`), verified (Linux start time) or unverified. Unverified and older than 7 days is ignored; both the block and the override log at warn level. `tryAcquireSchedulerLock({ platform })` makes the non-Linux path testable. Tests: young live pid blocks, dead pid acquires, Linux still decided by the recycle check. |
+| R4 HarnessEnv lifetime | 544eb7c | Bounded to 256 sessions (oldest evicted) and cleared in `Session.remove`. Tests for both. |
+| R5 advisor details | 776c188 | `list`/`ls` removed (not tool ids), `history`, `memory_recall`, `memory_status`, `skill_search`, `mcp_tool_search` added; a test for pending/running parts (the status-filter mutant now fails). |
+| R6 citations | 829a0bd | upstream v1.19.5 `tool/shell.ts:418,575` and `session/session.ts:533,535`, `tool/external-directory.ts:26,36`; MiMo v0.1.11 `tool/external-directory.ts:34` cited at the hunks. |
+| R3 | 0445eac | already fixed in round 4 (step budget); the review measured round 3's head. |
+
+Not done, and why:
+- R4, switch-away: clearing the mapping when the primary agent leaves the harness inside a live session was implemented and removed. Synthetic re-entry user messages (DSML retry, goal and task gates) carry the agent but not the `agentID`, so the switch cannot be told from a supervisor turn; a wrong clear is worse than a stale mapping. Restart behaviour (mapping empty until the harness agent's next prompt) is unchanged.
+- R4, paths block for non-harness subagents: unchanged by design.
+- R5, reads through `bash` stay progress by design.
+
+OPEN DECISIONS (round 5):
+- An absolute `harness.docs` outside the worktree still asks `external_directory` for every file (the user chose that path; only evidence is state-managed). Exempt it the same way or document it.
+- Persisting the harness mapping across a restart (it is rebuilt on the harness agent's next prompt).
+- The 7-day legacy lock age is a guess; the old version never refreshed the file.
+
+## Verification (measured, full suites)
+
+Base = `094f510aa6` (v0.1.5, separate worktree, own install); head = `776c188` (branch tip before this report commit). Same container, NODE_OPTIONS=--max-old-space-size=8192, one run each in this round (the base was also measured identically in rounds 3 and 4).
 
 | Package | typecheck base / head | tests base | tests head |
 |---|---|---|---|
-| cron | clean / clean | 46 pass, 0 fail | 51 pass, 0 fail |
+| cron | clean / clean | 46 pass, 0 fail | 55 pass, 0 fail |
 | skill | clean / clean | 39 pass, 0 fail | 43 pass, 0 fail |
-| core | clean / clean | 1467 pass, 4 skip, 2 fail | 1477 pass, 4 skip, 2 fail |
-| opencode | clean / clean | 4482 pass, 25 skip, 3 fail | 4511 pass, 25 skip, 3 fail |
-| script | `bash -n` ok | - | `script/fork-release.test.sh` 17 checks ok (10 before round 4) |
+| core | clean / clean | 1467 pass, 4 skip, 2 fail | 1478 pass, 4 skip, 2 fail |
+| opencode | clean / clean | 4482 pass, 25 skip, 3 fail | 4517 pass, 25 skip, 3 fail |
 
-- Failing tests are the same set on base and head: core `util.flock` and `util.effect-flock` "unwritable lock roots" (container runs as root); opencode `HttpApi Server.listen` response logs, `config/tui` legacy source, `tool.write` OS denies write.
-- Round 3 to round 4 (head): opencode 4503 -> 4511 pass (+8: step budget, comparison, unknown tool, prototype name, two-call block, allowlist, two re-arm hook tests, minus none). Cron, skill and core unchanged by round 4 (51, 43, 1477).
-- The base worktree is `/home/user/hordecode-base` (remove with `git worktree remove /home/user/hordecode-base`).
+Every failure at head, and whether it fails on base:
+| Failing test | Package | On base? |
+|---|---|---|
+| `util.flock > fails clearly on unwritable lock roots` | core | yes (container runs as uid 0) |
+| `util.effect-flock > fails on unwritable lock roots` | core | yes (same) |
+| `HttpApi Server.listen > default in-process handler does not emit Effect HTTP response logs` | opencode | yes |
+| `continues loading tui config when legacy source cannot be stripped` | opencode | yes |
+| `tool.write > error handling > throws error when OS denies write access` | opencode | yes (uid 0) |
+
+No failure exists at head that does not fail on base. (The review saw a fourth, `HttpApi SDK > matches generated SDK project git initialization`, once under load; it passed in this run and passes alone.)
+
+- The base worktree is `/home/user/hordecode-base` and the triage worktree `/home/user/hordecode-triage`; remove with `git worktree remove <path>` when no longer needed.
