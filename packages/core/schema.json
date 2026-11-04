@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "0efe1ef2-2a62-4043-bf3b-5f628a0777aa",
+  "id": "a78adbc8-b898-4fe4-97d6-808ec2b4bbff",
   "prevIds": [
-    "8f92416c-39db-40e2-9290-1d47fa57e67b"
+    "0efe1ef2-2a62-4043-bf3b-5f628a0777aa"
   ],
   "ddl": [
     {
@@ -2197,6 +2197,36 @@
       "table": "inbox"
     },
     {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'queued'",
+      "generated": null,
+      "name": "state",
+      "entityType": "columns",
+      "table": "inbox"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "delivery_message_id",
+      "entityType": "columns",
+      "table": "inbox"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "delivered_at",
+      "entityType": "columns",
+      "table": "inbox"
+    },
+    {
       "type": "integer",
       "notNull": true,
       "autoincrement": false,
@@ -3603,6 +3633,32 @@
       "where": null,
       "origin": "manual",
       "name": "inbox_receiver_idx",
+      "entityType": "indexes",
+      "table": "inbox"
+    },
+    {
+      "columns": [
+        {
+          "value": "receiver_session_id",
+          "isExpression": false
+        },
+        {
+          "value": "receiver_supervisor_id",
+          "isExpression": false
+        },
+        {
+          "value": "state",
+          "isExpression": false
+        },
+        {
+          "value": "id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "inbox_receiver_pending_idx",
       "entityType": "indexes",
       "table": "inbox"
     },

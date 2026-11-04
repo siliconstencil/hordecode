@@ -1,6 +1,6 @@
 import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core"
 import { SessionTable } from "@opencode-ai/core/session/sql"
-import type { SessionID } from "@opencode-ai/core/session/schema"
+import type { MessageID, SessionID } from "@opencode-ai/core/session/schema"
 
 export const InboxTable = sqliteTable(
   "inbox",
@@ -15,10 +15,14 @@ export const InboxTable = sqliteTable(
     sender_supervisor_id: text(),
     type: text().notNull().default("text"),
     content: text({ mode: "json" }).$type<unknown>().notNull(),
+    state: text().$type<"queued" | "delivered">().notNull().default("queued"),
+    delivery_message_id: text().$type<MessageID>(),
+    delivered_at: integer(),
     created_at: integer().notNull(),
   },
   (t) => [
     index("inbox_receiver_idx").on(t.receiver_session_id, t.receiver_supervisor_id, t.id),
+    index("inbox_receiver_pending_idx").on(t.receiver_session_id, t.receiver_supervisor_id, t.state, t.id),
     index("inbox_created_idx").on(t.created_at),
   ],
 )

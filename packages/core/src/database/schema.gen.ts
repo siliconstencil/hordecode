@@ -340,6 +340,9 @@ export default {
           \`sender_supervisor_id\` text,
           \`type\` text DEFAULT 'text' NOT NULL,
           \`content\` text NOT NULL,
+          \`state\` text DEFAULT 'queued' NOT NULL,
+          \`delivery_message_id\` text,
+          \`delivered_at\` integer,
           \`created_at\` integer NOT NULL,
           CONSTRAINT \`fk_inbox_receiver_session_id_session_id_fk\` FOREIGN KEY (\`receiver_session_id\`) REFERENCES \`session\`(\`id\`) ON DELETE CASCADE
         );
@@ -450,6 +453,9 @@ export default {
       yield* tx.run(`CREATE INDEX IF NOT EXISTS \`task_status_idx\` ON \`task\` (\`status\`);`)
       yield* tx.run(
         `CREATE INDEX IF NOT EXISTS \`inbox_receiver_idx\` ON \`inbox\` (\`receiver_session_id\`,\`receiver_supervisor_id\`,\`id\`);`,
+      )
+      yield* tx.run(
+        `CREATE INDEX IF NOT EXISTS \`inbox_receiver_pending_idx\` ON \`inbox\` (\`receiver_session_id\`,\`receiver_supervisor_id\`,\`state\`,\`id\`);`,
       )
       yield* tx.run(`CREATE INDEX IF NOT EXISTS \`inbox_created_idx\` ON \`inbox\` (\`created_at\`);`)
       yield* tx.run(`CREATE INDEX IF NOT EXISTS \`workflow_run_session_idx\` ON \`workflow_run\` (\`session_id\`);`)

@@ -55,5 +55,6 @@ export const migrations = (
     import("./migration/20260816000002_workflow_run_supervisor_rename"),
     import("./migration/20260824000001_anchor_trace"),
     import("./migration/20260903000001_supervisor_squash"),
+    import("./migration/20261104235734_inbox_delivery_state"),
   ])
 ).map((module) => module.default) satisfies DatabaseMigration.Migration[]
