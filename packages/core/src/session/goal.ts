@@ -204,7 +204,7 @@ export const defaultLayer = Layer.suspend(() =>
  * supervisors' MAX_PRE_REACT (=3) because main-session goals are usually larger.
  * MAX_GOAL_REACT is a fixed constant; it is not read from hordecode.json.
  */
-const MAX_GOAL_REACT = 12
+export const MAX_GOAL_REACT = 12
 
 /**
  * Goal stop-condition gate (main agent only). Before honoring a stop,
