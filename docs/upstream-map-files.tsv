@@ -2810,6 +2810,7 @@ FORK_ONLY	packages/opencode/src/session/contract/gate.ts
 FORK_ONLY	packages/opencode/src/session/contract/integrity.ts
 FORK_ONLY	packages/opencode/src/session/contract/report.ts
 FORK_ONLY	packages/opencode/src/session/contract/runner.ts
+FORK_ONLY	packages/opencode/src/session/contract/usage.ts
 FORK_DELTA	packages/opencode/src/session/instruction.ts
 FORK_DELTA	packages/opencode/src/session/llm.ts
 PARITY	packages/opencode/src/session/llm/AGENTS.md
