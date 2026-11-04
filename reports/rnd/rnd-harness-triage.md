@@ -25,70 +25,84 @@ feature.
   generator was run) and the builtin config reference row.
 - No skill file is changed. The section lives in the injected prompt, so the skills keep their content.
 
-### Classifier (cheap signals, no model call)
-Complex if ANY holds; routine only if none does (doubt resolves to complex, because routine removes stages):
-| Signal | Rule |
-|---|---|
-| empty request | complex |
-| length | more than 600 characters |
-| files named | more than 3 distinct file or directory paths (URLs stripped, repeats counted once) |
-| explicit plan request | plan, design, architect, roadmap, brainstorm, proposal, rfc, spec, migrate, refactor, rewrite, from scratch, step by step, think through, full pipeline |
-| breadth word | everywhere, across the, entire, whole, every, all the files/tests/callers/usages/modules/packages |
-| list | 3 or more numbered or bulleted lines |
-| unknown scope | no file named and no code reference (backticks, camelCase, snake_case, `f()`) |
+### Classifier (round 2: conservative by construction)
 
-The request is the latest user message with a non-synthetic text part, so reminders and gate re-entries injected
-after it do not change the verdict.
+Review `origin/rnd/reviews-0.1.6:reports/rnd/review-rnd-harness-triage.md` measured 14 of 14 ordinary English
+feature requests and 11 of 13 non-English requests as routine. The classifier now defaults to complex; a request
+is routine only if ALL of these hold:
+| Requirement | Rule |
+|---|---|
+| shape | matches a short allow-list of mechanical edits: fix a typo/spelling/indentation/whitespace/formatting/unused import/import order, remove unused X, bump the version, add/fix/update/correct a comment/docstring/jsdoc/readme/changelog, reformat, reindent |
+| scope | exactly one named file or directory (URLs stripped, repeats counted once) |
+| language | at most 5% of the letters are not ASCII; any other language is complex, whatever it names (F2) |
+| size | one line, one sentence, at most 300 characters, fewer than 2 list items |
+| no plan words | plan, design, architect, roadmap, brainstorm, proposal, rfc, spec, migrate, refactor, rewrite, from scratch, step by step, think through, full pipeline |
+| no breadth words | everywhere, across the, entire, whole, every, all the files/tests/callers/usages/modules/packages |
+| not compound | and, then, also, plus, as well, too, while you, additionally, etc, similar, related, other(s) |
+
+Plan, breadth and compound words are matched on the request with URLs and paths removed, so `util.spec.ts`,
+`docs/plan.md` and a url containing "design" are not signals (F4). The request is the latest user message with a
+non-synthetic text part.
+
+The routine section is inserted before the closing `</system-reminder>` of the harness prompt, under the same
+authority as the pipeline rules it overrides (F3). Off, a complex verdict and the research agent keep the 0.1.5
+text; a test compares them with the base formula.
 
 ### What a routine verdict tells the agent
 Skip harness:brainstorm, harness:plan, harness:tdd. Implement directly (harness:execute), then harness:verify with
 its evidence gate. Do not run review, report, eval or merge unless the user asks. If the work turns out large, say
 so and continue with the full sequence from brainstorm.
 
-Sample verdicts (measured with the committed classifier):
+Sample verdicts (committed classifier):
 | Request | Class | Deciding signal |
 |---|---|---|
-| Fix the off-by-one in src/util/range.ts | routine | none |
-| Add a --json flag to the `list` command in cli/list.ts | routine | none |
-| Why does loadConfig return undefined when the file is empty? | routine | code reference, 0 files |
-| fix the typo in README.md | routine | none |
-| Add retry to src/net/client.ts and update test/net/client.test.ts | routine | 2 files |
-| make the app faster | complex | no file or code reference |
-| Plan the migration of the session store to sqlite | complex | plan request |
-| Update a.ts, b.ts, c.ts and d.ts to the new logger | complex | 4 files |
-| Implement OAuth login: 1. add routes 2. add token store 3. add tests | complex | no file or code reference |
-| Rename parseHeader to readHeader everywhere in packages/core/src/ | complex | breadth word (routine before the breadth signal was added) |
+| Fix the typo in src/util/range.ts | routine | mechanical edit "fix the typo", 1 file |
+| Bump the version in package.json | routine | mechanical edit |
+| Fix the typo in src/util.spec.ts | routine | (spec inside a file name is not a plan word) |
+| Add OAuth login to src/auth.ts | complex | not a known mechanical edit |
+| Fix the flaky test in test/a.test.ts | complex | not a known mechanical edit |
+| Add retry to src/net/client.ts and update test/net/client.test.ts | complex | compound request, 2 files |
+| Fix the typo in src/a.ts and add OAuth login | complex | compound request |
+| a Chinese or Russian or Turkish (diacritics) request naming src/a.ts | complex | text is not mostly ASCII |
+| make the app faster | complex | no file named |
 
 ## Evidence
-Tests: packages/core/test/session/harness-triage.test.ts (21 tests).
-- Classifier: routine and complex cases per signal, repeated file and URL handling, parameterised limits.
-- `requestText`: last real user message, synthetic and ignored parts skipped.
-- Injection (the real `applyHarnessInjection`): off means unchanged -- missing, `{}`, `triage:false` and an
-  unrelated harness key give byte-identical prompts with no triage text; on + routine = off text + section exactly;
-  on + complex = unchanged; the research agent is never triaged; a synthetic message after the request does not
-  change the verdict.
-- Mutation check (local, reverted): triage on by default -> 2 tests fail; hook not limited to the harness
-  pipeline -> research test fails; "unknown scope" signal removed -> 4 tests fail.
+Tests: packages/core/test/session/harness-triage.test.ts (22 tests).
+- Classifier: routine shapes; the 17 false routines of the review (feature, investigation, upgrade, restructure,
+  compound requests) are complex; an allowed shape plus anything else is complex; each signal is asserted by name
+  (empty, length, files, no file, plan, breadth, compound, one line, one sentence, no known shape, list items);
+  directories count as paths; URLs and repeats do not add files; words inside file names and URLs are not signals;
+  non-English requests (Chinese, Russian, Turkish with diacritics, Japanese, fullwidth Latin, ASCII text with CJK
+  tail) are complex with the "not mostly ASCII" signal; ASCII-spelled non-English requests have no known shape.
+- Injection (real `applyHarnessInjection`): off, `triage:false`, a complex request and a compound request produce
+  exactly the 0.1.5 formula (harness.txt with skills and docs text substituted); a routine request equals the off
+  text with the section inserted before the last `</system-reminder>`, and the text still ends with the closing tag;
+  research is never triaged; a synthetic message after the request does not change the verdict.
+- Mutants (local, reverted): 16 mutants, one per signal, each fails at least one test: empty, length, non-ASCII,
+  files max, files zero, plan, breadth, compound, list items, one line, one sentence, shape, url stripping in
+  `pathsIn`, directory counting, file-name stripping in prose, url stripping in prose (the last one survived the
+  first test set and got its own test: a url containing "design/plan"). The review's three surviving signals
+  (directory counting, URL stripping, empty request) and the `migrate` keyword are now covered.
 
-Suites (measured):
+Suites (measured, this branch at `8ad4179`):
 | Package | Typecheck | Tests |
 |---|---|---|
-| core | clean | 1488 pass, 4 skip, 2 fail (base 1467 / 2 fail; +21 new tests; the 2 failures are util.flock and util.effect-flock "unwritable lock roots", they fail identically on base because the session runs as uid 0) |
+| core | clean | 1489 pass, 4 skip, 2 fail (base 1467 / 2 fail; +22 new tests; the 2 failures are `util.flock` and `util.effect-flock` "unwritable lock roots", they fail identically on base because the session runs as uid 0) |
 | skill | clean | 39 pass, 0 fail (unchanged) |
-| opencode | clean (NODE_OPTIONS=--max-old-space-size=8192) | test/session/mode-identity.test.ts 5 pass, 0 fail; test/config 256 pass, 1 fail ("continues loading tui config when legacy source cannot be stripped"), identical on base 094f510aa6 (256 / 1) |
+| sdk | the generator output for `harness.triage` equals the hand edit; the generator's only other diff is `experimental.openTelemetryContent` (drift from 0.1.5, present on base, not committed here) |
 
 ## Open decisions
-- OPEN DECISION: thresholds (600 chars, 3 files, 3 list items) are guesses from the lab's five tasks, not measured
-  on a corpus. They are constants (`DEFAULT_TRIAGE_LIMITS`), not config, to keep the surface to one key.
-- OPEN DECISION: what a routine verdict drops. This branch skips review, report, eval and merge as well as
-  brainstorm, plan and tdd (the brief names execute + verify). Eval is the only measurement the pipeline records;
-  skipping it loses that data for routine runs. The conservative alternative is to keep eval.
-- OPEN DECISION: signals are English-only (plan words, breadth words). A non-English plan request that is short
-  and names one file is classified routine.
-- OPEN DECISION: inline lists ("1. a 2. b 3. c" on one line) are not counted; the unknown-scope signal usually
-  catches them, but not when a file is named.
-- OPEN DECISION: the classifier looks at the latest user message only, not at the conversation. A short follow-up
-  ("now do the same for b.ts") after a complex first request is classified on its own.
-- Not done: no lab run of the feature (cost/time ratio not re-measured), no sdk regeneration, the upstream map
-  rows for the two new files are not added (the map is generated by script/upstream-map.ts with a reference
-  checkout).
+- OPEN DECISION (F1): the allow-list is deliberately tiny. Widening it (rename in one file, add a log line) trades
+  savings against the false-routine risk; it should follow a corpus measurement, not a guess.
+- OPEN DECISION: what a routine verdict drops. It skips review, report, eval and merge as well as brainstorm, plan
+  and tdd. Eval is the only measurement the pipeline records; the conservative alternative is to keep eval.
+- OPEN DECISION (F2): a model call for the verdict (language-independent, more accurate) is out of scope for
+  "cheap signals"; today every non-English request keeps the full pipeline.
+- OPEN DECISION (F6): the classifier looks at the latest user message only; a follow-up ("now do the same for
+  b.ts") is classified on its own text, where "same" is unknown scope only through the missing file. The
+  `workflow` runtime (`harness.js`) does not read the key.
+- Merge note: this branch and rnd/fixes-after-0.1.5 both change `core/src/session/harness-injection.ts` (the other
+  rewrote it for the per-session mapping); resolve by keeping that branch's structure and applying the one-line
+  `withTriageSection(...)` call to the harness branch of its prompt text.
+- Not done: no lab run of the feature (cost/time ratio not re-measured); the upstream map rows for the two new
+  files are not added (generated by script/upstream-map.ts with a reference checkout).
