@@ -82,6 +82,23 @@ const overflowProcessor = Layer.succeed(
   }),
 )
 
+const stopProcessor = Layer.succeed(
+  SessionProcessorModule.SessionProcessor.Service,
+  SessionProcessorModule.SessionProcessor.Service.of({
+    create: Effect.fn("TestSessionProcessor.create")((input) =>
+      Effect.succeed({
+        get message() {
+          return input.assistantMessage
+        },
+        updateToolCall: () => Effect.succeed(undefined),
+        completeToolCall: () => Effect.void,
+        process: () => Effect.succeed("stop" as const),
+        replay: () => Effect.succeed("stop" as const),
+      } satisfies SessionProcessorModule.SessionProcessor.Handle),
+    ),
+  }),
+)
+
 const node = LayerNode.group([
   SessionCompaction.node,
   SessionNs.node,
@@ -122,6 +139,10 @@ const withText = (text: string) =>
       ],
     ]),
   )
+
+const withStop = Effect.provide(
+  AppNodeBuilder.build(node, [...base, [SessionProcessorModule.SessionProcessor.node, stopProcessor]]),
+)
 
 const withOverflow = Effect.provide(
   AppNodeBuilder.build(node, [...base, [SessionProcessorModule.SessionProcessor.node, overflowProcessor]]),
@@ -200,5 +221,32 @@ describe("compaction boundary when no summary lands", () => {
       const summary = all.find((m) => m.info.role === "assistant" && m.info.summary)
       expect(JSON.stringify(summary?.info.role === "assistant" ? summary.info.error : "")).toContain("too large to compact")
     }).pipe(withOverflow),
+  )
+
+  it.instance("a summary of only whitespace counts as empty", () =>
+    Effect.gen(function* () {
+      const { session, first, second, boundary, msgs } = yield* setup
+      const result = yield* SessionCompaction.use.process({ parentID: boundary, messages: msgs, sessionID: session.id, auto: false })
+      const ids = yield* visible(session.id)
+      expect(result).toBe("stop")
+      expect(ids).toContain(first.id)
+      expect(ids).toContain(second.id)
+      expect(ids).not.toContain(boundary)
+    }).pipe(withText("  \n\t ")),
+  )
+
+  it.instance("a compaction that stops before a summary removes its boundary and records why", () =>
+    Effect.gen(function* () {
+      const { ssn, session, first, second, boundary, msgs } = yield* setup
+      const result = yield* SessionCompaction.use.process({ parentID: boundary, messages: msgs, sessionID: session.id, auto: false })
+
+      expect(result).toBe("stop")
+      const all = yield* ssn.messages({ sessionID: session.id })
+      expect(all.map((m) => m.info.id)).not.toContain(boundary)
+      expect(all.map((m) => m.info.id)).toContain(first.id)
+      expect(all.map((m) => m.info.id)).toContain(second.id)
+      const summary = all.find((m) => m.info.role === "assistant" && m.info.summary)
+      expect(JSON.stringify(summary?.info.role === "assistant" ? summary.info.error : "")).toContain("before producing a summary")
+    }).pipe(withStop),
   )
 })
