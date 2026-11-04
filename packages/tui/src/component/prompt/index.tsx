@@ -43,6 +43,7 @@ import { Locale } from "../../util/locale"
 import { clampStatusMessage } from "./footer"
 import { errorMessage } from "../../util/error"
 import { formatDuration } from "../../util/format"
+import { formatCost } from "../../util/cost"
 import { createColors, createFrames } from "../../ui/spinner"
 import { useDialog } from "../../ui/dialog"
 import { DialogProvider as DialogProviderConnect } from "../dialog-provider"
@@ -97,11 +98,6 @@ export type PromptRef = {
   focus(): void
   submit(): void
 }
-
-const money = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-})
 
 const DRAFT_RETENTION_MIN_CHARS = 20
 
@@ -287,7 +283,8 @@ export function Prompt(props: PromptProps) {
       context: ctx.percent !== null
         ? `${Locale.number(ctx.tokens)} / ${Locale.number(ctx.limit)} (${ctx.percent}%)`
         : Locale.number(ctx.tokens),
-      cost: money.format(cost),
+      // Hordecode: sub-cent and plan markers, upstream prompt/index.tsx:280.
+      cost: formatCost(cost, model, last.providerID),
       percent: ctx.percent,
       pressure: ctx.pressure,
     }

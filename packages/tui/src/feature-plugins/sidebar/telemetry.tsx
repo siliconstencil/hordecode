@@ -5,13 +5,9 @@ import { createMemo, createSignal, onCleanup, createEffect, Show } from "solid-j
 import { streamingTPS, completedTPS, formatTPS } from "../../util/tps"
 import { contextUsage } from "../../util/context-usage"
 import { cacheLineFor, cacheTickDelay, type CacheTTL } from "../../util/cache-state"
+import { formatCost } from "../../util/cost"
 
 const id = "internal:sidebar-telemetry"
-
-const money = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-})
 
 function formatLatency(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`
@@ -68,6 +64,12 @@ export function View(props: { api: TuiPluginApi; session_id: string }) {
   const lastAssistant = createMemo(() =>
     messages().findLast((item): item is AssistantMessage => item.role === "assistant"),
   )
+
+  const costModel = createMemo(() => {
+    const l = lastAssistant()
+    if (!l) return undefined
+    return props.api.state.provider?.find((item) => item.id === l.providerID)?.models[l.modelID]
+  })
 
   const isStreaming = createMemo(() => {
     const l = lastAssistant()
@@ -312,7 +314,7 @@ export function View(props: { api: TuiPluginApi; session_id: string }) {
           <box flexDirection="row" justifyContent="space-between">
             <text fg={theme().text}>{"Usage   ".padEnd(8)}</text>
             <text fg={theme().textMuted} wrapMode="none">
-              <span style={{ fg: theme().text }}>{money.format(cost())}</span> spent · {formatTokens(totalTokens())} tkn
+              <span style={{ fg: theme().text }}>{formatCost(cost(), costModel(), lastAssistant()?.providerID)}</span> spent · {formatTokens(totalTokens())} tkn
             </text>
           </box>
         </box>

@@ -4,6 +4,7 @@ import { OPENCODE_BASE_MODE } from "../../keymap"
 import type { BuiltinTuiPlugin } from "../builtins"
 import { createMemo, createSignal, onCleanup, createEffect, Show, For } from "solid-js"
 import { Locale } from "../../util/locale"
+import { formatCost } from "../../util/cost"
 
 const id = "internal:sidebar-timing"
 
@@ -107,6 +108,12 @@ function ViewInternal(props: { api: TuiPluginApi; session_id: string }) {
   const lastAssistant = createMemo(() =>
     messages().findLast((item): item is AssistantMessage => item.role === "assistant"),
   )
+
+  const costModel = createMemo(() => {
+    const l = lastAssistant()
+    if (!l) return undefined
+    return props.api.state.provider?.find((item) => item.id === l.providerID)?.models[l.modelID]
+  })
 
   // Any tool part in the current assistant message still running.
   // (Replaces the previous isStreaming() gate, which froze the Live Timer
@@ -284,7 +291,7 @@ function ViewInternal(props: { api: TuiPluginApi; session_id: string }) {
             <box flexDirection="row" justifyContent="space-between">
               <text fg={theme().text}>{"Spent   ".padEnd(8)}</text>
               <text fg={theme().text}>
-                {cost().toLocaleString("en-US", { style: "currency", currency: "USD" })}
+                {formatCost(cost(), costModel(), lastAssistant()?.providerID)}
               </text>
             </box>
             <Show when={anyToolRunning()}>

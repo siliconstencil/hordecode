@@ -1,3 +1,5 @@
+import { formatUsd } from "./cost"
+
 export type CacheTTL = "5m" | "1h"
 
 export type CacheState =
@@ -49,7 +51,8 @@ function tokenLabel(count: number) {
 export function cacheLabel(state: CacheState): string | undefined {
   if (state.kind === "unknown") return undefined
   if (state.kind === "warm") return `warm ${clock(state.remainingMs)}`
-  const cost = state.cost === undefined ? "" : ` (~$${(Math.round(state.cost * 100 + 1e-6) / 100).toFixed(2)})`
+  const label = state.cost === undefined ? undefined : formatUsd(state.cost)
+  const cost = label === undefined ? "" : label.startsWith("<") ? ` (${label})` : ` (~${label})`
   return `cold  next turn re-caches ~${tokenLabel(state.tokens)} tokens${cost}`
 }
 

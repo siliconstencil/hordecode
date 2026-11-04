@@ -6,6 +6,7 @@ import { SplitBorder } from "../../ui/border"
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
 import { Locale } from "../../util/locale"
 import { contextUsage } from "../../util/context-usage"
+import { formatCost } from "../../util/cost"
 import { useTerminalDimensions } from "@opentui/solid"
 import { useCommandShortcut, useOpencodeKeymap } from "../../keymap"
 import { filterSupervisorList } from "../../feature-plugins/sidebar/supervisor"
@@ -68,13 +69,10 @@ export function SubagentFooter() {
     if (!model) return
     const ctx = contextUsage({ tokens: last.tokens, model, config: sync.data.config })
     const cost = messages().reduce((sum, item) => sum + (item.role === "assistant" ? (item as AssistantMessage).cost : 0), 0)
-    const money = new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    })
     return {
       context: ctx.percent !== null ? `${Locale.number(ctx.tokens)} (${ctx.percent}%)` : Locale.number(ctx.tokens),
-      cost: cost > 0 ? money.format(cost) : undefined,
+      // Hordecode: sub-cent marker, upstream subagent-footer.tsx:44-53.
+      cost: cost > 0 ? formatCost(cost, model, last.providerID) : undefined,
     }
   })
 
