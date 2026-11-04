@@ -28,6 +28,9 @@ export const Envelope = z.object({
 })
 export type Envelope = z.infer<typeof Envelope>
 
+export const Usage = z.object({ tool_calls: z.number(), cost_usd: z.number() })
+export type Usage = z.infer<typeof Usage>
+
 export const Evidence = z.object({
   criterion_id: z.string(),
   attempt: z.number(),
@@ -50,6 +53,8 @@ export const Contract = z.object({
   objective: z.string(),
   criteria: z.array(Criterion),
   envelope: Envelope,
+  /** Running totals of the session tree since arm. Only ever raised (see recordUsage); survives compaction, revert and loop restarts. */
+  usage: Usage,
   baseline: z.object({
     protected_hashes: z.record(z.string(), z.string()),
     protect_paths: z.array(z.string()),
@@ -69,14 +74,52 @@ export const Contract = z.object({
 })
 export type Contract = z.infer<typeof Contract>
 
-export type Spec = { objective: string; criteria: string[]; protect: string[]; unattended: boolean }
+export type Caps = { wall_ms?: number; tool_calls?: number; cost_usd?: number }
+export type Spec = {
+  objective: string
+  criteria: string[]
+  protect: string[]
+  unattended: boolean
+  checkpoint?: boolean
+  caps?: Caps
+}
 
 const SEPARATOR = /\r?\n|\s;;\s/
+const KEYWORD = /^(unattended|checkpoint)$/i
+const PREFIX = /^(protect|cap):/i
+
+const WALL_UNIT = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 } as const
+
+function parseCap(text: string, caps: Caps): string | undefined {
+  const m = /^(wall|tools|cost)\s+(\S+)$/i.exec(text)
+  if (!m) return `Unknown cap "${text}". Use cap: wall <30s|90m|2h>, cap: tools <n> or cap: cost <usd>.`
+  const kind = m[1]!.toLowerCase()
+  const raw = m[2]!
+  if (kind === "wall") {
+    const w = /^(\d+(?:\.\d+)?)(ms|s|m|h)$/i.exec(raw)
+    if (!w || Number(w[1]) <= 0) return `cap: wall needs a positive duration with a unit (30s, 90m, 2h), got "${raw}".`
+    if (caps.wall_ms !== undefined) return "cap: wall is given twice."
+    caps.wall_ms = Math.round(Number(w[1]) * WALL_UNIT[w[2]!.toLowerCase() as keyof typeof WALL_UNIT])
+    return undefined
+  }
+  if (kind === "tools") {
+    if (!/^\d+$/.test(raw) || Number(raw) <= 0) return `cap: tools needs a positive integer, got "${raw}".`
+    if (caps.tool_calls !== undefined) return "cap: tools is given twice."
+    caps.tool_calls = Number(raw)
+    return undefined
+  }
+  const c = /^\$?(\d+(?:\.\d+)?)$/.exec(raw)
+  if (!c || Number(c[1]) <= 0) return `cap: cost needs a positive USD amount, got "${raw}".`
+  if (caps.cost_usd !== undefined) return "cap: cost is given twice."
+  caps.cost_usd = Number(c[1])
+  return undefined
+}
 
 /**
  * Parse `/contract` arguments. Segments split on newlines or " ;; ". The first segment is the
- * objective, a `protect: <path>` segment names a protected path, a bare `unattended` segment sets
- * the unattended flag, every other segment is a criterion command.
+ * objective. After it: `protect: <path>` names a protected path, `cap: wall|tools|cost <value>` sets an
+ * envelope cap, a bare `unattended` or `checkpoint` (any case) sets that flag, every other segment is a
+ * criterion command.
  */
 export function parseSpec(text: string): Spec | string {
   const segments = text
@@ -85,11 +128,24 @@ export function parseSpec(text: string): Spec | string {
     .filter((s) => s.length > 0)
   const [objective, ...rest] = segments
   if (!objective) return "A contract needs an objective."
-  const protect = rest.filter((s) => s.startsWith("protect:")).map((s) => s.slice("protect:".length).trim())
+  if (KEYWORD.test(objective) || PREFIX.test(objective)) return `The first segment is the objective, got "${objective}".`
+  const protect = rest.filter((s) => /^protect:/i.test(s)).map((s) => s.slice("protect:".length).trim())
   if (protect.some((p) => p === "")) return "`protect:` needs a path."
-  const criteria = rest.filter((s) => !s.startsWith("protect:") && s !== "unattended")
+  const caps: Caps = {}
+  for (const s of rest.filter((s) => /^cap:/i.test(s))) {
+    const error = parseCap(s.slice("cap:".length).trim(), caps)
+    if (error) return error
+  }
+  const criteria = rest.filter((s) => !PREFIX.test(s) && !KEYWORD.test(s))
   if (criteria.length === 0) return "A contract needs at least one criterion command after the objective."
-  return { objective, criteria, protect, unattended: CONTRACT_DECISIONS.unattended || rest.includes("unattended") }
+  return {
+    objective,
+    criteria,
+    protect,
+    unattended: CONTRACT_DECISIONS.unattended || rest.some((s) => /^unattended$/i.test(s)),
+    checkpoint: CONTRACT_DECISIONS.checkpointRef || rest.some((s) => /^checkpoint$/i.test(s)),
+    caps,
+  }
 }
 
 const contracts = new Map<string, Contract>()
@@ -112,6 +168,7 @@ export const arm = (input: {
     session_id: input.session_id,
     objective: input.spec.objective,
     criteria: input.spec.criteria.map((command, i) => ({ id: `C${i + 1}`, command, required: true, state: "pending" })),
+    usage: { tool_calls: 0, cost_usd: 0 },
     envelope: {
       max_react: CONTRACT_DECISIONS.maxReact,
       ...(CONTRACT_DECISIONS.maxWallMs > 0 ? { max_wall_ms: CONTRACT_DECISIONS.maxWallMs } : {}),
@@ -151,6 +208,25 @@ export const record = (sessionID: string, criterionID: string, state: CriterionS
     ...c,
     criteria: c.criteria.map((x) => (x.id === criterionID ? { ...x, state } : x)),
     evidence: evidence ? [...c.evidence, evidence] : c.evidence,
+  }))
+
+/** Raise the stored totals to at least `seen`; a lower reading (compaction, revert, deleted child) never lowers them. */
+export const recordUsage = (sessionID: string, seen: Usage) =>
+  put(sessionID, (c) => ({
+    ...c,
+    usage: {
+      tool_calls: Math.max(c.usage.tool_calls, seen.tool_calls),
+      cost_usd: Math.max(c.usage.cost_usd, seen.cost_usd),
+    },
+  }))
+
+export const setCheckpoint = (sessionID: string, checkpoint: { ref: string; sha: string } | { skipped: string }) =>
+  put(sessionID, (c) => ({
+    ...c,
+    baseline: {
+      ...c.baseline,
+      ...("sha" in checkpoint ? { git_checkpoint: checkpoint } : { git_checkpoint_skipped: checkpoint.skipped }),
+    },
   }))
 
 export const addEvidence = (sessionID: string, evidence: Evidence) =>

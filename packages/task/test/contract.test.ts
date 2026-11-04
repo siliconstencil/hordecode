@@ -10,7 +10,7 @@ beforeEach(() => TaskContract.__resetForTest())
 describe("parseSpec", () => {
   test("splits objective, criteria and protect paths on newlines and ' ;; '", () => {
     const spec = TaskContract.parseSpec("Fix parser ;; bun test ;; ./check.sh --strict\nprotect: fixtures")
-    expect(spec).toEqual({ objective: "Fix parser", criteria: ["bun test", "./check.sh --strict"], protect: ["fixtures"], unattended: false })
+    expect(spec).toEqual({ objective: "Fix parser", criteria: ["bun test", "./check.sh --strict"], protect: ["fixtures"], unattended: false, checkpoint: false, caps: {} })
   })
 
   test("rejects a missing objective, missing criteria and an empty protect path", () => {
@@ -25,6 +25,8 @@ describe("parseSpec", () => {
       criteria: ["case x in a) echo;; esac"],
       protect: [],
       unattended: false,
+      checkpoint: false,
+      caps: {},
     })
   })
 })
@@ -42,7 +44,7 @@ describe("unattended flag and envelope constants", () => {
   }
 
   test("a bare 'unattended' segment sets the flag and is not a criterion; default is attended", () => {
-    expect(TaskContract.parseSpec("obj ;; bun test ;; unattended")).toEqual({ objective: "obj", criteria: ["bun test"], protect: [], unattended: true })
+    expect(TaskContract.parseSpec("obj ;; bun test ;; unattended")).toEqual({ objective: "obj", criteria: ["bun test"], protect: [], unattended: true, checkpoint: false, caps: {} })
     expect((TaskContract.parseSpec("obj ;; bun test") as TaskContract.Spec).unattended).toBe(false)
   })
 
@@ -79,6 +81,54 @@ describe("unattended flag and envelope constants", () => {
     expect([ok.baseline.git_checkpoint, ok.approved_at]).toEqual([{ ref: "refs/hordecode/contract/x", sha }, 7])
     const skipped = TaskContract.arm({ session_id: sid, spec, protected_hashes: {}, git_checkpoint: { skipped: "no commit" } })
     expect([skipped.baseline.git_checkpoint, skipped.baseline.git_checkpoint_skipped]).toEqual([undefined, "no commit"])
+  })
+})
+
+describe("parseSpec: caps, checkpoint, keywords", () => {
+  test("cap segments set wall (with unit), tools and cost", () => {
+    expect(TaskContract.parseSpec("obj ;; bun test ;; cap: wall 90m ;; cap: tools 40 ;; cap: cost $2.5")).toMatchObject({
+      criteria: ["bun test"],
+      caps: { wall_ms: 5_400_000, tool_calls: 40, cost_usd: 2.5 },
+    })
+    expect((TaskContract.parseSpec("o ;; c ;; cap: wall 30s") as TaskContract.Spec).caps).toEqual({ wall_ms: 30_000 })
+    expect((TaskContract.parseSpec("o ;; c ;; cap: wall 2h") as TaskContract.Spec).caps).toEqual({ wall_ms: 7_200_000 })
+    expect((TaskContract.parseSpec("o ;; c ;; CAP: Tools 3") as TaskContract.Spec).caps).toEqual({ tool_calls: 3 })
+  })
+
+  test("bad or repeated caps are rejected with a message, never armed with a guess", () => {
+    for (const bad of ["cap: wall 90", "cap: wall 0m", "cap: tools 0", "cap: tools 1.5", "cap: cost 0", "cap: cost abc", "cap: speed 3", "cap: tools"])
+      expect(typeof TaskContract.parseSpec(`o ;; c ;; ${bad}`)).toBe("string")
+    expect(TaskContract.parseSpec("o ;; c ;; cap: tools 1 ;; cap: tools 2")).toBe("cap: tools is given twice.")
+  })
+
+  test("checkpoint and unattended are keywords in any case and never criteria", () => {
+    expect(TaskContract.parseSpec("o ;; c ;; Checkpoint ;; UNATTENDED")).toMatchObject({ criteria: ["c"], checkpoint: true, unattended: true })
+  })
+
+  test("a keyword or prefix as the first segment is rejected instead of becoming the objective", () => {
+    expect(TaskContract.parseSpec("unattended ;; c")).toBe('The first segment is the objective, got "unattended".')
+    expect(TaskContract.parseSpec("cap: tools 3 ;; c")).toContain("The first segment is the objective")
+  })
+
+  test("defaults: no caps, no checkpoint, attended", () => {
+    expect(TaskContract.parseSpec("o ;; c")).toMatchObject({ caps: {}, checkpoint: false, unattended: false })
+  })
+})
+
+describe("usage ledger", () => {
+  test("arm starts at zero and recordUsage only ever raises the totals", () => {
+    const c = TaskContract.arm({ session_id: sid, spec, protected_hashes: {} })
+    expect(c.usage).toEqual({ tool_calls: 0, cost_usd: 0 })
+    expect(TaskContract.recordUsage(sid, { tool_calls: 10, cost_usd: 2 })!.usage).toEqual({ tool_calls: 10, cost_usd: 2 })
+    expect(TaskContract.recordUsage(sid, { tool_calls: 3, cost_usd: 1 })!.usage).toEqual({ tool_calls: 10, cost_usd: 2 })
+    expect(TaskContract.recordUsage(sid, { tool_calls: 12, cost_usd: 1 })!.usage).toEqual({ tool_calls: 12, cost_usd: 2 })
+    expect(TaskContract.get(sid)!.usage).toEqual({ tool_calls: 12, cost_usd: 2 })
+  })
+
+  test("setCheckpoint records the sha or the skip reason", () => {
+    TaskContract.arm({ session_id: sid, spec, protected_hashes: {} })
+    expect(TaskContract.setCheckpoint(sid, { ref: "refs/x", sha: "a".repeat(40) })!.baseline.git_checkpoint).toEqual({ ref: "refs/x", sha: "a".repeat(40) })
+    expect(TaskContract.setCheckpoint(sid, { skipped: "no commit" })!.baseline.git_checkpoint_skipped).toBe("no commit")
   })
 })
 

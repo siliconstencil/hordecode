@@ -5,6 +5,7 @@ import type { SessionID } from "../schema"
 import type { Session } from "../session"
 import type { SessionV1 } from "@opencode-ai/core/v1/session"
 import type { Permission } from "@/permission"
+import type { Database } from "@opencode-ai/core/database/database"
 import type { ToolRegistry } from "@/tool/registry"
 import type { Tool } from "@/tool/tool"
 import { decideAskRouting } from "@/agent/config"
@@ -16,6 +17,7 @@ import * as Envelope from "./envelope"
 import * as Integrity from "./integrity"
 import * as Report from "./report"
 import * as Runner from "./runner"
+import * as Usage from "./usage"
 
 type Deps = {
   sessionID: SessionID
@@ -25,6 +27,7 @@ type Deps = {
   permission: Permission.Interface
   agents: Agent.Interface
   registry: ToolRegistry.Interface
+  db: Database.Interface["db"]
 }
 
 /**
@@ -107,9 +110,17 @@ const active = (deps: Deps) =>
   })
 
 /** End the contract as blocked when a cap of its envelope is breached. True on a breach. */
-const enforce = (deps: Deps, armed: TaskContract.Contract, msgs: SessionV1.WithParts[]) =>
+const enforce = (deps: Deps, armed: TaskContract.Contract) =>
   Effect.gen(function* () {
-    const breach = Envelope.check(armed, msgs, Date.now())
+    // Fresh totals of the session tree (children included) are folded into the contract record, which
+    // only ever raises them; with no usage cap the tables are not read at all.
+    const current = Envelope.needsUsage(armed)
+      ? yield* Usage.read(deps.db, deps.sessionID, armed.created_at).pipe(
+          Effect.map((seen) => TaskContract.recordUsage(deps.sessionID, seen) ?? armed),
+          Effect.orElseSucceed(() => armed),
+        )
+      : armed
+    const breach = Envelope.check(current, Date.now())
     if (!breach) return false
     const evidence = Envelope.evidence(breach, Date.now())
     TaskContract.addEvidence(deps.sessionID, evidence)
@@ -132,14 +143,14 @@ const enforce = (deps: Deps, armed: TaskContract.Contract, msgs: SessionV1.WithP
  * doing anything.
  */
 export const make = (deps: Deps) => ({
-  envelope: Effect.fn("ContractGate.envelope")(function* (msgs: SessionV1.WithParts[]) {
+  envelope: Effect.fn("ContractGate.envelope")(function* () {
     const armed = yield* active(deps)
-    return armed ? yield* enforce(deps, armed, msgs) : false
+    return armed ? yield* enforce(deps, armed) : false
   }),
-  stop: Effect.fn("ContractGate.run")(function* (lastUser: SessionV1.User, msgs: SessionV1.WithParts[]) {
+  stop: Effect.fn("ContractGate.run")(function* (lastUser: SessionV1.User) {
     const armed = yield* active(deps)
     if (!armed) return false
-    if (yield* enforce(deps, armed, msgs)) return false
+    if (yield* enforce(deps, armed)) return false
 
     const failed: { criterion: TaskContract.Criterion; evidence: TaskContract.Evidence; output: string }[] = []
     let blocked = ""

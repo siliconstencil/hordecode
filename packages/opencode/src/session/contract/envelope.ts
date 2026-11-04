@@ -1,33 +1,19 @@
 import { createHash } from "node:crypto"
 import type { TaskContract } from "@opencode-ai/task"
-import type { SessionV1 } from "@opencode-ai/core/v1/session"
 
-export type Usage = { tool_calls: number; cost_usd: number }
+/** True when at least one cap that needs usage readings (tool calls or USD) is set. */
+export const needsUsage = (contract: TaskContract.Contract) =>
+  contract.envelope.max_tool_calls !== undefined || contract.envelope.max_cost_usd !== undefined
 
-/** Tool calls and USD of the assistant messages created at or after `since`. Cost is the per-step cost the processor stores on each assistant message. */
-export function usage(msgs: SessionV1.WithParts[], since: number): Usage {
-  return msgs.reduce<Usage>(
-    (sum, m) =>
-      m.info.role === "assistant" && m.info.time.created >= since
-        ? {
-            tool_calls: sum.tool_calls + m.parts.filter((p) => p.type === "tool").length,
-            cost_usd: sum.cost_usd + (m.info.cost ?? 0),
-          }
-        : sum,
-    { tool_calls: 0, cost_usd: 0 },
-  )
-}
-
-/** First breached cap, or undefined. A cap that is not set never breaches. */
-export function check(contract: TaskContract.Contract, msgs: SessionV1.WithParts[], now: number): TaskContract.Breach | undefined {
+/** First breached cap, or undefined. Reads the totals stored in the contract; a cap that is not set never breaches. */
+export function check(contract: TaskContract.Contract, now: number): TaskContract.Breach | undefined {
   const e = contract.envelope
-  const used = usage(msgs, contract.created_at)
   const wall = now - contract.created_at
   if (e.max_wall_ms !== undefined && wall >= e.max_wall_ms) return { cap: "wall_ms", limit: e.max_wall_ms, observed: wall }
-  if (e.max_tool_calls !== undefined && used.tool_calls >= e.max_tool_calls)
-    return { cap: "tool_calls", limit: e.max_tool_calls, observed: used.tool_calls }
-  if (e.max_cost_usd !== undefined && used.cost_usd >= e.max_cost_usd)
-    return { cap: "cost_usd", limit: e.max_cost_usd, observed: used.cost_usd }
+  if (e.max_tool_calls !== undefined && contract.usage.tool_calls >= e.max_tool_calls)
+    return { cap: "tool_calls", limit: e.max_tool_calls, observed: contract.usage.tool_calls }
+  if (e.max_cost_usd !== undefined && contract.usage.cost_usd >= e.max_cost_usd)
+    return { cap: "cost_usd", limit: e.max_cost_usd, observed: contract.usage.cost_usd }
   return undefined
 }
 

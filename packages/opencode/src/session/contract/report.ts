@@ -33,6 +33,7 @@ export function render(c: TaskContract.Contract, audit = { enabled: PermissionAu
       : c.baseline.git_checkpoint_skipped
         ? [`Git checkpoint: skipped (${c.baseline.git_checkpoint_skipped})`]
         : []),
+    `Usage since arm (session and child sessions): ${c.usage.tool_calls} tool calls, ${c.usage.cost_usd} USD`,
     ...(c.baseline.warnings ?? []).map((w) => `Warning: ${w}`),
     ...(Object.entries({ wall_ms: c.envelope.max_wall_ms, tool_calls: c.envelope.max_tool_calls, cost_usd: c.envelope.max_cost_usd })
       .filter(([, v]) => v !== undefined)
@@ -72,6 +73,9 @@ export function render(c: TaskContract.Contract, audit = { enabled: PermissionAu
     "",
     "## Audit",
     "",
+    ...(c.unattended && !audit.enabled
+      ? ["Unattended approval is recorded in this report only: the permission audit is off, so no contract_approval line was written."]
+      : []),
     audit.enabled
       ? `Each run is a \`contract_evidence\` line in ${audit.file}; verify the chain with \`horde debug audit-verify\`.`
       : "Permission audit is off (set HORDECODE_PERMISSION_AUDIT=1 to chain each run into the audit log).",

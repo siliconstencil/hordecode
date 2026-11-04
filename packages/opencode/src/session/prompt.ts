@@ -1499,7 +1499,7 @@ const layer = Layer.effect(
         })
 
         // FORK_DELTA: opencode v1.19.5 packages/opencode/src/session/prompt.ts:1088 (before `while (true)` in runLoop)
-        const contract = ContractGate.make({ sessionID, agentID, directory: ctx.directory, sessions, permission, agents, registry })
+        const contract = ContractGate.make({ sessionID, agentID, directory: ctx.directory, sessions, permission, agents, registry, db })
 
         while (true) {
           // Intentional divergence from v0.1.11 (packages/opencode/src/session/prompt.ts:3251,3661),
@@ -1534,7 +1534,7 @@ const layer = Layer.effect(
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
           // FORK_DELTA: opencode v1.19.5 packages/opencode/src/session/prompt.ts:1098 (after the lastUser check)
-          if (yield* contract.envelope(msgs)) break
+          if (yield* contract.envelope()) break
 
           // SessionV1.Part has no "checkpoint" type (checkpoint parts live in core's V2
           // part system, invisible here) -- only compaction parts signal recovery.
@@ -1647,7 +1647,7 @@ const layer = Layer.effect(
               if (shouldReenter) continue
             }
             // FORK_DELTA: opencode v1.19.5 packages/opencode/src/session/prompt.ts:1128 ("exiting loop" before `break`)
-            if (lastUser && (yield* contract.stop(lastUser, msgs))) continue
+            if (lastUser && (yield* contract.stop(lastUser))) continue
             yield* Effect.logInfo("exiting loop", { "session.id": sessionID })
             yield* Effect.logInfo("rl:exit", { "session.id": sessionID, step, site: "finish-gate" })
             break
@@ -2424,7 +2424,7 @@ const layer = Layer.effect(
               if (shouldReenter) continue
             }
             // FORK_DELTA: opencode v1.19.5 packages/opencode/src/session/prompt.ts:1334 (`if (outcome === "break") break`)
-            if (lastUser && (yield* contract.stop(lastUser, msgs))) continue
+            if (lastUser && (yield* contract.stop(lastUser))) continue
             yield* Effect.logInfo("rl:exit", { "session.id": sessionID, step, site: "outcome:break" })
             break
           }
@@ -2506,6 +2506,7 @@ const layer = Layer.effect(
           permission,
           agents,
           registry,
+          config,
         })
         if (reply !== undefined) {
           const shown = yield* prompt({

@@ -253,9 +253,12 @@ const allowAll = [{ permission: "*", pattern: "*", action: "allow" as const }]
 import { TaskContract, CONTRACT_DECISIONS } from "@opencode-ai/task"
 import * as Integrity from "../../../src/session/contract/integrity"
 import * as Report from "../../../src/session/contract/report"
+import * as ContractGate from "../../../src/session/contract/gate"
 import { PermissionAudit } from "../../../src/permission/audit"
 import { spawnSync } from "node:child_process"
 import fs from "node:fs"
+import { MessageID, PartID } from "../../../src/session/schema"
+import type { SessionV1 } from "@opencode-ai/core/v1/session"
 
 const reentries = Effect.fn("contract.reentries")(function* (sessionID: SessionID) {
   const msgs = yield* MessageV2.filterCompactedEffect(sessionID)
@@ -570,8 +573,8 @@ it.instance("git checkpoint ON: a ref at arm-time HEAD, sha in the contract and 
 
       yield* prompt.command({ sessionID: chat.id, command: "contract", arguments: "create done.txt ;; test -f done.txt", agent: "build" })
 
-      const ref = `refs/hordecode/contract/${chat.id}`
       const c = TaskContract.get(chat.id)!
+      const ref = `refs/hordecode/contract/${chat.id}/${c.id}`
       expect(c.baseline.git_checkpoint).toEqual({ ref, sha: head })
       expect(spawnSync("git", ["-C", dir, "rev-parse", ref], { encoding: "utf8" }).stdout.trim()).toBe(head)
       expect(spawnSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim()).toBe(head)
@@ -1006,4 +1009,297 @@ it.instance("a criterion that times out is a failed criterion: re-entered, never
       expect(found[0]!.type === "text" && found[0]!.text).toContain("`sleep 30` timed out")
     }),
   ),
+)
+
+// --- round 4: second review (F1 compaction, F4 delegated work, F2 reachability, F5 checkpoint) ---
+
+type Sessions = Session.Interface
+
+const seedAssistant = Effect.fn("contract.seedAssistant")(function* (
+  sessions: Sessions,
+  sessionID: SessionID,
+  parentID: MessageID,
+  input: { cost: number; tools: number; summary?: boolean },
+) {
+  const msg = yield* sessions.updateMessage({
+    id: MessageID.ascending(),
+    role: "assistant",
+    sessionID,
+    parentID,
+    mode: "build",
+    agent: "build",
+    path: { cwd: "/", root: "/" },
+    cost: input.cost,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    modelID: "test-model",
+    providerID: "test",
+    time: { created: Date.now(), completed: Date.now() },
+    ...(input.summary ? { summary: true, finish: "stop" } : {}),
+  } as unknown as SessionV1.Assistant)
+  for (let i = 0; i < input.tools; i++)
+    yield* sessions.updatePart({
+      id: PartID.ascending(),
+      messageID: msg.id,
+      sessionID,
+      type: "tool",
+      callID: `call_${msg.id}_${i}`,
+      tool: "bash",
+      state: { status: "completed", input: {}, output: "", title: "", metadata: {}, time: { start: 1, end: 2 } },
+    } as SessionV1.ToolPart)
+  return msg
+})
+
+const seedUser = Effect.fn("contract.seedUser")(function* (sessions: Sessions, sessionID: SessionID, compaction = false) {
+  const msg = yield* sessions.updateMessage({
+    id: MessageID.ascending(),
+    role: "user",
+    sessionID,
+    agent: "build",
+    model: { providerID: "test", modelID: "test-model" },
+    time: { created: Date.now() },
+  } as unknown as SessionV1.User)
+  if (compaction)
+    yield* sessions.updatePart({
+      id: PartID.ascending(),
+      messageID: msg.id,
+      sessionID,
+      type: "compaction",
+      auto: true,
+    } as SessionV1.CompactionPart)
+  return msg
+})
+
+it.instance("F1: the caps do not reset at compaction: spend before the compaction boundary still counts", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract compaction", permission: allowAll })
+    yield* armWith(chat.id, dir, ["true"], { envelope: { max_tool_calls: 30 } })
+    const u1 = yield* seedUser(sessions, chat.id)
+    yield* seedAssistant(sessions, chat.id, u1.id, { cost: 5, tools: 40 })
+    const u2 = yield* seedUser(sessions, chat.id, true)
+    yield* seedAssistant(sessions, chat.id, u2.id, { cost: 0.1, tools: 0, summary: true })
+    yield* llm.text("never asked")
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "go on" }] })
+
+    expect(yield* llm.calls).toBe(0)
+    const c = TaskContract.get(chat.id)!
+    expect(c.status).toBe("blocked")
+    expect(breachOf(chat.id)[0]!.breach).toMatchObject({ cap: "tool_calls", limit: 30, observed: 40 })
+    expect(c.usage.tool_calls).toBe(40)
+    expect(c.usage.cost_usd).toBeCloseTo(5.1)
+  }),
+)
+
+it.instance("F1: the USD cap also counts spend before the compaction boundary", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract compaction usd", permission: allowAll })
+    yield* armWith(chat.id, dir, ["true"], { envelope: { max_cost_usd: 4 } })
+    const u1 = yield* seedUser(sessions, chat.id)
+    yield* seedAssistant(sessions, chat.id, u1.id, { cost: 5, tools: 1 })
+    const u2 = yield* seedUser(sessions, chat.id, true)
+    yield* seedAssistant(sessions, chat.id, u2.id, { cost: 0.1, tools: 0, summary: true })
+    yield* llm.text("never asked")
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "go on" }] })
+
+    expect(yield* llm.calls).toBe(0)
+    expect(breachOf(chat.id)[0]!.breach!.cap).toBe("cost_usd")
+  }),
+)
+
+it.instance("F4: tool calls of child and grandchild sessions count toward the parent contract", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const parent = yield* sessions.create({ title: "Contract parent caps", permission: allowAll })
+    yield* armWith(parent.id, dir, ["true"], { envelope: { max_tool_calls: 5 } })
+    const child = yield* sessions.create({ title: "child", parentID: parent.id, permission: allowAll })
+    const grand = yield* sessions.create({ title: "grandchild", parentID: child.id, permission: allowAll })
+    const cu = yield* seedUser(sessions, child.id)
+    yield* seedAssistant(sessions, child.id, cu.id, { cost: 0, tools: 3 })
+    const gu = yield* seedUser(sessions, grand.id)
+    yield* seedAssistant(sessions, grand.id, gu.id, { cost: 0, tools: 3 })
+    yield* llm.text("never asked")
+
+    yield* prompt.prompt({ sessionID: parent.id, agent: "build", parts: [{ type: "text", text: "go" }] })
+
+    expect(yield* llm.calls).toBe(0)
+    expect(breachOf(parent.id)[0]!.breach).toMatchObject({ cap: "tool_calls", limit: 5, observed: 6 })
+  }),
+)
+
+it.instance("F4: child session cost counts toward the parent USD cap; an unrelated session does not", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const parent = yield* sessions.create({ title: "Contract parent usd", permission: allowAll })
+    const other = yield* sessions.create({ title: "unrelated", permission: allowAll })
+    yield* armWith(parent.id, dir, ["true"], { envelope: { max_cost_usd: 2 } })
+    const child = yield* sessions.create({ title: "child", parentID: parent.id, permission: allowAll })
+    const ou = yield* seedUser(sessions, other.id)
+    yield* seedAssistant(sessions, other.id, ou.id, { cost: 50, tools: 50 })
+    const cu = yield* seedUser(sessions, child.id)
+    yield* seedAssistant(sessions, child.id, cu.id, { cost: 3, tools: 0 })
+    yield* llm.text("never asked")
+
+    yield* prompt.prompt({ sessionID: parent.id, agent: "build", parts: [{ type: "text", text: "go" }] })
+
+    expect(yield* llm.calls).toBe(0)
+    expect(breachOf(parent.id)[0]!.breach).toMatchObject({ cap: "cost_usd", limit: 2, observed: 3 })
+  }),
+)
+
+it.instance("with no caps set the usage tables are not read and nothing is counted", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract no caps", permission: allowAll })
+    yield* armWith(chat.id, dir, ["true"], {})
+    const u1 = yield* seedUser(sessions, chat.id)
+    yield* seedAssistant(sessions, chat.id, u1.id, { cost: 99, tools: 99 })
+    yield* llm.text("done")
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "go" }] })
+
+    const c = TaskContract.get(chat.id)!
+    expect(c.status).toBe("verified")
+    expect(c.usage).toEqual({ tool_calls: 0, cost_usd: 0 })
+  }),
+)
+
+// F2: reachable by a user
+
+it.instance("F2: /contract segments set the caps, the checkpoint and the unattended flag", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    const head = gitRepo(dir)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract segments", permission: allowAll })
+    yield* llm.text("done")
+
+    yield* prompt.command({
+      sessionID: chat.id,
+      command: "contract",
+      arguments: "obj ;; true ;; cap: tools 40 ;; cap: cost 2.5 ;; cap: wall 90m ;; checkpoint ;; Unattended",
+      agent: "build",
+    })
+
+    const c = TaskContract.get(chat.id)!
+    expect(c.envelope).toMatchObject({ max_tool_calls: 40, max_cost_usd: 2.5, max_wall_ms: 90 * 60_000 })
+    expect(c.unattended).toBe(true)
+    expect(c.baseline.git_checkpoint?.sha).toBe(head)
+    expect(c.criteria.map((k) => k.command)).toEqual(["true"])
+  }),
+)
+
+it.instance("F2: the contract config block supplies the defaults, a /contract segment overrides it", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    const fsu = yield* FSUtil.Service
+    gitRepo(dir)
+    yield* fsu.writeWithDirs(
+      path.join(dir, "opencode.json"),
+      JSON.stringify({
+        $schema: "https://opencode.ai/config.json",
+        ...cfg(llm.url),
+        contract: { max_tool_calls: 7, max_cost_usd: 1, checkpoint: true },
+      }),
+    )
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract config", permission: allowAll })
+    yield* llm.text("done")
+
+    yield* prompt.command({ sessionID: chat.id, command: "contract", arguments: "obj ;; true ;; cap: tools 9", agent: "build" })
+
+    const c = TaskContract.get(chat.id)!
+    expect(c.envelope).toMatchObject({ max_tool_calls: 9, max_cost_usd: 1 })
+    expect(c.baseline.git_checkpoint).toBeDefined()
+    expect(c.unattended).toBe(false)
+  }),
+)
+
+it.instance("F2: without segments or config nothing is on (defaults OFF)", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    gitRepo(dir)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract defaults off", permission: allowAll })
+    yield* llm.text("done")
+
+    yield* prompt.command({ sessionID: chat.id, command: "contract", arguments: "obj ;; true", agent: "build" })
+
+    const c = TaskContract.get(chat.id)!
+    expect(c.envelope).toEqual({ max_react: 3 })
+    expect(c.baseline.git_checkpoint).toBeUndefined()
+    expect(c.unattended).toBe(false)
+    expect(refs(dir)).toBe("")
+  }),
+)
+
+// F6: the stop-site check reads fresh data, so a step that only just pushed the run over a cap is seen there
+
+it.instance("F6: the stop gate itself enforces the envelope before it runs any criterion", () =>
+  Effect.gen(function* () {
+    const { dir } = yield* useServerConfig()
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract stop enforce", permission: allowAll })
+    yield* armWith(chat.id, dir, ["true"], { envelope: { max_cost_usd: 1 } })
+    const u1 = yield* seedUser(sessions, chat.id)
+    yield* seedAssistant(sessions, chat.id, u1.id, { cost: 2, tools: 0 })
+    const gate = ContractGate.make({
+      sessionID: chat.id,
+      directory: dir,
+      sessions,
+      permission: yield* Permission.Service,
+      agents: yield* AgentSvc.Service,
+      registry: yield* ToolRegistry.Service,
+      db: (yield* Database.Service).db,
+    })
+
+    const reentered = yield* gate.stop(u1 as unknown as SessionV1.User)
+
+    expect(reentered).toBe(false)
+    const c = TaskContract.get(chat.id)!
+    expect(c.status).toBe("blocked")
+    expect(c.criteria[0]!.state).toBe("pending")
+    expect(c.evidence.map((e) => e.breach?.cap)).toEqual(["cost_usd"])
+  }),
+)
+
+// F3 re-check (review 2): external_directory is enforced for criteria, not only the raw bash pattern
+
+it.instance("F3 re-check: a criterion that touches a directory outside the project is denied by an external_directory rule", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Contract external dir",
+      permission: [
+        { permission: "bash", pattern: "*", action: "allow" as const },
+        { permission: "external_directory", pattern: "*", action: "deny" as const },
+      ],
+    })
+    yield* armWith(chat.id, dir, ["cat /etc/passwd"], {})
+    yield* llm.text("done")
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "go" }] })
+
+    const c = TaskContract.get(chat.id)!
+    expect(c.status).toBe("unverified")
+    expect(c.criteria[0]!.state).toBe("blocked")
+    expect(c.evidence).toHaveLength(0)
+  }),
 )
