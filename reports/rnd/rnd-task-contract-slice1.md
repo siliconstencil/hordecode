@@ -20,8 +20,8 @@ envelope, git checkpoint, unattended flag). Usage and the open-decision table ar
 | f991254e6 | Round 4: `contract` config block (schema) |
 | 16d166dbe | Round 4: SDK types regenerated with the generator |
 | 1a7663d15 | Round 4: findings F1 to F8 (code and tests) |
-| DOCS_SHA | Round 4: docs and report |
-| MAP_SHA | Round 4: ownership map regenerated (separate commit) |
+| 98050320f | Round 4: docs and report |
+| 830bac9c6 | Round 4: ownership map regenerated (separate commit): +1 FORK_ONLY row, FORK_DELTA and PARITY unchanged |
 
 ## Observation, root cause, action, evidence
 
