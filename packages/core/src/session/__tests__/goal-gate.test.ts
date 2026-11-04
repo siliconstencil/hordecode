@@ -259,7 +259,7 @@ describe("Goal.runGate (real Goal.layer, fake judge model, fake Session)", () =>
   // (E-channel) failure -- and evaluate()'s declared type is `Effect.Effect<Verdict>` (E = never), so that
   // catch can never fire for any real judge/provider failure. The fix (Effect.catch -> Effect.catchCause)
   // is unambiguous and lands in its own commit right after this one, inside the FORK_ONLY goal.ts.
-  test.failing("judge failure: the gate fails open, allows the stop and clears the goal", async () => {
+  test("judge failure: the gate fails open, allows the stop and clears the goal", async () => {
     const calls: SessionCall[] = []
     const result = await run(
       () => {
