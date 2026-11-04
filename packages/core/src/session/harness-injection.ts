@@ -7,7 +7,7 @@ import type { Config } from "../config/index"
 import { resolveDocsDir } from "../config/harness"
 import type { MessageV2 } from "./message-v2"
 import { PartID } from "./schema"
-import { classifyRequest, requestText, triageSection } from "./harness-triage"
+import { classifyRequest, requestText, triageSection, withTriageSection } from "./harness-triage"
 import PROMPT_HARNESS from "./prompt/harness.txt"
 import PROMPT_RESEARCH from "./prompt/research.txt"
 
@@ -50,7 +50,7 @@ export const applyHarnessInjection = Effect.fn("SessionPrompt.applyHarnessInject
     sessionID: userMsg.info.sessionID,
     type: "text",
     // Fork: harness.triage (default off) appends the routine-request section; off or complex leaves `text` untouched.
-    text: pipeline === "harness" && harnessCfg?.triage === true ? text + triageSection(classifyRequest(requestText(msgs))) : text,
+    text: pipeline === "harness" && harnessCfg?.triage === true ? withTriageSection(text, triageSection(classifyRequest(requestText(msgs)))) : text,
     synthetic: true,
   })
 })

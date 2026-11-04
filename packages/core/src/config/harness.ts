@@ -13,7 +13,7 @@ export const Info = Schema.Struct({
   }),
   triage: Schema.optional(Schema.Boolean).annotate({
     description:
-      "Classify each request as routine or complex from its length, the files it names and any explicit plan request. For a routine request the harness agent skips brainstorm, plan and tdd and goes straight to execute and verify. Default false: the harness prompt is unchanged.",
+      "Let the harness agent skip brainstorm, plan and tdd for a request that is a mechanical edit: one sentence, one named file, ASCII English and a known small-change phrase such as fixing a typo or bumping the version. Everything else, including every non-English request, keeps the full pipeline. Default false: the harness prompt is unchanged.",
   }),
 }).pipe(withStatics((s) => ({ zod: zod(s) })))
 
