@@ -8,7 +8,7 @@ Config is JSON or JSONC. Hordecode discovers it by walking up from the cwd to th
 - Global: `~/.config/hordecode/hordecode.json` (XDG config dir)
 - Extra config dirs are also searched via `$HORDECODE_CONFIG_DIR`.
 
-Project config merges **over** global. Always include `"$schema": "https://hordecode.dev/hordecode/config.json"` for validation.
+Project config merges **over** global. Always include `"$schema": "https://hordecode.com/config.json"` for validation.
 
 ## On-disk data layout
 
@@ -31,12 +31,12 @@ Memory files live under `~/.local/share/hordecode/memory/`:
 - `HORDECODE_HOME` — override all base dirs (absolute path).
 - `HORDECODE_CONFIG_DIR` — extra config directory to search.
 - `HORDECODE_PURE` — run without external plugins (same as `Hordecode --pure`). Does **not** change models or Claude Code inheritance.
-- `HORDECODE_CORE_ONLY` — pure-Hordecode mode: don't inherit Claude Code settings (CLAUDE.md, `~/.claude/skills`), don't read provider API keys from env, fall back to the Hordecode-auto model.
+- `HORDECODE_CORE_ONLY` — pure-Hordecode mode: don't inherit Claude Code settings (CLAUDE.md, `~/.claude/skills`), don't read provider API keys from env.
 - `HORDECODE_DISABLE_LOG_ROTATION` — keep a single growing log file instead of rotating.
 - `HORDECODE_TEXT_TOOL_CALL_RETRY_LIMIT` — retries when a model emits a tool call as prose markup instead of a structured call (default 2).
-- `HORDECODE_EXPERIMENTAL_CRON` — scheduled prompts (cron/loop); **on by default**. `HORDECODE_DISABLE_CRON` kills it at runtime. Tune loop keepalive with `HORDECODE_LOOP_KEEPALIVE_BUDGET` (default 1) and `HORDECODE_LOOP_KEEPALIVE_DELAY_S` (default 1200).
+- `HORDECODE_EXPERIMENTAL_CRON` — scheduled prompts (cron/loop); **on by default**. `HORDECODE_DISABLE_CRON` kills it at runtime.
 - `HORDECODE_EXPERIMENTAL_TOKEN_EFFICIENCY_HEURISTIC` — shape-based compaction of bash output to save tokens; off by default.
-- `HORDECODE_DISABLE_BUILTIN_SKILLS`, `_HARNESS_SKILLS`, `_EXTERNAL_SKILLS`, `_CLAUDE_CODE_SKILLS`, `_CODEX_SKILLS`, `_OPENCODE_SKILLS`, `_PROJECT_CONFIG`, `_CLAUDE_IMPORT` — feature toggles.
+- `HORDECODE_DISABLE_BUILTIN_SKILLS`, `_EXTERNAL_SKILLS`, `_CLAUDE_CODE_SKILLS`, `_PROJECT_CONFIG` — feature toggles.
 
 ## Top-level config keys
 
@@ -59,7 +59,7 @@ Each group maps a name to either a single default model (string shorthand) or an
 
 ```jsonc
 {
-  "$schema": "https://hordecode.dev/hordecode/config.json",
+  "$schema": "https://hordecode.com/config.json",
   "model_groups": {
     // string shorthand: the group IS its default model
     "lite": "anthropic/claude-haiku",
@@ -155,7 +155,7 @@ Prefer a markdown file (`.hordecode/agent/<name>.md`, body = system prompt) for 
 
 ```jsonc
 {
-  "$schema": "https://hordecode.dev/hordecode/config.json",
+  "$schema": "https://hordecode.com/config.json",
   "model": "anthropic/claude-opus-4-8",
   "model_groups": { "lite": "anthropic/claude-haiku" },
   "dream": { "auto": true, "interval_days": 3 },
