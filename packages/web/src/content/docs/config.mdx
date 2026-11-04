@@ -645,7 +645,8 @@ Note that disabling snapshots means changes made by the agent cannot be rolled b
 
 ### Autoupdate
 
-OpenCode checks for new versions in the background and shows a notice when one is available. Updates are never installed automatically. Run [`/update`](/docs/tui#update) in the TUI or [`opencode upgrade`](/docs/cli#upgrade) to install one.
+<!-- Hordecode: upstream 1.19.5 config.mdx:648 update command; not carried. -->
+OpenCode checks for new versions in the background and shows a notice when one is available. Updates are never installed automatically. Run [`horde upgrade`](/docs/cli#upgrade) to install one.
 
 You can turn off update checks and notices with the `autoupdate` option.
 
@@ -656,7 +657,7 @@ You can turn off update checks and notices with the `autoupdate` option.
 }
 ```
 
-Setting `autoupdate` to `true` or `"notify"` keeps the default behavior: you're notified, but nothing is installed until you run `/update`.
+Setting `autoupdate` to `true` or `"notify"` keeps the default behavior: you're notified, but nothing is installed until you run `horde upgrade`.
 
 ---
 
