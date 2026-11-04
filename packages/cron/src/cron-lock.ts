@@ -29,6 +29,11 @@ export const getLockFilePath = (dir?: string) => {
   return join(Global.Path.state, "cron-locks", `${key}.lock`)
 }
 
+// Locations before the lock moved out of the project tree. A scheduler of the previous version still holds
+// <project>/.hordecode/.cron-lock; during an upgrade both versions can run on one project, so the new
+// version checks it before acquiring (it never creates, rewrites or deletes that file).
+export const getLegacyLockFilePath = (dir?: string) => join(dir ?? process.cwd(), ".hordecode", ".cron-lock")
+
 const parseLockInfo = (raw: string): LockInfo | null => {
   const obj = Effect.runSync(
     Effect.try({ try: () => JSON.parse(raw) as Record<string, unknown>, catch: () => null }).pipe(
@@ -214,6 +219,13 @@ export const tryAcquireSchedulerLock = (opts?: { dir?: string; lockIdentity?: st
       try: () => mkdir(join(path, ".."), { recursive: true }),
       catch: () => undefined,
     }).pipe(Effect.orElseSucceed(() => undefined))
+
+    const legacyRaw = yield* readLockFile(getLegacyLockFilePath(opts?.dir))
+    const legacy = legacyRaw === null ? null : parseLockInfo(legacyRaw)
+    if (legacy !== null && legacy.pid !== process.pid && isPidAlive(legacy.pid, legacy.startedAt)) {
+      log.debug("legacy in-project lock held by live process", { pid: legacy.pid })
+      return false
+    }
 
     const self: LockInfo = {
       pid: process.pid,
