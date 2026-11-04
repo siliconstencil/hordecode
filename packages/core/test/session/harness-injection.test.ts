@@ -76,3 +76,12 @@ describe("harness injection", () => {
     expect(texts(m)).toEqual(["hello"])
   })
 })
+
+describe("HarnessEnv store", () => {
+  test("is bounded: the oldest sessions are evicted", () => {
+    for (let i = 0; i < 300; i++) HarnessEnv.set(`ses_bound_${i}` as never, { HORDECODE_HARNESS_DOCS: "/d", HORDECODE_HARNESS_EVIDENCE: "/e" })
+    expect(HarnessEnv.size()).toBeLessThanOrEqual(256)
+    expect(HarnessEnv.get("ses_bound_0" as never)).toBeUndefined()
+    expect(HarnessEnv.get("ses_bound_299" as never)).toBeDefined()
+  })
+})

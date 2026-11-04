@@ -297,4 +297,14 @@ describe("harness mapping inheritance", () => {
       expect(HarnessEnv.get(stranger.id)).toBeUndefined()
     }),
   )
+
+  it.instance("deleting a session clears its harness mapping", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionNs.Service
+      const info = yield* session.create({})
+      HarnessEnv.set(info.id, { HORDECODE_HARNESS_DOCS: "/abs/docs", HORDECODE_HARNESS_EVIDENCE: "/abs/ev" })
+      yield* session.remove(info.id)
+      expect(HarnessEnv.get(info.id)).toBeUndefined()
+    }),
+  )
 })

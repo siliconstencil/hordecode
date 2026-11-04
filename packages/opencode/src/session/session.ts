@@ -833,6 +833,7 @@ const layer = Layer.effect(
         yield* remove(child.id)
       }
 
+      HarnessEnv.clear(sessionID)
       yield* events.publish(SessionV1.Event.Deleted, { sessionID, info: session })
       yield* events.remove(sessionID)
     })
