@@ -41,13 +41,13 @@ Standard step after implementation is complete and verified — write a final re
 4. **Draft Journey Log** — brief flat bullet list, max 5 items
 5. **Assemble report** — combine sections, add frontmatter, save to reports/
 6. **Self-review** — verify report against code (not specs), check for placeholders, confirm length is proportional to feature complexity
-6.5. **Write stage summaries** — for each harness skill invoked in this pipeline, write a brief summary to `docs/harness/stages/<pipeline-id>/<skill-name>.md` containing: skill name, input summary (1 line), output summary (1 line), any issues encountered, timestamp. Template at `<harness:report>/stage-template.md`.
+6.5. **Write stage summaries** — for each harness skill invoked in this pipeline, write a brief summary to `<harness-docs>/stages/<pipeline-id>/<skill-name>.md` containing: skill name, input summary (1 line), output summary (1 line), any issues encountered, timestamp. Template at `<harness:report>/stage-template.md`.
 7. **Mark specs and plans** — prepend NOTE header to each spec and plan file
 8. **Commit** — commit report + markers
 9. **Pipeline eval** — invoke harness:eval to measure pipeline quality (MANDATORY, do not skip).
    "MANDATORY" is not self-enforcing — prove it happened:
    - Write real eval output (scores, recurring_failures JSON) to
-     `.hordecode/harness/evidence/<run-id>/eval.evidence`.
+     `<harness-evidence>/<run-id>/eval.evidence`.
    - From the project root, run `bash <harness:eval>/scripts/harness-gate.sh <run-id> eval`. Non-zero exit = eval did not
      actually produce evidence — STOP, do not proceed to step 10, re-run eval for real.
    After eval completes, check the eval JSON `recurring_failures`:

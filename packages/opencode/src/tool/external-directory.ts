@@ -5,6 +5,7 @@ import type * as Tool from "./tool"
 import { containsPath } from "../project/instance-context"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Global } from "@opencode-ai/core/global"
+import { HarnessEnv } from "@opencode-ai/core/session/harness-env"
 import { ProtectedPath } from "@/permission/protected-path"
 import { Config } from "@/config/config"
 import { isMemoryWriteEnabled } from "@/memory/write-gate"
@@ -38,6 +39,16 @@ export const assertExternalDirectoryEffect = Effect.fn("Tool.assertExternalDirec
   // external_directory here is redundant and, in headless run mode (no
   // permission replier), deadlocks on a never-resolved Deferred.
   if (FSUtil.contains(Global.Path.memory, full)) return false
+
+  // Harness evidence of this session (and of the sessions created under it): with a custom harness.docs the
+  // evidence directory is <state>/harness-evidence/<hash>, outside the worktree, and the skills read and write
+  // it with the file tools on every gate. Granting it here, scoped to the resolved directory of the harness
+  // session's own mapping, avoids an ask per access (and a deadlock without a permission replier in headless
+  // runs). Nothing else under the state dir is exempted. Fork-only: upstream v1.19.5
+  // packages/opencode/src/tool/external-directory.ts:26 (containsPath) and :36 (the ask) have no exemptions;
+  // MiMo Code v0.1.11 packages/opencode/src/tool/external-directory.ts:34 has the memory-tree exemption only.
+  const evidenceRoot = HarnessEnv.get(ctx.sessionID)?.HORDECODE_HARNESS_EVIDENCE
+  if (evidenceRoot && FSUtil.contains(evidenceRoot, full)) return false
 
   // Orchestrator-created worktrees live under <data>/worktree/<projectID>/<name>.
   // A worktree child is app-managed and trusted to work there freely. But the

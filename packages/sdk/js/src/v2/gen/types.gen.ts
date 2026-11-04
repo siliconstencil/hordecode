@@ -2191,6 +2191,7 @@ export type Config = {
     disable_paste_summary?: boolean
     batch_tool?: boolean
     openTelemetry?: boolean
+    openTelemetryContent?: boolean
     primary_tools?: Array<string>
     switches?: {
       workspaces?: boolean
@@ -2223,7 +2224,9 @@ export type Config = {
         tool_failures?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
         same_error?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
         context_percent?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        no_progress?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       }
+      rearm?: boolean
       sensitivity?: "low" | "default" | "high"
       min_severity?: "nit" | "concern" | "blocker"
       max_notes?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"

@@ -211,3 +211,37 @@ describe("maybeAdvise tuning", () => {
     expect(out?.reminder).toBeUndefined()
   })
 })
+
+describe("maybeAdvise no_progress re-arm (config)", () => {
+  const read = (): Msg =>
+    ({
+      info: { id: "a", role: "assistant", sessionID: "s" },
+      parts: [{ type: "tool", tool: "read", callID: `c-${Math.random()}`, state: { status: "completed", input: {}, output: "", metadata: {}, title: "", time: { start: 0, end: 0 } } }],
+    }) as unknown as Msg
+  const triggers = { files_touched: 0, tool_failures: 0, same_error: 0, context_percent: 0, no_progress: 2 }
+  const turn = (reads: number) => [user("look around"), ...Array.from({ length: reads }, read)]
+
+  const fires = async (rearm: boolean | undefined, sessionID: string) => {
+    const { provider } = fakeProvider()
+    const fake = fakeLLM(reply)
+    const cfg = { enabled: true, model: "test/advisor", triggers, cooldown_steps: 0, ...(rearm === undefined ? {} : { rearm }) }
+    const first = await run({ cfg, step: 1, sessionID, llm: fake.llm, provider, messages: turn(2) })
+    const grown = await run({ cfg, step: 2, sessionID, llm: fake.llm, provider, messages: turn(4) })
+    return { first, grown, streams: fake.count() }
+  }
+
+  test("default OFF: no_progress fires once, a longer streak stays quiet", async () => {
+    const off = await fires(undefined, "rearm-off")
+    expect(off.first?.reasons).toEqual(["no_progress 2 >= 2"])
+    expect(off.grown).toBeUndefined()
+    expect(off.streams).toBe(1)
+    expect((await fires(false, "rearm-false")).grown).toBeUndefined()
+  })
+
+  test("experimental.advisor.rearm: true lets it fire again once the count grew by the threshold", async () => {
+    const on = await fires(true, "rearm-on")
+    expect(on.first?.reasons).toEqual(["no_progress 2 >= 2"])
+    expect(on.grown?.reasons).toEqual(["no_progress 4 >= 2"])
+    expect(on.streams).toBe(2)
+  })
+})

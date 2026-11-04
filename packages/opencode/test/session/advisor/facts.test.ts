@@ -155,3 +155,67 @@ describe("shell exit codes", () => {
     expect(facts.maxSameError).toBe(2)
   })
 })
+
+describe("readOnlyStreak", () => {
+  const read = (name = "read") => tool(name, "completed", { filePath: "/a", pattern: "x" })
+
+  test("counts trailing read-only calls after the last non-read-only call", () => {
+    const messages = [
+      user("go"),
+      read(),
+      tool("edit", "completed", { filePath: "/a" }),
+      read("read"),
+      read("grep"),
+      read("glob"),
+      tool("webfetch", "error", { url: "u" }, "boom"),
+    ]
+    expect(collectFacts(messages, undefined).readOnlyStreak).toBe(4)
+  })
+
+  test("counts every call when the turn has only read-only calls", () => {
+    expect(collectFacts([user("go"), read(), read("history"), read("websearch")], undefined).readOnlyStreak).toBe(3)
+  })
+
+  test("a bash call resets the streak: writes through the shell are progress", () => {
+    const messages = [user("go"), read(), read(), tool("bash", "completed", { command: "sed -i s/a/b/ f" }), read()]
+    expect(collectFacts(messages, undefined).readOnlyStreak).toBe(1)
+  })
+
+  test("delegated work resets the streak: task, supervisor, workflow and session calls", () => {
+    for (const name of ["task", "supervisor", "workflow", "session"]) {
+      const messages = [user("go"), read(), read(), tool(name, "completed", { prompt: "do it" }), read()]
+      expect(collectFacts(messages, undefined).readOnlyStreak).toBe(1)
+    }
+  })
+
+  test("edit, write, multiedit and apply_patch reset the streak, a failed one too", () => {
+    for (const name of ["edit", "write", "multiedit", "apply_patch"]) {
+      const messages = [user("go"), read(), read(), tool(name, "error", { filePath: "/a" }, "failed")]
+      expect(collectFacts(messages, undefined).readOnlyStreak).toBe(0)
+    }
+  })
+
+  test("an unknown tool (MCP, plugin) is not read-only and resets the streak", () => {
+    expect(collectFacts([user("go"), read(), tool("some_mcp_tool", "completed", {})], undefined).readOnlyStreak).toBe(0)
+  })
+
+  test("is 0 without tools and ignores calls from before the user turn", () => {
+    expect(collectFacts([read(), user("go")], undefined).readOnlyStreak).toBe(0)
+    expect(collectFacts([user("hi")], undefined).readOnlyStreak).toBe(0)
+  })
+
+  test("fork read-only tools (history, memory_recall, memory_status, skill_search) count", () => {
+    const messages = [user("go"), read("history"), read("memory_recall"), read("memory_status"), read("skill_search")]
+    expect(collectFacts(messages, undefined).readOnlyStreak).toBe(4)
+  })
+
+  test("pending and running read-only parts do not count toward the streak", () => {
+    const running = (name: string): Msg =>
+      ({
+        info: { id: "a", role: "assistant", sessionID: "s" },
+        parts: [{ type: "tool", tool: name, callID: `c-${Math.random()}`, state: { status: name === "grep" ? "running" : "pending", input: {}, time: { start: 0 } } }],
+      }) as unknown as Msg
+    const messages = [user("go"), read(), running("grep"), running("glob")]
+    expect(collectFacts(messages, undefined).readOnlyStreak).toBe(1)
+  })
+})

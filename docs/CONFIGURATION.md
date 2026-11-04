@@ -233,7 +233,7 @@ The triggers are checked at each step:
       "model": "anthropic/claude-sonnet-5-5",
       "sensitivity": "default",
       "min_severity": "concern",
-      "triggers": { "files_touched": 8, "tool_failures": 3, "same_error": 2, "context_percent": 70 },
+      "triggers": { "files_touched": 8, "tool_failures": 3, "same_error": 2, "context_percent": 70, "no_progress": 25 },
       "max_notes": 4,
       "cooldown_steps": 3
     }
@@ -247,17 +247,18 @@ The triggers are checked at each step:
 | `model` | A `provider/model` value or a model group name. |
 | `sensitivity` | `low`, `default` or `high`. Sets the presets below. |
 | `min_severity` | The lowest note that is kept: `nit`, `concern` (the default) or `blocker`. |
-| `triggers` | Thresholds for the four triggers. An explicit value overrides the preset. |
+| `triggers` | Thresholds for the five triggers. An explicit value overrides the preset. `no_progress` counts consecutive read-only tool calls (read, grep, glob, list, webfetch and similar) at the end of the turn; bash, edits and delegated work (task, supervisor) reset it. |
+| `rearm` | `true` lets `no_progress` fire again once its count has grown by its threshold since the last review (or a new streak after a write reaches it). Default `false`: a trigger name fires once per user turn. |
 | `max_notes` | The most non-blocker notes kept per review (default 4). Blockers are always kept. |
 | `cooldown_steps` | Steps to wait after a review before the next one. An explicit value overrides the preset. |
 
 Presets:
 
-| Sensitivity | `files_touched` | `tool_failures` | `same_error` | `context_percent` | `cooldown_steps` |
-| --- | --- | --- | --- | --- | --- |
-| `low` | 12 | 4 | 3 | 85 | 6 |
-| `default` | 8 | 3 | 2 | 70 | 3 |
-| `high` | 5 | 2 | 2 | 60 | 2 |
+| Sensitivity | `files_touched` | `tool_failures` | `same_error` | `context_percent` | `no_progress` | `cooldown_steps` |
+| --- | --- | --- | --- | --- | --- | --- |
+| `low` | 12 | 4 | 3 | 85 | 0 (off) | 6 |
+| `default` | 8 | 3 | 2 | 70 | 25 | 3 |
+| `high` | 5 | 2 | 2 | 60 | 15 | 2 |
 
 A threshold of `0` turns that trigger off. Cooldown and repeat suppression reset on each new user message.
 Within a turn, a review does not repeat for the same triggers, only when a new trigger joins them.

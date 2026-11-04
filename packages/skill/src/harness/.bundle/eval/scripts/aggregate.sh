@@ -2,7 +2,7 @@
 # Harness Eval Aggregator
 # Reads all eval JSON files and produces aggregate statistics
 # Usage: ./aggregate.sh [eval_dir]
-# Default eval_dir: docs/harness/eval/
+# Default eval_dir: ${HORDECODE_HARNESS_DOCS:-docs/harness}/eval/
 
 set -e
 
@@ -14,7 +14,7 @@ for cmd in jq bc; do
   fi
 done
 
-EVAL_DIR="${1:-docs/harness/eval}"
+EVAL_DIR="${1:-${HORDECODE_HARNESS_DOCS:-docs/harness}/eval}"
 
 # Unique temp files to avoid race condition when multiple instances run
 UNIQUE_ID="$$_$(date +%s)"

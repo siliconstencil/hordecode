@@ -7,7 +7,12 @@
 # Exit 0 = gate pass, exit 1 = gate fail
 # Phases: brainstorm plan subagent verify review report eval merge
 #
-# Evidence file convention: .hordecode/harness/evidence/<run-id>/<phase>.evidence
+# Locations (env, set by the harness prompt from the `harness.docs` config):
+#   HORDECODE_HARNESS_DOCS      docs dir, default docs/harness
+#   HORDECODE_HARNESS_EVIDENCE  evidence root, default .hordecode/harness/evidence (never derived from the
+#                               docs dir: evidence stays out of the tracked docs tree)
+# The runtime exports both (absolute) to every shell command of a harness session and its subagents.
+# Evidence file convention: <evidence root>/<run-id>/<phase>.evidence
 # A phase's own skill must write this file BEFORE calling this gate.
 # No file, empty file, or content missing the phase's required markers = FAIL.
 # A FAIL must stop the pipeline -- "I did it anyway" is not an override.
@@ -16,7 +21,9 @@ set -euo pipefail
 
 RUN_ID="${1:?Usage: harness-gate.sh <run-id> <phase>}"
 PHASE="${2:?Usage: harness-gate.sh <run-id> <phase>}"
-EVIDENCE_DIR=".hordecode/harness/evidence/${RUN_ID}"
+DOCS_DIR="${HORDECODE_HARNESS_DOCS:-docs/harness}"
+EVIDENCE_ROOT="${HORDECODE_HARNESS_EVIDENCE:-.hordecode/harness/evidence}"
+EVIDENCE_DIR="${EVIDENCE_ROOT}/${RUN_ID}"
 EVIDENCE_FILE="${EVIDENCE_DIR}/${PHASE}.evidence"
 
 case "${PHASE}" in
@@ -281,10 +288,10 @@ case "${PHASE}" in
     ESCALATION_REQUIRED=""
     EVAL_JSON=""
     if [[ -f "${EVIDENCE_DIR}/eval.evidence" ]]; then
-      EVAL_JSON=$(grep -oE 'docs/harness/eval/[A-Za-z0-9._-]+\.json' "${EVIDENCE_DIR}/eval.evidence" | head -1)
+      EVAL_JSON=$(grep -oE "[^[:space:]\`'\"]*eval/[A-Za-z0-9._-]+\.json" "${EVIDENCE_DIR}/eval.evidence" | head -1)
     fi
-    if [[ -z "${EVAL_JSON}" && -d "docs/harness/eval" ]] && command -v jq >/dev/null 2>&1; then
-      EVAL_JSON=$(ls -t docs/harness/eval/*.json 2>/dev/null | head -1)
+    if [[ -z "${EVAL_JSON}" && -d "${DOCS_DIR}/eval" ]] && command -v jq >/dev/null 2>&1; then
+      EVAL_JSON=$(ls -t "${DOCS_DIR}"/eval/*.json 2>/dev/null | head -1)
     fi
     if [[ -n "${EVAL_JSON}" && -f "${EVAL_JSON}" ]] && command -v jq >/dev/null 2>&1; then
       while IFS=$'\t' read -r FTYPE OCC CONS; do

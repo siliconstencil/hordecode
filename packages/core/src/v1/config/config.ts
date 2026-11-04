@@ -442,8 +442,17 @@ export const Info = Schema.Struct({
               tool_failures: Schema.optional(Schema.Number),
               same_error: Schema.optional(Schema.Number),
               context_percent: Schema.optional(Schema.Number),
+              // Fork-only (FORK_DELTA): upstream v1.19.5 has no advisor; its experimental block is
+              // packages/core/src/v1/config/config.ts:169-173 and carries none of these keys. MiMo Code v0.1.11
+              // packages/opencode/src/config/config.ts has no advisor either. Consumer: advisor/trigger.ts.
+              no_progress: Schema.optional(Schema.Number),
             }),
           ),
+          rearm: Schema.optional(Schema.Boolean).annotate({
+            // Fork-only (FORK_DELTA), same status as the triggers above.
+            description:
+              "Let the no_progress trigger fire again when its count grew by its threshold since the last review (default false: a trigger name fires once per user turn).",
+          }),
           sensitivity: Schema.optional(Schema.Literals(["low", "default", "high"])).annotate({
             description: "How readily the advisor reviews: low (quiet), default, high (watchful). Explicit triggers and cooldown_steps override it.",
           }),

@@ -1,3 +1,4 @@
+import { HarnessEnv } from "@opencode-ai/core/session/harness-env"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { describe, expect } from "bun:test"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -1626,6 +1627,24 @@ describe("tool.shell delete confirmation", () => {
           expect(bashReq).toBeDefined()
         }),
       )
+    }),
+  )
+})
+
+describe("tool.shell harness environment", () => {
+  each("exports the harness paths of the session and of its child sessions to the command", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      HarnessEnv.set(SessionID.make("ses_harness_parent"), {
+        HORDECODE_HARNESS_DOCS: "/abs/docs",
+        HORDECODE_HARNESS_EVIDENCE: "/abs/state/evidence",
+      })
+      HarnessEnv.inherit(SessionID.make("ses_harness_parent"), SessionID.make("ses_harness_child"))
+      const command = 'echo "docs=$HORDECODE_HARNESS_DOCS evidence=$HORDECODE_HARNESS_EVIDENCE"'
+      const child = yield* runIn(tmp, run({ command }, { ...ctx, sessionID: SessionID.make("ses_harness_child") }))
+      expect(child.output).toContain("docs=/abs/docs evidence=/abs/state/evidence")
+      const other = yield* runIn(tmp, run({ command }, { ...ctx, sessionID: SessionID.make("ses_not_harness") }))
+      expect(other.output).toContain("docs= evidence=")
     }),
   )
 })

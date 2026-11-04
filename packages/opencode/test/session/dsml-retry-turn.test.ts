@@ -28,12 +28,14 @@ import { SessionCompaction } from "../../src/session/compaction"
 import { SessionSummary } from "../../src/session/summary"
 import { Instruction } from "../../src/session/instruction"
 import { SessionProcessor } from "../../src/session/processor"
+import { DSML_SALVAGE_LIMIT } from "../../src/session/dsml-salvage"
 import { SessionPrompt } from "../../src/session/prompt"
 import { SessionRevert } from "../../src/session/revert"
 import { SessionRunState } from "../../src/session/run-state"
 import { SessionStatus } from "../../src/session/status"
 import { SessionID } from "../../src/session/schema"
 import { SystemPrompt } from "../../src/session/system"
+import { SupervisorRegistryService } from "@opencode-ai/supervisor/registry"
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "@/tool/registry"
 import { Truncate } from "@/tool/truncate"
@@ -235,13 +237,13 @@ const cfg = (url: string): Partial<ConfigV1.Info> => ({
   },
 } as Partial<ConfigV1.Info>)
 
-const useServerConfig = Effect.fn("dsml-retry.useServerConfig")(function* () {
+const useServerConfig = Effect.fn("dsml-retry.useServerConfig")(function* (extra: Record<string, unknown> = {}) {
   const { directory: dir } = yield* TestInstance
   const llm = yield* TestLLMServer
   const fs = yield* FSUtil.Service
   yield* fs.writeWithDirs(
     path.join(dir, "opencode.json"),
-    JSON.stringify({ $schema: "https://opencode.ai/config.json", ...cfg(llm.url) }),
+    JSON.stringify({ $schema: "https://opencode.ai/config.json", ...cfg(llm.url), ...extra }),
   )
   return { dir, llm }
 })
@@ -330,4 +332,401 @@ it.instance("prose that names DSML without a call block is not retried", () =>
     expect(yield* llm.calls).toBe(1)
     expect(yield* reminders(chat.id)).toHaveLength(0)
   }),
+)
+
+// Salvage and notice (retry cap exhausted: two reminders, third DSML stop).
+const withEnv = <A, E, R>(env: Record<string, string>, effect: Effect.Effect<A, E, R>) =>
+  Effect.acquireUseRelease(
+    Effect.sync(() => {
+      const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]))
+      Object.assign(process.env, env)
+      return previous
+    }),
+    () => effect,
+    (previous) =>
+      Effect.sync(() => {
+        for (const [key, value] of Object.entries(previous)) {
+          if (value === undefined) delete process.env[key]
+          else process.env[key] = value
+        }
+      }),
+  )
+
+const readCall = (file: string) =>
+  [
+    `<${D} calls>`,
+    `<${D} invoke name="read">`,
+    `<${D} parameter name="filePath" string="true">${file}</${D} parameter>`,
+    `</${D} invoke>`,
+    `</${D} calls>`,
+  ].join("\n")
+
+const toolParts = Effect.fn("dsml-retry.toolParts")(function* (sessionID: SessionID) {
+  const msgs = yield* MessageV2.filterCompactedEffect(sessionID)
+  return msgs.flatMap((m) => m.parts).filter((p) => p.type === "tool")
+})
+
+const NOTICE_TEXT = "was not run, so this turn was stopped"
+const isNoticePart = (p: { type: string; text?: string; ignored?: boolean }) =>
+  p.type === "text" && p.ignored === true && (p.text ?? "").includes(NOTICE_TEXT)
+
+// Volatile fields are dropped so two runs of the same scenario compare byte for byte.
+const VOLATILE = new Set(["id", "messageID", "sessionID", "parentID", "time", "cost", "tokens", "snapshot", "callID", "slug", "version"])
+const normalized = Effect.fn("dsml-retry.normalized")(function* (sessionID: SessionID) {
+  const msgs = yield* MessageV2.filterCompactedEffect(sessionID)
+  return JSON.stringify(
+    msgs.map((m) => ({
+      info: m.info,
+      parts: m.parts.filter((p) => !isNoticePart(p as never)),
+    })),
+    (key, value) => (VOLATILE.has(key) ? undefined : value),
+  )
+})
+
+const noticeTexts = Effect.fn("dsml-retry.noticeTexts")(function* (sessionID: SessionID) {
+  const msgs = yield* MessageV2.filterCompactedEffect(sessionID)
+  return msgs
+    .flatMap((m) => m.parts)
+    .flatMap((p) => (p.type === "text" && p.ignored === true && p.synthetic === true && p.text.includes("tool call as plain text") ? [p.text] : []))
+})
+
+const sessionErrors = Effect.fn("dsml-retry.sessionErrors")(function* (sessionID: SessionID) {
+  const msgs = yield* MessageV2.filterCompactedEffect(sessionID)
+  return msgs.flatMap((m) => (m.info.role === "assistant" && m.info.error ? [m.info.error] : []))
+})
+
+it.instance("DSML salvage runs the complete calls as real tool calls when the retry cap is exhausted", () =>
+  withEnv(
+    { HORDECODE_DSML_SALVAGE: "1" },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const fs = yield* FSUtil.Service
+      const file = path.join(dir, "salvage.txt")
+      yield* fs.writeWithDirs(file, "salvaged-content")
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "DSML salvage", permission: allowAll })
+
+      yield* llm.text(readCall(file))
+      yield* llm.text(readCall(file))
+      yield* llm.text(readCall(file))
+      yield* llm.text("done")
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+      expect(yield* llm.calls).toBe(4)
+      const parts = yield* toolParts(chat.id)
+      expect(parts).toHaveLength(1)
+      expect(parts[0].tool).toBe("read")
+      expect(parts[0].state.status).toBe("completed")
+      expect(JSON.stringify(parts[0].state)).toContain("salvaged-content")
+    }),
+  ),
+)
+
+it.instance("DSML salvage goes through the permission path: a denied tool is not run and the error goes back to the model", () =>
+  withEnv(
+    { HORDECODE_DSML_SALVAGE: "1" },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const fs = yield* FSUtil.Service
+      const file = path.join(dir, "denied.txt")
+      yield* fs.writeWithDirs(file, "secret-content")
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({
+        title: "DSML denied",
+        permission: [...allowAll, { permission: "read", pattern: "*", action: "deny" as const }],
+      })
+
+      yield* llm.text(readCall(file))
+      yield* llm.text(readCall(file))
+      yield* llm.text(readCall(file))
+      yield* llm.text("understood, read is denied")
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+      // Same as a structured call under a deny rule: DeniedError is a tool error the model sees.
+      expect(yield* llm.calls).toBe(4)
+      const parts = yield* toolParts(chat.id)
+      expect(parts).toHaveLength(1)
+      expect(parts[0].state.status).toBe("error")
+      expect(JSON.stringify(parts[0].state)).not.toContain("secret-content")
+    }),
+  ),
+)
+
+it.instance("DSML cap with salvage off ends the turn with a visible notice", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "DSML notice", permission: allowAll })
+
+    yield* llm.text(dsmlCall)
+    yield* llm.text(dsmlCall)
+    yield* llm.text(dsmlCall)
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+    expect(yield* llm.calls).toBe(3)
+    expect(yield* toolParts(chat.id)).toHaveLength(0)
+    const notices = yield* noticeTexts(chat.id)
+    expect(notices).toHaveLength(1)
+    expect(notices[0]).toContain("HORDECODE_DSML_SALVAGE")
+    // Display only: the message is not an error and no session error was published for it.
+    expect((yield* sessionErrors(chat.id)).filter((e) => (e.data as { message?: string }).message?.includes("stopped"))).toHaveLength(0)
+  }),
+)
+
+it.instance("DSML notice can be switched off and the turn then ends silently as before", () =>
+  withEnv(
+    { HORDECODE_DSML_NOTICE: "0" },
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig()
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "DSML silent", permission: allowAll })
+
+      yield* llm.text(dsmlCall)
+      yield* llm.text(dsmlCall)
+      yield* llm.text(dsmlCall)
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+      expect(yield* noticeTexts(chat.id)).toHaveLength(0)
+    }),
+  ),
+)
+
+it.instance("DSML salvage stops at the per-session cap and falls back to the notice", () =>
+  withEnv(
+    { HORDECODE_DSML_SALVAGE: "1" },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const fs = yield* FSUtil.Service
+      const file = path.join(dir, "cap.txt")
+      yield* fs.writeWithDirs(file, "cap-content")
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "DSML salvage cap", permission: allowAll })
+
+      // Two reminders, then the cap is hit on the third response; every later DSML stop is already at the cap.
+      for (let i = 0; i < 3 + DSML_SALVAGE_LIMIT; i++) yield* llm.text(readCall(file))
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+      expect(DSML_SALVAGE_LIMIT).toBe(3)
+      const parts = yield* toolParts(chat.id)
+      expect(parts.filter((p) => p.state.status === "completed")).toHaveLength(DSML_SALVAGE_LIMIT)
+      expect(yield* llm.calls).toBe(3 + DSML_SALVAGE_LIMIT)
+      const notices = yield* noticeTexts(chat.id)
+      expect(notices).toHaveLength(1)
+      expect(notices[0]).toContain("could not be run")
+    }),
+  ),
+)
+
+it.instance("DSML salvage respects the agent's step budget: no tool runs when the steps are spent", () =>
+  withEnv(
+    { HORDECODE_DSML_SALVAGE: "1" },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig({ agent: { build: { steps: 1 } } })
+      const fs = yield* FSUtil.Service
+      const file = path.join(dir, "steps.txt")
+      yield* fs.writeWithDirs(file, "steps-content")
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "DSML steps", permission: allowAll })
+
+      yield* llm.text(readCall(file))
+      yield* llm.text(readCall(file))
+      yield* llm.text(readCall(file))
+      yield* llm.text("done")
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+      expect(yield* toolParts(chat.id)).toHaveLength(0)
+      expect(yield* llm.calls).toBe(3)
+      const notices = yield* noticeTexts(chat.id)
+      expect(notices).toHaveLength(1)
+      expect(notices[0]).toContain("could not be run")
+    }),
+  ),
+)
+
+it.instance("with salvage off the only change from 0.1.5 is the visible notice (messages, events, next request)", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const events = yield* EventV2Bridge.Service
+    const seen: string[] = []
+    const unsub = yield* events.listen((event) => {
+      if (event.type === Session.Event.Error.type) seen.push(event.type)
+      return Effect.void
+    })
+    yield* Effect.addFinalizer(() => unsub)
+
+    // The scenario: three DSML stops (cap exhausted), then the user asks again.
+    const scenario = Effect.fn("dsml-retry.scenario")(function* () {
+      const chat = yield* sessions.create({ title: "DSML compare", permission: allowAll })
+      yield* llm.text(dsmlCall)
+      yield* llm.text(dsmlCall)
+      yield* llm.text(dsmlCall)
+      yield* llm.text("ok")
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+      const before = (yield* llm.inputs).length
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "again" }] })
+      const inputs = yield* llm.inputs
+      return {
+        chat,
+        history: yield* normalized(chat.id),
+        followUp: JSON.stringify((inputs[before] as { messages?: unknown }).messages),
+        errors: yield* assistantErrors(chat.id),
+        events: seen.length,
+        notices: (yield* MessageV2.filterCompactedEffect(chat.id))
+          .flatMap((m) => m.parts)
+          .filter((p) => isNoticePart(p as never)).length,
+      }
+    })
+
+    const baseline = yield* withEnv({ HORDECODE_DSML_NOTICE: "0" }, scenario())
+    const eventsAfterBaseline = seen.length
+    const withNotice = yield* scenario()
+
+    expect(baseline.notices).toBe(0)
+    expect(withNotice.notices).toBe(1)
+    // Everything the model or a client reads besides the notice part is identical to the 0.1.5 behaviour.
+    expect(withNotice.history).toBe(baseline.history)
+    expect(withNotice.followUp).toBe(baseline.followUp)
+    expect(withNotice.errors).toEqual(baseline.errors)
+    expect(seen.length - eventsAfterBaseline).toBe(eventsAfterBaseline)
+  }),
+)
+
+const salvageBlock = (calls: Array<[string, string]>) =>
+  [
+    `<${D} calls>`,
+    ...calls.flatMap(([name, file]) => [
+      `<${D} invoke name="${name}">`,
+      `<${D} parameter name="filePath" string="true">${file}</${D} parameter>`,
+      `</${D} invoke>`,
+    ]),
+    `</${D} calls>`,
+  ].join("\n")
+
+const fileIn = Effect.fn("dsml-retry.fileIn")(function* (dir: string, name: string, content: string) {
+  const fs = yield* FSUtil.Service
+  const file = path.join(dir, name)
+  yield* fs.writeWithDirs(file, content)
+  return file
+})
+
+it.instance("DSML salvage is all or nothing: a block naming an unknown tool runs nothing", () =>
+  withEnv(
+    { HORDECODE_DSML_SALVAGE: "1" },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const file = yield* fileIn(dir, "mixed.txt", "mixed-content")
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "DSML mixed", permission: allowAll })
+
+      for (let i = 0; i < 3; i++) yield* llm.text(salvageBlock([["read", file], ["no_such_tool", file]]))
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+      expect(yield* toolParts(chat.id)).toHaveLength(0)
+      expect(yield* llm.calls).toBe(3)
+      expect((yield* noticeTexts(chat.id))[0]).toContain("could not be run")
+    }),
+  ),
+)
+
+it.instance("DSML salvage treats Object.prototype names as unknown tools", () =>
+  withEnv(
+    { HORDECODE_DSML_SALVAGE: "1" },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const file = yield* fileIn(dir, "proto.txt", "proto-content")
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "DSML proto", permission: allowAll })
+
+      for (let i = 0; i < 3; i++) yield* llm.text(salvageBlock([["read", file], ["constructor", file]]))
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+      expect(yield* toolParts(chat.id)).toHaveLength(0)
+    }),
+  ),
+)
+
+it.instance("DSML salvage runs every call of a block of known tools, in order", () =>
+  withEnv(
+    { HORDECODE_DSML_SALVAGE: "1" },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const one = yield* fileIn(dir, "one.txt", "first-content")
+      const two = yield* fileIn(dir, "two.txt", "second-content")
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "DSML two", permission: allowAll })
+
+      for (let i = 0; i < 3; i++) yield* llm.text(salvageBlock([["read", one], ["read", two]]))
+      yield* llm.text("done")
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+      const parts = yield* toolParts(chat.id)
+      expect(parts.map((p) => p.state.status)).toEqual(["completed", "completed"])
+      expect(JSON.stringify(parts[0].state)).toContain("first-content")
+      expect(JSON.stringify(parts[1].state)).toContain("second-content")
+    }),
+  ),
+)
+
+it.instance("DSML salvage honours the supervisor tool allowlist (through SessionTools.resolve)", () =>
+  withEnv(
+    { HORDECODE_DSML_SALVAGE: "1" },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const file = yield* fileIn(dir, "allow.txt", "allow-content")
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const registry = yield* SupervisorRegistryService.Service
+      const chat = yield* sessions.create({ title: "DSML allowlist", permission: allowAll })
+      yield* registry.register({
+        sessionID: chat.id,
+        supervisorID: "worker",
+        mode: "subagent",
+        parentSupervisorID: "main",
+        agent: "build",
+        description: "allowlist test",
+        contextMode: "none",
+        contextWatermark: undefined,
+        background: false,
+        lifecycle: "persistent",
+        tools: ["grep"],
+      })
+
+      for (let i = 0; i < 3; i++) yield* llm.text(salvageBlock([["read", file]]))
+
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        agentID: "worker",
+        parts: [{ type: "text", text: "hello" }],
+      })
+
+      // read is not on the worker's allowlist: SessionTools.resolve swaps its executor for the rejection stub, so
+      // the salvaged call ends exactly like a structured one would ("Tool not permitted"), the file is not read.
+      const parts = yield* toolParts(chat.id)
+      expect(parts).toHaveLength(1)
+      const state = parts[0].state as { output?: string; metadata?: { rejected?: boolean; reason?: string } }
+      expect(state.metadata).toMatchObject({ rejected: true, reason: "tool-whitelist" })
+      expect(JSON.stringify(state)).not.toContain("allow-content")
+    }),
+  ),
 )

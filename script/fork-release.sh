@@ -216,6 +216,20 @@ phase_github() {
   echo "github: release $TAG with $n assets"
 }
 
+# Runs a command with a scrubbed environment: only HOME (the isolated directory), a minimal PATH and a
+# few locale/terminal variables survive. The maintainer's PATH, HORDECODE_*/OPENCODE_* and secrets do not
+# leak in, so the installer cannot find an already installed horde (it skips the install when
+# `command -v horde` reports the requested version) and cannot read the maintainer's config.
+# env -i also drops HTTPS_PROXY, HTTP_PROXY, NO_PROXY, SSL_CERT_FILE and CURL_CA_BUNDLE: on a host that needs
+# a proxy or a private CA the installer download fails and this phase reports FAIL for that reason, not
+# because of the release. Run verify from a host with direct access.
+# HORDECODE_VERIFY_PATH replaces the minimal PATH (default /usr/bin:/bin) for hosts whose curl, tar and
+# gzip live elsewhere; the guard below still fails when it resolves a horde.
+isolated() {
+  local home="$1"; shift
+  env -i HOME="$home" PATH="${HORDECODE_VERIFY_PATH:-/usr/bin:/bin}" TERM=dumb LANG=C.UTF-8 "$@"
+}
+
 phase_verify() {
   local base="$DEV/build-worktrees/release-$VER/verify-$STAMP" bad=0
   mkdir -p "$base/npm-prefix" "$base/home"
@@ -228,9 +242,12 @@ phase_verify() {
   if gh release download "$TAG" -R "$GH_REPO" -p SHA256SUMS -D "$base" >/dev/null 2>&1 &&
     diff -q "$base/SHA256SUMS" "$OUT/github/SHA256SUMS" >/dev/null; then echo "  ok   SHA256SUMS on GitHub matches the archive"
   else echo "  FAIL SHA256SUMS on GitHub differs or missing"; bad=$((bad + 1)); fi
-  echo "-- installer with HOME in an isolated directory"
-  if curl -fsSL https://hordecode.com/install -o "$base/install.sh" && HOME="$base/home" bash "$base/install.sh" >"$base/install.log" 2>&1; then
-    local iv; iv="$(HOME="$base/home" "$base/home/.hordecode/bin/horde" --version 2>/dev/null || true)"
+  echo "-- installer with HOME and PATH in an isolated environment (env -i)"
+  if isolated "$base/home" sh -c 'command -v horde' >/dev/null 2>&1; then
+    echo "  FAIL isolated PATH already resolves a horde binary; the installer check would prove nothing"; bad=$((bad + 1))
+  elif curl -fsSL https://hordecode.com/install -o "$base/install.sh" &&
+    isolated "$base/home" bash "$base/install.sh" --version "$VER" >"$base/install.log" 2>&1; then
+    local iv; iv="$(isolated "$base/home" "$base/home/.hordecode/bin/horde" --version 2>/dev/null || true)"
     [ "$iv" = "$VER" ] && echo "  ok   installer horde --version = $iv" || { echo "  FAIL installer horde --version = '$iv' (see $base/install.log)"; bad=$((bad + 1)); }
   else echo "  FAIL installer run (see $base/install.log)"; bad=$((bad + 1)); fi
   echo "verify: $bad failures; files under $base"

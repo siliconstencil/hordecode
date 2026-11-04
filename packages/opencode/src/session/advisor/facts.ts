@@ -9,12 +9,33 @@ export interface AdvisorFacts {
   toolFailures: number
   maxSameError: number
   contextPercent: number | null
+  // Consecutive read-only tool calls at the end of the current turn. Any call that is not read-only
+  // (bash, edit, write, patch, task and every other tool) ends the streak: a shell write or delegated
+  // work is progress.
+  readOnlyStreak: number
 }
 
 type Message = SessionV1.WithParts
 type ToolPart = SessionV1.ToolPart
 
 const FILE_TOOLS = new Set(["edit", "write", "multiedit", "apply_patch", "hashline_edit", "notebook_edit"])
+// Tools that only look. Everything else, including bash, delegation and unknown MCP tools, counts as progress.
+const READ_ONLY_TOOLS = new Set([
+  "read",
+  "grep",
+  "glob",
+  "webfetch",
+  "websearch",
+  "codesearch",
+  "lsp",
+  "view_image",
+  "skill",
+  "skill_search",
+  "mcp_tool_search",
+  "history",
+  "memory_recall",
+  "memory_status",
+])
 const ERROR_KEY_LIMIT = 200
 
 function text(value: unknown) {
@@ -98,7 +119,13 @@ export function collectFacts(messages: Message[], contextLimit: number | undefin
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
 
+  const lastProgress = tools.findLastIndex((part) => !READ_ONLY_TOOLS.has(part.tool))
+  const streak = tools
+    .slice(lastProgress + 1)
+    .filter((part) => part.state.status === "completed" || part.state.status === "error").length
+
   return {
+    readOnlyStreak: streak,
     filesTouched: files.size,
     toolFailures: errors.length,
     maxSameError: Math.max(0, ...counts.values()),

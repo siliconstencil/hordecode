@@ -8,6 +8,9 @@ export interface AdvisorTriggers {
   tool_failures: number
   same_error: number
   context_percent: number
+  // Consecutive read-only tool calls (read, grep, glob, list, webfetch and similar) at the end of the turn.
+  // Catches a session that keeps looking without producing anything; bash, edits and delegation reset it.
+  no_progress: number
 }
 
 // Proposals, to be set from measurement, not omp values. omp has no threshold gate (it reviews
@@ -17,6 +20,7 @@ export const DEFAULT_TRIGGERS: AdvisorTriggers = {
   tool_failures: 3,
   same_error: 2,
   context_percent: 70,
+  no_progress: 25,
 }
 
 export type Sensitivity = "low" | "default" | "high"
@@ -24,10 +28,15 @@ export type Sensitivity = "low" | "default" | "high"
 // Sensitivity presets: thresholds plus the cooldown in steps between two reviews. Explicit
 // experimental.advisor.triggers / cooldown_steps values override the preset.
 export const PRESETS: Record<Sensitivity, { triggers: AdvisorTriggers; cooldown: number }> = {
-  low: { triggers: { files_touched: 12, tool_failures: 4, same_error: 3, context_percent: 85 }, cooldown: 6 },
+  low: { triggers: { files_touched: 12, tool_failures: 4, same_error: 3, context_percent: 85, no_progress: 0 }, cooldown: 6 },
   default: { triggers: DEFAULT_TRIGGERS, cooldown: 3 },
-  high: { triggers: { files_touched: 5, tool_failures: 2, same_error: 2, context_percent: 60 }, cooldown: 2 },
+  high: { triggers: { files_touched: 5, tool_failures: 2, same_error: 2, context_percent: 60, no_progress: 15 }, cooldown: 2 },
 }
+
+// Opt-in (default OFF): repeat suppression compares trigger names only, so no_progress fires once per
+// session until another trigger name joins it. With re-arm, no_progress may fire again when its count has
+// grown by its threshold since the last fire, or when a new streak (after a write) reaches the threshold.
+export const NO_PROGRESS_REARM = false
 
 export interface TriggerState {
   lastFiredStep: number | undefined
@@ -51,10 +60,27 @@ function collectReasons(facts: AdvisorFacts, triggers: AdvisorTriggers): string[
     ["tool_failures", facts.toolFailures, triggers.tool_failures],
     ["same_error", facts.maxSameError, triggers.same_error],
     ["context_percent", facts.contextPercent, triggers.context_percent],
+    ["no_progress", facts.readOnlyStreak, triggers.no_progress],
   ]
   return checks.flatMap(([name, value, threshold]) =>
     threshold > 0 && value !== null && value >= threshold ? [`${name} ${value} >= ${threshold}`] : [],
   )
+}
+
+// Value of the no_progress count recorded in the last fire ("no_progress 25 >= 25" -> 25).
+function lastNoProgress(state: TriggerState) {
+  const reason = state.lastReasons.find((r) => reasonName(r) === "no_progress")
+  const value = reason === undefined ? NaN : Number(reason.split(" ")[1])
+  return Number.isFinite(value) ? value : undefined
+}
+
+// A grown count (value - last >= threshold), or a new streak after a write (value < last, value >= threshold).
+function noProgressGrew(facts: AdvisorFacts, triggers: AdvisorTriggers, state: TriggerState) {
+  const threshold = triggers.no_progress
+  const last = lastNoProgress(state)
+  if (threshold <= 0 || last === undefined) return false
+  const base = facts.readOnlyStreak >= last ? last : 0
+  return facts.readOnlyStreak - base >= threshold
 }
 
 export function evaluate(
@@ -63,6 +89,7 @@ export function evaluate(
   state: TriggerState,
   step: number,
   cooldownSteps: number,
+  options: { rearmNoProgress?: boolean } = {},
 ): { fire: boolean; reasons: string[] } {
   const reasons = collectReasons(facts, triggers)
   if (reasons.length === 0) return { fire: false, reasons }
@@ -74,6 +101,9 @@ export function evaluate(
   // Known gap: a value that grew past the previous fire without a new name does not re-fire.
   const previous = names(state.lastReasons)
   if (previous.length > 0 && names(reasons).every((name) => previous.includes(name))) {
+    if ((options.rearmNoProgress ?? NO_PROGRESS_REARM) && noProgressGrew(facts, triggers, state)) {
+      return { fire: true, reasons }
+    }
     return { fire: false, reasons }
   }
   return { fire: true, reasons }

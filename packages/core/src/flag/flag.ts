@@ -191,6 +191,14 @@ export const Flag = {
   HORDECODE_EXPERIMENTAL_LSP_TOOL: HORDECODE_EXPERIMENTAL || truthy("HORDECODE_EXPERIMENTAL_LSP_TOOL"),
   // Getters: experimental.switches in the global config sets these env names at startup
   // (opencode/src/config/switch-env.ts), so they are read at use, not at import.
+  // DSML text tool calls that survive the retry cap: salvage executes the complete calls through the
+  // normal permission path (default OFF); the notice ends the turn visibly when they are not run (default ON).
+  get HORDECODE_DSML_SALVAGE() {
+    return truthy("HORDECODE_DSML_SALVAGE")
+  },
+  get HORDECODE_DSML_NOTICE() {
+    return !falsy("HORDECODE_DSML_NOTICE")
+  },
   get HORDECODE_EXPERIMENTAL_ORCHESTRATOR() {
     return truthy("HORDECODE_EXPERIMENTAL") || truthy("HORDECODE_EXPERIMENTAL_ORCHESTRATOR")
   },
