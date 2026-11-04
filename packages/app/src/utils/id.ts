@@ -7,7 +7,9 @@ const prefixes = {
   pty: "pty",
 } as const
 
+// Same layout as packages/schema/src/identifier.ts: mark + 16 hex (64-bit time) + 9 base62, so ids minted here sort with server ids.
 const LENGTH = 26
+const TIME_BYTES = 8
 let lastTimestamp = 0
 let counter = 0
 
@@ -50,12 +52,12 @@ function create(prefix: Prefix, descending: boolean, timestamp?: number): string
     now = ~now
   }
 
-  const timeBytes = new Uint8Array(6)
-  for (let i = 0; i < 6; i += 1) {
-    timeBytes[i] = Number((now >> BigInt(40 - 8 * i)) & BigInt(0xff))
+  const timeBytes = new Uint8Array(TIME_BYTES)
+  for (let i = 0; i < TIME_BYTES; i += 1) {
+    timeBytes[i] = Number((now >> BigInt(56 - 8 * i)) & BigInt(0xff))
   }
 
-  return prefixes[prefix] + "_" + bytesToHex(timeBytes) + randomBase62(LENGTH - 12)
+  return prefixes[prefix] + "_" + (descending ? "-" : "g") + bytesToHex(timeBytes) + randomBase62(LENGTH - 1 - TIME_BYTES * 2)
 }
 
 function bytesToHex(bytes: Uint8Array): string {

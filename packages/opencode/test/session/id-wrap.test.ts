@@ -84,6 +84,40 @@ describe("identifier order across the 2026-08-14 time-field wrap", () => {
     }),
   )
 
+  it.instance("descending ids created later sort earlier", () =>
+    Effect.sync(() => {
+      expect(Identifier.create("ses", "descending", AFTER) < Identifier.create("ses", "descending", BEFORE)).toBe(true)
+    }),
+  )
+
+  it.instance("v2 ids stay order-compatible with every v1 id already stored", () =>
+    Effect.sync(() => {
+      const hex = "0123456789abcdef"
+      const v1 = (lead: string) => `msg_${lead}8c3d2f00a1b${"A".repeat(14)}`
+      const asc = msg(WRAP + 1)
+      const desc = Identifier.create("msg", "descending", WRAP + 1)
+      for (const lead of hex) {
+        // A v1 id of either kind (pre-wrap, wrapped, or descending) sorts on the right side of a v2 id.
+        expect(v1(lead) < asc).toBe(true)
+        expect(desc < v1(lead)).toBe(true)
+      }
+      expect(asc.length).toBe(v1("0").length)
+      expect(desc.length).toBe(v1("0").length)
+    }),
+  )
+
+  it.instance("timestamp() reads v1 ids of both cycles and v2 ids", () =>
+    Effect.sync(() => {
+      const v1 = (ts: number) => {
+        const low = BigInt(ts % 2 ** 36) * 0x1000n + 1n
+        return `msg_${low.toString(16).padStart(12, "0")}${"B".repeat(14)}`
+      }
+      expect(Identifier.timestamp(v1(BEFORE), AFTER)).toBe(BEFORE)
+      expect(Identifier.timestamp(v1(AFTER), AFTER + 1000)).toBe(AFTER)
+      expect(Identifier.timestamp(msg(AFTER), AFTER + 1000)).toBe(AFTER)
+    }),
+  )
+
   it.instance("Session.lastMainMessageID returns the newest message of a session spanning the wrap", () =>
     Effect.gen(function* () {
       const session = yield* SessionNs.Service
@@ -95,7 +129,7 @@ describe("identifier order across the 2026-08-14 time-field wrap", () => {
       yield* session.updateMessage(user(older, created.id, BEFORE))
       yield* session.updateMessage(user(newer, created.id, AFTER))
 
-      expect(yield* session.lastMainMessageID(created.id)).toBe(newer)
+      expect(yield* session.lastMainMessageID(created.id)).toBe(MessageID.make(newer))
     }),
   )
 
