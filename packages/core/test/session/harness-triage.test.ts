@@ -191,7 +191,6 @@ describe("harness injection with triage", () => {
   })
 
   test("off is byte-identical to the triage-free injection, triage on or off for complex requests", async () => {
-    // The base formula is the injection of the merged tree (the fixes-branch paths text), not the 0.1.5 one.
     const base = await run(ROUTINE, {})
     expect(base).toContain(modeSkillsBlock("harness"))
     expect(base).not.toContain("{{harness_docs_dir}}")
