@@ -419,12 +419,24 @@ it.instance("/contract arms from the command, runs the spec as the task and repo
 
 // --- safety envelope (caps default OFF; tests arm with explicit caps) ---
 
-const armWith = (sessionID: SessionID, dir: string, criteria: string[], extra: Partial<Parameters<typeof TaskContract.arm>[0]>) =>
+const armWith = (
+  sessionID: SessionID,
+  dir: string,
+  criteria: string[],
+  extra: Partial<Parameters<typeof TaskContract.arm>[0]>,
+  protect: string[] = [],
+) =>
   Effect.promise(async () =>
     TaskContract.arm({
       session_id: sessionID,
-      spec: { objective: "create done.txt", criteria, protect: [], unattended: false },
-      protected_hashes: await Integrity.snapshot({ dir, mode: CONTRACT_DECISIONS.protect, named: [], max: 100 }),
+      spec: { objective: "create done.txt", criteria, protect, unattended: false },
+      protected_hashes: await Integrity.snapshot({
+        dir,
+        mode: CONTRACT_DECISIONS.protect,
+        named: protect,
+        max: 100,
+        scriptsToo: CONTRACT_DECISIONS.protectScripts,
+      }),
       ...extra,
     }),
   )
@@ -692,4 +704,306 @@ it.instance("unattended: an explicit deny rule still stops a run (unverified, ne
     expect(c.criteria[0]!.state).toBe("blocked")
     expect(c.evidence).toHaveLength(0)
   }),
+)
+
+// --- review findings (round 3) ---
+
+const rules = (...r: [string, "allow" | "ask" | "deny"][]) => r.map(([pattern, action]) => ({ permission: "bash", pattern, action }))
+
+it.instance("F1: a compound criterion is authorized per sub-command: an allow rule for the first part does not cover a denied second part", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const marker = path.join(dir, "marker.txt")
+    fs.writeFileSync(marker, "keep me")
+    const chat = yield* sessions.create({
+      title: "Contract compound",
+      permission: rules(["*", "ask"], ["echo ok*", "allow"], ["rm *", "deny"]),
+    })
+    yield* armWith(chat.id, dir, ["echo ok ; rm -f marker.txt"], {})
+    yield* llm.text("done")
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "do it" }] })
+
+    expect(fs.existsSync(marker)).toBe(true)
+    const c = TaskContract.get(chat.id)!
+    expect(c.status).toBe("unverified")
+    expect(c.criteria[0]!.state).toBe("blocked")
+    expect(c.evidence).toHaveLength(0)
+  }),
+)
+
+it.instance("F1: a compound criterion whose every part is allowed is authorized and verified", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Contract compound ok",
+      permission: rules(["*", "ask"], ["echo *", "allow"], ["true", "allow"]),
+    })
+    yield* armWith(chat.id, dir, ["echo one ; echo two && true"], {})
+    yield* llm.text("done")
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "do it" }] })
+
+    expect(TaskContract.get(chat.id)!.status).toBe("verified")
+  }),
+)
+
+// --- F3: arm-time warning is shown, the contract is armed and the agent runs ---
+
+it.instance("F3: /contract warns about a gitignored protect path, still arms and hashes it", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    gitRepo(dir)
+    fs.writeFileSync(path.join(dir, ".gitignore"), "dist/\n")
+    fs.mkdirSync(path.join(dir, "dist/golden"), { recursive: true })
+    fs.writeFileSync(path.join(dir, "dist/golden/a.txt"), "golden")
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract warn", permission: allowAll })
+    yield* llm.text("done")
+
+    yield* prompt.command({ sessionID: chat.id, command: "contract", arguments: "obj ;; true ;; protect: dist/golden", agent: "build" })
+
+    const c = TaskContract.get(chat.id)!
+    expect(c.status).toBe("verified")
+    expect(Object.keys(c.baseline.protected_hashes)).toContain("dist/golden/a.txt")
+    expect(c.baseline.warnings).toEqual([expect.stringContaining('"dist/golden" is ignored by git')])
+    const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
+    const warned = msgs.flatMap((m) => m.parts).filter((p) => p.type === "text" && p.synthetic === true && p.text.includes("ignored by git"))
+    expect(warned).toHaveLength(1)
+    expect(yield* llm.calls).toBe(1)
+    expect(yield* Effect.promise(() => Bun.file(path.join(Report.dir(chat.id), "report.md")).text())).toContain("Warning: protect path")
+  }),
+)
+
+it.instance("F3: /contract with a protect path that holds no files does not arm", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    fs.mkdirSync(path.join(dir, "empty"))
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract empty protect", permission: allowAll })
+    yield* llm.text("unused")
+
+    yield* prompt.command({ sessionID: chat.id, command: "contract", arguments: "obj ;; true ;; protect: empty", agent: "build" })
+
+    expect(TaskContract.get(chat.id)).toBeUndefined()
+    expect(yield* llm.calls).toBe(0)
+  }),
+)
+
+// --- F3/F4/F6: documented switches at turn level ---
+
+const bashRun = (command: string) => ({ command, description: "test setup" })
+
+it.instance("a new test file does not fail the contract (allowAddedTests default), a modified one does", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    const fsu = yield* FSUtil.Service
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract added", permission: allowAll })
+    yield* fsu.writeWithDirs(path.join(dir, "a.test.ts"), "expect(1).toBe(1)")
+    yield* armWith(chat.id, dir, ["true"], {})
+    yield* llm.tool("bash", bashRun("touch new.test.ts"))
+    yield* llm.text("done")
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "do it" }] })
+
+    expect(TaskContract.get(chat.id)!.status).toBe("verified")
+  }),
+)
+
+it.instance("allowAddedTests false: a new test file fails the contract and is listed", () =>
+  withDecisions(
+    { allowAddedTests: false },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Contract added strict", permission: allowAll })
+      yield* armWith(chat.id, dir, ["true"], {})
+      yield* llm.tool("bash", bashRun("touch new.test.ts"))
+      yield* llm.text("done")
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "do it" }] })
+
+      const c = TaskContract.get(chat.id)!
+      expect(c.status).toBe("failed")
+      expect(c.reason).toContain("added: new.test.ts")
+    }),
+  ),
+)
+
+it.instance("package.json scripts.test edited by the agent fails the contract even when the criterion passes", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract scripts", permission: allowAll })
+    fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ scripts: { test: "bun test" } }))
+    yield* armWith(chat.id, dir, ["true"], {})
+    fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ scripts: { test: "exit 0" } }))
+    yield* llm.text("done")
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "do it" }] })
+
+    const c = TaskContract.get(chat.id)!
+    expect(c.status).toBe("failed")
+    expect(c.reason).toContain("modified: package.json#scripts")
+  }),
+)
+
+it.instance("onIntegrityViolation reenter: a changed test file is nudged like a failed criterion, restoring it verifies", () =>
+  withDecisions(
+    { onIntegrityViolation: "reenter" },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const fsu = yield* FSUtil.Service
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Contract reenter", permission: allowAll })
+      yield* fsu.writeWithDirs(path.join(dir, "a.test.ts"), "expect(1).toBe(1)")
+      yield* armWith(chat.id, dir, ["true"], {})
+      yield* fsu.writeWithDirs(path.join(dir, "a.test.ts"), "// weakened")
+      yield* llm.text("done")
+      yield* llm.tool("bash", bashRun("printf '%s' 'expect(1).toBe(1)' > a.test.ts"))
+      yield* llm.text("restored")
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "do it" }] })
+
+      const found = yield* reentries(chat.id)
+      expect(found).toHaveLength(1)
+      expect(found[0]!.type === "text" && found[0]!.text).toContain("modified: a.test.ts")
+      expect(found[0]!.type === "text" && found[0]!.text).toContain("Restore them")
+      const c = TaskContract.get(chat.id)!
+      expect(c.status).toBe("verified")
+      expect(c.reentries).toBe(1)
+      expect(yield* llm.calls).toBe(3)
+    }),
+  ),
+)
+
+it.instance("onIntegrityViolation reenter: never restored, the contract is blocked at the cap", () =>
+  withDecisions(
+    { onIntegrityViolation: "reenter", maxReact: 1 },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const fsu = yield* FSUtil.Service
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Contract reenter cap", permission: allowAll })
+      yield* fsu.writeWithDirs(path.join(dir, "a.test.ts"), "expect(1).toBe(1)")
+      yield* armWith(chat.id, dir, ["true"], {})
+      yield* fsu.writeWithDirs(path.join(dir, "a.test.ts"), "// weakened")
+      yield* llm.text("done 1")
+      yield* llm.text("done 2")
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "do it" }] })
+
+      const c = TaskContract.get(chat.id)!
+      expect(c.status).toBe("blocked")
+      expect(c.reason).toContain("protected test files still changed after 1 re-entries")
+      expect(yield* llm.calls).toBe(2)
+    }),
+  ),
+)
+
+it.instance("protect named-only: a modified test file outside the named set is not a violation", () =>
+  withDecisions(
+    { protect: "named-only" },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const fsu = yield* FSUtil.Service
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Contract named-only ok", permission: allowAll })
+      yield* fsu.writeWithDirs(path.join(dir, "a.test.ts"), "expect(1).toBe(1)")
+      yield* fsu.writeWithDirs(path.join(dir, "data.json"), "{}")
+      yield* armWith(chat.id, dir, ["true"], {}, ["data.json"])
+      expect(Object.keys(TaskContract.get(chat.id)!.baseline.protected_hashes)).toEqual(["data.json"])
+      yield* fsu.writeWithDirs(path.join(dir, "a.test.ts"), "// weakened")
+      yield* llm.text("done")
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "do it" }] })
+
+      expect(TaskContract.get(chat.id)!.status).toBe("verified")
+    }),
+  ),
+)
+
+it.instance("protect named-only: a modified named file fails the contract", () =>
+  withDecisions(
+    { protect: "named-only" },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const fsu = yield* FSUtil.Service
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Contract named-only fail", permission: allowAll })
+      yield* fsu.writeWithDirs(path.join(dir, "data.json"), "{}")
+      yield* armWith(chat.id, dir, ["true"], {}, ["data.json"])
+      yield* fsu.writeWithDirs(path.join(dir, "data.json"), '{"x":1}')
+      yield* llm.text("done")
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "do it" }] })
+
+      const c = TaskContract.get(chat.id)!
+      expect(c.status).toBe("failed")
+      expect(c.reason).toContain("modified: data.json")
+    }),
+  ),
+)
+
+it.instance("unattended constant true: /contract without the keyword is approved once at arm time (trust-once-armed default)", () =>
+  withDecisions(
+    { unattended: true },
+    withAudit(
+      Effect.gen(function* () {
+        const { llm } = yield* useServerConfig()
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Contract unattended constant", permission: allowAll })
+        yield* llm.tool("bash", touch)
+        yield* llm.text("created")
+
+        yield* prompt.command({ sessionID: chat.id, command: "contract", arguments: "create done.txt ;; test -f done.txt", agent: "build" })
+
+        const c = TaskContract.get(chat.id)!
+        expect(c.unattended).toBe(true)
+        expect(c.status).toBe("verified")
+        expect(criterionAsks(chat.id, "test -f done.txt")).toHaveLength(1)
+        expect(auditLines(chat.id).filter((l) => l["kind"] === "contract_approval")).toMatchObject([{ granted: true }])
+      }),
+    ),
+  ),
+)
+
+it.instance("a criterion that times out is a failed criterion: re-entered, never verified (kills the timeout-as-pass mutant)", () =>
+  withDecisions(
+    { criterionTimeoutMs: 300, maxReact: 1 },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Contract timeout", permission: allowAll })
+      yield* armWith(chat.id, dir, ["sleep 30"], {})
+      yield* llm.text("done 1")
+      yield* llm.text("done 2")
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "do it" }] })
+
+      const c = TaskContract.get(chat.id)!
+      expect(c.status).toBe("blocked")
+      expect(c.criteria[0]!.state).toBe("failed")
+      expect(c.evidence.map((e) => [e.timed_out, e.exit_code])).toEqual([[true, null], [true, null]])
+      const found = yield* reentries(chat.id)
+      expect(found).toHaveLength(1)
+      expect(found[0]!.type === "text" && found[0]!.text).toContain("`sleep 30` timed out")
+    }),
+  ),
 )

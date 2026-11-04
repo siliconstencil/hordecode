@@ -56,6 +56,15 @@ describe("unattended flag and envelope constants", () => {
     expect(TaskContract.arm({ session_id: sid, spec, protected_hashes: {} }).envelope).toEqual({ max_react: CONTRACT_DECISIONS.maxReact })
   })
 
+  test("protection defaults: a new test file is allowed, package.json test scripts are protected, violations fail", () => {
+    expect([CONTRACT_DECISIONS.allowAddedTests, CONTRACT_DECISIONS.protectScripts, CONTRACT_DECISIONS.onIntegrityViolation]).toEqual([true, true, "fail"])
+  })
+
+  test("arm records arm-time warnings only when there are some", () => {
+    expect(TaskContract.arm({ session_id: sid, spec, protected_hashes: {}, warnings: ["w1"] }).baseline.warnings).toEqual(["w1"])
+    expect(TaskContract.arm({ session_id: sid, spec, protected_hashes: {}, warnings: [] }).baseline.warnings).toBeUndefined()
+  })
+
   test("a constant above 0 is copied into the envelope at arm time and survives a later flip", () => {
     withConstants({ maxWallMs: 60_000, maxToolCalls: 40, maxCostUsd: 2.5 }, () => {
       const c = TaskContract.arm({ session_id: sid, spec, protected_hashes: {} })

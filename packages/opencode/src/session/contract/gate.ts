@@ -1,10 +1,14 @@
-import { Effect } from "effect"
+import { Cause, Effect } from "effect"
 import { CONTRACT_DECISIONS, TaskContract } from "@opencode-ai/task"
 import { MessageID, PartID } from "../schema"
 import type { SessionID } from "../schema"
 import type { Session } from "../session"
 import type { SessionV1 } from "@opencode-ai/core/v1/session"
 import type { Permission } from "@/permission"
+import type { ToolRegistry } from "@/tool/registry"
+import type { Tool } from "@/tool/tool"
+import { decideAskRouting } from "@/agent/config"
+import { Flag } from "@opencode-ai/core/flag/flag"
 import { Agent } from "@/agent/agent"
 import { ShellID } from "@/tool/shell/id"
 import { PermissionAudit } from "@/permission/audit"
@@ -20,11 +24,18 @@ type Deps = {
   sessions: Session.Interface
   permission: Permission.Interface
   agents: Agent.Interface
+  registry: ToolRegistry.Interface
 }
 
-/** Ask the permission system to run criterion commands. With denyOnly only an explicit deny rule stops them (the unattended contract, approved once at arm time). False when denied, rejected or timed out. */
+/**
+ * Authorize criterion commands through the bash tool itself: its own tree-sitter split, one permission
+ * pattern per sub-command, external_directory, protected-path and delete confirmations, run with the
+ * tool's `authorizeOnly` switch so nothing executes. With denyOnly every ask becomes an explicit-deny
+ * probe (the unattended contract, approved once at arm time). False when any command is denied,
+ * rejected or times out, or when the bash tool is unavailable.
+ */
 export const allowed = (
-  deps: Pick<Deps, "sessionID" | "sessions" | "permission" | "agents">,
+  deps: Pick<Deps, "sessionID" | "sessions" | "permission" | "agents" | "registry" | "directory">,
   agent: string,
   commands: string[],
   contractID: string,
@@ -33,21 +44,54 @@ export const allowed = (
   Effect.gen(function* () {
     const session = yield* deps.sessions.get(deps.sessionID).pipe(Effect.orDie)
     const info = yield* deps.agents.get(agent).pipe(Effect.orElseSucceed(() => undefined))
-    return yield* deps.permission
-      .ask({
-        sessionID: deps.sessionID,
-        permission: ShellID.ToolID,
-        patterns: commands,
-        always: commands,
-        metadata: { command: commands.join("\n"), source: "contract", contract: contractID },
-        ...(denyOnly ? { denyOnly: true } : {}),
-        ruleset: info ? Agent.runtimePermission(info, session.permission) : (session.permission ?? []),
-      })
-      .pipe(
-        Effect.as(true),
-        Effect.catch(() => Effect.succeed(false)),
-      )
-  })
+    const bash = (yield* deps.registry.all()).find((d) => d.id === ShellID.ToolID)
+    if (!bash) return false
+    const routing = decideAskRouting({
+      agentName: agent,
+      sessionParentID: session.parentID,
+      askSupervisor: undefined,
+      orchestratorEnabled: Flag.HORDECODE_EXPERIMENTAL_ORCHESTRATOR,
+    })
+    const ruleset = info ? Agent.runtimePermission(info, session.permission) : (session.permission ?? [])
+    const probe = denyOnly ? { denyOnly: true } : {}
+    const ctx: Tool.Context = {
+      sessionID: deps.sessionID,
+      messageID: MessageID.ascending(),
+      agent,
+      abort: new AbortController().signal,
+      messages: [],
+      extra: { authorizeOnly: true },
+      interactive: routing.interactive,
+      metadata: () => Effect.void,
+      ask: (req) =>
+        deps.permission
+          .ask({
+            ...req,
+            ...routing,
+            ...probe,
+            metadata: { ...req.metadata, source: "contract", contract: contractID },
+            sessionID: deps.sessionID,
+            ruleset,
+          })
+          .pipe(Effect.orDie),
+      denied: (req) =>
+        deps.permission
+          .ask({
+            permission: req.permission,
+            patterns: req.patterns,
+            always: [],
+            metadata: {},
+            denyOnly: true,
+            ...routing,
+            sessionID: deps.sessionID,
+            ruleset,
+          })
+          .pipe(Effect.orDie),
+    }
+    for (const command of commands)
+      yield* bash.execute({ command, workdir: deps.directory, description: "contract criterion" }, ctx)
+    return true
+  }).pipe(Effect.catchCause((cause) => (Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.succeed(false))))
 
 const persist = (c: TaskContract.Contract | undefined) =>
   c ? Effect.promise(() => Report.write(c)).pipe(Effect.ignore) : Effect.void
@@ -155,6 +199,7 @@ export const make = (deps: Deps) => ({
         mode: CONTRACT_DECISIONS.protect,
         named: armed.baseline.protect_paths,
         max: CONTRACT_DECISIONS.maxProtectedFiles,
+        scriptsToo: CONTRACT_DECISIONS.protectScripts,
       }),
     ).pipe(Effect.option)
     if (current._tag === "None") {

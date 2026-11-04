@@ -33,6 +33,7 @@ export function render(c: TaskContract.Contract, audit = { enabled: PermissionAu
       : c.baseline.git_checkpoint_skipped
         ? [`Git checkpoint: skipped (${c.baseline.git_checkpoint_skipped})`]
         : []),
+    ...(c.baseline.warnings ?? []).map((w) => `Warning: ${w}`),
     ...(Object.entries({ wall_ms: c.envelope.max_wall_ms, tool_calls: c.envelope.max_tool_calls, cost_usd: c.envelope.max_cost_usd })
       .filter(([, v]) => v !== undefined)
       .map(([k, v]) => `Envelope cap ${k}: ${v}`)),

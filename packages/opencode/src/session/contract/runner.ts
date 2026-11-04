@@ -12,10 +12,19 @@ export type RunResult = {
   duration_ms: number
 }
 
+/** After the main process exits, how long to keep reading stdio held open by leftover children. */
+const DRAIN_MS = 1000
+/** After a timeout kill, how long to wait for the main process before giving up on it. */
+const KILL_DEADLINE_MS = 2000
+
 /**
  * Run one criterion command. The product calls this, never the agent. The output hash is
  * sha256(sha256(stdout) + ":" + sha256(stderr)) so it does not depend on stream interleaving.
  * Permission is the caller's job: this function executes unconditionally.
+ *
+ * The exit code is the main process's, taken when it exits. The process group is killed when the
+ * main process exits and on timeout; stdio held by a child that left the group (setsid) is
+ * abandoned after DRAIN_MS instead of waited for.
  */
 export function run(input: {
   command: string
@@ -32,6 +41,8 @@ export function run(input: {
     let tail = Buffer.alloc(0)
     let timed_out = false
     let done = false
+    let exited = false
+    const timers: ReturnType<typeof setTimeout>[] = []
     const keep = (chunk: Buffer) => {
       tail = Buffer.concat([tail, chunk])
       if (tail.length > input.tailBytes) tail = tail.subarray(tail.length - input.tailBytes)
@@ -43,26 +54,14 @@ export function run(input: {
       detached: process.platform !== "win32",
       windowsHide: true,
     })
-    const kill = () => Shell.killTree(proc, { exited: () => done })
-    const timer = setTimeout(() => {
-      timed_out = true
-      void kill()
-    }, input.timeoutMs)
-    const onAbort = () => void kill()
-    input.signal?.addEventListener("abort", onAbort, { once: true })
-    proc.stdout?.on("data", (c: Buffer) => {
-      out.update(c)
-      keep(c)
-    })
-    proc.stderr?.on("data", (c: Buffer) => {
-      err.update(c)
-      keep(c)
-    })
+    const killGroup = () => Shell.killTree(proc, { exited: () => false })
     const finish = (code: number | null, extra = "") => {
       if (done) return
       done = true
-      clearTimeout(timer)
+      timers.forEach(clearTimeout)
       input.signal?.removeEventListener("abort", onAbort)
+      proc.stdout?.destroy()
+      proc.stderr?.destroy()
       if (extra) {
         out.update(extra)
         keep(Buffer.from(extra))
@@ -76,7 +75,32 @@ export function run(input: {
         duration_ms: Date.now() - started_at,
       })
     }
+    const onAbort = () => void killGroup()
+    input.signal?.addEventListener("abort", onAbort, { once: true })
+    timers.push(
+      setTimeout(() => {
+        if (exited) return
+        timed_out = true
+        void killGroup()
+        timers.push(setTimeout(() => finish(null), KILL_DEADLINE_MS))
+      }, input.timeoutMs),
+    )
+    proc.stdout?.on("data", (c: Buffer) => {
+      if (done) return
+      out.update(c)
+      keep(c)
+    })
+    proc.stderr?.on("data", (c: Buffer) => {
+      if (done) return
+      err.update(c)
+      keep(c)
+    })
     proc.once("error", (e) => finish(127, `spawn failed: ${e.message}\n`))
-    proc.once("close", (code) => finish(code))
+    proc.once("exit", (code) => {
+      exited = true
+      void killGroup()
+      timers.push(setTimeout(() => finish(code), DRAIN_MS))
+      proc.once("close", () => finish(code))
+    })
   })
 }

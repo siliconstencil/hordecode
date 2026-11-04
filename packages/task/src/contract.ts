@@ -55,6 +55,7 @@ export const Contract = z.object({
     protect_paths: z.array(z.string()),
     git_checkpoint: z.object({ ref: z.string(), sha: z.string() }).optional(),
     git_checkpoint_skipped: z.string().optional(),
+    warnings: z.array(z.string()).optional(),
   }),
   status: Status,
   reason: z.string().optional(),
@@ -101,6 +102,7 @@ export const arm = (input: {
   protected_hashes: Record<string, string>
   git_checkpoint?: { ref: string; sha: string } | { skipped: string }
   approved_at?: number
+  warnings?: string[]
   envelope?: Partial<Envelope>
   now?: number
 }) => {
@@ -120,6 +122,7 @@ export const arm = (input: {
     baseline: {
       protected_hashes: input.protected_hashes,
       protect_paths: input.spec.protect,
+      ...(input.warnings?.length ? { warnings: input.warnings } : {}),
       ...(input.git_checkpoint && "sha" in input.git_checkpoint ? { git_checkpoint: input.git_checkpoint } : {}),
       ...(input.git_checkpoint && "skipped" in input.git_checkpoint ? { git_checkpoint_skipped: input.git_checkpoint.skipped } : {}),
     },

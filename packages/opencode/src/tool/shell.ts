@@ -934,6 +934,10 @@ export const ShellTool = Tool.define(
                 }),
               )
 
+              // FORK_DELTA: opencode v1.19.5 packages/opencode/src/tool/shell.ts:631 (before `return yield* run(`)
+              if (ctx.extra?.["authorizeOnly"] === true)
+                return { title: params.description ?? params.command, metadata: { output: "", exit: 0, truncated: false }, output: "" }
+
               // Interactive mode: hand the terminal to the user for direct
               // interaction (password input, y/N confirmation, SSH passphrase).
               // The request is parked in BashInteractive until a client replies.

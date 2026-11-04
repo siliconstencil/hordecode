@@ -59,4 +59,37 @@ describe("contract runner", () => {
       delete process.env["HORDECODE_AUTH_CONTENT"]
     }
   })
+
+  test("F2: a daemonized background child that holds the pipes does not delay or fail a command that exited 0", async () => {
+    const started = Date.now()
+    const r = await run("setsid sleep 6 & exit 0", 500)
+    expect(Date.now() - started).toBeLessThan(3000)
+    expect(r.exit_code).toBe(0)
+    expect(r.timed_out).toBe(false)
+  })
+
+  test("F2: a background child in the same process group is killed when the command finishes", async () => {
+    const pidFile = `${os.tmpdir()}/contract-bg-${process.pid}-${Date.now()}.pid`
+    const r = await run(`sh -c 'echo $$ > ${pidFile}; exec sleep 30' & while [ ! -s ${pidFile} ]; do sleep 0.05; done; exit 3`, 5000)
+    expect(r.exit_code).toBe(3)
+    const pid = Number(await Bun.file(pidFile).text())
+    await Bun.sleep(500)
+    const alive = (() => {
+      try {
+        process.kill(pid, 0)
+        return true
+      } catch {
+        return false
+      }
+    })()
+    expect(alive).toBe(false)
+  })
+
+  test("F2: a real timeout still reports timed_out with no exit code and kills the group", async () => {
+    const started = Date.now()
+    const r = await run("sleep 30 & sleep 30", 400)
+    expect(r.timed_out).toBe(true)
+    expect(r.exit_code).toBeNull()
+    expect(Date.now() - started).toBeLessThan(3000)
+  })
 })

@@ -14,8 +14,10 @@ export const CONTRACT_DECISIONS = {
   checkpointRef: false as boolean,
   /** 5. "all-test-files": every test file in the project plus named paths. "named-only": only paths named in the contract. */
   protect: "all-test-files" as "all-test-files" | "named-only",
-  /** 5. A new test file after arm time is an integrity violation when false. */
-  allowAddedTests: false,
+  /** 5. A new test file after arm time is ignored (true) or an integrity violation (false). Modified and deleted protected files always fail. */
+  allowAddedTests: true,
+  /** 5. Also protect the test, pretest and posttest scripts of every package.json (mode "all-test-files" only). */
+  protectScripts: true,
   /** Integrity violation: "fail" ends the contract as failed; "reenter" nudges like a failed criterion. */
   onIntegrityViolation: "fail" as "fail" | "reenter",
   /** 6. Cap on stop-gate re-entries before the contract becomes blocked. */

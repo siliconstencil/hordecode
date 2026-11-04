@@ -1499,7 +1499,7 @@ const layer = Layer.effect(
         })
 
         // FORK_DELTA: opencode v1.19.5 packages/opencode/src/session/prompt.ts:1088 (before `while (true)` in runLoop)
-        const contract = ContractGate.make({ sessionID, agentID, directory: ctx.directory, sessions, permission, agents })
+        const contract = ContractGate.make({ sessionID, agentID, directory: ctx.directory, sessions, permission, agents, registry })
 
         while (true) {
           // Intentional divergence from v0.1.11 (packages/opencode/src/session/prompt.ts:3251,3661),
@@ -2505,15 +2505,18 @@ const layer = Layer.effect(
           sessions,
           permission,
           agents,
+          registry,
         })
-        if (reply !== undefined)
-          return yield* prompt({
+        if (reply !== undefined) {
+          const shown = yield* prompt({
             sessionID: input.sessionID,
-            messageID: input.messageID,
+            ...(reply.proceed ? {} : { messageID: input.messageID }),
             agent: agentName,
-            parts: [{ type: "text", text: reply, synthetic: true }],
+            parts: [{ type: "text", text: reply.text, synthetic: true }],
             noReply: true,
           })
+          if (!reply.proceed) return shown
+        }
       }
 
       const raw = input.arguments.match(argsRegex) ?? []
