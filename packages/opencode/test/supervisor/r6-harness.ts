@@ -7,7 +7,7 @@ import { Effect, Layer } from "effect"
 import path from "path"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
-import { SupervisorNode, SupervisorRegistryNode } from "@/effect/supervisor-node"
+import { SupervisorNode, SupervisorRegistryNode, WorkflowNode } from "@/effect/supervisor-node"
 import { Agent as AgentSvc } from "../../src/agent/agent"
 import { BackgroundJob } from "@/background/job"
 import { Command } from "../../src/command"
@@ -194,6 +194,7 @@ const promptRoot = LayerNode.group([
   SupervisorNode,
   SupervisorRegistryNode,
   r6InboxNode,
+  WorkflowNode,
 ])
 
 function makeHttp() {
