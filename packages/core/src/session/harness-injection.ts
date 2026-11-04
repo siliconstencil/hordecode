@@ -8,6 +8,7 @@ import { harnessPaths, resolveDocsDir } from "../config/harness"
 import { HarnessEnv } from "./harness-env"
 import type { MessageV2 } from "./message-v2"
 import { PartID } from "./schema"
+import { classifyRequest, requestText, triageSection, withTriageSection } from "./harness-triage"
 import PROMPT_HARNESS from "./prompt/harness.txt"
 import PROMPT_RESEARCH from "./prompt/research.txt"
 
@@ -76,5 +77,7 @@ export const applyHarnessInjection = Effect.fn("SessionPrompt.applyHarnessInject
     const docsDir = resolveDocsDir(ctx.worktree, harnessCfg)
     docsText = `Save ${pipeline} skill outputs: specs in \`${path.join(docsDir, "specs")}\`, plans in \`${path.join(docsDir, "plans")}\`, reports in \`${path.join(docsDir, "reports")}\`.`
   }
-  prepend(promptText.replace("{{harness_skills}}", skillsBlock).replace("{{harness_docs_dir}}", docsText))
+  const text = promptText.replace("{{harness_skills}}", skillsBlock).replace("{{harness_docs_dir}}", docsText)
+  // Fork: harness.triage (default off) appends the routine-request section; off or complex leaves `text` untouched.
+  prepend(pipeline === "harness" && harnessCfg?.triage === true ? withTriageSection(text, triageSection(classifyRequest(requestText(msgs)))) : text)
 })

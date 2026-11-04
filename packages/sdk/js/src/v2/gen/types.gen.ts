@@ -2043,6 +2043,7 @@ export type Config = {
   harness?: {
     docs?: string
     docs_absolute?: boolean
+    triage?: boolean
   }
   workflow?: {
     /**

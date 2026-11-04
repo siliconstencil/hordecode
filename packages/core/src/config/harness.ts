@@ -13,6 +13,10 @@ export const Info = Schema.Struct({
     description:
       "Whether the docs directory injected into the harness prompt is an absolute path. When false (default), a relative `docs` value is passed through verbatim. When true, a relative `docs` is resolved against the active worktree root so it is unambiguous regardless of the agent's working directory. Ignored when `docs` is already absolute.",
   }),
+  triage: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "Let the harness agent skip brainstorm, plan and tdd for a request that is a mechanical edit: one sentence, one named file, ASCII English and a known small-change phrase such as fixing a typo or bumping the version. Everything else, including every non-English request, keeps the full pipeline. Default false: the harness prompt is unchanged.",
+  }),
 }).pipe(withStatics((s) => ({ zod: zod(s) })))
 
 export type Info = Schema.Schema.Type<typeof Info>
