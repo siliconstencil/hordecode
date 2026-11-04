@@ -6,6 +6,8 @@ import type { MessageV2 } from "../session/message-v2"
 import type { Permission } from "../permission"
 import type { SessionID, MessageID } from "../session/schema"
 import * as Truncate from "./truncate"
+import { fromSchema } from "./json-schema"
+import { repairScalarStrings } from "./input-repair"
 import { Agent } from "@/agent/agent"
 
 interface Metadata {
@@ -148,8 +150,9 @@ function coerceFlatOperation(value: unknown, toolName?: string): unknown {
   return value
 }
 
-export function normalizeToolInput(value: unknown, toolName?: string): unknown {
-  return coerceFlatOperation(coerceStringifiedJSON(value), toolName)
+export function normalizeToolInput(value: unknown, toolName?: string, schema?: unknown): unknown {
+  const normalized = coerceFlatOperation(coerceStringifiedJSON(value), toolName)
+  return schema === undefined ? normalized : repairScalarStrings(normalized, schema)
 }
 
 export type InferParameters<T> =
@@ -181,6 +184,14 @@ function wrap<Parameters extends Schema.Decoder<unknown>, Result extends Metadat
       // allocates a new closure per call, so hoisting avoids re-closing it for
       // every LLM tool invocation.
       const decode = Schema.decodeUnknownEffect(toolInfo.parameters)
+      const parameterJsonSchema = (() => {
+        if (toolInfo.jsonSchema) return toolInfo.jsonSchema
+        try {
+          return fromSchema(toolInfo.parameters as Schema.Top)
+        } catch {
+          return undefined
+        }
+      })()
       const execute = toolInfo.execute
       toolInfo.execute = (args, ctx) => {
         const attrs = {
@@ -197,7 +208,7 @@ function wrap<Parameters extends Schema.Decoder<unknown>, Result extends Metadat
           const decoded = yield* decode(args).pipe(
             Effect.catch((error) =>
               Effect.gen(function* () {
-                const normalized = normalizeToolInput(args, id)
+                const normalized = normalizeToolInput(args, id, parameterJsonSchema)
                 const repaired = yield* decode(normalized).pipe(
                   Effect.mapError(
                     (repairError) =>

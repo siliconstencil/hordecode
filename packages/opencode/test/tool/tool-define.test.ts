@@ -108,6 +108,63 @@ describe("Tool.define", () => {
     }),
   )
 
+  it.effect("numeric and boolean strings are repaired before execute", () =>
+    Effect.gen(function* () {
+      const parameters = Schema.Struct({
+        timeout_ms: Schema.Number,
+        include_terminal: Schema.Boolean,
+      })
+      const calls: Array<Schema.Schema.Type<typeof parameters>> = []
+      const info = yield* Tool.define(
+        "test-scalars",
+        Effect.succeed({
+          description: "test tool",
+          parameters,
+          execute(args: Schema.Schema.Type<typeof parameters>) {
+            calls.push(args)
+            return Effect.succeed({ title: "test", output: "ok", metadata: { truncated: false } })
+          },
+        }),
+      )
+      const tool = yield* info.init()
+      const execute = tool.execute as unknown as (args: unknown, ctx: Tool.Context) => ReturnType<typeof tool.execute>
+
+      yield* execute({ timeout_ms: "600000", include_terminal: "true" }, makeCtx())
+
+      expect(calls).toEqual([{ timeout_ms: 600000, include_terminal: true }])
+    }),
+  )
+
+  it.effect("an unparseable scalar string still fails as Tool.InvalidArgumentsError", () =>
+    Effect.gen(function* () {
+      const parameters = Schema.Struct({
+        timeout_ms: Schema.Number,
+        include_terminal: Schema.Boolean,
+      })
+      const info = yield* Tool.define(
+        "test-scalars-invalid",
+        Effect.succeed({
+          description: "test tool",
+          parameters,
+          execute() {
+            return Effect.succeed({ title: "test", output: "ok", metadata: { truncated: false } })
+          },
+        }),
+      )
+      const tool = yield* info.init()
+      const execute = tool.execute as unknown as (args: unknown, ctx: Tool.Context) => ReturnType<typeof tool.execute>
+
+      const exit = yield* execute({ timeout_ms: "soon", include_terminal: true }, makeCtx()).pipe(Effect.exit)
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (!Exit.isFailure(exit)) return
+      const die = exit.cause.reasons.find(Cause.isDieReason)
+      expect(die?.defect).toBeInstanceOf(Tool.InvalidArgumentsError)
+      const error = die?.defect as Tool.InvalidArgumentsError
+      expect(error.tool).toBe("test-scalars-invalid")
+      expect(error.message).toContain("timeout_ms")
+    }),
+  )
+
   // Regression for #28438: the wrap is the canonical "untyped → typed" boundary.
   // When the LLM emits a tool call with a payload that fails the parameter
   // schema, the wrap must surface a typed `Tool.InvalidArgumentsError` whose
