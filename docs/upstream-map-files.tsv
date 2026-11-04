@@ -2810,6 +2810,7 @@ FORK_ONLY	packages/opencode/src/session/contract/gate.ts
 FORK_ONLY	packages/opencode/src/session/contract/integrity.ts
 FORK_ONLY	packages/opencode/src/session/contract/report.ts
 FORK_ONLY	packages/opencode/src/session/contract/runner.ts
+FORK_ONLY	packages/opencode/src/session/contract/testcount.ts
 FORK_ONLY	packages/opencode/src/session/contract/usage.ts
 FORK_DELTA	packages/opencode/src/session/instruction.ts
 FORK_DELTA	packages/opencode/src/session/llm.ts
@@ -3402,6 +3403,7 @@ FORK_ONLY	packages/opencode/test/session/contract/envelope.test.ts
 FORK_ONLY	packages/opencode/test/session/contract/integrity.test.ts
 FORK_ONLY	packages/opencode/test/session/contract/report.test.ts
 FORK_ONLY	packages/opencode/test/session/contract/runner.test.ts
+FORK_ONLY	packages/opencode/test/session/contract/testcount.test.ts
 FORK_ONLY	packages/opencode/test/session/dsml-retry-turn.test.ts
 FORK_ONLY	packages/opencode/test/session/fork-context.test.ts
 FORK_DELTA	packages/opencode/test/session/instruction.test.ts
