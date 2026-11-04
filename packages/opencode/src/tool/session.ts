@@ -142,10 +142,12 @@ function forkQuery(
   question: string,
 ) {
   return Effect.gen(function* () {
-    const allMsgs = yield* sessions.messages({ sessionID: targetSessionID })
-    const mainMsgsAll = allMsgs.filter((m: SessionV1.WithParts) => m.info.agent === "main")
-    const hasMainActivity = mainMsgsAll.length > 0 && mainMsgsAll.some((m: SessionV1.WithParts) => m.info.role === "user")
-    const mainMsgs = hasMainActivity ? mainMsgsAll : allMsgs
+    // Slice selection as in MiMo Code 0.1.11 packages/opencode/src/tool/session.ts:77-84: the main conversation when it has a
+    // user message, else a peer child's own slice (agentID === its session id). Other slices (workers) are not part of the fork.
+    const allMsgs = yield* sessions.messages({ sessionID: targetSessionID, agentID: "*" })
+    const sliceOf = (agentID: string) => allMsgs.filter((m: SessionV1.WithParts) => (m.info.agentID ?? "main") === agentID)
+    const mainSlice = sliceOf("main")
+    const mainMsgs = mainSlice.some((m: SessionV1.WithParts) => m.info.role === "user") ? mainSlice : sliceOf(targetSessionID)
     const watermark: MessageID | undefined = mainMsgs.length > 0 ? mainMsgs[mainMsgs.length - 1].info.id : undefined
     if (!watermark || mainMsgs.length === 0 || !mainMsgs.some((m: SessionV1.WithParts) => m.info.role === "user"))
       return `(session ${targetSessionID} has no activity yet -- nothing to ask about.)`
