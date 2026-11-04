@@ -7,7 +7,8 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Advisor `no_progress` trigger: consecutive read-only tool calls at the end of the turn (bash, edits and
-  delegated work reset it; default 25, high 15, low 0 = off). `NO_PROGRESS_REARM` (off) lets it fire again after the count grows by its threshold.
+  delegated work reset it; default 25, high 15, low 0 = off). `experimental.advisor.rearm: true` (default off) lets it fire again after the count grows by its
+  threshold.
 - `HORDECODE_DSML_SALVAGE=1`: when the text tool-call retry cap is exhausted, complete DSML calls run as real
   tool calls through the normal permission path (default off, at most 3 per session).
 - `HORDECODE_HARNESS_DOCS` and `HORDECODE_HARNESS_EVIDENCE` for the harness gate and aggregate scripts.
@@ -21,9 +22,11 @@ All notable changes to this project will be documented in this file.
   out of the docs tree (state dir for a custom `harness.docs`; default layout unchanged). The research agent
   prompt is unchanged.
 - The cron scheduler also honours a live legacy `.hordecode/.cron-lock` during an upgrade.
-- A turn that ends because the model kept writing a tool call as text now says so
-  (`HORDECODE_DSML_NOTICE=0` restores the silent end).
-- `script/fork-release.sh verify` runs the installer check under `env -i` with an isolated HOME and a minimal PATH.
+- A turn that ends because the model kept writing a tool call as text now says so with a display-only note on the
+  message; nothing else changes with salvage off (`HORDECODE_DSML_NOTICE=0` removes the note). Salvage stops at
+  the agent's step budget.
+- `script/fork-release.sh verify` runs the installer check under `env -i` with an isolated HOME and a minimal PATH
+  (`HORDECODE_VERIFY_PATH` overrides it; proxy and CA variables are dropped, run verify with direct access).
 
 ## [0.1.5] - 2026-11-03
 
