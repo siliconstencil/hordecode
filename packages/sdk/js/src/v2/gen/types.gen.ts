@@ -2226,6 +2226,7 @@ export type Config = {
         context_percent?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
         no_progress?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       }
+      rearm?: boolean
       sensitivity?: "low" | "default" | "high"
       min_severity?: "nit" | "concern" | "blocker"
       max_notes?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"

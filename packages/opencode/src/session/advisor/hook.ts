@@ -11,7 +11,7 @@ import { Provider } from "@/provider/provider"
 import type { LLM } from "../llm"
 import * as ModelValue from "../model-value"
 import { collectFacts, currentTurn } from "./facts"
-import { PRESETS, evaluate } from "./trigger"
+import { NO_PROGRESS_REARM, PRESETS, evaluate } from "./trigger"
 import { advise, isActive, renderReminder, renderTranscript, stateFor, type AdvisorConfig } from "./run"
 import type { Note } from "./emission-guard"
 import { AdvisorRuntime } from "./runtime"
@@ -79,6 +79,7 @@ export const maybeAdvise = (input: {
       state.trigger,
       input.step,
       cfg.cooldown_steps ?? preset.cooldown,
+      { rearmNoProgress: cfg.rearm ?? NO_PROGRESS_REARM },
     )
     if (!decision.fire) return undefined
     state.trigger.lastFiredStep = input.step

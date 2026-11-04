@@ -463,6 +463,11 @@ const InfoSchema = Schema.Struct({
               no_progress: Schema.optional(Schema.Number),
             }),
           ),
+          rearm: Schema.optional(Schema.Boolean).annotate({
+            // Fork-only (FORK_DELTA), same status as the triggers above.
+            description:
+              "Let the no_progress trigger fire again when its count grew by its threshold since the last review (default false: a trigger name fires once per user turn).",
+          }),
           sensitivity: Schema.optional(Schema.Literals(["low", "default", "high"])).annotate({
             description: "How readily the advisor reviews: low (quiet), default, high (watchful). Explicit triggers and cooldown_steps override it.",
           }),

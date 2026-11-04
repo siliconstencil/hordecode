@@ -21,6 +21,7 @@ export interface AdvisorConfig {
     context_percent?: number
     no_progress?: number
   }
+  rearm?: boolean
   sensitivity?: "low" | "default" | "high"
   min_severity?: Severity
   max_notes?: number

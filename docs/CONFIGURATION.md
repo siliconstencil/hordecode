@@ -248,6 +248,7 @@ The triggers are checked at each step:
 | `sensitivity` | `low`, `default` or `high`. Sets the presets below. |
 | `min_severity` | The lowest note that is kept: `nit`, `concern` (the default) or `blocker`. |
 | `triggers` | Thresholds for the five triggers. An explicit value overrides the preset. `no_progress` counts consecutive read-only tool calls (read, grep, glob, list, webfetch and similar) at the end of the turn; bash, edits and delegated work (task, supervisor) reset it. |
+| `rearm` | `true` lets `no_progress` fire again once its count has grown by its threshold since the last review (or a new streak after a write reaches it). Default `false`: a trigger name fires once per user turn. |
 | `max_notes` | The most non-blocker notes kept per review (default 4). Blockers are always kept. |
 | `cooldown_steps` | Steps to wait after a review before the next one. An explicit value overrides the preset. |
 
