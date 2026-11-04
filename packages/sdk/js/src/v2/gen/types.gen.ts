@@ -2191,6 +2191,7 @@ export type Config = {
     disable_paste_summary?: boolean
     batch_tool?: boolean
     openTelemetry?: boolean
+    openTelemetryContent?: boolean
     primary_tools?: Array<string>
     switches?: {
       workspaces?: boolean
