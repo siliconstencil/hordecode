@@ -4,7 +4,8 @@ import type { Agent } from "@opencode-ai/agent/agent"
 import type { InstanceContext } from "@opencode-ai/project/instance"
 import { modeSkillsBlock } from "@opencode-ai/skill/harness/extract"
 import type { Config } from "../config/index"
-import { harnessPaths } from "../config/harness"
+import { harnessPaths, resolveDocsDir } from "../config/harness"
+import { HarnessEnv } from "./harness-env"
 import type { MessageV2 } from "./message-v2"
 import { PartID } from "./schema"
 import PROMPT_HARNESS from "./prompt/harness.txt"
@@ -22,34 +23,58 @@ const MODE_PROMPTS: Record<string, string> = {
   research: PROMPT_RESEARCH,
 }
 
+function pathsBlock(paths: ReturnType<typeof harnessPaths>) {
+  return [
+    `Harness output directories (absolute): specs in \`${path.join(paths.docs, "specs")}\`, plans in \`${path.join(paths.docs, "plans")}\`, reports in \`${path.join(paths.docs, "reports")}\`.`,
+    `Stage summaries go in \`${paths.stages}/<pipeline-id>/\`, eval JSON in \`${paths.eval}/\`, the eval summary in \`${paths.evalSummary}\`, and run evidence in \`${paths.evidence}/<run-id>/\`.`,
+    `In harness skills, \`<harness-docs>\` is \`${paths.docs}\` and \`<harness-evidence>\` is \`${paths.evidence}\`. Both are also exported as HORDECODE_HARNESS_DOCS and HORDECODE_HARNESS_EVIDENCE to every shell command of this session and its subagents, so the gate scripts need no env prefix.`,
+  ].join("\n")
+}
+
 export const applyHarnessInjection = Effect.fn("SessionPrompt.applyHarnessInjection")(function* (
   msgs: MessageV2.WithParts[],
   agent: Agent.Info,
   cfg: Config.Info,
   ctx: InstanceContext,
 ) {
-  const pipeline = agent.skillPipeline
-  if (!pipeline) return
-
   const userMsg = msgs.findLast((msg) => msg.info.role === "user")
   if (!userMsg) return
+  const pipeline = agent.skillPipeline
+  const prepend = (text: string) =>
+    userMsg.parts.unshift({
+      id: PartID.ascending(),
+      messageID: userMsg.info.id,
+      sessionID: userMsg.info.sessionID,
+      type: "text",
+      text,
+      synthetic: true,
+    })
+
+  // Subagents and peers of a harness session (agent without a pipeline): the same mapping, paths only.
+  if (!pipeline) {
+    const inherited = HarnessEnv.get(userMsg.info.sessionID as never)
+    if (!inherited) return
+    prepend(`<system-reminder>\n${pathsBlock(harnessPaths(ctx.worktree, cfg.harness))}\n</system-reminder>`)
+    return
+  }
 
   const promptText = MODE_PROMPTS[pipeline]
   if (!promptText) return
 
   const skillsBlock = modeSkillsBlock(pipeline)
   const harnessCfg = cfg.harness
-  const paths = harnessPaths(ctx.worktree, harnessCfg)
-  const docsDir = paths.docs
-  const text = promptText
-    .replace("{{harness_skills}}", skillsBlock)
-    .replace("{{harness_docs_dir}}", `Save ${pipeline} skill outputs: specs in \`${path.join(docsDir, "specs")}\`, plans in \`${path.join(docsDir, "plans")}\`, reports in \`${path.join(docsDir, "reports")}\`. Stage summaries go in \`${paths.stages}/<pipeline-id>/\`, eval JSON in \`${paths.eval}/\`, the eval summary in \`${paths.evalSummary}\`, and run evidence in \`${paths.evidence}/<run-id>/\`. In harness skills, \`<harness-docs>\` is \`${paths.docs}\` and \`<harness-evidence>\` is \`${paths.evidence}\`. Run the gate scripts as \`HORDECODE_HARNESS_DOCS=${paths.docs} HORDECODE_HARNESS_EVIDENCE=${paths.evidence} bash <script> ...\`.`)
-  userMsg.parts.unshift({
-    id: PartID.ascending(),
-    messageID: userMsg.info.id,
-    sessionID: userMsg.info.sessionID,
-    type: "text",
-    text,
-    synthetic: true,
-  })
+  let docsText: string
+  if (pipeline === "harness") {
+    // Only the harness agent gets the stage, eval and evidence paths and the session mapping.
+    const paths = harnessPaths(ctx.worktree, harnessCfg)
+    HarnessEnv.set(userMsg.info.sessionID as never, {
+      HORDECODE_HARNESS_DOCS: paths.docs,
+      HORDECODE_HARNESS_EVIDENCE: paths.evidence,
+    })
+    docsText = pathsBlock(paths)
+  } else {
+    const docsDir = resolveDocsDir(ctx.worktree, harnessCfg)
+    docsText = `Save ${pipeline} skill outputs: specs in \`${path.join(docsDir, "specs")}\`, plans in \`${path.join(docsDir, "plans")}\`, reports in \`${path.join(docsDir, "reports")}\`.`
+  }
+  prepend(promptText.replace("{{harness_skills}}", skillsBlock).replace("{{harness_docs_dir}}", docsText))
 })

@@ -1,4 +1,5 @@
 import { describe, expect } from "bun:test"
+import { HarnessEnv } from "@opencode-ai/core/session/harness-env"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { EventV2 } from "@opencode-ai/core/event"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
@@ -280,6 +281,20 @@ describe("Session", () => {
 
       expect(created.metadata).toBeUndefined()
       expect(saved.metadata).toBeUndefined()
+    }),
+  )
+})
+
+describe("harness mapping inheritance", () => {
+  it.instance("a child session created under a harness session inherits the harness environment", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionNs.Service
+      const parent = yield* session.create({})
+      HarnessEnv.set(parent.id, { HORDECODE_HARNESS_DOCS: "/abs/docs", HORDECODE_HARNESS_EVIDENCE: "/abs/ev" })
+      const child = yield* session.create({ parentID: parent.id })
+      const stranger = yield* session.create({})
+      expect(HarnessEnv.get(child.id)).toEqual({ HORDECODE_HARNESS_DOCS: "/abs/docs", HORDECODE_HARNESS_EVIDENCE: "/abs/ev" })
+      expect(HarnessEnv.get(stranger.id)).toBeUndefined()
     }),
   )
 })

@@ -27,15 +27,19 @@ describe("harness-gate.sh evidence location", () => {
     expect(r.err).toContain(".hordecode/harness/evidence/r0")
   })
 
-  test("HORDECODE_HARNESS_DOCS moves evidence under the configured docs dir", async () => {
+  test("HORDECODE_HARNESS_DOCS alone never moves evidence into the docs tree", async () => {
     const r = await gate({ HORDECODE_HARNESS_DOCS: "notes/h" }, "r1", "brainstorm")
     expect(r.code).toBe(1)
-    expect(r.err).toContain("notes/h/evidence/r1")
-    expect(r.err).not.toContain(".hordecode")
-    const dir = path.join(work, "notes/h/evidence/r2")
+    expect(r.err).toContain(".hordecode/harness/evidence/r1")
+    expect(r.err).not.toContain("notes/h")
+  })
+
+  test("an absolute HORDECODE_HARNESS_EVIDENCE is read and passes", async () => {
+    const root = path.join(work, "state-evidence")
+    const dir = path.join(root, "r2")
     mkdirSync(dir, { recursive: true })
     writeFileSync(path.join(dir, "brainstorm.evidence"), evidence)
-    expect((await gate({ HORDECODE_HARNESS_DOCS: "notes/h" }, "r2", "brainstorm")).code).toBe(0)
+    expect((await gate({ HORDECODE_HARNESS_EVIDENCE: root }, "r2", "brainstorm")).code).toBe(0)
   })
 
   test("HORDECODE_HARNESS_EVIDENCE overrides the derived evidence dir", async () => {

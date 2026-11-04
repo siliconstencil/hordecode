@@ -1,4 +1,5 @@
 import { exec } from "child_process"
+import { HarnessEnv } from "@opencode-ai/core/session/harness-env"
 import { promisify } from "util"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
@@ -715,6 +716,8 @@ const layer = Layer.effect(
         },
       }
       yield* Effect.logInfo("created", result)
+      // A session spawned under a harness session keeps the harness path mapping (shell env and prompt).
+      if (result.parentID) HarnessEnv.inherit(result.parentID as never, result.id as never)
 
       yield* events.publish(SessionV1.Event.Created, { sessionID: result.id, info: result })
 

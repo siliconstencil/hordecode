@@ -9,8 +9,9 @@
 #
 # Locations (env, set by the harness prompt from the `harness.docs` config):
 #   HORDECODE_HARNESS_DOCS      docs dir, default docs/harness
-#   HORDECODE_HARNESS_EVIDENCE  evidence root; default .hordecode/harness/evidence, or
-#                               $HORDECODE_HARNESS_DOCS/evidence when a docs dir is given
+#   HORDECODE_HARNESS_EVIDENCE  evidence root, default .hordecode/harness/evidence (never derived from the
+#                               docs dir: evidence stays out of the tracked docs tree)
+# The runtime exports both (absolute) to every shell command of a harness session and its subagents.
 # Evidence file convention: <evidence root>/<run-id>/<phase>.evidence
 # A phase's own skill must write this file BEFORE calling this gate.
 # No file, empty file, or content missing the phase's required markers = FAIL.
@@ -21,13 +22,7 @@ set -euo pipefail
 RUN_ID="${1:?Usage: harness-gate.sh <run-id> <phase>}"
 PHASE="${2:?Usage: harness-gate.sh <run-id> <phase>}"
 DOCS_DIR="${HORDECODE_HARNESS_DOCS:-docs/harness}"
-if [[ -n "${HORDECODE_HARNESS_EVIDENCE:-}" ]]; then
-  EVIDENCE_ROOT="${HORDECODE_HARNESS_EVIDENCE}"
-elif [[ -n "${HORDECODE_HARNESS_DOCS:-}" && "${HORDECODE_HARNESS_DOCS}" != "docs/harness" ]]; then
-  EVIDENCE_ROOT="${HORDECODE_HARNESS_DOCS}/evidence"
-else
-  EVIDENCE_ROOT=".hordecode/harness/evidence"
-fi
+EVIDENCE_ROOT="${HORDECODE_HARNESS_EVIDENCE:-.hordecode/harness/evidence}"
 EVIDENCE_DIR="${EVIDENCE_ROOT}/${RUN_ID}"
 EVIDENCE_FILE="${EVIDENCE_DIR}/${PHASE}.evidence"
 

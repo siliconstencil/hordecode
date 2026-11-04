@@ -7,6 +7,7 @@ import path from "path"
 import { containsPath, type InstanceContext } from "../project/instance-context"
 import { InstanceState } from "@/effect/instance-state"
 import { SessionCwd } from "@opencode-ai/core/tool/session-cwd"
+import { HarnessEnv } from "@opencode-ai/core/session/harness-env"
 import { lazy } from "@/util/lazy"
 import { Language, type Node } from "web-tree-sitter"
 import { withoutCredentials } from "@opencode-ai/core/util/credential-env"
@@ -665,6 +666,9 @@ export const ShellTool = Tool.define(
         // only ever holds keys that were absent from process.env. A plugin's
         // extra.env comes last and so can still override the floor.
         ...gitFloor,
+        // Harness sessions (and the sessions they spawn) get the resolved harness paths, so the gate
+        // scripts need no env prefix from the model.
+        ...HarnessEnv.get(ctx.sessionID),
         ...extra.env,
       }
     })

@@ -1,5 +1,7 @@
 import { Schema } from "effect"
 import path from "path"
+import { createHash } from "crypto"
+import { Global } from "../global"
 import { zod } from "@opencode-ai/core/util/effect-zod"
 import { withStatics } from "@opencode-ai/core/util/schema"
 
@@ -25,20 +27,26 @@ export function resolveDocsDir(worktree: string, cfg?: Info) {
 export const DEFAULT_EVIDENCE_DIR = ".hordecode/harness/evidence"
 
 /**
- * Every harness output location, derived from `harness.docs`. With the default config the layout is
- * unchanged (evidence stays in `.hordecode/harness/evidence`); with a custom `docs` the stage summaries,
- * eval files, the eval SUMMARY and the evidence all move under it.
+ * Every harness output location, absolute, derived from `harness.docs`, so neither the model nor a
+ * subagent has to substitute anything. Stage summaries, eval JSON and the eval SUMMARY live under the
+ * configured docs dir. Evidence stays out of the docs tree (usually committed): with the default docs dir
+ * it is `<worktree>/.hordecode/harness/evidence` (unchanged); with a custom docs dir it is
+ * `<state>/harness-evidence/<hash of the worktree>`.
+ * MiMo Code 0.1.11 packages/opencode/src/session/prompt.ts:936-944 resolves only the docs dir in the
+ * prompt (specs, plans, reports) and has no stage, eval or evidence paths.
  */
-export function harnessPaths(worktree: string, cfg?: Info) {
-  const docs = resolveDocsDir(worktree, cfg)
-  const custom = cfg?.docs !== undefined && cfg.docs !== DEFAULT_DOCS_DIR
-  const join = (...parts: string[]) => (path.isAbsolute(docs) ? path.join(docs, ...parts) : [docs, ...parts].join("/"))
+export function harnessPaths(worktree: string, cfg?: Info, stateDir: string = Global.Path.state) {
+  const docs = path.resolve(worktree, cfg?.docs ?? DEFAULT_DOCS_DIR)
+  const custom = docs !== path.resolve(worktree, DEFAULT_DOCS_DIR)
+  const key = createHash("sha256").update(path.resolve(worktree)).digest("hex").slice(0, 32)
   return {
     docs,
-    stages: join("stages"),
-    eval: join("eval"),
-    evalSummary: join("eval", "SUMMARY.md"),
-    evidence: custom ? join("evidence") : DEFAULT_EVIDENCE_DIR,
+    stages: path.join(docs, "stages"),
+    eval: path.join(docs, "eval"),
+    evalSummary: path.join(docs, "eval", "SUMMARY.md"),
+    evidence: custom
+      ? path.join(stateDir, "harness-evidence", key)
+      : path.join(path.resolve(worktree), DEFAULT_EVIDENCE_DIR),
   }
 }
 export * as ConfigHarness from "./harness"
