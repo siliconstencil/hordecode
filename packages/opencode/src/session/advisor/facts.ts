@@ -24,14 +24,17 @@ const READ_ONLY_TOOLS = new Set([
   "read",
   "grep",
   "glob",
-  "list",
-  "ls",
   "webfetch",
   "websearch",
   "codesearch",
   "lsp",
   "view_image",
   "skill",
+  "skill_search",
+  "mcp_tool_search",
+  "history",
+  "memory_recall",
+  "memory_status",
 ])
 const ERROR_KEY_LIMIT = 200
 

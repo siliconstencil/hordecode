@@ -173,7 +173,7 @@ describe("readOnlyStreak", () => {
   })
 
   test("counts every call when the turn has only read-only calls", () => {
-    expect(collectFacts([user("go"), read(), read("list"), read("websearch")], undefined).readOnlyStreak).toBe(3)
+    expect(collectFacts([user("go"), read(), read("history"), read("websearch")], undefined).readOnlyStreak).toBe(3)
   })
 
   test("a bash call resets the streak: writes through the shell are progress", () => {
@@ -202,5 +202,20 @@ describe("readOnlyStreak", () => {
   test("is 0 without tools and ignores calls from before the user turn", () => {
     expect(collectFacts([read(), user("go")], undefined).readOnlyStreak).toBe(0)
     expect(collectFacts([user("hi")], undefined).readOnlyStreak).toBe(0)
+  })
+
+  test("fork read-only tools (history, memory_recall, memory_status, skill_search) count", () => {
+    const messages = [user("go"), read("history"), read("memory_recall"), read("memory_status"), read("skill_search")]
+    expect(collectFacts(messages, undefined).readOnlyStreak).toBe(4)
+  })
+
+  test("pending and running read-only parts do not count toward the streak", () => {
+    const running = (name: string): Msg =>
+      ({
+        info: { id: "a", role: "assistant", sessionID: "s" },
+        parts: [{ type: "tool", tool: name, callID: `c-${Math.random()}`, state: { status: name === "grep" ? "running" : "pending", input: {}, time: { start: 0 } } }],
+      }) as unknown as Msg
+    const messages = [user("go"), read(), running("grep"), running("glob")]
+    expect(collectFacts(messages, undefined).readOnlyStreak).toBe(1)
   })
 })
