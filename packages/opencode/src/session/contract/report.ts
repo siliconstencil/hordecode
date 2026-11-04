@@ -12,6 +12,9 @@ export const dir = (sessionID: string, base = root()) => path.join(base, session
 const iso = (t: number) => new Date(t).toISOString()
 
 export function render(c: TaskContract.Contract, audit = { enabled: PermissionAudit.enabled(), file: PermissionAudit.file() }) {
+  const blockers = c.violations
+    ? Integrity.blocking({ ...c.violations, config_added: c.violations.config_added ?? [] }, c.violations.added_allowed ?? false)
+    : []
   const headline =
     c.status === "verified"
       ? "VERIFIED"
@@ -58,7 +61,8 @@ export function render(c: TaskContract.Contract, audit = { enabled: PermissionAu
           e.breach
             ? [`- ${e.criterion_id}: cap ${e.breach.cap} limit ${e.breach.limit}, observed ${e.breach.observed}`, `  output sha256: ${e.output_sha256}`]
             : [
-                `- ${e.criterion_id} attempt ${e.attempt}: exit ${e.timed_out ? "timeout" : e.exit_code}, ${e.duration_ms} ms, started ${iso(e.started_at)}`,
+                `- ${e.criterion_id} attempt ${e.attempt}: exit ${e.timed_out ? "timeout" : e.exit_code}, ${e.duration_ms} ms, started ${iso(e.started_at)}${e.tests ? `, tests ${e.tests.run} run / ${e.tests.passed} passed` : ""}`,
+                ...(e.note ? [`  test check failed: ${e.note}`] : []),
                 `  output sha256: ${e.output_sha256}`,
                 ...(e.log_path ? [`  log: ${e.log_path}`] : []),
               ],
@@ -67,9 +71,24 @@ export function render(c: TaskContract.Contract, audit = { enabled: PermissionAu
     "## Test integrity",
     "",
     `Protected files at arm time: ${Object.keys(c.baseline.protected_hashes).length}`,
-    ...(c.violations && Integrity.count(c.violations) > 0
-      ? ["Violations:", ...Integrity.list(c.violations).map((v) => `- ${v}`)]
-      : ["Violations: none recorded"]),
+    ...(blockers.length > 0 ? ["Violations:", ...blockers.map((v) => `- ${v}`)] : ["Violations: none recorded"]),
+    ...(c.violations?.added_allowed && c.violations.added.length > 0
+      ? [`Added test files (allowed, not protected): ${c.violations.added.join(", ")}`]
+      : []),
+    "",
+    "## Test baseline",
+    "",
+    ...(c.criteria.some((k) => k.baseline)
+      ? c.criteria.flatMap((k) =>
+          k.baseline
+            ? [
+                "tests_run" in k.baseline
+                  ? `${k.id}: ${k.baseline.tests_run} tests run, ${k.baseline.tests_passed} passed at arm time (${k.baseline.tool})`
+                  : `${k.id}: no baseline (${k.baseline.none})`,
+              ]
+            : [],
+        )
+      : ["No baseline run (turned off for this contract)."]),
     "",
     "## Audit",
     "",

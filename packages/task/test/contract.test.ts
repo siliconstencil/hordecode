@@ -10,7 +10,7 @@ beforeEach(() => TaskContract.__resetForTest())
 describe("parseSpec", () => {
   test("splits objective, criteria and protect paths on newlines and ' ;; '", () => {
     const spec = TaskContract.parseSpec("Fix parser ;; bun test ;; ./check.sh --strict\nprotect: fixtures")
-    expect(spec).toEqual({ objective: "Fix parser", criteria: ["bun test", "./check.sh --strict"], protect: ["fixtures"], unattended: false, checkpoint: false, caps: {} })
+    expect(spec).toEqual({ objective: "Fix parser", criteria: ["bun test", "./check.sh --strict"], protect: ["fixtures"], unattended: false, checkpoint: false, baseline: true, caps: {} })
   })
 
   test("rejects a missing objective, missing criteria and an empty protect path", () => {
@@ -26,6 +26,7 @@ describe("parseSpec", () => {
       protect: [],
       unattended: false,
       checkpoint: false,
+      baseline: true,
       caps: {},
     })
   })
@@ -44,7 +45,7 @@ describe("unattended flag and envelope constants", () => {
   }
 
   test("a bare 'unattended' segment sets the flag and is not a criterion; default is attended", () => {
-    expect(TaskContract.parseSpec("obj ;; bun test ;; unattended")).toEqual({ objective: "obj", criteria: ["bun test"], protect: [], unattended: true, checkpoint: false, caps: {} })
+    expect(TaskContract.parseSpec("obj ;; bun test ;; unattended")).toEqual({ objective: "obj", criteria: ["bun test"], protect: [], unattended: true, checkpoint: false, baseline: true, caps: {} })
     expect((TaskContract.parseSpec("obj ;; bun test") as TaskContract.Spec).unattended).toBe(false)
   })
 
@@ -59,7 +60,7 @@ describe("unattended flag and envelope constants", () => {
   })
 
   test("protection defaults: a new test file is allowed, package.json test scripts are protected, violations fail", () => {
-    expect([CONTRACT_DECISIONS.allowAddedTests, CONTRACT_DECISIONS.protectScripts, CONTRACT_DECISIONS.onIntegrityViolation]).toEqual([true, true, "fail"])
+    expect([CONTRACT_DECISIONS.allowAddedTests, CONTRACT_DECISIONS.protectScripts, CONTRACT_DECISIONS.protectRunnerConfigs, CONTRACT_DECISIONS.testBaseline, CONTRACT_DECISIONS.onIntegrityViolation]).toEqual([true, true, true, true, "fail"])
   })
 
   test("arm records arm-time warnings only when there are some", () => {
@@ -110,8 +111,13 @@ describe("parseSpec: caps, checkpoint, keywords", () => {
     expect(TaskContract.parseSpec("cap: tools 3 ;; c")).toContain("The first segment is the objective")
   })
 
-  test("defaults: no caps, no checkpoint, attended", () => {
-    expect(TaskContract.parseSpec("o ;; c")).toMatchObject({ caps: {}, checkpoint: false, unattended: false })
+  test("defaults: no caps, no checkpoint, attended, baseline on", () => {
+    expect(TaskContract.parseSpec("o ;; c")).toMatchObject({ caps: {}, checkpoint: false, unattended: false, baseline: true })
+  })
+
+  test("no-baseline (any case) turns the arm-time baseline off and is never a criterion", () => {
+    expect(TaskContract.parseSpec("o ;; c ;; No-Baseline")).toMatchObject({ criteria: ["c"], baseline: false })
+    expect(TaskContract.parseSpec("no-baseline ;; c")).toBe('The first segment is the objective, got "no-baseline".')
   })
 })
 
@@ -129,6 +135,36 @@ describe("usage ledger", () => {
     TaskContract.arm({ session_id: sid, spec, protected_hashes: {} })
     expect(TaskContract.setCheckpoint(sid, { ref: "refs/x", sha: "a".repeat(40) })!.baseline.git_checkpoint).toEqual({ ref: "refs/x", sha: "a".repeat(40) })
     expect(TaskContract.setCheckpoint(sid, { skipped: "no commit" })!.baseline.git_checkpoint_skipped).toBe("no commit")
+  })
+})
+
+describe("baseline and approvals", () => {
+  test("setBaseline records a test count or the reason there is none, per criterion", () => {
+    TaskContract.arm({ session_id: sid, spec, protected_hashes: {} })
+    expect(TaskContract.get(sid)!.criteria.every((k) => k.baseline === undefined)).toBe(true)
+    TaskContract.setBaseline(sid, "C1", { tests_run: 12, tests_passed: 10, tool: "bun" })
+    TaskContract.setBaseline(sid, "C2", { none: "output is not a recognized test summary" })
+    expect(TaskContract.get(sid)!.criteria.map((k) => k.baseline)).toEqual([
+      { tests_run: 12, tests_passed: 10, tool: "bun" },
+      { none: "output is not a recognized test summary" },
+    ])
+  })
+
+  test("a contract starts with no approved commands, arm keeps the approved list it is given", () => {
+    expect(TaskContract.arm({ session_id: sid, spec, protected_hashes: {} }).approved_commands).toEqual([])
+    expect(TaskContract.arm({ session_id: sid, spec, protected_hashes: {}, approved_commands: ["true"] }).approved_commands).toEqual(["true"])
+  })
+
+  test("the re-entry text carries the test-count note of a run that exited 0", () => {
+    const c = TaskContract.arm({ session_id: sid, spec, protected_hashes: {} })
+    const text = TaskContract.reentryText({ ...c, reentries: 1 }, [
+      {
+        criterion: c.criteria[0]!,
+        evidence: { criterion_id: "C1", attempt: 1, exit_code: 0, timed_out: false, output_sha256: "x", started_at: 1, duration_ms: 1, note: "tests run dropped from 3 to 1" },
+        output: "ok",
+      },
+    ])
+    expect(text).toContain("C1 `true` exited with code 0, but the test check failed: tests run dropped from 3 to 1")
   })
 })
 

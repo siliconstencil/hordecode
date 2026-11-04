@@ -8,6 +8,10 @@ export type RunResult = {
   timed_out: boolean
   output_sha256: string
   tail: string
+  /** Last `parseBytes` of output, for reading a test summary. */
+  parse_tail: string
+  /** True when the output was longer than the parse window. */
+  truncated: boolean
   started_at: number
   duration_ms: number
 }
@@ -31,6 +35,8 @@ export function run(input: {
   cwd: string
   timeoutMs: number
   tailBytes: number
+  /** Window of output kept for parsing a test summary. Default 256 KiB. */
+  parseBytes?: number
   signal?: AbortSignal
 }): Promise<RunResult> {
   const started_at = Date.now()
@@ -38,14 +44,17 @@ export function run(input: {
     const file = Shell.acceptable()
     const out = createHash("sha256")
     const err = createHash("sha256")
+    const parseBytes = Math.max(input.parseBytes ?? 262_144, input.tailBytes)
     let tail = Buffer.alloc(0)
+    let total = 0
     let timed_out = false
     let done = false
     let exited = false
     const timers: ReturnType<typeof setTimeout>[] = []
     const keep = (chunk: Buffer) => {
+      total += chunk.length
       tail = Buffer.concat([tail, chunk])
-      if (tail.length > input.tailBytes) tail = tail.subarray(tail.length - input.tailBytes)
+      if (tail.length > parseBytes) tail = tail.subarray(tail.length - parseBytes)
     }
     const proc = spawn(file, Shell.args(file, input.command, input.cwd), {
       cwd: input.cwd,
@@ -70,7 +79,9 @@ export function run(input: {
         exit_code: timed_out ? null : code,
         timed_out,
         output_sha256: createHash("sha256").update(`${out.digest("hex")}:${err.digest("hex")}`).digest("hex"),
-        tail: tail.toString("utf8"),
+        tail: tail.subarray(Math.max(0, tail.length - input.tailBytes)).toString("utf8"),
+        parse_tail: tail.toString("utf8"),
+        truncated: total > parseBytes,
         started_at,
         duration_ms: Date.now() - started_at,
       })

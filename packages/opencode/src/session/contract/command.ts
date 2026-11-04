@@ -7,9 +7,12 @@ import * as Checkpoint from "./checkpoint"
 import * as Gate from "./gate"
 import * as Integrity from "./integrity"
 import * as Report from "./report"
+import * as Runner from "./runner"
+import * as TestCount from "./testcount"
 
 /**
- * `/contract <objective> ;; <criterion command> ;; ... ;; protect: <path> ;; unattended` arms a contract,
+ * `/contract <objective> ;; <criterion command> ;; ... ;; protect: <path> ;; unattended` arms a contract and
+ * runs each criterion once for its test-count baseline (`no-baseline` skips that),
  * `/contract` or `/contract status` shows it, `/contract clear` drops it. Returns the text to show the
  * user and whether the caller should then run the spec as the agent's task (armed), or undefined when
  * armed without anything to say. The agent has no tool that writes a contract; only this user-typed
@@ -37,6 +40,7 @@ export const run = (input: Parameters<typeof Gate.allowed>[0] & { arguments: str
     const defaults = (yield* input.config.get().pipe(Effect.orElseSucceed(() => undefined)))?.contract
     const spec = { ...parsed, unattended: parsed.unattended || defaults?.unattended === true }
     const checkpoint = parsed.checkpoint || defaults?.checkpoint === true
+    const baselineOn = parsed.baseline !== false && defaults?.baseline !== false
     const caps = {
       wall_ms: parsed.caps?.wall_ms ?? defaults?.max_wall_ms,
       tool_calls: parsed.caps?.tool_calls ?? defaults?.max_tool_calls,
@@ -55,6 +59,7 @@ export const run = (input: Parameters<typeof Gate.allowed>[0] & { arguments: str
           named: spec.protect,
           max: CONTRACT_DECISIONS.maxProtectedFiles,
           scriptsToo: CONTRACT_DECISIONS.protectScripts,
+          configsToo: CONTRACT_DECISIONS.protectRunnerConfigs,
         }),
       catch: (e) => (e instanceof Error ? e.message : String(e)),
     }).pipe(Effect.result)
@@ -78,7 +83,7 @@ export const run = (input: Parameters<typeof Gate.allowed>[0] & { arguments: str
       protected_hashes: hashes.success,
       warnings,
       envelope,
-      ...(approved ? { approved_at: Date.now() } : {}),
+      ...(approved ? { approved_at: Date.now(), approved_commands: spec.criteria } : {}),
     })
     if (checkpoint) TaskContract.setCheckpoint(input.sessionID, Checkpoint.create(input.directory, input.sessionID, contract.id))
     if (approved)
@@ -89,6 +94,36 @@ export const run = (input: Parameters<typeof Gate.allowed>[0] & { arguments: str
         granted: true,
         commands: spec.criteria.map(PermissionAudit.redact),
       })
+    // Test-count baseline: run each criterion once (through the same permission check) and keep the count of a recognized summary.
+    if (baselineOn)
+      for (const criterion of contract.criteria) {
+        const permitted = approved || (yield* Gate.allowed(input, input.agent, [criterion.command], contract.id))
+        if (!permitted) {
+          TaskContract.setBaseline(input.sessionID, criterion.id, { none: "permission to run it was not granted at arm time" })
+          continue
+        }
+        const result = yield* Effect.promise((signal) =>
+          Runner.run({
+            command: criterion.command,
+            cwd: input.directory,
+            timeoutMs: CONTRACT_DECISIONS.criterionTimeoutMs,
+            tailBytes: CONTRACT_DECISIONS.outputTailBytes,
+            signal,
+          }),
+        )
+        const counts = result.timed_out ? undefined : TestCount.parse(result.parse_tail, result.truncated)
+        TaskContract.setBaseline(
+          input.sessionID,
+          criterion.id,
+          result.timed_out
+            ? { none: "the baseline run timed out" }
+            : !counts
+              ? { none: "output is not a recognized test summary" }
+              : counts.run === 0
+                ? { none: "the baseline run ran 0 tests" }
+                : { tests_run: counts.run, tests_passed: counts.passed, tool: counts.tool },
+        )
+      }
     yield* Effect.promise(() => Report.write(TaskContract.get(input.sessionID) ?? contract)).pipe(Effect.ignore)
     return warnings.length ? { text: warnings.map((w) => `Warning: ${w}`).join("\n"), proceed: true } : undefined
   })

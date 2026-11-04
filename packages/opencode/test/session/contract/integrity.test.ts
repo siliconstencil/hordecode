@@ -33,21 +33,22 @@ describe("integrity", () => {
   test("modified test file is reported by path", async () => {
     const base = await snap()
     await write("src/app.test.ts", "weakened")
-    expect(Integrity.compare(base, await snap())).toEqual({ modified: ["src/app.test.ts"], deleted: [], added: [] })
+    expect(Integrity.compare(base, await snap())).toEqual({ modified: ["src/app.test.ts"], deleted: [], added: [], config_added: [] })
   })
 
   test("deleted test file is reported by path", async () => {
     const base = await snap()
     await fs.rm(path.join(dir, "test/helper.ts"))
-    expect(Integrity.compare(base, await snap())).toEqual({ modified: [], deleted: ["test/helper.ts"], added: [] })
+    expect(Integrity.compare(base, await snap())).toEqual({ modified: [], deleted: ["test/helper.ts"], added: [], config_added: [] })
   })
 
   test("added test file is a violation unless allowed", async () => {
     const base = await snap()
     await write("src/new.spec.ts", "n")
     const now = await snap()
-    expect(Integrity.compare(base, now)).toEqual({ modified: [], deleted: [], added: ["src/new.spec.ts"] })
-    expect(Integrity.count(Integrity.compare(base, now, true))).toBe(0)
+    expect(Integrity.compare(base, now)).toMatchObject({ modified: [], deleted: [], added: ["src/new.spec.ts"] })
+    expect(Integrity.blocking(Integrity.compare(base, now), true)).toEqual([])
+    expect(Integrity.blocking(Integrity.compare(base, now), false)).toEqual(["added: src/new.spec.ts"])
   })
 
   test("editing a non-test source file is not a violation", async () => {
@@ -72,7 +73,7 @@ describe("integrity", () => {
   })
 
   test("list formats every violation kind", () => {
-    expect(Integrity.list({ modified: ["a"], deleted: ["b"], added: ["c"] })).toEqual(["modified: a", "deleted: b", "added: c"])
+    expect(Integrity.list({ modified: ["a"], deleted: ["b"], added: ["c"], config_added: ["d"] })).toEqual(["modified: a", "deleted: b", "added: c", "added runner config: d"])
   })
 })
 
@@ -143,9 +144,110 @@ describe("integrity: F3 protection gaps", () => {
   test("a new test file is not a violation by default; modified and deleted still are", async () => {
     const base = await snap()
     await write("src/brand-new.test.ts", "n")
-    expect(Integrity.count(Integrity.compare(base, await snap(), true))).toBe(0)
+    expect(Integrity.blocking(Integrity.compare(base, await snap()), true)).toEqual([])
     await write("src/app.test.ts", "weakened")
     await fs.rm(path.join(dir, "test/helper.ts"))
-    expect(Integrity.compare(base, await snap(), true)).toEqual({ modified: ["src/app.test.ts"], deleted: ["test/helper.ts"], added: [] })
+    expect(Integrity.blocking(Integrity.compare(base, await snap()), true)).toEqual(["modified: src/app.test.ts", "deleted: test/helper.ts"])
+    expect(Integrity.compare(base, await snap()).added).toEqual(["src/brand-new.test.ts"])
+  })
+})
+
+describe("integrity: R2 runner configuration", () => {
+  const configs = ["bunfig.toml", "jest.config.js", "jest.config.ts", "vitest.config.mts", "pytest.ini", "conftest.py", "tox.ini", "setup.cfg", "pyproject.toml", "go.mod", "Cargo.toml"]
+
+  test("every listed runner config is protected when present, at any depth", async () => {
+    for (const name of configs) await write(name, `root ${name}`)
+    await write("pkg/conftest.py", "nested")
+    const hashes = await snap()
+    for (const name of configs) expect(Object.keys(hashes)).toContain(name)
+    expect(Object.keys(hashes)).toContain("pkg/conftest.py")
+    expect(Object.keys(hashes)).not.toContain("src/app.ts")
+  })
+
+  test("a modified or deleted runner config is a blocking violation", async () => {
+    await write("bunfig.toml", "[test]\n")
+    await write("go.mod", "module x\n")
+    const base = await snap()
+    await write("bunfig.toml", '[test]\npreload = ["./stop.ts"]\n')
+    await fs.rm(path.join(dir, "go.mod"))
+    const v = Integrity.compare(base, await snap())
+    expect(v.modified).toEqual(["bunfig.toml"])
+    expect(v.deleted).toEqual(["go.mod"])
+    expect(Integrity.blocking(v, true)).toEqual(["modified: bunfig.toml", "deleted: go.mod"])
+  })
+
+  test("a runner config added after arm time is blocking even though added test files are allowed", async () => {
+    const base = await snap()
+    await write("bunfig.toml", '[test]\npreload = ["./stop.ts"]\n')
+    await write("jest.config.js", "module.exports = { testMatch: [] }")
+    await write("src/new.test.ts", "n")
+    const v = Integrity.compare(base, await snap())
+    expect(v.config_added.sort()).toEqual(["bunfig.toml", "jest.config.js"])
+    expect(v.added).toEqual(["src/new.test.ts"])
+    expect(Integrity.blocking(v, true)).toEqual(["added runner config: bunfig.toml", "added runner config: jest.config.js"])
+  })
+
+  test("with configsToo false the runner configs are neither protected nor reported", async () => {
+    await write("bunfig.toml", "[test]\n")
+    expect(Object.keys(await Integrity.snapshot({ dir, mode: "all-test-files", named: [], max: 100, configsToo: false }))).not.toContain("bunfig.toml")
+  })
+
+  test("npm run chains: editing a script that package.json scripts.test reaches is a violation, unrelated scripts are not", async () => {
+    await write("package.json", JSON.stringify({ scripts: { test: "npm run unit && bun run lint", unit: "jest", lint: "eslint .", build: "tsc" } }))
+    const base = await snap()
+    await write("package.json", JSON.stringify({ scripts: { test: "npm run unit && bun run lint", unit: "jest", lint: "eslint .", build: "tsc -b" } }))
+    expect(Integrity.count(Integrity.compare(base, await snap()))).toBe(0)
+    await write("package.json", JSON.stringify({ scripts: { test: "npm run unit && bun run lint", unit: "exit 0", lint: "eslint .", build: "tsc" } }))
+    expect(Integrity.compare(base, await snap()).modified).toEqual(["package.json#scripts"])
+  })
+
+  test("pretest and posttest hooks, and the pre/post hooks of a reached script, are protected", async () => {
+    await write("package.json", JSON.stringify({ scripts: { test: "npm run unit", unit: "jest", pretest: "echo pre", posttest: "echo post", preunit: "echo preunit" } }))
+    const base = await snap()
+    for (const key of ["pretest", "posttest", "preunit"]) {
+      const scripts: Record<string, string> = { test: "npm run unit", unit: "jest", pretest: "echo pre", posttest: "echo post", preunit: "echo preunit" }
+      scripts[key] = "exit 0"
+      await write("package.json", JSON.stringify({ scripts }))
+      expect(Integrity.compare(base, await snap()).modified).toEqual(["package.json#scripts"])
+    }
+  })
+})
+
+describe("integrity: R3 symlinked directories", () => {
+  test("files behind a symlinked directory are protected, edits and additions behind it are seen", async () => {
+    await write("real/x.test.ts", "x")
+    await fs.mkdir(path.join(dir, "tests"), { recursive: true })
+    await fs.symlink("../real", path.join(dir, "tests/linked"))
+    const base = await snap()
+    expect(Object.keys(base)).toContain("tests/linked/x.test.ts")
+    expect(Integrity.count(Integrity.compare(base, await snap()))).toBe(0)
+
+    await write("real/x.test.ts", "weakened")
+    expect(Integrity.compare(base, await snap()).modified).toContain("tests/linked/x.test.ts")
+  })
+
+  test("retargeting the directory link is a modification, deleting the target files is a deletion", async () => {
+    await write("real/x.test.ts", "x")
+    await write("other/y.test.ts", "y")
+    await fs.mkdir(path.join(dir, "tests"), { recursive: true })
+    await fs.symlink("../real", path.join(dir, "tests/linked"))
+    const base = await snap()
+    await fs.rm(path.join(dir, "real/x.test.ts"))
+    expect(Integrity.compare(base, await snap()).deleted).toContain("tests/linked/x.test.ts")
+    await write("real/x.test.ts", "x")
+    await fs.rm(path.join(dir, "tests/linked"))
+    await fs.symlink("../other", path.join(dir, "tests/linked"))
+    const v = Integrity.compare(base, await snap())
+    expect(v.modified).toContain("tests/linked")
+    expect(v.deleted).toContain("tests/linked/x.test.ts")
+  })
+
+  test("a symlink loop does not hang or recurse forever", async () => {
+    await fs.mkdir(path.join(dir, "tests/a"), { recursive: true })
+    await fs.symlink("..", path.join(dir, "tests/a/up"))
+    await write("tests/a/ok.test.ts", "ok")
+    const hashes = await snap()
+    expect(Object.keys(hashes)).toContain("tests/a/ok.test.ts")
+    expect(Object.keys(hashes).length).toBeLessThan(50)
   })
 })

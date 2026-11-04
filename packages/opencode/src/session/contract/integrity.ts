@@ -13,8 +13,24 @@ const TEST_FILE = [
 
 export const isTestFile = (rel: string) => TEST_FILE.some((p) => p.test(rel))
 
+const RUNNER_CONFIG = [
+  /^bunfig\.toml$/,
+  /^(jest|vitest)\.config\.[a-z0-9]+$/i,
+  /^vitest\.workspace\.[a-z0-9]+$/i,
+  /^(pytest|tox)\.ini$/,
+  /^conftest\.py$/,
+  /^setup\.cfg$/,
+  /^pyproject\.toml$/,
+  /^go\.mod$/,
+  /^Cargo\.toml$/,
+]
+
+/** Config files that change how a test runner behaves (preload, test matching, dependencies), matched by file name at any depth. */
+export const isRunnerConfig = (rel: string) => RUNNER_CONFIG.some((p) => p.test(path.posix.basename(rel)))
+
 const SKIP = new Set([".git", "node_modules", ".hordecode", ".opencode"])
-const SCRIPT_KEYS = ["test", "pretest", "posttest"]
+const SCRIPT_SEEDS = ["test", "pretest", "posttest"]
+const RUN_REF = /\b(?:npm|pnpm|yarn|bun)(?:\s+run)?\s+([A-Za-z0-9:_-]+)/g
 
 async function walk(dir: string, rel = "", skip = SKIP): Promise<string[]> {
   const entries = await fs.readdir(path.join(dir, rel), { withFileTypes: true }).catch(() => [])
@@ -53,11 +69,46 @@ const sha = async (file: string) => {
   return stat.isFile() ? hash(await fs.readFile(file)) : undefined
 }
 
-/** Hash of the test-runner entries of a package.json, keyed `<path>#scripts`; undefined when it has none. */
+/** Names of the scripts the test entry points reach: test, pretest, posttest, their pre/post hooks, and any script run through npm/pnpm/yarn/bun run. */
+const reached = (all: Record<string, unknown>) => {
+  const out = new Set<string>()
+  const queue = SCRIPT_SEEDS.filter((k) => typeof all[k] === "string")
+  while (queue.length > 0 && out.size < 64) {
+    const name = queue.pop()!
+    const body = all[name]
+    if (out.has(name) || typeof body !== "string") continue
+    out.add(name)
+    queue.push(`pre${name}`, `post${name}`, ...[...body.matchAll(RUN_REF)].map((m) => m[1]!))
+  }
+  return out
+}
+
+/** Hash of the scripts the test entry points reach in a package.json, keyed `<path>#scripts`; undefined when there are none. */
 const scripts = async (root: string, rel: string) => {
   const json = await fs.readFile(path.join(root, rel), "utf8").then((t) => JSON.parse(t) as { scripts?: Record<string, unknown> }, () => undefined)
-  const picked = SCRIPT_KEYS.flatMap((k) => (typeof json?.scripts?.[k] === "string" ? [[k, json.scripts[k]]] : []))
+  if (!json?.scripts || typeof json.scripts !== "object") return undefined
+  const picked = [...reached(json.scripts)].sort().map((k) => [k, json.scripts![k]])
   return picked.length ? hash(JSON.stringify(picked)) : undefined
+}
+
+/** Files behind a symlinked directory, keyed by their path through the link. Loops are cut by the real paths already visited. */
+async function expandLink(root: string, rel: string, seen = new Set<string>()): Promise<string[]> {
+  const abs = path.join(root, rel)
+  const real = await fs.realpath(abs).catch(() => undefined)
+  if (!real || seen.has(real) || !(await fs.stat(real).catch(() => undefined))?.isDirectory()) return []
+  seen.add(real)
+  const entries = await fs.readdir(abs, { withFileTypes: true }).catch(() => [])
+  return (
+    await Promise.all(
+      entries.map(async (e) => {
+        if (SKIP.has(e.name)) return []
+        const r = `${rel}/${e.name}`
+        const stat = e.isSymbolicLink() ? await fs.stat(path.join(root, r)).catch(() => undefined) : undefined
+        if (e.isDirectory() || stat?.isDirectory()) return expandLink(root, r, seen)
+        return e.isFile() || e.isSymbolicLink() ? [r] : []
+      }),
+    )
+  ).flat()
 }
 
 export type Mode = "all-test-files" | "named-only"
@@ -70,8 +121,9 @@ const relative = (root: string, n: string) => {
 
 /**
  * SHA-256 of every protected file, keyed by path relative to dir. Protected = test files (mode
- * "all-test-files"), the test-runner scripts of every package.json (same mode, `scriptsToo`), plus every
- * file under a named path. Named paths are walked directly, so git ignore rules do not hide them; they
+ * "all-test-files"), the scripts the test entry points of every package.json reach (`scriptsToo`), the common
+ * runner configs (`configsToo`), plus every file under a named path. Files behind a symlinked directory are
+ * hashed through the link. Named paths are walked directly, so git ignore rules do not hide them; they
  * must stay inside dir, exist and hold at least one file.
  */
 export async function snapshot(input: {
@@ -80,6 +132,7 @@ export async function snapshot(input: {
   named: string[]
   max: number
   scriptsToo?: boolean
+  configsToo?: boolean
 }): Promise<Record<string, string>> {
   const root = path.resolve(input.dir)
   const named = input.named.map((n) => relative(root, n))
@@ -93,7 +146,14 @@ export async function snapshot(input: {
     }),
   )
   const all = input.mode === "all-test-files" ? await listFiles(root) : []
-  const picked = [...new Set([...all.filter(isTestFile), ...namedFiles.flat()])]
+  const configs = input.mode === "all-test-files" && input.configsToo !== false ? all.filter(isRunnerConfig) : []
+  const direct = [...new Set([...all.filter(isTestFile), ...configs, ...namedFiles.flat()])]
+  const linked = (
+    await Promise.all(
+      direct.map(async (f) => ((await fs.lstat(path.join(root, f)).catch(() => undefined))?.isSymbolicLink() ? expandLink(root, f) : [])),
+    )
+  ).flat()
+  const picked = [...new Set([...direct, ...linked])]
   if (picked.length > input.max) throw new Error(`${picked.length} protected files exceed the cap of ${input.max}`)
   const entries = await Promise.all(picked.map(async (f) => [f, await sha(path.join(root, f))] as const))
   const manifests =
@@ -116,20 +176,36 @@ export async function warnings(dir: string, named: string[]): Promise<string[]> 
     .map((n) => `protect path "${n}" is ignored by git; it is hashed anyway, but git tooling will not show changes there`)
 }
 
-export type Violations = { modified: string[]; deleted: string[]; added: string[] }
+export type Violations = { modified: string[]; deleted: string[]; added: string[]; config_added: string[] }
 
-export function compare(baseline: Record<string, string>, current: Record<string, string>, allowAdded = false): Violations {
+/** Changes against the arm-time baseline. An added runner config (or a package.json test script that was not there) is kept apart from added test files. */
+export function compare(baseline: Record<string, string>, current: Record<string, string>): Violations {
+  const added = Object.keys(current).filter((f) => !(f in baseline))
+  const isConfig = (f: string) => f.endsWith("#scripts") || isRunnerConfig(f)
   return {
     modified: Object.keys(baseline).filter((f) => f in current && current[f] !== baseline[f]),
     deleted: Object.keys(baseline).filter((f) => !(f in current)),
-    added: allowAdded ? [] : Object.keys(current).filter((f) => !(f in baseline)),
+    added: added.filter((f) => !isConfig(f)),
+    config_added: added.filter(isConfig),
   }
 }
 
-export const count = (v: Violations) => v.modified.length + v.deleted.length + v.added.length
+export const count = (v: Violations) => v.modified.length + v.deleted.length + v.added.length + v.config_added.length
 
+const lines = (v: Violations, allowAdded: boolean) => [
+  ...v.modified.map((f) => `modified: ${f}`),
+  ...v.deleted.map((f) => `deleted: ${f}`),
+  ...(allowAdded ? [] : v.added.map((f) => `added: ${f}`)),
+  ...v.config_added.map((f) => `added runner config: ${f}`),
+]
+
+/** The changes that fail a contract: modified, deleted and added runner configs always; added test files unless allowed. */
+export const blocking = (v: Violations, allowAdded: boolean) => lines(v, allowAdded)
+
+/** Every change, for reports and messages. */
 export const list = (v: Violations) => [
   ...v.modified.map((f) => `modified: ${f}`),
   ...v.deleted.map((f) => `deleted: ${f}`),
   ...v.added.map((f) => `added: ${f}`),
+  ...v.config_added.map((f) => `added runner config: ${f}`),
 ]

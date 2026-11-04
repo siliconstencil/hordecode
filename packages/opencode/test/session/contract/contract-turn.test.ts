@@ -439,6 +439,7 @@ const armWith = (
         named: protect,
         max: 100,
         scriptsToo: CONTRACT_DECISIONS.protectScripts,
+        configsToo: CONTRACT_DECISIONS.protectRunnerConfigs,
       }),
       ...extra,
     }),
@@ -626,7 +627,8 @@ it.instance("attended (default): every criterion run asks the permission system"
       yield* prompt.command({ sessionID: chat.id, command: "contract", arguments: "create done.txt ;; test -f done.txt", agent: "build" })
 
       expect(TaskContract.get(chat.id)!.unattended).toBe(false)
-      expect(criterionAsks(chat.id, "test -f done.txt")).toHaveLength(2)
+      // one ask for the arm-time baseline run, one for each of the two stop-time runs
+      expect(criterionAsks(chat.id, "test -f done.txt")).toHaveLength(3)
       expect(auditLines(chat.id).filter((l) => l["kind"] === "contract_approval")).toHaveLength(0)
     }),
   ),
@@ -696,6 +698,7 @@ it.instance("unattended: an explicit deny rule still stops a run (unverified, ne
         session_id: chat.id,
         spec: { objective: "o", criteria: ["true"], protect: [], unattended: true },
         protected_hashes: {},
+        approved_commands: ["true"],
       }),
     )
     yield* llm.text("done")
@@ -705,6 +708,7 @@ it.instance("unattended: an explicit deny rule still stops a run (unverified, ne
     const c = TaskContract.get(chat.id)!
     expect(c.status).toBe("unverified")
     expect(c.criteria[0]!.state).toBe("blocked")
+    expect(c.reason).toContain("permission to run")
     expect(c.evidence).toHaveLength(0)
   }),
 )
@@ -1301,5 +1305,289 @@ it.instance("F3 re-check: a criterion that touches a directory outside the proje
     expect(c.status).toBe("unverified")
     expect(c.criteria[0]!.state).toBe("blocked")
     expect(c.evidence).toHaveLength(0)
+  }),
+)
+
+// --- round 5: test-count baseline (R1), coverage of unattended runs (R4) ---
+
+const BUN = `"${process.execPath}"`
+const bunProject = (dir: string, files: Record<string, string>) =>
+  Object.entries(files).forEach(([name, text]) => fs.writeFileSync(path.join(dir, name), text))
+const RED = 'import {test,expect} from "bun:test"\ntest("x",()=>expect(1).toBe(1))\ntest("y",()=>expect(1).toBe(2))\n'
+const GREEN = 'import {test,expect} from "bun:test"\ntest("x",()=>expect(1).toBe(1))\ntest("y",()=>expect(2).toBe(2))\n'
+const contractArgs = (...segments: string[]) => ["obj", ...segments].join(" ;; ")
+
+it.instance("R1: a new test file that exits 0 does not neutralize the suite: the criterion fails because the count is gone", () =>
+  withDecisions(
+    { maxReact: 1 },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      bunProject(dir, { "a.test.ts": RED })
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Contract R1 attack", permission: allowAll })
+      yield* llm.tool("bash", bashRun("printf 'process.exit(0)\\n' > aaa.test.ts"))
+      yield* llm.text("done")
+      yield* llm.text("done again")
+
+      yield* prompt.command({ sessionID: chat.id, command: "contract", arguments: contractArgs(`${BUN} test`), agent: "build" })
+
+      const c = TaskContract.get(chat.id)!
+      expect(c.criteria[0]!.baseline).toMatchObject({ tests_run: 2, tests_passed: 1, tool: "bun" })
+      expect(c.status).toBe("blocked")
+      expect(c.criteria[0]!.state).toBe("failed")
+      const first = c.evidence.find((e) => e.criterion_id === "C1")!
+      expect(first.exit_code).toBe(0)
+      expect(first.note).toContain("baseline had 2 tests")
+      const found = yield* reentries(chat.id)
+      expect(found[0]!.type === "text" && found[0]!.text).toContain("baseline had 2 tests")
+      expect(c.violations?.added).toEqual(["aaa.test.ts"])
+    }),
+  ),
+)
+
+it.instance("R1: an honest red-to-green run keeps the test count and verifies, the baseline and counts are recorded", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    bunProject(dir, { "a.test.ts": RED })
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract R1 honest", permission: allowAll })
+    // the fix edits a test file, which is a violation, so the criterion itself flips with a flag file instead
+    yield* llm.tool("bash", bashRun("touch fixed.flag"))
+    yield* llm.text("done")
+
+    yield* prompt.command({
+      sessionID: chat.id,
+      command: "contract",
+      arguments: contractArgs(`if [ -f fixed.flag ]; then printf ' 2 pass\\nRan 2 tests across 1 file.\\n'; else printf ' 1 pass\\n 1 fail\\nRan 2 tests across 1 file.\\n'; exit 1; fi`),
+      agent: "build",
+    })
+
+    const c = TaskContract.get(chat.id)!
+    expect(c.criteria[0]!.baseline).toMatchObject({ tests_run: 2, tests_passed: 1 })
+    expect(c.status).toBe("verified")
+    expect(c.evidence.at(-1)!.tests).toEqual({ run: 2, passed: 2 })
+  }),
+)
+
+it.instance("R1: a drop in tests run fails the criterion even with exit 0, and says so", () =>
+  withDecisions(
+    { maxReact: 1 },
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig()
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Contract R1 drop", permission: allowAll })
+      yield* llm.tool("bash", bashRun("touch fewer.flag"))
+      yield* llm.text("done")
+      yield* llm.text("done again")
+
+      yield* prompt.command({
+        sessionID: chat.id,
+        command: "contract",
+        arguments: contractArgs(`if [ -f fewer.flag ]; then printf ' 1 pass\\nRan 1 tests across 1 file.\\n'; else printf ' 3 pass\\nRan 3 tests across 1 file.\\n'; fi`),
+        agent: "build",
+      })
+
+      const c = TaskContract.get(chat.id)!
+      expect(c.status).toBe("blocked")
+      expect(c.evidence.find((e) => e.criterion_id === "C1")!.note).toBe("tests run dropped from 3 to 1")
+    }),
+  ),
+)
+
+it.instance("R1: a suite that runs zero tests fails even without a baseline", () =>
+  withDecisions(
+    { maxReact: 0 },
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig()
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Contract R1 zero", permission: allowAll })
+      yield* llm.text("done")
+
+      yield* prompt.command({
+        sessionID: chat.id,
+        command: "contract",
+        arguments: contractArgs("printf ' 0 pass\\nRan 0 tests across 0 files.\\n'", "no-baseline"),
+        agent: "build",
+      })
+
+      const c = TaskContract.get(chat.id)!
+      expect(c.criteria[0]!.baseline).toBeUndefined()
+      expect(c.status).toBe("blocked")
+      expect(c.evidence.find((e) => e.criterion_id === "C1")!.note).toBe("0 tests ran")
+    }),
+  ),
+)
+
+it.instance("R1: output that is not a test summary records 'no baseline' and does not block a passing criterion", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract R1 no baseline", permission: allowAll })
+    yield* llm.text("done")
+
+    yield* prompt.command({ sessionID: chat.id, command: "contract", arguments: contractArgs("echo built"), agent: "build" })
+
+    const c = TaskContract.get(chat.id)!
+    expect(c.criteria[0]!.baseline).toEqual({ none: "output is not a recognized test summary" })
+    expect(c.status).toBe("verified")
+    const report = yield* Effect.promise(() => Bun.file(path.join(Report.dir(chat.id), "report.md")).text())
+    expect(report).toContain("C1: no baseline (output is not a recognized test summary)")
+  }),
+)
+
+it.instance("R1: a baseline whose output was not parseable at arm time, but is at verification, only fails on 0 tests", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract R1 later parseable", permission: allowAll })
+    yield* llm.tool("bash", bashRun("touch now.flag"))
+    yield* llm.text("done")
+
+    yield* prompt.command({
+      sessionID: chat.id,
+      command: "contract",
+      arguments: contractArgs(`if [ -f now.flag ]; then printf ' 4 pass\\nRan 4 tests across 1 file.\\n'; else echo compiling; fi`),
+      agent: "build",
+    })
+
+    expect(TaskContract.get(chat.id)!.status).toBe("verified")
+  }),
+)
+
+it.instance("R1: the arm-time baseline can be turned off per contract (no-baseline) and records nothing", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    bunProject(dir, { "a.test.ts": GREEN })
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract no-baseline", permission: allowAll })
+    yield* llm.text("done")
+
+    yield* prompt.command({ sessionID: chat.id, command: "contract", arguments: contractArgs(`${BUN} test`, "No-Baseline"), agent: "build" })
+
+    const c = TaskContract.get(chat.id)!
+    expect(c.criteria[0]!.baseline).toBeUndefined()
+    expect(c.criteria.map((k) => k.command)).toEqual([`${BUN} test`])
+    expect(c.status).toBe("verified")
+  }),
+)
+
+it.instance("R1: added test files are reported with the verdict (allowed by default), not silently dropped", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    bunProject(dir, { "a.test.ts": GREEN })
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract added report", permission: allowAll })
+    yield* llm.tool("bash", bashRun(`printf 'import {test,expect} from "bun:test"\\ntest("n",()=>expect(1).toBe(1))\\n' > extra.test.ts`))
+    yield* llm.text("done")
+
+    yield* prompt.command({ sessionID: chat.id, command: "contract", arguments: contractArgs(`${BUN} test`), agent: "build" })
+
+    const c = TaskContract.get(chat.id)!
+    expect(c.status).toBe("verified")
+    expect(c.violations?.added).toEqual(["extra.test.ts"])
+    const report = yield* Effect.promise(() => Bun.file(path.join(Report.dir(chat.id), "report.md")).text())
+    expect(report).toContain("Added test files (allowed, not protected): extra.test.ts")
+  }),
+)
+
+it.instance("R2: a bunfig.toml added by the agent fails the contract even when the criterion passes", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    bunProject(dir, { "a.test.ts": GREEN })
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract R2 bunfig", permission: allowAll })
+    yield* llm.tool("bash", bashRun(`printf '[test]\\npreload = ["./stop.ts"]\\n' > bunfig.toml`))
+    yield* llm.text("done")
+
+    yield* prompt.command({ sessionID: chat.id, command: "contract", arguments: contractArgs("true", "no-baseline"), agent: "build" })
+
+    const c = TaskContract.get(chat.id)!
+    expect(c.status).toBe("failed")
+    expect(c.reason).toContain("added runner config: bunfig.toml")
+  }),
+)
+
+// R4: every unattended run is covered by an arm-time authorization
+
+it.instance("R4: an unattended contract with several criteria authorizes every one of them at arm time, and asks nothing at run time", () =>
+  withAudit(
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig()
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Contract R4 coverage", permission: allowAll })
+      yield* llm.text("done")
+
+      yield* prompt.command({
+        sessionID: chat.id,
+        command: "contract",
+        arguments: contractArgs("test -d .", "echo second-criterion", "test -e .", "unattended", "no-baseline"),
+        agent: "build",
+      })
+
+      const c = TaskContract.get(chat.id)!
+      expect(c.approved_commands).toEqual(["test -d .", "echo second-criterion", "test -e ."])
+      expect(c.status).toBe("verified")
+      for (const command of c.approved_commands) expect(criterionAsks(chat.id, command)).toHaveLength(1)
+    }),
+  ),
+)
+
+it.instance("R4: an unattended criterion that was not approved at arm time is blocked, not run", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract R4 unapproved", permission: allowAll })
+    yield* Effect.promise(async () =>
+      TaskContract.arm({
+        session_id: chat.id,
+        spec: { objective: "o", criteria: ["touch ran.marker", "true"], protect: [], unattended: true },
+        protected_hashes: {},
+        approved_commands: ["true"],
+      }),
+    )
+    yield* llm.text("done")
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "go" }] })
+
+    const c = TaskContract.get(chat.id)!
+    expect(c.status).toBe("unverified")
+    expect(c.criteria[0]!.state).toBe("blocked")
+    expect(fs.existsSync(path.join(dir, "ran.marker"))).toBe(false)
+  }),
+)
+
+it.instance("R6: authorizing a criterion executes nothing", () =>
+  Effect.gen(function* () {
+    const { dir } = yield* useServerConfig()
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Contract authorize only", permission: allowAll })
+
+    const ok = yield* ContractGate.allowed(
+      {
+        sessionID: chat.id,
+        directory: dir,
+        sessions,
+        permission: yield* Permission.Service,
+        agents: yield* AgentSvc.Service,
+        registry: yield* ToolRegistry.Service,
+      },
+      "build",
+      ["touch authorized-but-not-run.marker"],
+      "test",
+    )
+
+    expect(ok).toBe(true)
+    expect(fs.existsSync(path.join(dir, "authorized-but-not-run.marker"))).toBe(false)
   }),
 )

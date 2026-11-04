@@ -5,11 +5,19 @@ import { CONTRACT_DECISIONS } from "./contract-decisions"
 export const CriterionState = z.enum(["pending", "passed", "failed", "blocked"])
 export type CriterionState = z.infer<typeof CriterionState>
 
+export const Baseline = z.union([
+  z.object({ tests_run: z.number(), tests_passed: z.number(), tool: z.string() }),
+  z.object({ none: z.string() }),
+])
+export type Baseline = z.infer<typeof Baseline>
+
 export const Criterion = z.object({
   id: z.string(),
   command: z.string(),
   required: z.boolean(),
   state: CriterionState,
+  /** Test count seen when the contract was armed, or why there is none. Absent when the baseline run is off. */
+  baseline: Baseline.optional(),
 })
 export type Criterion = z.infer<typeof Criterion>
 
@@ -41,6 +49,10 @@ export const Evidence = z.object({
   duration_ms: z.number(),
   log_path: z.string().optional(),
   breach: Breach.optional(),
+  /** Test counts parsed from the run output, when it was a recognized summary. */
+  tests: z.object({ run: z.number(), passed: z.number() }).optional(),
+  /** Why a run with exit code 0 still failed (test count check). */
+  note: z.string().optional(),
 })
 export type Evidence = z.infer<typeof Evidence>
 
@@ -66,7 +78,17 @@ export const Contract = z.object({
   reason: z.string().optional(),
   reentries: z.number(),
   evidence: z.array(Evidence),
-  violations: z.object({ modified: z.array(z.string()), deleted: z.array(z.string()), added: z.array(z.string()) }).optional(),
+  violations: z
+    .object({
+      modified: z.array(z.string()),
+      deleted: z.array(z.string()),
+      added: z.array(z.string()),
+      config_added: z.array(z.string()).optional(),
+      added_allowed: z.boolean().optional(),
+    })
+    .optional(),
+  /** Criteria commands approved at arm time (unattended contracts). An unattended run of any other command is blocked. */
+  approved_commands: z.array(z.string()),
   unattended: z.boolean(),
   approved_at: z.number().optional(),
   created_at: z.number(),
@@ -82,10 +104,12 @@ export type Spec = {
   unattended: boolean
   checkpoint?: boolean
   caps?: Caps
+  /** false: skip the arm-time baseline run (`no-baseline` segment). Absent counts as true. */
+  baseline?: boolean
 }
 
 const SEPARATOR = /\r?\n|\s;;\s/
-const KEYWORD = /^(unattended|checkpoint)$/i
+const KEYWORD = /^(unattended|checkpoint|no-baseline)$/i
 const PREFIX = /^(protect|cap):/i
 
 const WALL_UNIT = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 } as const
@@ -118,8 +142,8 @@ function parseCap(text: string, caps: Caps): string | undefined {
 /**
  * Parse `/contract` arguments. Segments split on newlines or " ;; ". The first segment is the
  * objective. After it: `protect: <path>` names a protected path, `cap: wall|tools|cost <value>` sets an
- * envelope cap, a bare `unattended` or `checkpoint` (any case) sets that flag, every other segment is a
- * criterion command.
+ * envelope cap, a bare `unattended`, `checkpoint` or `no-baseline` (any case) sets that flag, every other
+ * segment is a criterion command.
  */
 export function parseSpec(text: string): Spec | string {
   const segments = text
@@ -144,6 +168,7 @@ export function parseSpec(text: string): Spec | string {
     protect,
     unattended: CONTRACT_DECISIONS.unattended || rest.some((s) => /^unattended$/i.test(s)),
     checkpoint: CONTRACT_DECISIONS.checkpointRef || rest.some((s) => /^checkpoint$/i.test(s)),
+    baseline: CONTRACT_DECISIONS.testBaseline && !rest.some((s) => /^no-baseline$/i.test(s)),
     caps,
   }
 }
@@ -158,6 +183,7 @@ export const arm = (input: {
   protected_hashes: Record<string, string>
   git_checkpoint?: { ref: string; sha: string } | { skipped: string }
   approved_at?: number
+  approved_commands?: string[]
   warnings?: string[]
   envelope?: Partial<Envelope>
   now?: number
@@ -187,6 +213,7 @@ export const arm = (input: {
     reentries: 0,
     evidence: [],
     unattended: input.spec.unattended,
+    approved_commands: input.approved_commands ?? [],
     ...(input.approved_at !== undefined ? { approved_at: input.approved_at } : {}),
     created_at: now,
     updated_at: now,
@@ -229,6 +256,9 @@ export const setCheckpoint = (sessionID: string, checkpoint: { ref: string; sha:
     },
   }))
 
+export const setBaseline = (sessionID: string, criterionID: string, baseline: Baseline) =>
+  put(sessionID, (c) => ({ ...c, criteria: c.criteria.map((x) => (x.id === criterionID ? { ...x, baseline } : x)) }))
+
 export const addEvidence = (sessionID: string, evidence: Evidence) =>
   put(sessionID, (c) => ({ ...c, evidence: [...c.evidence, evidence] }))
 
@@ -252,7 +282,7 @@ export function reentryText(contract: Contract, failed: { criterion: Criterion; 
     "You are about to finish, but the acceptance criteria of this session's contract are not met.",
     `Objective: ${contract.objective}`,
     ...failed.flatMap((f) => [
-      `- ${f.criterion.id} \`${f.criterion.command}\` ${f.evidence.timed_out ? "timed out" : `exited with code ${f.evidence.exit_code}`}`,
+      `- ${f.criterion.id} \`${f.criterion.command}\` ${f.evidence.timed_out ? "timed out" : `exited with code ${f.evidence.exit_code}`}${f.evidence.note ? `, but the test check failed: ${f.evidence.note}` : ""}`,
       "  output tail:",
       ...tail(f.output, CONTRACT_DECISIONS.reentryTailChars)
         .split("\n")

@@ -17,6 +17,7 @@ import * as Envelope from "./envelope"
 import * as Integrity from "./integrity"
 import * as Report from "./report"
 import * as Runner from "./runner"
+import * as TestCount from "./testcount"
 import * as Usage from "./usage"
 
 type Deps = {
@@ -155,6 +156,12 @@ export const make = (deps: Deps) => ({
     const failed: { criterion: TaskContract.Criterion; evidence: TaskContract.Evidence; output: string }[] = []
     let blocked = ""
     for (const criterion of armed.criteria.filter((k) => k.required)) {
+      // An unattended contract only runs commands that were approved at arm time; the deny-only probe is not an approval.
+      if (armed.unattended && !armed.approved_commands.includes(criterion.command)) {
+        TaskContract.record(deps.sessionID, criterion.id, "blocked")
+        blocked = `\`${PermissionAudit.redact(criterion.command)}\` was not approved at arm time`
+        break
+      }
       if (!(yield* allowed(deps, lastUser.agent, [criterion.command], armed.id, armed.unattended))) {
         TaskContract.record(deps.sessionID, criterion.id, "blocked")
         blocked = `permission to run \`${PermissionAudit.redact(criterion.command)}\` was not granted`
@@ -173,6 +180,19 @@ export const make = (deps: Deps) => ({
       const log_path = yield* Effect.promise(() =>
         Report.writeLog(deps.sessionID, `${criterion.id}-${attempt}`, result.tail),
       ).pipe(Effect.orElseSucceed(() => undefined))
+      const exited = !result.timed_out && result.exit_code === 0
+      const counts = TestCount.parse(result.parse_tail, result.truncated)
+      const base = criterion.baseline && "tests_run" in criterion.baseline ? criterion.baseline : undefined
+      // A run that exits 0 still fails when it ran no tests, fewer tests than at arm time, or (with a baseline) no longer prints a readable summary.
+      const note = !exited
+        ? undefined
+        : counts && counts.run === 0
+          ? "0 tests ran"
+          : base && !counts
+            ? `baseline had ${base.tests_run} tests (${base.tool}) but the output is no longer a readable test summary`
+            : base && counts && counts.run < base.tests_run
+              ? `tests run dropped from ${base.tests_run} to ${counts.run}`
+              : undefined
       const evidence: TaskContract.Evidence = {
         criterion_id: criterion.id,
         attempt,
@@ -182,8 +202,10 @@ export const make = (deps: Deps) => ({
         started_at: result.started_at,
         duration_ms: result.duration_ms,
         log_path,
+        ...(counts ? { tests: { run: counts.run, passed: counts.passed } } : {}),
+        ...(note ? { note } : {}),
       }
-      const passed = !result.timed_out && result.exit_code === 0
+      const passed = exited && !note
       TaskContract.record(deps.sessionID, criterion.id, passed ? "passed" : "failed", evidence)
       PermissionAudit.write({
         kind: "contract_evidence",
@@ -211,19 +233,23 @@ export const make = (deps: Deps) => ({
         named: armed.baseline.protect_paths,
         max: CONTRACT_DECISIONS.maxProtectedFiles,
         scriptsToo: CONTRACT_DECISIONS.protectScripts,
+        configsToo: CONTRACT_DECISIONS.protectRunnerConfigs,
       }),
     ).pipe(Effect.option)
     if (current._tag === "None") {
       yield* persist(TaskContract.finish(deps.sessionID, "unverified", "the integrity check could not read the protected files"))
       return false
     }
-    const violations = Integrity.compare(armed.baseline.protected_hashes, current.value, CONTRACT_DECISIONS.allowAddedTests)
-    const violated = Integrity.count(violations) > 0
-    TaskContract.setViolations(deps.sessionID, violated ? violations : undefined)
+    const violations = Integrity.compare(armed.baseline.protected_hashes, current.value)
+    const blockers = Integrity.blocking(violations, CONTRACT_DECISIONS.allowAddedTests)
+    const violated = blockers.length > 0
+    // Kept (and reported) even when nothing blocks: added test files are allowed but never silent.
+    TaskContract.setViolations(
+      deps.sessionID,
+      Integrity.count(violations) > 0 ? { ...violations, added_allowed: CONTRACT_DECISIONS.allowAddedTests } : undefined,
+    )
     if (violated && CONTRACT_DECISIONS.onIntegrityViolation === "fail") {
-      yield* persist(
-        TaskContract.finish(deps.sessionID, "failed", `protected test files changed: ${Integrity.list(violations).join(", ")}`),
-      )
+      yield* persist(TaskContract.finish(deps.sessionID, "failed", `protected test files or runner configuration changed: ${blockers.join(", ")}`))
       return false
     }
 
@@ -257,7 +283,7 @@ export const make = (deps: Deps) => ({
       messageID: reentry.id,
       sessionID: deps.sessionID,
       type: "text",
-      text: TaskContract.reentryText(bumped, failed.map((f) => ({ ...f, output: PermissionAudit.redact(f.output) })), violated ? Integrity.list(violations) : undefined),
+      text: TaskContract.reentryText(bumped, failed.map((f) => ({ ...f, output: PermissionAudit.redact(f.output) })), violated ? blockers : undefined),
       synthetic: true,
     } satisfies SessionV1.TextPart)
     return true

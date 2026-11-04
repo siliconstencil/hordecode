@@ -16,8 +16,12 @@ export const CONTRACT_DECISIONS = {
   protect: "all-test-files" as "all-test-files" | "named-only",
   /** 5. A new test file after arm time is ignored (true) or an integrity violation (false). Modified and deleted protected files always fail. */
   allowAddedTests: true,
-  /** 5. Also protect the test, pretest and posttest scripts of every package.json (mode "all-test-files" only). */
+  /** 5. Also protect the test, pretest and posttest scripts of every package.json and the scripts they reach (mode "all-test-files" only). */
   protectScripts: true,
+  /** 5. Also protect the common runner configs (bunfig.toml, jest/vitest config, pytest.ini, conftest.py, tox.ini, setup.cfg, pyproject.toml, go.mod, Cargo.toml) when present; one added later is a violation (mode "all-test-files" only). */
+  protectRunnerConfigs: true,
+  /** At arm time run each criterion once and record the test count of a recognized summary; a later run with fewer tests, none, or an unreadable summary fails the criterion. */
+  testBaseline: true,
   /** Integrity violation: "fail" ends the contract as failed; "reenter" nudges like a failed criterion. */
   onIntegrityViolation: "fail" as "fail" | "reenter",
   /** 6. Cap on stop-gate re-entries before the contract becomes blocked. */
