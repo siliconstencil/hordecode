@@ -97,5 +97,5 @@ export const SessionPruneNode = LayerNode.make({
 export const WorkflowNode = LayerNode.make({
   service: WorkflowRuntime.Service,
   layer: WorkflowRuntime.layer as Layer.Layer<WorkflowRuntime.Service, never, never>,
-  deps: [BusNode, InboxNode, Worktree.node, Provider.node, Config.node],
+  deps: [BusNode, InboxNode, Worktree.node, Provider.node, Config.node, Session.node, SupervisorRegistryNode],
 })

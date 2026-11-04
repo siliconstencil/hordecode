@@ -23,6 +23,17 @@ import { WorkflowAgentFailed, WorkflowChildFailed, WorkflowFinished, WorkflowLog
 import { WorkflowPersistence, journalKeyBase } from "./persistence"
 import type { RunSummary } from "./persistence"
 import { Log, Lock } from "@opencode-ai/core/util"
+import { Session } from "@opencode-ai/core/session"
+import { SupervisorRegistryService } from "@opencode-ai/supervisor/registry"
+import {
+  acquireSubagentSlot,
+  maxSubagentsLimit,
+  rootSessionOf,
+  subagentBreadthRefusal,
+  subagentDepthLimit,
+  subagentDepthOf,
+  subagentDepthRefusal,
+} from "@opencode-ai/supervisor/limits"
 
 const log = Log.create({ service: "workflow.runtime" })
 
@@ -320,6 +331,8 @@ export const layer = Layer.effect(
     // lazily below -- it reads the per-instance ALS context and returns Effect<Info>
     // with no requirement, so it stays out of the public method types.
     const config = yield* Config.Service
+    const sessions = yield* Session.Service
+    const registry = yield* SupervisorRegistryService.Service
     const scope = yield* Scope.Scope
     const runs = new Map<string, RunEntry>()
 
@@ -725,6 +738,27 @@ export const layer = Layer.effect(
       const spawnDescription = (o: AgentOpts) =>
         o.label ? (o.phase ? `[${o.phase}] ${o.label}` : o.label) : o.phase ? `[${o.phase}]` : undefined
 
+      // The same depth/breadth rule the supervisor and session tools apply. Workflow agent()
+      // spawns go through Supervisor.spawn directly, so they enforce it here before any child
+      // is created. A refusal fails like the tool refusals; the spawn path catches it into the
+      // agent() null contract. The slot is released when the child's outcome is settled.
+      const acquireSubagentLimits = Effect.gen(function* () {
+        // The fork fields live on the legacy ConfigV1 shape the runtime parser keeps; the
+        // core Config.Info type does not mirror them.
+        const current = (cfg ?? (yield* config.get())) as Config.Info & {
+          subagent_depth?: number
+          supervisor?: { max_subagents?: number }
+        }
+        const depthLimit = subagentDepthLimit(current.subagent_depth)
+        const depth = yield* subagentDepthOf(sessions, registry, input.sessionID, depthLimit)
+        if (depth >= depthLimit) return yield* Effect.fail(new Error(subagentDepthRefusal(depthLimit)))
+        const rootSessionID = yield* rootSessionOf(sessions, input.sessionID)
+        const slotLimit = maxSubagentsLimit(current.supervisor?.max_subagents)
+        const slot = yield* acquireSubagentSlot(registry, rootSessionID, slotLimit)
+        if (!slot) return yield* Effect.fail(new Error(subagentBreadthRefusal(slotLimit)))
+        return slot
+      })
+
       // Shared-tree spawn (default): the existing behavior. SUBAGENT mode -- the
       // worker shares the run's parent session (cheaper, no per-agent session).
       // Safe since lastAssistant is agent-scoped (fix 59597264): each subagent's
@@ -747,14 +781,25 @@ export const layer = Layer.effect(
         // observes. An agent whose turn errored finishes with status:"success" but
         // no finalText/structured, so its deliverable is null and the guest sees a
         // failure; the counter must agree. A spawn reject also yields null -> failed.
-        entry.running++
-        scheduleFlush(entry)
         // Failure-reason refs: defaults to "supervisor-error" (the broad catch-all) and
         // is narrowed at known branch points. Read once at the end, on null return,
         // to publish WorkflowAgentFailed. agent()'s null contract is unchanged.
         let reason: FailReason = "supervisor-error"
         let supervisorID: string | undefined
         let errorMessage: string | undefined
+        // The depth/breadth rule applies before the spawn; a refusal takes the
+        // never-throw null path like any other spawn-reject.
+        const subagentSlot = await bridge.promise(acquireSubagentLimits).catch((e) => {
+          errorMessage = e instanceof Error ? e.message : String(e)
+          return null
+        })
+        if (!subagentSlot) {
+          publishAgentFailed(o, "spawn-reject", { errorMessage })
+          return { value: null, reason: "spawn-reject" as FailReason }
+        }
+        entry.running++
+        scheduleFlush(entry)
+        try {
         const value = await bridge
           .promise(
             Effect.gen(function* () {
@@ -782,6 +827,7 @@ export const layer = Layer.effect(
                 ...(o.schema ? { format: { type: "json_schema" as const, schema: o.schema, retryCount: 2 } } : {}),
               })
               supervisorID = spawned.supervisorID
+              subagentSlot.bind(spawned.sessionID, spawned.supervisorID)
               // Bound the outcome-await by the per-agent timeout: a hung child times
               // out to null (and is cancelled) rather than stalling the barrier. The
               // deliverable is computed inside the awaited Effect so the timeout wraps
@@ -825,6 +871,9 @@ export const layer = Layer.effect(
         }
         scheduleFlush(entry)
         return { value, reason: value !== null ? null : reason }
+        } finally {
+          await bridge.promise(subagentSlot.release).catch(() => undefined)
+        }
       }
 
       // Isolated spawn: fresh worktree, file tools rebound to it via Instance.provide.
@@ -839,6 +888,18 @@ export const layer = Layer.effect(
         let reason: FailReason = "supervisor-error"
         let supervisorIDOut: string | undefined
         let errorMessage: string | undefined
+        // The depth/breadth check runs before the worktree exists, so a refusal leaves
+        // nothing on disk. The slot is held across the worktree setup and the child's
+        // outcome, and released on every exit path.
+        const subagentSlot = await bridge.promise(acquireSubagentLimits).catch((e) => {
+          errorMessage = e instanceof Error ? e.message : String(e)
+          return null
+        })
+        if (!subagentSlot) {
+          publishAgentFailed(o, "spawn-reject", { errorMessage })
+          return { value: null, reason: "spawn-reject" as FailReason }
+        }
+        try {
         // 1) Create + fully populate a worktree (createFromInfo awaits boot).
         const info = await bridge
           .promise(
@@ -908,6 +969,7 @@ export const layer = Layer.effect(
                     ...(o.schema ? { format: { type: "json_schema" as const, schema: o.schema, retryCount: 2 } } : {}),
                   })
                   supervisorIDOut = s.supervisorID
+                  subagentSlot.bind(s.sessionID, s.supervisorID)
                   // Bound the await by the per-agent timeout. On timeout the helper
                   // cancels the child and yields null; we surface that as a null
                   // `spawned` so the disposition below takes the same path as a
@@ -980,6 +1042,9 @@ export const layer = Layer.effect(
         if (value && typeof value === "object" && !Array.isArray(value))
           return { value: { ...(value as object), _worktree: wt }, reason: null }
         return { value: { _worktree: wt, result: value }, reason: null }
+        } finally {
+          await bridge.promise(subagentSlot.release).catch(() => undefined)
+        }
       }
 
       // Per-call start times (host wall-clock) for the observability nodes' durationMs.
