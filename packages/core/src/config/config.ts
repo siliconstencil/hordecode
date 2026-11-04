@@ -457,6 +457,9 @@ const InfoSchema = Schema.Struct({
               tool_failures: Schema.optional(Schema.Number),
               same_error: Schema.optional(Schema.Number),
               context_percent: Schema.optional(Schema.Number),
+              // Fork-only (FORK_DELTA): upstream v1.19.5 has no advisor; its experimental block is
+              // packages/core/src/v1/config/config.ts:169-173 and carries none of these keys. MiMo Code v0.1.11
+              // packages/opencode/src/config/config.ts has no advisor either. Consumer: advisor/trigger.ts.
               no_progress: Schema.optional(Schema.Number),
             }),
           ),
