@@ -28,6 +28,7 @@ import { SessionCompaction } from "../../src/session/compaction"
 import { SessionSummary } from "../../src/session/summary"
 import { Instruction } from "../../src/session/instruction"
 import { SessionProcessor } from "../../src/session/processor"
+import { DSML_SALVAGE_LIMIT } from "../../src/session/dsml-salvage"
 import { SessionPrompt } from "../../src/session/prompt"
 import { SessionRevert } from "../../src/session/revert"
 import { SessionRunState } from "../../src/session/run-state"
@@ -468,6 +469,33 @@ it.instance("DSML notice can be switched off and the turn then ends silently as 
 
       const messages = (yield* sessionErrors(chat.id)).map((e) => (e.data as { message?: string }).message ?? "")
       expect(messages.some((m) => m.includes("HORDECODE_DSML_SALVAGE"))).toBe(false)
+    }),
+  ),
+)
+
+it.instance("DSML salvage stops at the per-session cap and falls back to the notice", () =>
+  withEnv(
+    { HORDECODE_DSML_SALVAGE: "1" },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const fs = yield* FSUtil.Service
+      const file = path.join(dir, "cap.txt")
+      yield* fs.writeWithDirs(file, "cap-content")
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "DSML salvage cap", permission: allowAll })
+
+      // Two reminders, then the cap is hit on the third response; every later DSML stop is already at the cap.
+      for (let i = 0; i < 3 + DSML_SALVAGE_LIMIT; i++) yield* llm.text(readCall(file))
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+      expect(DSML_SALVAGE_LIMIT).toBe(3)
+      const parts = yield* toolParts(chat.id)
+      expect(parts.filter((p) => p.state.status === "completed")).toHaveLength(DSML_SALVAGE_LIMIT)
+      expect(yield* llm.calls).toBe(3 + DSML_SALVAGE_LIMIT)
+      const messages = (yield* sessionErrors(chat.id)).map((e) => (e.data as { message?: string }).message ?? "")
+      expect(messages.some((m) => m.includes("wrote a tool call as plain text") && m.includes("could not be run"))).toBe(true)
     }),
   ),
 )

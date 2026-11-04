@@ -70,6 +70,7 @@ import { eq } from "drizzle-orm"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
+import * as DsmlSalvage from "./dsml-salvage"
 import { LLMEvent } from "@opencode-ai/llm"
 import { Goal } from "@opencode-ai/core/session/goal"
 import { SessionCheckpoint } from "@opencode-ai/core/session/checkpoint"
@@ -1693,7 +1694,7 @@ const layer = Layer.effect(
               )
               const calls = text.map(parseDsmlToolCalls).find((parsed) => parsed.complete && parsed.calls.length > 0)?.calls
               const salvaged =
-                Flag.HORDECODE_DSML_SALVAGE && calls
+                Flag.HORDECODE_DSML_SALVAGE && calls && !DsmlSalvage.exhausted(sessionID)
                   ? yield* salvageDsmlCalls({ lastUser, lastAssistant, msgs, calls, agentID, task_id, session }).pipe(
                       Effect.catchCause((cause) =>
                         Effect.logWarning("dsml:salvage failed", {
@@ -1703,6 +1704,7 @@ const layer = Layer.effect(
                       ),
                     )
                   : undefined
+              if (salvaged !== undefined) DsmlSalvage.record(sessionID)
               if (salvaged === "continue") continue
               if (salvaged === undefined && Flag.HORDECODE_DSML_NOTICE) {
                 const error = new NamedError.Unknown({
