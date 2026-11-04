@@ -2,8 +2,8 @@ import { Effect, Layer, Context, Option } from "effect"
 import { generateObject, streamObject, type ModelMessage } from "ai"
 import z from "zod"
 import * as OtelTracer from "@effect/opentelemetry/Tracer"
-import { InstanceState } from "../effect"
 import { EffectLogger } from "../effect"
+import { Storage } from "../storage"
 import { Provider, ProviderTransform } from "../provider/index"
 import type { ProviderID, ModelID } from "../provider/schema"
 import { Auth } from "../auth"
@@ -78,39 +78,58 @@ export const layer = Layer.effect(
     const auth = yield* Auth.Service
     const config = yield* Config.Service
     const bus = yield* Bus.Service
+    const storage = yield* Storage.Service
     const elog = EffectLogger.create({ service: "SessionGoal" })
+    const key = (sessionID: SessionID) => ["session_goal", sessionID]
+    const fallback = new Map<SessionID, Goal>()
 
-    const state = yield* InstanceState.make(
-      Effect.fn("SessionGoal.state")(function* () {
-        return { goals: new Map<string, Goal>() }
-      }),
-    )
+    // A storage outage must not end the turn: keep the goal in memory and warn. The
+    // fallback wins over a stale stored row until a write succeeds again.
+    const write = (sessionID: SessionID, goal: Goal) =>
+      storage.write(key(sessionID), goal).pipe(
+        Effect.as(true),
+        Effect.catch((error) =>
+          Effect.logWarning("goal storage write failed; keeping the goal in memory", { sessionID, error }).pipe(
+            Effect.as(false),
+          ),
+        ),
+        Effect.tap((written) =>
+          Effect.sync(() => {
+            if (written) fallback.delete(sessionID)
+            else fallback.set(sessionID, goal)
+          }),
+        ),
+      )
+
+    const read = (sessionID: SessionID) =>
+      storage
+        .read<Goal>(key(sessionID))
+        .pipe(Effect.catch(() => Effect.succeed<Goal | undefined>(undefined)))
+        .pipe(Effect.map((stored) => fallback.get(sessionID) ?? stored))
 
     const set = Effect.fn("SessionGoal.set")(function* (sessionID: SessionID, condition: string) {
-      const data = yield* InstanceState.get(state)
-      data.goals.set(sessionID, { condition, react: 0 })
+      yield* write(sessionID, { condition, react: 0 } satisfies Goal)
       yield* elog.info("goal set", { sessionID, condition })
       yield* bus.publish(Event.Updated, { sessionID, goal: { condition } })
     })
 
     const get = Effect.fn("SessionGoal.get")(function* (sessionID: SessionID) {
-      const data = yield* InstanceState.get(state)
-      return data.goals.get(sessionID)
+      return yield* read(sessionID)
     })
 
     const clear = Effect.fn("SessionGoal.clear")(function* (sessionID: SessionID) {
-      const data = yield* InstanceState.get(state)
-      data.goals.delete(sessionID)
+      fallback.delete(sessionID)
+      yield* storage.remove(key(sessionID)).pipe(Effect.ignore)
       yield* elog.info("goal cleared", { sessionID })
       yield* bus.publish(Event.Updated, { sessionID, goal: undefined })
     })
 
     const bumpReact = Effect.fn("SessionGoal.bumpReact")(function* (sessionID: SessionID) {
-      const data = yield* InstanceState.get(state)
-      const goal = data.goals.get(sessionID)
+      const goal = yield* read(sessionID)
       if (!goal) return 0
-      goal.react += 1
-      return goal.react
+      const next = { ...goal, react: goal.react + 1 }
+      yield* write(sessionID, next satisfies Goal)
+      return next.react
     })
 
     const evaluate = Effect.fn("SessionGoal.evaluate")(function* (input: {
@@ -195,6 +214,7 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Auth.defaultLayer),
     Layer.provide(Config.defaultLayer),
     Layer.provide(Bus.layer),
+    Layer.provide(Storage.defaultLayer),
   ),
 )
 
