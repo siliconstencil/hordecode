@@ -1,5 +1,5 @@
 import { describe, expect, beforeAll, beforeEach, afterAll, test } from "bun:test"
-import { Effect, Exit, Layer, Ref } from "effect"
+import { Effect, Layer, Ref } from "effect"
 import { HttpClient, HttpClientResponse } from "effect/unstable/http"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNodePlatform } from "@opencode-ai/core/effect/app-node-platform"
@@ -100,19 +100,18 @@ beforeEach(async () => {
   await rm(cacheFile, { force: true })
 })
 
-// Cause of the `UnknownError` ("Unexpected server error", err_...) that POST /session/:id/message and /command
-// returned on `horde serve`, and that `horde run` returns too: SessionPrompt.getModel reads the models catalog; with no
-// cache file, no bundled snapshot (OPENCODE_MODELS_DEV, defined only in release builds) and no network, populate() ends
-// in Effect.orDie (core/src/models-dev.ts:232), so the request dies. Reproduced live on 2026-11-04 with serve and run;
-// the same requests succeed with HORDECODE_DISABLE_MODELS_FETCH=1.
+// The catalog host can be unreachable (offline machine, blocked proxy). An unreachable host must not kill the request:
+// get() falls back to the cache, then the bundled snapshot, then an empty catalog with one warning.
 describe("ModelsDev catalog when the host is unreachable", () => {
-  test("characterization: with no cache, no snapshot and fetch enabled, get() dies (defect, not an empty catalog)", async () => {
+  test("a cached catalog is used when the host is unreachable", async () => {
+    const cached = { cached: { id: "cached", name: "Cached", env: [], models: {} } }
+    await writeFile(cacheFile, JSON.stringify(cached))
     const state = await Effect.runPromise(Ref.make<MockState>({ calls: 0 }))
-    const exit = await Effect.runPromise(
-      withFetchEnabled(ModelsDev.Service.use((s) => s.get())).pipe(Effect.provide(buildLayer(state)), Effect.scoped, Effect.exit),
+    const result = await Effect.runPromise(
+      withFetchEnabled(ModelsDev.Service.use((s) => s.get())).pipe(Effect.provide(buildLayer(state)), Effect.scoped),
     )
-    expect(Exit.isFailure(exit)).toBe(true)
-    expect((await Effect.runPromise(Ref.get(state))).calls).toBeGreaterThan(0)
+    expect(result).toEqual(cached)
+    expect((await Effect.runPromise(Ref.get(state))).calls).toBe(0)
   }, 30_000)
 
   test("the same lookup with fetch disabled returns an empty catalog without a request (control)", async () => {
