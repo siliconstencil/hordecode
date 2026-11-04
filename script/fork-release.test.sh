@@ -36,4 +36,43 @@ printf '%s' "$phase" | grep -q 'isolated "\$base/home" bash "\$base/install.sh"'
 printf '%s' "$phase" | grep -q 'isolated "\$base/home" "\$base/home/.hordecode/bin/horde" --version'; check "installed binary is checked through isolated()" $?
 if printf '%s' "$phase" | grep -qE '(^|[^_a-z])HOME="\$base/home" (bash|"\$base)'; then r=1; else r=0; fi; check "no installer call inherits the maintainer PATH" $r
 
+# --- Behaviour: run the real verify phase against stubs (no network). ---------------------------------
+# npm and gh fail on purpose (only the installer step is under test); curl hands out a stub install.sh that
+# records the arguments and environment it was started with and then "installs" a horde.
+stubs="$work/stubs"; mkdir -p "$stubs" "$work/dev" "$work/preinstalled"
+printf '#!/bin/sh\nexit 1\n' > "$stubs/npm"; cp "$stubs/npm" "$stubs/gh"
+cat > "$stubs/curl" <<'STUB'
+#!/bin/sh
+out=""; while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out="$2"; shift; done
+cat > "$out" <<'INSTALL'
+printf '%s\n' "$@" > "$HOME/args"
+env > "$HOME/env"
+mkdir -p "$HOME/.hordecode/bin"
+printf '#!/bin/sh\necho 0.0.9\n' > "$HOME/.hordecode/bin/horde"; chmod +x "$HOME/.hordecode/bin/horde"
+INSTALL
+STUB
+chmod +x "$stubs/npm" "$stubs/gh" "$stubs/curl"
+printf '#!/bin/sh\necho 0.0.9\n' > "$work/preinstalled/horde"; chmod +x "$work/preinstalled/horde"
+
+verify() { # verify <label> [env assignments...]; prints the phase output, leaves the verify dir under $work/dev
+  rm -rf "$work/dev/build-worktrees"
+  env "$@" HORDECODE_DEV_ROOT="$work/dev" PATH="$stubs:$PATH" bash "$SCRIPT" verify 0.0.9 HEAD 2>&1 || true
+}
+homes() { find "$work/dev/build-worktrees" -type d -name home 2>/dev/null | head -1; }
+
+out="$(verify MAINTAINER_SECRET=1 HTTPS_PROXY=http://proxy.invalid:3128)"
+h="$(homes)"
+echo "$out" | grep -q 'ok   installer horde --version = 0.0.9'; check "verify: installer ran and the installed horde reports the version" $?
+[ "$(cat "$h/args" 2>/dev/null)" = "$(printf -- '--version\n0.0.9')" ]; check "verify: the installer is pinned with --version <version>" $?
+if grep -qE '^(MAINTAINER_SECRET|HTTPS_PROXY)=' "$h/env" 2>/dev/null; then r=1; else r=0; fi; check "verify: maintainer env (secret, proxy) does not reach the installer" $r
+grep -q '^PATH=/usr/bin:/bin$' "$h/env" 2>/dev/null; check "verify: installer PATH is the minimal one" $?
+
+out="$(verify HORDECODE_VERIFY_PATH="$work/preinstalled:/usr/bin:/bin")"
+h="$(homes)"
+echo "$out" | grep -q 'FAIL isolated PATH already resolves a horde binary'; check "verify: guard fails when the isolated PATH already has a horde" $?
+[ ! -e "$h/args" ]; check "verify: guard stops before the installer runs" $?
+
+# The script comment names the dropped proxy and CA variables.
+grep -q 'HTTPS_PROXY' "$SCRIPT" && grep -q 'SSL_CERT_FILE' "$SCRIPT"; check "script comment mentions the dropped proxy/CA variables" $?
+
 [ "$fails" -eq 0 ]

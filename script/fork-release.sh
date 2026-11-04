@@ -217,12 +217,17 @@ phase_github() {
 }
 
 # Runs a command with a scrubbed environment: only HOME (the isolated directory), a minimal PATH and a
-# few locale/terminal variables survive. The maintainer's PATH, HORDECODE_*/OPENCODE_* and proxy
-# settings do not leak in, so the installer cannot find an already installed horde (it skips the
-# install when `command -v horde` reports the requested version) and cannot read the maintainer's config.
+# few locale/terminal variables survive. The maintainer's PATH, HORDECODE_*/OPENCODE_* and secrets do not
+# leak in, so the installer cannot find an already installed horde (it skips the install when
+# `command -v horde` reports the requested version) and cannot read the maintainer's config.
+# env -i also drops HTTPS_PROXY, HTTP_PROXY, NO_PROXY, SSL_CERT_FILE and CURL_CA_BUNDLE: on a host that needs
+# a proxy or a private CA the installer download fails and this phase reports FAIL for that reason, not
+# because of the release. Run verify from a host with direct access.
+# HORDECODE_VERIFY_PATH replaces the minimal PATH (default /usr/bin:/bin) for hosts whose curl, tar and
+# gzip live elsewhere; the guard below still fails when it resolves a horde.
 isolated() {
   local home="$1"; shift
-  env -i HOME="$home" PATH="/usr/bin:/bin" TERM=dumb LANG=C.UTF-8 "$@"
+  env -i HOME="$home" PATH="${HORDECODE_VERIFY_PATH:-/usr/bin:/bin}" TERM=dumb LANG=C.UTF-8 "$@"
 }
 
 phase_verify() {
