@@ -717,6 +717,8 @@ const layer = Layer.effect(
       }
       yield* Effect.logInfo("created", result)
       // A session spawned under a harness session keeps the harness path mapping (shell env and prompt).
+      // Fork-only: upstream v1.19.5 packages/opencode/src/session/session.ts:533 (the "created" log) is followed
+      // directly by the Created event (:535); no per-session state is inherited there.
       if (result.parentID) HarnessEnv.inherit(result.parentID as never, result.id as never)
 
       yield* events.publish(SessionV1.Event.Created, { sessionID: result.id, info: result })

@@ -4,6 +4,7 @@ import { describe, expect } from "bun:test"
 import path from "path"
 import { Global } from "@opencode-ai/core/global"
 import { Effect } from "effect"
+import { HarnessEnv } from "@opencode-ai/core/session/harness-env"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import type { Tool } from "@/tool/tool"
 import { assertExternalDirectoryEffect } from "../../src/tool/external-directory"
@@ -191,4 +192,47 @@ describe("tool.assertExternalDirectory", () => {
       { git: true },
     )
   }
+})
+
+describe("tool.assertExternalDirectory harness evidence", () => {
+  const evidence = path.join(Global.Path.state, "harness-evidence", "abc123")
+
+  it.instance("the evidence dir of a harness session is granted without an ask, nothing else is", () =>
+    Effect.gen(function* () {
+      const sessionID = SessionID.make("ses_harness_evidence")
+      HarnessEnv.set(sessionID, { HORDECODE_HARNESS_DOCS: "/abs/docs", HORDECODE_HARNESS_EVIDENCE: evidence })
+      const { requests, ctx } = makeCtx()
+      const harness = { ...ctx, sessionID }
+
+      yield* assertExternalDirectoryEffect(harness, path.join(evidence, "run-1", "verify.evidence"))
+      yield* assertExternalDirectoryEffect(harness, evidence, { kind: "directory" })
+      expect(requests.length).toBe(0)
+
+      // Siblings of the evidence dir and look-alike prefixes still ask.
+      yield* assertExternalDirectoryEffect(harness, path.join(Global.Path.state, "harness-evidence", "other", "x.evidence"))
+      yield* assertExternalDirectoryEffect(harness, evidence + "-evil/x.evidence")
+      yield* assertExternalDirectoryEffect(harness, path.join(Global.Path.state, "auth.json"))
+      expect(requests.length).toBe(3)
+    }),
+  )
+
+  it.instance("a session without a harness mapping still asks for the same path", () =>
+    Effect.gen(function* () {
+      const { requests, ctx } = makeCtx()
+      yield* assertExternalDirectoryEffect({ ...ctx, sessionID: SessionID.make("ses_not_harness_2") }, path.join(evidence, "run-1", "x.evidence"))
+      expect(requests.length).toBe(1)
+    }),
+  )
+
+  it.instance("a child session of the harness session inherits the grant", () =>
+    Effect.gen(function* () {
+      const parent = SessionID.make("ses_harness_parent_ed")
+      const child = SessionID.make("ses_harness_child_ed")
+      HarnessEnv.set(parent, { HORDECODE_HARNESS_DOCS: "/abs/docs", HORDECODE_HARNESS_EVIDENCE: evidence })
+      HarnessEnv.inherit(parent, child)
+      const { requests, ctx } = makeCtx()
+      yield* assertExternalDirectoryEffect({ ...ctx, sessionID: child }, path.join(evidence, "run-2", "x.evidence"))
+      expect(requests.length).toBe(0)
+    }),
+  )
 })

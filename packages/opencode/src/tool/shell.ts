@@ -667,7 +667,8 @@ export const ShellTool = Tool.define(
         // extra.env comes last and so can still override the floor.
         ...gitFloor,
         // Harness sessions (and the sessions they spawn) get the resolved harness paths, so the gate
-        // scripts need no env prefix from the model.
+        // scripts need no env prefix from the model. Fork-only: upstream v1.19.5 packages/opencode/src/tool/shell.ts
+        // builds this env at :418 and :575 (plugin shell.env, process env) with no per-session additions.
         ...HarnessEnv.get(ctx.sessionID),
         ...extra.env,
       }
