@@ -192,9 +192,10 @@ export const Flag = {
   // Getters: experimental.switches in the global config sets these env names at startup
   // (opencode/src/config/switch-env.ts), so they are read at use, not at import.
   // DSML text tool calls that survive the retry cap: salvage executes the complete calls through the
-  // normal permission path (default OFF); the notice ends the turn visibly when they are not run (default ON).
+  // normal permission path (default ON; HORDECODE_DSML_SALVAGE=false or 0 turns it off). The notice
+  // ends the turn visibly when salvage is off or the per-session cap is spent (default ON).
   get HORDECODE_DSML_SALVAGE() {
-    return truthy("HORDECODE_DSML_SALVAGE")
+    return !falsy("HORDECODE_DSML_SALVAGE")
   },
   get HORDECODE_DSML_NOTICE() {
     return !falsy("HORDECODE_DSML_NOTICE")

@@ -301,21 +301,24 @@ it.instance("DSML call written as the end of a stop is retried once, then the tu
 )
 
 it.instance("DSML retry stops at the cap and the turn ends as before", () =>
-  Effect.gen(function* () {
-    const { llm } = yield* useServerConfig()
-    const prompt = yield* SessionPrompt.Service
-    const sessions = yield* Session.Service
-    const chat = yield* sessions.create({ title: "DSML cap", permission: allowAll })
+  withEnv(
+    { HORDECODE_DSML_SALVAGE: "0" },
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig()
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "DSML cap", permission: allowAll })
 
-    yield* llm.text(dsmlCall)
-    yield* llm.text(dsmlCall)
-    yield* llm.text(dsmlCall)
+      yield* llm.text(dsmlCall)
+      yield* llm.text(dsmlCall)
+      yield* llm.text(dsmlCall)
 
-    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
 
-    expect(yield* llm.calls).toBe(3)
-    expect(yield* reminders(chat.id)).toHaveLength(2)
-  }),
+      expect(yield* llm.calls).toBe(3)
+      expect(yield* reminders(chat.id)).toHaveLength(2)
+    }),
+  ),
 )
 
 it.instance("prose that names DSML without a call block is not retried", () =>
@@ -424,6 +427,32 @@ it.instance("DSML salvage runs the complete calls as real tool calls when the re
   ),
 )
 
+it.instance("DSML salvage runs by default when the retry cap is exhausted", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig()
+    const fs = yield* FSUtil.Service
+    const file = path.join(dir, "salvage-default.txt")
+    yield* fs.writeWithDirs(file, "default-salvaged-content")
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "DSML salvage default", permission: allowAll })
+
+    yield* llm.text(readCall(file))
+    yield* llm.text(readCall(file))
+    yield* llm.text(readCall(file))
+    yield* llm.text("done")
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+    expect(yield* llm.calls).toBe(4)
+    const parts = yield* toolParts(chat.id)
+    expect(parts).toHaveLength(1)
+    expect(parts[0].tool).toBe("read")
+    expect(parts[0].state.status).toBe("completed")
+    expect(JSON.stringify(parts[0].state)).toContain("default-salvaged-content")
+  }),
+)
+
 it.instance("DSML salvage goes through the permission path: a denied tool is not run and the error goes back to the model", () =>
   withEnv(
     { HORDECODE_DSML_SALVAGE: "1" },
@@ -457,7 +486,9 @@ it.instance("DSML salvage goes through the permission path: a denied tool is not
 )
 
 it.instance("DSML cap with salvage off ends the turn with a visible notice", () =>
-  Effect.gen(function* () {
+  withEnv(
+    { HORDECODE_DSML_SALVAGE: "0" },
+    Effect.gen(function* () {
     const { llm } = yield* useServerConfig()
     const prompt = yield* SessionPrompt.Service
     const sessions = yield* Session.Service
@@ -475,13 +506,14 @@ it.instance("DSML cap with salvage off ends the turn with a visible notice", () 
     expect(notices).toHaveLength(1)
     expect(notices[0]).toContain("HORDECODE_DSML_SALVAGE")
     // Display only: the message is not an error and no session error was published for it.
-    expect((yield* sessionErrors(chat.id)).filter((e) => (e.data as { message?: string }).message?.includes("stopped"))).toHaveLength(0)
-  }),
+      expect((yield* sessionErrors(chat.id)).filter((e) => (e.data as { message?: string }).message?.includes("stopped"))).toHaveLength(0)
+    }),
+  ),
 )
 
 it.instance("DSML notice can be switched off and the turn then ends silently as before", () =>
   withEnv(
-    { HORDECODE_DSML_NOTICE: "0" },
+    { HORDECODE_DSML_SALVAGE: "0", HORDECODE_DSML_NOTICE: "0" },
     Effect.gen(function* () {
       const { llm } = yield* useServerConfig()
       const prompt = yield* SessionPrompt.Service
@@ -591,9 +623,9 @@ it.instance("with salvage off the only change from 0.1.5 is the visible notice (
       }
     })
 
-    const baseline = yield* withEnv({ HORDECODE_DSML_NOTICE: "0" }, scenario())
+    const baseline = yield* withEnv({ HORDECODE_DSML_SALVAGE: "0", HORDECODE_DSML_NOTICE: "0" }, scenario())
     const eventsAfterBaseline = seen.length
-    const withNotice = yield* scenario()
+    const withNotice = yield* withEnv({ HORDECODE_DSML_SALVAGE: "0" }, scenario())
 
     expect(baseline.notices).toBe(0)
     expect(withNotice.notices).toBe(1)
