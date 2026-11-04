@@ -35,6 +35,7 @@ import { SessionRunState } from "../../src/session/run-state"
 import { SessionStatus } from "../../src/session/status"
 import { SessionID } from "../../src/session/schema"
 import { SystemPrompt } from "../../src/session/system"
+import { SupervisorRegistryService } from "@opencode-ai/supervisor/registry"
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "@/tool/registry"
 import { Truncate } from "@/tool/truncate"
@@ -602,4 +603,130 @@ it.instance("with salvage off the only change from 0.1.5 is the visible notice (
     expect(withNotice.errors).toEqual(baseline.errors)
     expect(seen.length - eventsAfterBaseline).toBe(eventsAfterBaseline)
   }),
+)
+
+const salvageBlock = (calls: Array<[string, string]>) =>
+  [
+    `<${D} calls>`,
+    ...calls.flatMap(([name, file]) => [
+      `<${D} invoke name="${name}">`,
+      `<${D} parameter name="filePath" string="true">${file}</${D} parameter>`,
+      `</${D} invoke>`,
+    ]),
+    `</${D} calls>`,
+  ].join("\n")
+
+const fileIn = Effect.fn("dsml-retry.fileIn")(function* (dir: string, name: string, content: string) {
+  const fs = yield* FSUtil.Service
+  const file = path.join(dir, name)
+  yield* fs.writeWithDirs(file, content)
+  return file
+})
+
+it.instance("DSML salvage is all or nothing: a block naming an unknown tool runs nothing", () =>
+  withEnv(
+    { HORDECODE_DSML_SALVAGE: "1" },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const file = yield* fileIn(dir, "mixed.txt", "mixed-content")
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "DSML mixed", permission: allowAll })
+
+      for (let i = 0; i < 3; i++) yield* llm.text(salvageBlock([["read", file], ["no_such_tool", file]]))
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+      expect(yield* toolParts(chat.id)).toHaveLength(0)
+      expect(yield* llm.calls).toBe(3)
+      expect((yield* noticeTexts(chat.id))[0]).toContain("could not be run")
+    }),
+  ),
+)
+
+it.instance("DSML salvage treats Object.prototype names as unknown tools", () =>
+  withEnv(
+    { HORDECODE_DSML_SALVAGE: "1" },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const file = yield* fileIn(dir, "proto.txt", "proto-content")
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "DSML proto", permission: allowAll })
+
+      for (let i = 0; i < 3; i++) yield* llm.text(salvageBlock([["read", file], ["constructor", file]]))
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+      expect(yield* toolParts(chat.id)).toHaveLength(0)
+    }),
+  ),
+)
+
+it.instance("DSML salvage runs every call of a block of known tools, in order", () =>
+  withEnv(
+    { HORDECODE_DSML_SALVAGE: "1" },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const one = yield* fileIn(dir, "one.txt", "first-content")
+      const two = yield* fileIn(dir, "two.txt", "second-content")
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "DSML two", permission: allowAll })
+
+      for (let i = 0; i < 3; i++) yield* llm.text(salvageBlock([["read", one], ["read", two]]))
+      yield* llm.text("done")
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+      const parts = yield* toolParts(chat.id)
+      expect(parts.map((p) => p.state.status)).toEqual(["completed", "completed"])
+      expect(JSON.stringify(parts[0].state)).toContain("first-content")
+      expect(JSON.stringify(parts[1].state)).toContain("second-content")
+    }),
+  ),
+)
+
+it.instance("DSML salvage honours the supervisor tool allowlist (through SessionTools.resolve)", () =>
+  withEnv(
+    { HORDECODE_DSML_SALVAGE: "1" },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig()
+      const file = yield* fileIn(dir, "allow.txt", "allow-content")
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const registry = yield* SupervisorRegistryService.Service
+      const chat = yield* sessions.create({ title: "DSML allowlist", permission: allowAll })
+      yield* registry.register({
+        sessionID: chat.id,
+        supervisorID: "worker",
+        mode: "subagent",
+        parentSupervisorID: "main",
+        agent: "build",
+        description: "allowlist test",
+        contextMode: "none",
+        contextWatermark: undefined,
+        background: false,
+        lifecycle: "persistent",
+        tools: ["grep"],
+      })
+
+      for (let i = 0; i < 3; i++) yield* llm.text(salvageBlock([["read", file]]))
+
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        agentID: "worker",
+        parts: [{ type: "text", text: "hello" }],
+      })
+
+      // read is not on the worker's allowlist: SessionTools.resolve swaps its executor for the rejection stub, so
+      // the salvaged call ends exactly like a structured one would ("Tool not permitted"), the file is not read.
+      const parts = yield* toolParts(chat.id)
+      expect(parts).toHaveLength(1)
+      const state = parts[0].state as { output?: string; metadata?: { rejected?: boolean; reason?: string } }
+      expect(state.metadata).toMatchObject({ rejected: true, reason: "tool-whitelist" })
+      expect(JSON.stringify(state)).not.toContain("allow-content")
+    }),
+  ),
 )

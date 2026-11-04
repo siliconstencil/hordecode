@@ -1462,8 +1462,11 @@ const layer = Layer.effect(
       if (input.step >= (input.steps ?? agent.steps ?? 100)) return undefined
       const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
       const handle = yield* processor.create({ assistantMessage: lastAssistant, sessionID, model })
-      const supervisorRow = lastUser.agentID
-        ? yield* supervisorRegistry.get(sessionID, lastUser.agentID).pipe(Effect.orElseSucceed(() => undefined))
+      // The loop's own agentID: the DSML retry re-entry user message carries none, so lastUser.agentID is
+      // empty after retries and would lose the supervisor row (and with it the tool allowlist).
+      const effectiveAgentID = input.agentID ?? lastUser.agentID
+      const supervisorRow = effectiveAgentID
+        ? yield* supervisorRegistry.get(sessionID, effectiveAgentID).pipe(Effect.orElseSucceed(() => undefined))
         : undefined
       const askSupervisor =
         lastUser.agent && session.parentID
@@ -1487,7 +1490,7 @@ const layer = Layer.effect(
         promptOps: yield* ops(),
         askSupervisor,
         taskId: input.task_id,
-        supervisorID: lastUser.agentID ?? "main",
+        supervisorID: effectiveAgentID ?? "main",
         toolWhitelist,
       }).pipe(
         Effect.provideService(Plugin.Service, plugin),
@@ -1497,9 +1500,10 @@ const layer = Layer.effect(
         Effect.provideService(Truncate.Service, truncate),
         Effect.provideService(RuntimeFlags.Service, flags),
       )
-      // An unknown tool name, or one the supervisor allowlist hides, is not run: all or nothing.
-      const allowed = (name: string) => name in tools && (toolWhitelist === undefined || toolWhitelist.includes(name))
-      if (!input.calls.every((call) => allowed(call.name))) return undefined
+      // All or nothing: a block naming a tool that is not resolved for this agent (unknown, or hidden by the
+      // supervisor allowlist, which SessionTools.resolve applies) is not run. hasOwn: Object.prototype names
+      // such as "constructor" are not tools.
+      if (!input.calls.every((call) => Object.hasOwn(tools, call.name))) return undefined
       yield* Effect.logInfo("dsml:salvage", { "session.id": sessionID, calls: input.calls.length })
       const result = yield* handle.replay({
         toolCalls: input.calls.map((call, index) => ({
@@ -1697,7 +1701,10 @@ const layer = Layer.effect(
               const text = lastAssistantMsg.parts.flatMap((part) =>
                 part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : [],
               )
-              const calls = text.map(parseDsmlToolCalls).find((parsed) => parsed.complete && parsed.calls.length > 0)?.calls
+              // The same part the trigger (dsmlToolCallStop) matched: complete, trailing, with calls.
+              const calls = text
+                .map(parseDsmlToolCalls)
+                .find((parsed) => parsed.complete && parsed.trailing && parsed.calls.length > 0)?.calls
               const salvaged =
                 Flag.HORDECODE_DSML_SALVAGE && calls && !DsmlSalvage.exhausted(sessionID)
                   ? yield* salvageDsmlCalls({ lastUser, lastAssistant, msgs, calls, agentID, task_id, session, step, steps }).pipe(
