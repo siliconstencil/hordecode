@@ -388,6 +388,8 @@ export type TuiState = {
     get: (sessionID: string) => Session | undefined
     diff: (sessionID: string) => ReadonlyArray<TuiSidebarFileItem>
     todo: (sessionID: string) => ReadonlyArray<TuiSidebarTodoItem>
+    // Hordecode: last todo update, used to hide a plan from an earlier request (upstream 1.19.5 has no timestamp).
+    todoUpdatedAt: (sessionID: string) => number | undefined
     messages: (sessionID: string) => ReadonlyArray<Message>
     status: (sessionID: string) => SessionStatus | undefined
     permission: (sessionID: string) => ReadonlyArray<PermissionRequest>

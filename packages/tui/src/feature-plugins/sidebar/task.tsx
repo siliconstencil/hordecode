@@ -14,6 +14,35 @@ function depthOf(taskId: string): number {
 
 const STATUS_ORDER: Record<string, number> = { in_progress: 0, open: 1, blocked: 2 }
 
+type RequestScopedTask = {
+  status: string
+  ended_at: number | null
+}
+
+// The newest user message marks the start of the current request. Finished tasks from
+// earlier requests are no longer current work; they stay queryable through task list.
+export function currentRequestStart(
+  messages: ReadonlyArray<{ role?: string; time?: { created?: number } }>,
+): number | undefined {
+  return messages.reduce<number | undefined>((start, message) => {
+    if (message.role !== "user") return start
+    const created = message.time?.created
+    if (typeof created !== "number") return start
+    return start === undefined || created > start ? created : start
+  }, undefined)
+}
+
+export function tasksForCurrentRequest<T extends RequestScopedTask>(
+  tasks: ReadonlyArray<T>,
+  requestStart: number | undefined,
+): ReadonlyArray<T> {
+  if (requestStart === undefined) return tasks
+  return tasks.filter((task) => {
+    if (task.status !== "done" && task.status !== "abandoned") return true
+    return task.ended_at !== null && task.ended_at >= requestStart
+  })
+}
+
 type TreeState = {
   supervisor: () => Parameters<typeof filterSupervisorList>[0]
   session: {
@@ -41,7 +70,12 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
   const [open, setOpen] = createSignal(true)
   const [doneExpanded, setDoneExpanded] = createSignal(false)
   const theme = () => props.api.theme.current
-  const all = createMemo(() => props.api.state.session.task(props.session_id))
+  const all = createMemo(() =>
+    tasksForCurrentRequest(
+      props.api.state.session.task(props.session_id),
+      currentRequestStart(props.api.state.session.messages(props.session_id)),
+    ),
+  )
   const busy = createMemo(() => sessionTreeBusy(props.session_id, props.api.state))
   const active = createMemo(() =>
     all()

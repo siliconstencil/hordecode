@@ -155,6 +155,10 @@ export const {
       todo: {
         [sessionID: string]: Todo[]
       }
+      // Hordecode: last todo update per session, used to hide a plan from an earlier request.
+      todo_updated_at: {
+        [sessionID: string]: number
+      }
       message: {
         [sessionID: string]: {
           [agentID: string]: Message[]
@@ -233,6 +237,7 @@ export const {
       session_diff: {},
       task: {},
       todo: {},
+      todo_updated_at: {},
       message: {},
       part: {},
       lsp: [],
@@ -609,6 +614,7 @@ export const {
 
         case "todo.updated":
           setStore("todo", event.properties.sessionID, event.properties.todos)
+          setStore("todo_updated_at", event.properties.sessionID, Date.now())
           break
 
         case "session.diff":

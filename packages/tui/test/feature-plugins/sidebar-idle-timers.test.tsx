@@ -41,6 +41,7 @@ function api(input: { supervisor?: unknown[]; messages?: unknown[]; providers?: 
         get: () => ({ id: "s1", cost: 0 }) as never,
         diff: () => [],
         todo: () => [],
+        todoUpdatedAt: () => undefined,
         count: () => 0,
         status: () => undefined,
         permission: () => [],
