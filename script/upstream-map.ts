@@ -134,9 +134,9 @@ Reference points:
 
 | class | meaning | rule for changes |
 |---|---|---|
-| PARITY | identical to opencode ${parityLabel} | Do not edit. Upstream owns it; take the next upstream version as-is. |
-| LAGGING | identical to ${base}, upstream has moved on | Port the upstream change, do not hand-edit. |
-| FORK_DELTA | upstream file that Hordecode modified | Every edit must cite the upstream and MiMo reference. Ports must re-apply the delta. |
+| PARITY | identical to opencode ${parityLabel} | Base file, maintained by Hordecode. Change it when the change is needed and measured: reason, test, one provenance line. |
+| LAGGING | identical to ${base}, upstream has moved on | Base file; take the upstream change when it helps, or replace it with a better one. |
+| FORK_DELTA | upstream file that Hordecode modified | A changed base file. Each hunk carries one provenance line (upstream or MiMo file:line it departs from). |
 | FORK_ONLY | exists only in Hordecode | Hordecode owns it. Custom features and the MiMo delta-port live here. |
 | kept (upstream removed) | Hordecode still carries a file upstream deleted | Decide per file at the next port. |
 | UPSTREAM_ONLY | present in ${parityLabel}, absent here | Not yet ported (deliberately dropped: ${dropped.map((d) => `\`${d}\``).join(", ")}). |
@@ -156,7 +156,7 @@ ${forkOnlyPackages
 
 ${table(packageKeys)}
 
-A package with zero LAGGING and zero UPSTREAM_ONLY rows is at parity. Packages with large LAGGING or UPSTREAM_ONLY counts are upstream-owned and behind; port them, do not hand-fix.
+A package with zero LAGGING and zero UPSTREAM_ONLY rows is at parity. LAGGING and UPSTREAM_ONLY rows show where upstream moved on; take those changes selectively when they help.
 
 ## Root and tooling
 
@@ -166,10 +166,10 @@ Upstream infrastructure that Hordecode cannot run (\`infra/\`, \`sst.config.ts\`
 
 ## Working rules
 
-1. Before editing any file, look it up in \`docs/upstream-map-files.tsv\`. PARITY and LAGGING files are not edited by hand.
-2. A FORK_DELTA edit cites the upstream file:line and, where the behavior comes from MiMo, the MiMo file:line.
-3. A port is complete only when: the code lands, \`hordecodeBase\` is bumped, and a \`git merge -s ours <upstream tag>\` marker commit records the new ancestry. Then regenerate this map.
-4. If neither upstream nor MiMo has the answer, report it; do not invent. Humans decide.
+1. Before editing any file, look it up in \`docs/upstream-map-files.tsv\` so the origin of the file is known.
+2. A change to a PARITY, LAGGING or FORK_DELTA file carries a reason, a test and one provenance line (the upstream or MiMo file:line it departs from).
+3. Check upstream (1.x and 2.x) and MiMo first and prefer their fix when it fits; otherwise Hordecode builds its own. State the expected effect and measure it.
+4. A full upstream port, if one is ever made, lands with the \`hordecodeBase\` bump and a \`git merge -s ours <upstream tag>\` marker commit. Then regenerate this map.
 `
 
 fs.mkdirSync(path.join(root, "docs"), { recursive: true })

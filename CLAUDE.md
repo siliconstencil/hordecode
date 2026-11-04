@@ -8,15 +8,16 @@ port procedure); it wins on fork questions.
 
 ## What Hordecode is
 
-Hordecode is a friendly fork of opencode that tracks upstream, carries a delta-port of MiMo Code,
-and adds its own features. Primary command `horde`, alias `hordecode`, npm package `hordecode`,
-GitHub `siliconstencil/hordecode`. Not affiliated with either upstream.
+Hordecode is an independent platform. It started as a friendly fork of opencode and carries a
+delta-port of MiMo Code; from 0.1.6 it maintains that code base itself and adds its own
+features. Primary command `horde`, alias `hordecode`, npm package `hordecode`, GitHub
+`siliconstencil/hordecode`. Not affiliated with either upstream.
 
 - Starting bases: opencode 1.17.18 (git ancestor tag `v1.17.18`) and MiMo Code 0.1.5.
-- Current parity: opencode 1.19.5 for `core`, `opencode`, `tui`, `cli`, `server`, the small
-  packages and the UI packages (`app`, `desktop`, `ui`, `session-ui`, `web`). `enterprise` and
+- Base: opencode 1.19.5 (the last 1.x release) for `core`, `opencode`, `tui`, `cli`, `server`,
+  the small packages and the UI packages (`app`, `desktop`, `ui`, `session-ui`, `web`). `enterprise` and
   `function` keep the 1.17.18 base (only enterprise `app.tsx` was ported). MiMo Code
-  parity 0.1.11; from 0.1.12 MiMo changed its orchestrator, so MiMo updates are selective.
+  base 0.1.11; from 0.1.12 MiMo changed its orchestrator, so MiMo updates are selective.
 - MiMo "actor" is Hordecode `supervisor`; MiMo "compose" is the Hordecode `harness` pipeline.
   Both are customized ports, not copies. The name "compose" is retired.
 - Hordecode-only packages: agent, bus, control-plane, cron, global, inbox, memory, project,
@@ -36,12 +37,12 @@ measured against those five words.
 Read-only checkouts next to the repository under `../repos/`, from
 https://github.com/anomalyco/opencode and https://github.com/XiaomiMiMo/MiMo-Code:
 
-- `opencode-1.19.5/` (tag `v1.19.5`) parity reference (latest 1.x);
-  `opencode-1.19.4/` (tag `v1.19.4`) previous parity. Upstream develops 1.x on branch `v1`;
-  the 2.x line (`v2.0.x` tags, the upstream mainline since 2026-09) is a restructured product,
-  not a port target. Hordecode 0.1.x follows the latest 1.x release.
+- `opencode-1.19.5/` (tag `v1.19.5`) base reference (last 1.x; branch `v1` unchanged since);
+  `opencode-1.19.4/` (tag `v1.19.4`) previous base. The 2.x line (`v2.x` tags, the upstream
+  mainline since 2026-09) is a restructured product and a reference source: parts of it may be
+  taken or customized when a measurement shows they help.
 - `mimocode-v0.1.5/` (commit `b3a8063b`) starting base; `mimocode-v0.1.11/` (tag `v0.1.11`)
-  parity reference; `mimocode-0.1.12/` (tag `v0.1.12`) first version after the orchestrator
+  base reference; `mimocode-0.1.12/` (tag `v0.1.12`) first version after the orchestrator
   change.
 
 Create one with, for example,
@@ -53,24 +54,32 @@ Never cite a folder by its label alone; check `package.json` version or the git 
 
 ## How fixes are made
 
-1. Look the file up in `docs/upstream-map-files.tsv`.
-   - PARITY or LAGGING: upstream owns it. Do not hand-edit; port the upstream version.
-   - FORK_DELTA: edit only with a citation to the upstream file:line and, when the behavior
-     comes from MiMo, the MiMo file:line.
-   - FORK_ONLY: Hordecode owns it. Still check whether MiMo carries the same pattern.
+1. Look the file up in `docs/upstream-map-files.tsv` to know its origin. Hordecode maintains
+   every file; upstream opencode (1.x and 2.x) and MiMo Code are reference sources, not owners.
+   - PARITY or LAGGING: unchanged base file. Change it when the change is needed: a reason, a
+     test, and one provenance line naming the upstream or MiMo file:line it departs from.
+   - FORK_DELTA: changed base file; the same rule, one provenance line per hunk.
+   - FORK_ONLY: Hordecode's own file. Still check whether MiMo carries the same pattern.
+   Prefer the upstream or MiMo solution when it exists and fits; when it does not fit, build the
+   more stable, consistent or current one.
 2. Provenance before hypothesis. For a failing test or bug in ported code, answer four questions
    with evidence before forming any runtime theory: git history of the file, documented intent,
    upstream diff, MiMo pattern. Documented intent plus a matching reference pattern means the
    test harness is wrong, not the product.
-3. No invention. If neither upstream nor MiMo has the answer, report it with the evidence gap.
-   Humans decide; agents do not take initiative on product decisions.
-4. Upstream infrastructure Hordecode cannot run (`infra/`, `sst.config.ts`, `github/`,
+3. Reference first, then design. If neither upstream nor MiMo has a fitting answer, propose
+   Hordecode's own with the evidence. Product decisions stay with the owner; agents report open
+   decisions and do not resolve them.
+4. Measure the effect. Every behavior change states its expected effect and is measured: a test
+   that fails without it, a lab run (cost, tokens, success rate, wall time) or field data.
+5. Upstream infrastructure Hordecode cannot run (`infra/`, `sst.config.ts`, `github/`,
    `STATS.md`, the translated READMEs, `artifacts/`, the upstream-only workflows) stays at parity
    on purpose. It is never rebranded, hand-edited or removed.
 
 ## Upstream ports
 
-A port is complete only when all three land together: the code, the `hordecodeBase` bump in
+opencode 1.x has had no release after v1.19.5. New upstream (1.x or 2.x) and MiMo releases are
+reviewed and taken selectively, behavior by behavior, with the rules above. If a full port is
+ever made, it is complete only when all three land together: the code, the `hordecodeBase` bump in
 `package.json` and `packages/opencode/package.json`, and a marker commit
 `git merge -s ours <upstream tag>` so git ancestry records the new base. Then run
 `bun run script/upstream-map.ts` and commit the regenerated map.
@@ -108,11 +117,14 @@ A port is complete only when all three land together: the code, the `hordecodeBa
 
 - `hordecodeBase` is 1.19.5 for the root and all packages except `enterprise` and `function`
   (1.17.18). Marker commits for `v1.18.34`, `v1.19.0`, `v1.19.3`, `v1.19.4` and `v1.19.5` are recorded.
-  Upstream tracking policy is in ROADMAP.md: every opencode 1.x release is ported before the
-  next Hordecode release. Not carried on purpose: c28b6a0a3b (`upgrade --major`), 9c97b807d0
+  Upstream tracking policy is in ROADMAP.md: upstream and MiMo releases are reviewed and taken
+  selectively. Not carried on purpose: c28b6a0a3b (`upgrade --major`), 9c97b807d0
   (update dialog) and 3be039593a (1.x update discovery through opencode's npm package and
   Homebrew Core); all three belong to opencode's own update path. Their files show as LAGGING,
   UPSTREAM_ONLY or FORK_DELTA (`cli/upgrade.ts`, `script/raw-changelog.ts`) in the map.
+- Internal v1/v2 duality: the tree carries parallel v1 and v2 surfaces (for example the SDK `v2/gen` types next to
+  `v1` config, and core copies of session code that are not mounted at runtime). Mapping and consolidating them
+  is a 0.1.6 stability item; measure before removing either side.
 - `publish.yml` version bumping depends on upstream's API; releases are built locally with
   `packages/opencode/script/build.ts` until that is replaced.
 - Supervisor nesting: default DEFAULT_SUBAGENT_DEPTH 3 (main agent -> coordinating supervisor ->

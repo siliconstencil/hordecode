@@ -13,25 +13,26 @@ one of them:
 
 | Layer | Owner | Goal |
 |---|---|---|
-| Upstream opencode | opencode | Track the latest stable release. Do not deviate without a need. |
+| Base (opencode 1.19.5) | Hordecode | Maintained by Hordecode. Upstream 1.x/2.x and MiMo are references: take, customize or replace when a measurement says so. |
 | MiMo Code delta-port | Hordecode, ported from MiMo | Bring selected MiMo behavior (supervisor, harness, memory, cron...) as a customized port, not a copy. |
 | Hordecode features | Hordecode | Own design, own packages, own tests. |
 
 Constitution: stable, robust, current, efficient, sustainable. A change that does not serve one
 of these five words is not made.
 
-The goal of the upstream layer is to stay current. Every unneeded edit to an upstream file makes
-each future upstream port harder, so the smallest possible delta is a product requirement, not a
-style preference.
+opencode 1.x has had no release after v1.19.5, so the base is maintained by Hordecode. The goal
+is a stable, consistent and current product, not a small diff. Upstream and MiMo stay the first
+place to look: when their solution fits it is taken, when it does not, Hordecode builds a better
+one. Every change states its expected effect and is measured (test, lab run or field data).
+Unneeded edits are still avoided: churn without effect makes the code harder to review.
 
 ## 2. Ownership decides how a file may change
 
 Look the file up in `docs/upstream-map-files.tsv` before editing.
 
-- PARITY / LAGGING: upstream owns it. Never hand-edit. Port the upstream version.
-- FORK_DELTA: upstream file with a fork change. Edit only the fork hunk, cite the upstream
-  file:line (and the MiMo file:line when the behavior comes from MiMo). Leave every other line
-  byte-identical to upstream.
+- PARITY / LAGGING: unchanged base file. Change it when needed, with a reason, a test and one
+  provenance line (the upstream or MiMo file:line it departs from).
+- FORK_DELTA: changed base file. The same rule; one provenance line per hunk.
 - FORK_ONLY: Hordecode owns it. Check whether MiMo has the same pattern first.
 - Upstream infrastructure Hordecode cannot run (`infra/`, `github/`, upstream-only workflows,
   translated READMEs, `artifacts/`) stays at parity and is never rebranded or removed.
@@ -39,7 +40,7 @@ Look the file up in `docs/upstream-map-files.tsv` before editing.
 New fork behavior goes into a fork package or a new file, not into an upstream file, whenever
 that is possible. A one-line hook in the upstream file is better than a rewritten upstream file.
 
-## 3. Forbidden in upstream-owned files
+## 3. Forbidden in base files
 
 Each item was found in this tree and had to be reverted.
 
@@ -89,6 +90,9 @@ Each item was found in this tree and had to be reverted.
 5. Secrets are never logged, printed, embedded in URLs or committed.
 
 ## 6. Upstream port procedure
+
+Upstream (1.x or 2.x) and MiMo changes are taken selectively, behavior by behavior, under
+section 2. The steps below apply only to a full release port.
 
 1. Target the latest stable upstream release (a GitHub release, not a prerelease line).
 2. Before porting, list the fork delta of every upstream file the release touches and remove

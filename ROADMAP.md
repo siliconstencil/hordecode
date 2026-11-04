@@ -2,11 +2,10 @@
 
 ## Upstream tracking
 
-- **opencode 1.x.** Hordecode 0.1.x follows the opencode 1.x line. Every 1.x release upstream
-  publishes is ported before the next Hordecode release. If upstream stops publishing 1.x
-  releases, Hordecode stays on the last one and maintains it.
-- **opencode 2.x.** The 2.x line is a restructured product, followed for reference. Building a
-  later Hordecode line on it is a separate decision, made when users ask for it.
+- **opencode 1.x.** The base is opencode 1.19.5, the last 1.x release; Hordecode maintains it.
+  A later 1.x release, if one appears, is reviewed and taken selectively.
+- **opencode 2.x.** A reference source. Parts of it may be taken or customized when a
+  measurement shows they help; building a whole Hordecode line on it is a separate decision.
 - **MiMo Code.** The supervisor and harness designs come from MiMo Code 0.1.11. From 0.1.12
   MiMo Code changed its orchestrator, so its later changes are taken one by one when they help
   Hordecode.
@@ -55,7 +54,7 @@ How a port is done and recorded: [docs/UPSTREAM-MAP.md](docs/UPSTREAM-MAP.md) an
 
 ## Next
 
-- Port each new opencode 1.x release.
+- Review new opencode and MiMo releases and take what measurably helps.
 - Publish the benchmark method and results in the repository.
 - Local usage report: `horde stats --html` writes the statistics `horde stats` shows (cost and
   tokens per day, models, tools, errors, cache hit rate, Advisor notes) to one self-contained
