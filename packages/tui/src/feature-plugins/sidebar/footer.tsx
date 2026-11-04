@@ -48,10 +48,9 @@ function View(props: { api: TuiPluginApi }) {
                 ✕
               </text>
             </box>
-            <text fg={theme().textMuted}>Hordecode includes free models so you can start immediately.</text>
-            <text fg={theme().textMuted}>
-              Connect from 200+ providers to use other models, including Claude, GPT, Gemini etc
-            </text>
+            {/* Hordecode: departs from MiMo 0.1.16 sidebar/footer.tsx:51-54. */}
+            <text fg={theme().textMuted}>Connect a provider to start.</text>
+            <text fg={theme().textMuted}>Connect the provider of your choice to use other models.</text>
             <box flexDirection="row" gap={1} justifyContent="space-between">
               <text fg={theme().text}>Connect provider</text>
               <text fg={theme().textMuted}>/connect</text>
