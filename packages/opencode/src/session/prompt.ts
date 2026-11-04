@@ -1712,14 +1712,22 @@ const layer = Layer.effect(
               if (salvaged !== undefined) DsmlSalvage.record(sessionID)
               if (salvaged === "continue") continue
               if (salvaged === undefined && Flag.HORDECODE_DSML_NOTICE) {
-                const error = new NamedError.Unknown({
-                  message: Flag.HORDECODE_DSML_SALVAGE
-                    ? "The model wrote a tool call as plain text after every retry and it could not be run, so this turn was stopped. Ask again or switch model."
-                    : `The model wrote a tool call as plain text ${textToolCallRetries + 1} times and it was not run, so this turn was stopped. Ask again or switch model. Set HORDECODE_DSML_SALVAGE=1 to run such calls.`,
-                }).toObject()
-                lastAssistant.error = error
-                yield* sessions.updateMessage(lastAssistant)
-                yield* events.publish(Session.Event.Error, { sessionID, error })
+                // Display only: an ignored text part on the assistant message. The message is not marked as an
+                // error and no session error event is published, so what the model reads on the next prompt and
+                // what clients treat as failure are exactly what they were without the notice.
+                const text = Flag.HORDECODE_DSML_SALVAGE
+                  ? "The model wrote a tool call as plain text after every retry and it could not be run, so this turn was stopped. Ask again or switch model."
+                  : `The model wrote a tool call as plain text ${textToolCallRetries + 1} times and it was not run, so this turn was stopped. Ask again or switch model. Set HORDECODE_DSML_SALVAGE=1 to run such calls.`
+                yield* sessions.updatePart({
+                  id: PartID.ascending(),
+                  messageID: lastAssistant.id,
+                  sessionID,
+                  type: "text",
+                  text,
+                  synthetic: true,
+                  ignored: true,
+                  time: { start: Date.now(), end: Date.now() },
+                } satisfies SessionV1.TextPart)
                 yield* Effect.logWarning("dsml:notice", { "session.id": sessionID, salvage: Flag.HORDECODE_DSML_SALVAGE })
               }
             }

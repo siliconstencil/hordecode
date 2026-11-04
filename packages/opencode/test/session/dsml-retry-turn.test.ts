@@ -365,6 +365,30 @@ const toolParts = Effect.fn("dsml-retry.toolParts")(function* (sessionID: Sessio
   return msgs.flatMap((m) => m.parts).filter((p) => p.type === "tool")
 })
 
+const NOTICE_TEXT = "was not run, so this turn was stopped"
+const isNoticePart = (p: { type: string; text?: string; ignored?: boolean }) =>
+  p.type === "text" && p.ignored === true && (p.text ?? "").includes(NOTICE_TEXT)
+
+// Volatile fields are dropped so two runs of the same scenario compare byte for byte.
+const VOLATILE = new Set(["id", "messageID", "sessionID", "parentID", "time", "cost", "tokens", "snapshot", "callID", "slug", "version"])
+const normalized = Effect.fn("dsml-retry.normalized")(function* (sessionID: SessionID) {
+  const msgs = yield* MessageV2.filterCompactedEffect(sessionID)
+  return JSON.stringify(
+    msgs.map((m) => ({
+      info: m.info,
+      parts: m.parts.filter((p) => !isNoticePart(p as never)),
+    })),
+    (key, value) => (VOLATILE.has(key) ? undefined : value),
+  )
+})
+
+const noticeTexts = Effect.fn("dsml-retry.noticeTexts")(function* (sessionID: SessionID) {
+  const msgs = yield* MessageV2.filterCompactedEffect(sessionID)
+  return msgs
+    .flatMap((m) => m.parts)
+    .flatMap((p) => (p.type === "text" && p.ignored === true && p.synthetic === true && p.text.includes("tool call as plain text") ? [p.text] : []))
+})
+
 const sessionErrors = Effect.fn("dsml-retry.sessionErrors")(function* (sessionID: SessionID) {
   const msgs = yield* MessageV2.filterCompactedEffect(sessionID)
   return msgs.flatMap((m) => (m.info.role === "assistant" && m.info.error ? [m.info.error] : []))
@@ -446,9 +470,11 @@ it.instance("DSML cap with salvage off ends the turn with a visible notice", () 
 
     expect(yield* llm.calls).toBe(3)
     expect(yield* toolParts(chat.id)).toHaveLength(0)
-    const errors = yield* sessionErrors(chat.id)
-    const messages = errors.map((e) => (e.data as { message?: string }).message ?? "")
-    expect(messages.some((m) => m.includes("wrote a tool call as plain text") && m.includes("HORDECODE_DSML_SALVAGE"))).toBe(true)
+    const notices = yield* noticeTexts(chat.id)
+    expect(notices).toHaveLength(1)
+    expect(notices[0]).toContain("HORDECODE_DSML_SALVAGE")
+    // Display only: the message is not an error and no session error was published for it.
+    expect((yield* sessionErrors(chat.id)).filter((e) => (e.data as { message?: string }).message?.includes("stopped"))).toHaveLength(0)
   }),
 )
 
@@ -467,8 +493,7 @@ it.instance("DSML notice can be switched off and the turn then ends silently as 
 
       yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
 
-      const messages = (yield* sessionErrors(chat.id)).map((e) => (e.data as { message?: string }).message ?? "")
-      expect(messages.some((m) => m.includes("HORDECODE_DSML_SALVAGE"))).toBe(false)
+      expect(yield* noticeTexts(chat.id)).toHaveLength(0)
     }),
   ),
 )
@@ -494,8 +519,9 @@ it.instance("DSML salvage stops at the per-session cap and falls back to the not
       const parts = yield* toolParts(chat.id)
       expect(parts.filter((p) => p.state.status === "completed")).toHaveLength(DSML_SALVAGE_LIMIT)
       expect(yield* llm.calls).toBe(3 + DSML_SALVAGE_LIMIT)
-      const messages = (yield* sessionErrors(chat.id)).map((e) => (e.data as { message?: string }).message ?? "")
-      expect(messages.some((m) => m.includes("wrote a tool call as plain text") && m.includes("could not be run"))).toBe(true)
+      const notices = yield* noticeTexts(chat.id)
+      expect(notices).toHaveLength(1)
+      expect(notices[0]).toContain("could not be run")
     }),
   ),
 )
@@ -521,8 +547,59 @@ it.instance("DSML salvage respects the agent's step budget: no tool runs when th
 
       expect(yield* toolParts(chat.id)).toHaveLength(0)
       expect(yield* llm.calls).toBe(3)
-      const messages = (yield* sessionErrors(chat.id)).map((e) => (e.data as { message?: string }).message ?? "")
-      expect(messages.some((m) => m.includes("could not be run"))).toBe(true)
+      const notices = yield* noticeTexts(chat.id)
+      expect(notices).toHaveLength(1)
+      expect(notices[0]).toContain("could not be run")
     }),
   ),
+)
+
+it.instance("with salvage off the only change from 0.1.5 is the visible notice (messages, events, next request)", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const events = yield* EventV2Bridge.Service
+    const seen: string[] = []
+    const unsub = yield* events.listen((event) => {
+      if (event.type === Session.Event.Error.type) seen.push(event.type)
+      return Effect.void
+    })
+    yield* Effect.addFinalizer(() => unsub)
+
+    // The scenario: three DSML stops (cap exhausted), then the user asks again.
+    const scenario = Effect.fn("dsml-retry.scenario")(function* () {
+      const chat = yield* sessions.create({ title: "DSML compare", permission: allowAll })
+      yield* llm.text(dsmlCall)
+      yield* llm.text(dsmlCall)
+      yield* llm.text(dsmlCall)
+      yield* llm.text("ok")
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+      const before = (yield* llm.inputs).length
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "again" }] })
+      const inputs = yield* llm.inputs
+      return {
+        chat,
+        history: yield* normalized(chat.id),
+        followUp: JSON.stringify((inputs[before] as { messages?: unknown }).messages),
+        errors: yield* assistantErrors(chat.id),
+        events: seen.length,
+        notices: (yield* MessageV2.filterCompactedEffect(chat.id))
+          .flatMap((m) => m.parts)
+          .filter((p) => isNoticePart(p as never)).length,
+      }
+    })
+
+    const baseline = yield* withEnv({ HORDECODE_DSML_NOTICE: "0" }, scenario())
+    const eventsAfterBaseline = seen.length
+    const withNotice = yield* scenario()
+
+    expect(baseline.notices).toBe(0)
+    expect(withNotice.notices).toBe(1)
+    // Everything the model or a client reads besides the notice part is identical to the 0.1.5 behaviour.
+    expect(withNotice.history).toBe(baseline.history)
+    expect(withNotice.followUp).toBe(baseline.followUp)
+    expect(withNotice.errors).toEqual(baseline.errors)
+    expect(seen.length - eventsAfterBaseline).toBe(eventsAfterBaseline)
+  }),
 )
