@@ -231,6 +231,37 @@ export const Info = Schema.Struct({
       }),
     }),
   ),
+  contract: Schema.optional(
+    Schema.Struct({
+      max_wall_ms: Schema.optional(PositiveInt).annotate({
+        description:
+          "Default wall-time cap, in milliseconds since arm, for contracts armed with /contract. A breach ends the contract as blocked. Default: off. A `cap: wall` segment of /contract overrides it.",
+      }),
+      max_tool_calls: Schema.optional(PositiveInt).annotate({
+        description:
+          "Default cap on tool calls (the contract session and its child sessions, since arm). A breach ends the contract as blocked. Default: off. A `cap: tools` segment of /contract overrides it.",
+      }),
+      max_cost_usd: Schema.optional(Schema.Finite.check(Schema.isGreaterThan(0))).annotate({
+        description:
+          "Default cap on USD spent (the contract session and its child sessions, since arm). A breach ends the contract as blocked. Default: off. A `cap: cost` segment of /contract overrides it.",
+      }),
+      checkpoint: Schema.optional(Schema.Boolean).annotate({
+        description:
+          "Create the lightweight git ref refs/hordecode/contract/<session>/<contract id> at HEAD when a contract is armed (no commit, no stash, no hooks). Default: false. It pins objects against gc and `git push --mirror` publishes it; delete it with `git update-ref -d <ref>`.",
+      }),
+      baseline: Schema.optional(Schema.Boolean).annotate({
+        description:
+          "Run each criterion once when a contract is armed and record the test count of a recognized summary (bun test, jest, vitest, pytest, cargo test, go test -v); a later run with fewer tests, none, or an unreadable summary fails the criterion. Default: true. Set false to skip the arm-time run; a `no-baseline` segment of /contract does the same for one contract.",
+      }),
+      unattended: Schema.optional(Schema.Boolean).annotate({
+        description:
+          "Approve the criteria commands once at arm time instead of asking at every run (explicit deny rules still apply). Default: false. A bare `unattended` segment of /contract turns it on for one contract.",
+      }),
+    }),
+  ).annotate({
+    description:
+      "Defaults for /contract acceptance contracts. Everything defaults to off; segments typed in /contract override these.",
+  }),
   checkpoint: Schema.optional(
     Schema.Struct({
       thresholds: Schema.optional(Schema.Array(Schema.String)).annotate({

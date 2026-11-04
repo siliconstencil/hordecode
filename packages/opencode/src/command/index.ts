@@ -51,6 +51,8 @@ export const Default = {
   DREAM: "dream",
   DISTILL: "distill",
   GOAL: "goal",
+  // FORK_DELTA: opencode v1.19.5 packages/opencode/src/command/index.ts:46-49 (Default)
+  CONTRACT: "contract",
   DEEP_RESEARCH: "deep-research",
   LOOPS: "loops",
   REBUILD: "rebuild",
@@ -155,6 +157,17 @@ const layer = Layer.effect(
       commands[Default.GOAL] = {
         name: Default.GOAL,
         description: "set a stop-condition goal; runs until a judge says it's met. /goal clear to abort",
+        source: "command",
+        subtask: false,
+        get template() {
+          return "$ARGUMENTS"
+        },
+        hints: ["$ARGUMENTS"],
+      }
+      // FORK_DELTA: opencode v1.19.5 packages/opencode/src/command/index.ts:79-89 (after the REVIEW registration)
+      commands[Default.CONTRACT] = {
+        name: Default.CONTRACT,
+        description: "arm an acceptance contract: /contract <objective> ;; <criterion command> ;; ... ; /contract clear to drop",
         source: "command",
         subtask: false,
         get template() {

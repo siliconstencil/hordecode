@@ -2141,6 +2141,14 @@ export type Config = {
           [key: string]: number | string
         }
   }
+  contract?: {
+    max_wall_ms?: number
+    max_tool_calls?: number
+    max_cost_usd?: number
+    checkpoint?: boolean
+    baseline?: boolean
+    unattended?: boolean
+  }
   checkpoint?: {
     thresholds?: Array<string>
     reserved?: number
