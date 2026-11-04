@@ -6,24 +6,25 @@ const memory = () => {
   return { data, get: (key: string, fallback?: unknown) => data.get(key) ?? fallback, set: (key: string, value: unknown) => void data.set(key, value) }
 }
 
-test("the toggle is remembered per project directory", () => {
+test("auto-approve is not remembered across a restart", () => {
   const kv = memory()
   saveMode(kv, "/work/a", "auto")
-  expect(restoredMode(kv, "/work/a", false)).toBe("auto")
+  expect(restoredMode(kv, "/work/a", false)).toBe("normal")
   expect(restoredMode(kv, "/work/b", false)).toBe("normal")
-  expect(kv.data.get(autoAcceptKey("/work/a"))).toBe(true)
+  expect(kv.data.has(autoAcceptKey("/work/a"))).toBe(false)
 })
 
-test("turning it off clears the stored value and a restart starts normal", () => {
+test("a stored auto-approve value from an older build is ignored", () => {
+  const kv = memory()
+  kv.set(autoAcceptKey("/work/a"), true)
+  expect(restoredMode(kv, "/work/a", false)).toBe("normal")
+})
+
+test("turning auto-approve off leaves the project storing nothing", () => {
   const kv = memory()
   saveMode(kv, "/work/a", "auto")
   saveMode(kv, "/work/a", "normal")
   expect(restoredMode(kv, "/work/a", false)).toBe("normal")
-})
-
-test("a project that never enabled it stores nothing", () => {
-  const kv = memory()
-  saveMode(kv, "/work/a", "normal")
   expect(kv.data.size).toBe(0)
 })
 
@@ -42,15 +43,15 @@ test("careful is remembered per project and round-trips through restore", () => 
   expect(kv.data.has(autoAcceptKey("/work/a"))).toBe(false)
 })
 
-test("switching between careful, auto and normal leaves only the active flag stored", () => {
+test("switching between careful, auto and normal leaves only careful stored", () => {
   const kv = memory()
   saveMode(kv, "/work/a", "careful")
   saveMode(kv, "/work/a", "auto")
-  expect(restoredMode(kv, "/work/a", false)).toBe("auto")
+  expect(restoredMode(kv, "/work/a", false)).toBe("normal")
   expect(kv.data.get(carefulKey("/work/a"))).toBe(false)
   saveMode(kv, "/work/a", "careful")
   expect(restoredMode(kv, "/work/a", false)).toBe("careful")
-  expect(kv.data.get(autoAcceptKey("/work/a"))).toBe(false)
+  expect(kv.data.has(autoAcceptKey("/work/a"))).toBe(false)
   saveMode(kv, "/work/a", "normal")
   expect(restoredMode(kv, "/work/a", false)).toBe("normal")
 })
@@ -64,7 +65,7 @@ test("an unknown stored value falls back to normal", () => {
   expect(restoredMode(kv, "/work/a", false)).toBe("normal")
 })
 
-test("if both flags are stored, careful wins", () => {
+test("a stored auto flag never beats careful", () => {
   const kv = memory()
   kv.set(autoAcceptKey("/work/a"), true)
   kv.set(carefulKey("/work/a"), true)

@@ -496,16 +496,12 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
     if (permission.mode === "careful") void persistCareful(true)
   })
   // The stored per-project profile is read after startup; mirror it to background agents and say so.
+  // Hordecode: only careful is restored; auto-approve is session-only (opencode 1.19.5
+  // tui context/permission.tsx:12-20 starts auto only from the launch flag).
   createEffect(() => {
-    const restored = permission.restored
-    if (!restored) return
-    if (restored === "careful") {
-      void persistCareful(true)
-      toast.show({ variant: "warning", message: "Careful mode restored for this project", duration: 3000 })
-      return
-    }
-    void persistSkipAll(true)
-    toast.show({ variant: "warning", message: "Auto-approve restored for this project", duration: 3000 })
+    if (permission.restored !== "careful") return
+    void persistCareful(true)
+    toast.show({ variant: "warning", message: "Careful mode restored for this project", duration: 3000 })
   })
 
   // Auto-approve permission requests when permission.mode === "auto". Forced-ask permissions
