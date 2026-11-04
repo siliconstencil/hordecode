@@ -139,12 +139,32 @@ function coerceStringifiedJSON(value: unknown): unknown {
 
 const OPERATION_TOOLS = new Set(["supervisor", "task", "cron", "session"])
 
+// Hordecode: the task tool accepts the shapes models emit (verb string, top-level event_summary,
+// boolean strings); upstream 1.19.5 tool.ts has no operation repair.
+function coerceTaskOperation(operation: Record<string, unknown>) {
+  for (const key of ["include_terminal", "include_archived"]) {
+    if (operation[key] === "true") operation[key] = true
+    else if (operation[key] === "false") operation[key] = false
+  }
+  return operation
+}
+
 function coerceFlatOperation(value: unknown, toolName?: string): unknown {
   if (toolName !== undefined && !OPERATION_TOOLS.has(toolName)) return value
   if (value === null || typeof value !== "object" || Array.isArray(value)) return value
   const obj = value as Record<string, unknown>
-  if ("operation" in obj) return value
-  if (typeof obj["action"] === "string") return { operation: obj }
+  if (toolName === "task" && typeof obj.operation === "string") {
+    const { operation, ...rest } = obj
+    return { operation: coerceTaskOperation({ action: operation, ...rest }) }
+  }
+  if ("operation" in obj) {
+    if (toolName === "task" && obj.operation !== null && typeof obj.operation === "object" && !Array.isArray(obj.operation)) {
+      const { operation, ...top } = obj
+      return { operation: coerceTaskOperation({ ...top, ...(operation as Record<string, unknown>) }) }
+    }
+    return value
+  }
+  if (typeof obj["action"] === "string") return { operation: toolName === "task" ? coerceTaskOperation({ ...obj }) : obj }
   return value
 }
 

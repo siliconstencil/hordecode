@@ -124,6 +124,11 @@ const parameters = Schema.Struct({
   ]),
 })
 
+export function formatTaskValidationError(error: unknown) {
+  const detail = error instanceof Error ? error.message : String(error)
+  return `${detail}\nValid fields: action, id, event_summary, summary, parent_id, status, include_terminal, include_archived, session_id. Done, block, unblock and abandon need id and event_summary; create needs summary.\nExample: {"operation":{"action":"done","id":"T1","event_summary":"all tests pass"}}`
+}
+
 type TaskInput = Schema.Schema.Type<typeof parameters>
 type TaskOperation = TaskInput
 type TaskStatus = Schema.Schema.Type<typeof statusLiteral>
@@ -508,6 +513,7 @@ export const TaskTool = Tool.define<typeof parameters, Metadata, TaskRegistry.Se
       description: DESCRIPTION,
       parameters,
       jsonSchema: ToolJsonSchema.fromSchema(parameters),
+      formatValidationError: formatTaskValidationError,
       execute: (args: Schema.Schema.Type<typeof parameters>, ctx: Tool.Context<Metadata>) =>
         run(args, ctx).pipe(Effect.orDie),
       shell: {
