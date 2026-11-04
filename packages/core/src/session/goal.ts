@@ -2,8 +2,8 @@ import { Effect, Layer, Context, Option } from "effect"
 import { generateObject, streamObject, type ModelMessage } from "ai"
 import z from "zod"
 import * as OtelTracer from "@effect/opentelemetry/Tracer"
-import { InstanceState } from "../effect"
 import { EffectLogger } from "../effect"
+import { Storage } from "../storage"
 import { Provider, ProviderTransform } from "../provider/index"
 import type { ProviderID, ModelID } from "../provider/schema"
 import { Auth } from "../auth"
@@ -78,39 +78,36 @@ export const layer = Layer.effect(
     const auth = yield* Auth.Service
     const config = yield* Config.Service
     const bus = yield* Bus.Service
+    const storage = yield* Storage.Service
     const elog = EffectLogger.create({ service: "SessionGoal" })
-
-    const state = yield* InstanceState.make(
-      Effect.fn("SessionGoal.state")(function* () {
-        return { goals: new Map<string, Goal>() }
-      }),
-    )
+    const key = (sessionID: SessionID) => ["session_goal", sessionID]
 
     const set = Effect.fn("SessionGoal.set")(function* (sessionID: SessionID, condition: string) {
-      const data = yield* InstanceState.get(state)
-      data.goals.set(sessionID, { condition, react: 0 })
+      yield* storage.write(key(sessionID), { condition, react: 0 } satisfies Goal).pipe(Effect.orDie)
       yield* elog.info("goal set", { sessionID, condition })
       yield* bus.publish(Event.Updated, { sessionID, goal: { condition } })
     })
 
     const get = Effect.fn("SessionGoal.get")(function* (sessionID: SessionID) {
-      const data = yield* InstanceState.get(state)
-      return data.goals.get(sessionID)
+      return yield* storage
+        .read<Goal>(key(sessionID))
+        .pipe(Effect.catch(() => Effect.succeed<Goal | undefined>(undefined)))
     })
 
     const clear = Effect.fn("SessionGoal.clear")(function* (sessionID: SessionID) {
-      const data = yield* InstanceState.get(state)
-      data.goals.delete(sessionID)
+      yield* storage.remove(key(sessionID)).pipe(Effect.ignore)
       yield* elog.info("goal cleared", { sessionID })
       yield* bus.publish(Event.Updated, { sessionID, goal: undefined })
     })
 
     const bumpReact = Effect.fn("SessionGoal.bumpReact")(function* (sessionID: SessionID) {
-      const data = yield* InstanceState.get(state)
-      const goal = data.goals.get(sessionID)
+      const goal = yield* storage
+        .read<Goal>(key(sessionID))
+        .pipe(Effect.catch(() => Effect.succeed<Goal | undefined>(undefined)))
       if (!goal) return 0
-      goal.react += 1
-      return goal.react
+      const next = { ...goal, react: goal.react + 1 }
+      yield* storage.write(key(sessionID), next satisfies Goal).pipe(Effect.orDie)
+      return next.react
     })
 
     const evaluate = Effect.fn("SessionGoal.evaluate")(function* (input: {
@@ -195,6 +192,7 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Auth.defaultLayer),
     Layer.provide(Config.defaultLayer),
     Layer.provide(Bus.layer),
+    Layer.provide(Storage.defaultLayer),
   ),
 )
 
