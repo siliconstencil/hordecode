@@ -22,4 +22,10 @@ describe("shared Identifier across the 48-bit wrap", () => {
       expect(desc < v1).toBe(true)
     }
   })
+
+  test("ids minted in the same millisecond are strictly increasing (the counter is in the time field)", () => {
+    const ids = Array.from({ length: 50 }, () => Identifier.create(false, AFTER))
+    expect([...ids].sort()).toEqual(ids)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
 })
