@@ -124,7 +124,12 @@ describe("ModelsDev catalog when the host is unreachable", () => {
     expect((await Effect.runPromise(Ref.get(state))).calls).toBe(0)
   })
 
-  // OPEN DECISION: degrade to an empty catalog (custom providers from config still work) and log, or keep failing loudly.
-  // core/src/models-dev.ts is FORK_DELTA (upstream owns it), so the change needs an owner decision and a citation.
-  test.todo("get() resolves to an empty catalog when the fetch fails and nothing is cached")
+  test("get() resolves to an empty catalog when the fetch fails and nothing is cached", async () => {
+    const state = await Effect.runPromise(Ref.make<MockState>({ calls: 0 }))
+    const result = await Effect.runPromise(
+      withFetchEnabled(ModelsDev.Service.use((s) => s.get())).pipe(Effect.provide(buildLayer(state)), Effect.scoped),
+    )
+    expect(result).toEqual({})
+    expect((await Effect.runPromise(Ref.get(state))).calls).toBeGreaterThan(0)
+  }, 30_000)
 })
