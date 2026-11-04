@@ -1450,11 +1450,16 @@ const layer = Layer.effect(
       agentID?: string
       task_id?: string
       session: Session.Info
+      step: number
+      steps?: number
     }) {
       const { lastUser, lastAssistant, session } = input
       const sessionID = session.id
       const agent = yield* agents.get(lastUser.agent)
       if (!agent) return undefined
+      // Same budget as the loop (maxSteps below): the step that wrote the DSML was the last one allowed, the
+      // model had its tools switched off on it, so its calls do not run.
+      if (input.step >= (input.steps ?? agent.steps ?? 100)) return undefined
       const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
       const handle = yield* processor.create({ assistantMessage: lastAssistant, sessionID, model })
       const supervisorRow = lastUser.agentID
@@ -1695,7 +1700,7 @@ const layer = Layer.effect(
               const calls = text.map(parseDsmlToolCalls).find((parsed) => parsed.complete && parsed.calls.length > 0)?.calls
               const salvaged =
                 Flag.HORDECODE_DSML_SALVAGE && calls && !DsmlSalvage.exhausted(sessionID)
-                  ? yield* salvageDsmlCalls({ lastUser, lastAssistant, msgs, calls, agentID, task_id, session }).pipe(
+                  ? yield* salvageDsmlCalls({ lastUser, lastAssistant, msgs, calls, agentID, task_id, session, step, steps }).pipe(
                       Effect.catchCause((cause) =>
                         Effect.logWarning("dsml:salvage failed", {
                           "session.id": sessionID,

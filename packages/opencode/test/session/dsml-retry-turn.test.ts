@@ -236,13 +236,13 @@ const cfg = (url: string): Partial<ConfigV1.Info> => ({
   },
 } as Partial<ConfigV1.Info>)
 
-const useServerConfig = Effect.fn("dsml-retry.useServerConfig")(function* () {
+const useServerConfig = Effect.fn("dsml-retry.useServerConfig")(function* (extra: Record<string, unknown> = {}) {
   const { directory: dir } = yield* TestInstance
   const llm = yield* TestLLMServer
   const fs = yield* FSUtil.Service
   yield* fs.writeWithDirs(
     path.join(dir, "opencode.json"),
-    JSON.stringify({ $schema: "https://opencode.ai/config.json", ...cfg(llm.url) }),
+    JSON.stringify({ $schema: "https://opencode.ai/config.json", ...cfg(llm.url), ...extra }),
   )
   return { dir, llm }
 })
@@ -496,6 +496,33 @@ it.instance("DSML salvage stops at the per-session cap and falls back to the not
       expect(yield* llm.calls).toBe(3 + DSML_SALVAGE_LIMIT)
       const messages = (yield* sessionErrors(chat.id)).map((e) => (e.data as { message?: string }).message ?? "")
       expect(messages.some((m) => m.includes("wrote a tool call as plain text") && m.includes("could not be run"))).toBe(true)
+    }),
+  ),
+)
+
+it.instance("DSML salvage respects the agent's step budget: no tool runs when the steps are spent", () =>
+  withEnv(
+    { HORDECODE_DSML_SALVAGE: "1" },
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig({ agent: { build: { steps: 1 } } })
+      const fs = yield* FSUtil.Service
+      const file = path.join(dir, "steps.txt")
+      yield* fs.writeWithDirs(file, "steps-content")
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "DSML steps", permission: allowAll })
+
+      yield* llm.text(readCall(file))
+      yield* llm.text(readCall(file))
+      yield* llm.text(readCall(file))
+      yield* llm.text("done")
+
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+      expect(yield* toolParts(chat.id)).toHaveLength(0)
+      expect(yield* llm.calls).toBe(3)
+      const messages = (yield* sessionErrors(chat.id)).map((e) => (e.data as { message?: string }).message ?? "")
+      expect(messages.some((m) => m.includes("could not be run"))).toBe(true)
     }),
   ),
 )
