@@ -8,11 +8,14 @@ envelope, git checkpoint, unattended flag). Usage and the open-decision table ar
 
 | Commit | Content |
 |---|---|
-| f73c51201 | Contract first slice: store, runner, integrity check, re-entry loop, report, `/contract` |
-| d98f688fd | FORK_DELTA citations replaced with opencode v1.19.5 file:line |
-| 6d01949ac | Ownership map regenerated against opencode 1.19.5 (separate commit) |
-| next | Envelope, git checkpoint, unattended flag, tests, docs, this report |
-| last | Ownership map regenerated again for the files added by the previous commit |
+| f73c51201 | Round 1: contract first slice (store, runner, integrity check, re-entry loop, report, `/contract`) |
+| d98f688fd | Round 2: FORK_DELTA citations replaced with opencode v1.19.5 file:line |
+| 6d01949ac | Round 2: ownership map regenerated against opencode 1.19.5 |
+| f8dd6dbdc | Round 2: safety envelope, git checkpoint, unattended flag, docs, this report |
+| cb2425f67 | Round 2: ownership map regenerated for the envelope files |
+| 24e1ae5a7 | Round 3: review findings F1 to F4 (code and tests) |
+| DOCS_SHA | Round 3: docs and report |
+| MAP_SHA | Round 3: ownership map regenerated (separate commit) |
 
 ## Observation, root cause, action, evidence
 
@@ -64,3 +67,58 @@ occurred once and did not reproduce in two further runs.
 - Not run on the installed binary. Token cap, notification delivery, durable resume: not implemented.
 - The envelope cannot interrupt a step in flight.
 - The `v1.17.18` tag exists only locally in this checkout.
+
+## Round 3: independent review (origin/rnd/reviews-0.1.6)
+
+Each finding was reproduced with a failing test first, then fixed. Detail table in
+`docs/task-contract-slice1.md` ("Review findings (round 3)").
+
+1. F1 (HIGH) permission bypass. Observation: `echo ok ; rm -f marker.txt` with allow `echo ok*` and deny
+   `rm *` deleted the marker (test failed on `existsSync(marker)`). Root cause: the whole string was one
+   permission pattern. Action: criteria are authorized through the bash tool itself. `tool/shell.ts` gets a
+   3-line `authorizeOnly` return after its permission block (upstream `tool/shell.ts:631`); the gate builds a
+   `Tool.Context` and calls the registered bash tool's `execute`, so the tool's own tree-sitter split,
+   per-sub-command patterns, `external_directory`, protected-path and `bash_delete` asks apply. No second
+   parser. Unattended uses the same path with deny-only probes. Evidence: test passes, marker kept, contract
+   `unverified`; a compound whose every part is allowed verifies.
+2. F2 (HIGH) runner hang. Observation: `setsid sleep 6 & exit 0` with a 500 ms timeout and a same-group
+   background child both hung to the 5 s test limit (2 failing tests; the plain timeout test already passed).
+   Root cause: waiting for `close`, one timer, no group kill after exit. Action: exit code recorded on `exit`,
+   process group killed on exit and on timeout, stdio drain bounded at 1 s, hard 2 s deadline after a
+   timeout kill, digest guarded against late data. Evidence: 10 runner tests pass.
+3. F3 (MEDIUM) protection gaps. Gitignored `protect:` path (0 files hashed before), symlinks (invisible),
+   package.json scripts (unprotected): 5 failing tests, now 16 integrity tests pass. A `protect:` path with no
+   files fails arming. The arm-time warning is shown to the user as a synthetic message and the spec still
+   runs as the task. A new test file no longer fails the contract (`allowAddedTests` default true); modified
+   and deleted protected files still do.
+4. F4/F6 switches and mutant. Turn-level tests for the unattended default, `reenter`, `named-only`,
+   `allowAddedTests` false, package.json scripts and timeout-as-failure. Mutant "timeout counts as pass":
+   1 test fails; mutant "verified when violated": 2 tests fail; both restored afterwards (file diff empty).
+5. Citations. All 8 `FORK_DELTA: opencode v1.19.5` comments resolve to the stated upstream lines in the
+   v1.19.5 checkout (prompt.ts 27-35, 1088, 1098, 1128, 1334, 1370-1372; command/index.ts 46-49, 79-89;
+   shell.ts 631).
+
+## Measured (round 3)
+
+`NODE_OPTIONS=--max-old-space-size=12000`, same commands on base (v0.1.5, separate worktree) and head.
+
+| Command | Base v0.1.5 | Head |
+|---|---|---|
+| `cd packages/task && bun test` | 14 pass, 0 fail | 29 pass, 0 fail |
+| `cd packages/opencode && bun test test/session/contract` | no such test files | 72 pass, 0 fail |
+| `cd packages/opencode && bun test test/cli/help test/session test/permission test/command test/task` | 809 pass, 24 fail (842 tests, 85 files) | 881 pass, 24 fail (914 tests, 91 files) |
+| typecheck task, opencode | not run | clean, clean |
+
+The 24 failures are the same test names on base and head (sorted lists identical).
+
+## OPEN DECISIONS after round 3
+
+- 5: other runner configs (`conftest.py`, `jest.config.*`, `Makefile`) and scripts named in a criterion are
+  not hashed. package.json test scripts are (constant `protectScripts`). `allowAddedTests` now defaults true.
+- 3: attended by default; unattended per contract. Unchanged otherwise (1, 2, 4, 6, 7, 8, 9, 10 as before).
+
+## Not done
+
+F5 remainder (a criterion that writes into a protected directory fails the contract), F8 (store leak, `case`
+split, server auth), not run on the installed binary, no token cap, no notification delivery, envelope cannot
+interrupt a step in flight, a setsid child outlives the runner. The `v1.17.18` tag is local only.
