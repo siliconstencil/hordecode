@@ -56,6 +56,7 @@ import { Instruction } from "../session/instruction"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Agent } from "../agent/agent"
+import { SYSTEM_SPAWNED_AGENT_TYPES } from "../agent/config"
 import { Skill } from "../skill"
 import { Permission } from "@/permission"
 import { BackgroundJob } from "@/background/job"
@@ -90,6 +91,14 @@ import { TaskRegistry } from "@opencode-ai/task/registry"
 import { Inbox } from "@opencode-ai/inbox"
 import { Scheduler, defaultLayer } from "@opencode-ai/cron/scheduler"
 import { Worktree } from "@/worktree"
+
+// Gate orchestration on agent mode, not name. Custom subagents must not be able
+// to opt back in. Fork agents keep the tool so their schema stays byte-identical
+// to the primary parent (prefix-cache parity).
+export function hasSessionTool(agent?: Pick<Agent.Info, "name" | "mode">) {
+  if (!agent || agent.mode !== "subagent") return true
+  return SYSTEM_SPAWNED_AGENT_TYPES.has(agent.name)
+}
 
 export function webSearchEnabled(providerID: ProviderV2.ID, flags = { exa: false, parallel: false }) {
   return (
@@ -133,7 +142,6 @@ const layer = Layer.effect(
     const config = yield* Config.Service
     const plugin = yield* Plugin.Service
     const skill = yield* Skill.Service
-    const agents = yield* Agent.Service
     const truncate = yield* Truncate.Service
     const flags = yield* RuntimeFlags.Service
     const mcp = yield* MCP.Service
@@ -375,21 +383,6 @@ const layer = Layer.effect(
       return (yield* all()).map((tool) => tool.id)
     })
 
-    const describeTask = Effect.fn("ToolRegistry.describeTask")(function* (agent: Agent.Info) {
-      const items = (yield* agents.list()).filter((item) => item.mode !== "primary")
-      const filtered = items.filter(
-        (item) => Permission.evaluate("task", item.name, agent.permission).action !== "deny",
-      )
-      const list = filtered.toSorted((a, b) => a.name.localeCompare(b.name))
-      const description = list
-        .map(
-          (item) =>
-            `- ${item.name}: ${item.description ?? "This subagent should only be called manually by the user."}`,
-        )
-        .join("\n")
-      return ["Available agent types and the tools they have access to:", description].join("\n")
-    })
-
     const describeCodeMode = Effect.fn("ToolRegistry.describeCodeMode")(function* (input: {
       agent: Agent.Info
       permission?: PermissionV1.Ruleset
@@ -411,6 +404,7 @@ const layer = Layer.effect(
           input.modelID.includes("gpt-") && !input.modelID.includes("oss") && !input.modelID.includes("gpt-4")
         if (tool.id === ApplyPatchTool.id) return usePatch
         if (tool.id === EditTool.id || tool.id === WriteTool.id) return !usePatch
+        if (tool.id === SessionTool.id) return hasSessionTool(input.agent)
 
         return true
       })
@@ -435,11 +429,7 @@ const layer = Layer.effect(
               : undefined
           return {
             id: tool.id,
-            description: [
-              output.description,
-              tool.id === TaskTool.id ? yield* describeTask(input.agent) : undefined,
-              tool.id === "execute" ? codeModeDescription : undefined,
-            ]
+            description: [output.description, tool.id === "execute" ? codeModeDescription : undefined]
               .filter(Boolean)
               .join("\n"),
             parameters: output.parameters,
