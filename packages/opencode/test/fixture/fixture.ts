@@ -132,6 +132,7 @@ type TmpDirOptions<T> = {
 export async function tmpdir<T>(options?: TmpDirOptions<T>) {
   const dirpath = sanitizePath(path.join(testTmpRoot(), "opencode-test-" + Math.random().toString(36).slice(2)))
   await fs.mkdir(dirpath, { recursive: true })
+  trackTmpdir(dirpath)
   if (options?.git) {
     await $`git init`.cwd(dirpath).quiet()
     await $`git config core.fsmonitor false`.cwd(dirpath).quiet()
@@ -150,7 +151,7 @@ export async function tmpdir<T>(options?: TmpDirOptions<T>) {
     )
   }
   const realpath = sanitizePath(await fs.realpath(dirpath))
-  trackTmpdir(realpath)
+  if (realpath !== dirpath) trackTmpdir(realpath)
   const extra = await options?.init?.(realpath)
   const result = {
     [Symbol.asyncDispose]: async () => {
@@ -177,8 +178,9 @@ export function tmpdirScoped<E = never, R = never>(options?: {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
     const dirpath = sanitizePath(path.join(testTmpRoot(), "opencode-test-" + Math.random().toString(36).slice(2)))
     yield* Effect.promise(() => fs.mkdir(dirpath, { recursive: true }))
+    trackTmpdir(dirpath)
     const dir = sanitizePath(yield* Effect.promise(() => fs.realpath(dirpath)))
-    trackTmpdir(dir)
+    if (dir !== dirpath) trackTmpdir(dir)
 
     yield* Effect.addFinalizer(() =>
       Effect.promise(async () => {
