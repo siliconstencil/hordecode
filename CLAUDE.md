@@ -21,7 +21,7 @@ features. Primary command `horde`, alias `hordecode`, npm package `hordecode`, G
 - MiMo "actor" is Hordecode `supervisor`; MiMo "compose" is the Hordecode `harness` pipeline.
   Both are customized ports, not copies. The name "compose" is retired.
 - Hordecode-only packages: agent, bus, control-plane, cron, global, inbox, memory, project,
-  shared, skill, supervisor, task, team, workflow, worktree. Fork features surface as tools
+  shared, skill, supervisor, task, workflow, worktree. Fork features surface as tools
   (`memory-*`, `supervisor`, `task`, `workflow`, `cron`, `fleet`, `skill*`), not as CLI commands.
 - Config: `hordecode.json` / `hordecode.jsonc` and `.hordecode/` first, `opencode.*` and
   `.opencode/` as lower-priority compatibility. Env: `HORDECODE_*` first, `OPENCODE_*` fallback.
@@ -136,7 +136,7 @@ ever made, it is complete only when all three land together: the code, the `hord
   (`supervisor.max_subagents`) while the peer's first turn runs (`tool/subagent-limits.ts`).
   Open: nesting through `session ask` and the workflow runtime is not checked; a chain of peers is
   not bounded by depth.
-- Fork package tests: `agent`, `control-plane`, `shared`, `task`, `team`, `worktree` and `memory` have a `test`
+- Fork package tests: `agent`, `control-plane`, `shared`, `task`, `worktree` and `memory` have a `test`
   script; `project` tests cover project ids, workspace trust and the directory guard. Task registry lifecycle
   tests live in `packages/opencode/test/task` (they need the app database layer). `global` has no scripts at all.
   Two branch prefixes are in use and both are kept: runtime isolated children (`isolate`) are created by
@@ -159,8 +159,9 @@ ever made, it is complete only when all three land together: the code, the `hord
   wordmark, theme keys; 223 files mention opencode). Rebranding it is a package-level job; until
   then the web UI is an unbranded upstream surface.
 - The bundled skills `claude-code` and `codex` are intentional product content. `codesearch`
-  (MiMo-origin, Exa-backed) is no longer registered; `core/src/tool/codesearch.ts`,
-  `opencode/src/tool/codesearch.ts` and `core/src/tool/mcp-exa.ts` remain on disk. `websearch`
+  (MiMo-origin, Exa-backed) is no longer registered; its tool files and the Exa support module
+  `core/src/tool/mcp-exa.ts` were removed in 0.1.6 phase 2 because no product code consumed them.
+  `websearch`
   keeps upstream's gating (opencode tier or the Exa/Parallel flags); users add their own MCP
   servers for search. The `opencode` (Zen) and `opencode-go` providers stay in the connect dialog for users with
   an API key; only the credential-less public tier is disabled.
