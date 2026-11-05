@@ -67,7 +67,7 @@ const withFiles = <A, E, R>(files: Record<string, string>, self: (dir: string) =
 
 const tmpWithFiles = (files: Record<string, string>) =>
   Effect.gen(function* () {
-    const dir = yield* tmpdirScoped()
+    const dir = yield* tmpdirScoped({ git: true })
     yield* writeFiles(dir, files)
     return dir
   })
