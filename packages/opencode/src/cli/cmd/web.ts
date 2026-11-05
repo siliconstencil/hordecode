@@ -36,8 +36,10 @@ export const WebCommand = effectCmd({
   // ambient project InstanceContext needed at startup.
   instance: false,
   handler: Effect.fn("Cli.web")(function* (args) {
+    const { RuntimeFlags } = yield* Effect.promise(() => import("@/effect/runtime-flags"))
     const { embeddedUI } = yield* Effect.promise(() => import("../../server/shared/ui"))
-    const embedded = yield* Effect.promise(() => embeddedUI(Flag.HORDECODE_DISABLE_EMBEDDED_WEB_UI))
+    const flags = yield* RuntimeFlags.Service
+    const embedded = yield* Effect.promise(() => embeddedUI(flags.disableEmbeddedWebUi))
     if (!embedded) {
       return yield* fail(
         "The Hordecode web UI is not available in this build. Rebuild with the embedded web UI, or use `horde` for the terminal UI.",

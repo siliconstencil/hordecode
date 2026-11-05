@@ -14,7 +14,7 @@ async function freePort() {
   return port
 }
 
-async function run(disableEmbeddedWebUi: boolean) {
+async function run(disableEmbeddedWebUi: "HORDECODE" | "OPENCODE" | undefined) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "web-command-"))
   const proc = Bun.spawn(["bun", "run", path.join(root, "src/index.ts"), "web", "--port", String(await freePort())], {
     cwd: dir,
@@ -23,7 +23,7 @@ async function run(disableEmbeddedWebUi: boolean) {
       HORDECODE_HOME: path.join(dir, "home"),
       HORDECODE_DISABLE_AUTOUPDATE: "1",
       HORDECODE_DISABLE_MODELS_FETCH: "1",
-      ...(disableEmbeddedWebUi ? { HORDECODE_DISABLE_EMBEDDED_WEB_UI: "1" } : {}),
+      ...(disableEmbeddedWebUi ? { [`${disableEmbeddedWebUi}_DISABLE_EMBEDDED_WEB_UI`]: "1" } : {}),
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -39,7 +39,14 @@ async function run(disableEmbeddedWebUi: boolean) {
 
 describe("horde web without an embedded UI", () => {
   test("prints a clear message and exits non-zero instead of starting a server", async () => {
-    const result = await run(true)
+    const result = await run("HORDECODE")
+    expect(result.exited).toBe(true)
+    expect(result.code).not.toBe(0)
+    expect(result.out).toContain("web UI is not available")
+  }, 30_000)
+
+  test("honors the OPENCODE_DISABLE_EMBEDDED_WEB_UI alias", async () => {
+    const result = await run("OPENCODE")
     expect(result.exited).toBe(true)
     expect(result.code).not.toBe(0)
     expect(result.out).toContain("web UI is not available")
