@@ -273,7 +273,6 @@ export function toolCost(body: Record<string, unknown>) {
     const whole = JSON.stringify(tool)
     return {
       name: fn.name ?? "?",
-      description,
       descChars: description.length,
       paramChars: parameters.length,
       bytes: Buffer.byteLength(whole),
@@ -328,14 +327,7 @@ export const measure = (label: string, agent: string, agentID?: string) =>
     const cost = toolCost(last!)
     out[label] = cost
     const file = process.env.TOOL_COST_OUT
-    if (file) {
-      const slim = Object.fromEntries(
-        Object.entries(out).map(([key, value]) => [key, { ...value, tools: value.tools.map(({ description: _d, ...rest }) => rest) }]),
-      )
-      fs.writeFileSync(file, JSON.stringify(slim, null, 2))
-    }
+    if (file) fs.writeFileSync(file, JSON.stringify(out, null, 2))
     return cost
   })
 
-
-export const measureTools = measure

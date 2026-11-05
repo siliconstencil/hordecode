@@ -133,10 +133,7 @@ const layer = Layer.effect(
     const config = yield* Config.Service
     const plugin = yield* Plugin.Service
     const skill = yield* Skill.Service
-    // Hordecode: the board tool (tool/task.ts) spawns no subagents, so it no longer lists agent types in its
-    // description (upstream registry.ts:265,327 do, for upstream's subagent-spawning task tool; MiMo 0.1.16
-    // registry.ts:319,455 do it for `actor`, which spawns). Agent.Service stays a layer dependency.
-    yield* Agent.Service
+    const agents = yield* Agent.Service
     const truncate = yield* Truncate.Service
     const flags = yield* RuntimeFlags.Service
     const mcp = yield* MCP.Service
@@ -378,6 +375,21 @@ const layer = Layer.effect(
       return (yield* all()).map((tool) => tool.id)
     })
 
+    const describeTask = Effect.fn("ToolRegistry.describeTask")(function* (agent: Agent.Info) {
+      const items = (yield* agents.list()).filter((item) => item.mode !== "primary")
+      const filtered = items.filter(
+        (item) => Permission.evaluate("task", item.name, agent.permission).action !== "deny",
+      )
+      const list = filtered.toSorted((a, b) => a.name.localeCompare(b.name))
+      const description = list
+        .map(
+          (item) =>
+            `- ${item.name}: ${item.description ?? "This subagent should only be called manually by the user."}`,
+        )
+        .join("\n")
+      return ["Available agent types and the tools they have access to:", description].join("\n")
+    })
+
     const describeCodeMode = Effect.fn("ToolRegistry.describeCodeMode")(function* (input: {
       agent: Agent.Info
       permission?: PermissionV1.Ruleset
@@ -429,6 +441,7 @@ const layer = Layer.effect(
             id: tool.id,
             description: [
               output.description,
+              tool.id === TaskTool.id ? yield* describeTask(input.agent) : undefined,
               tool.id === "execute" ? codeModeDescription : undefined,
             ]
               .filter(Boolean)
