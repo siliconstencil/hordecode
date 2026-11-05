@@ -6,7 +6,8 @@ import path from "node:path"
 // variable it names must be read by product code outside packages/core/src/flag/flag.ts (which only defines them), or be
 // an explicit, justified exception. Found stale on 2026-11-04: LOOP_KEEPALIVE_BUDGET and LOOP_KEEPALIVE_DELAY_S
 // (defined, never read), DISABLE_HARNESS_SKILLS, DISABLE_CODEX_SKILLS, DISABLE_OPENCODE_SKILLS (defined, never read)
-// and DISABLE_CLAUDE_IMPORT (not defined anywhere).
+// and DISABLE_CLAUDE_IMPORT (not defined anywhere). The first five were removed from flag.ts on 2026-11-05; the doc
+// names none of them today.
 const packages = path.resolve(import.meta.dir, "../..")
 const doc = path.join(import.meta.dir, "../src/builtin/.bundle/hordecode/reference/config.md")
 const flagFile = path.join(packages, "core/src/flag/flag.ts")
