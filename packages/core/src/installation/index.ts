@@ -5,8 +5,6 @@ import { withTransientReadRetry } from "@opencode-ai/core/util/effect-http-clien
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import z from "zod"
 import path from "path"
-import os from "os"
-import { renameSync, copyFileSync, rmSync, unlinkSync, existsSync } from "fs"
 import { BusEvent } from "@opencode-ai/bus/bus-event"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Log } from "@opencode-ai/core/util"
@@ -186,36 +184,9 @@ export const layer: Layer.Layer<Service, never, HttpClient.HttpClient | ChildPro
         ),
       )
 
+      // Hordecode ships no PowerShell installer; Windows installs and upgrades through npm.
       const upgradeCurlWindows = Effect.fnUntraced(function* (target: string) {
-        const pid = process.pid
-        const targetExe = process.execPath
-        const stageDir = path.join(os.tmpdir(), `hordecode_upgrade_${pid}`)
-
-        // Download new version to staging dir (reuses install.ps1 logic)
-        const installScriptUrl = process.env.HORDECODE_INSTALL_SCRIPT_URL ?? "https://hordecode.com/install.ps1"
-        const downloadResult = yield* run(
-          ["powershell.exe", "-NoProfile", "-NonInteractive", "-ep", "Bypass", "-c", "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; irm $env:INSTALL_SCRIPT_URL | iex"],
-          { env: { HORDECODE_INSTALL_DIR: stageDir, VERSION: target, INSTALL_SCRIPT_URL: installScriptUrl } },
-        )
-        if (downloadResult.code !== 0) return downloadResult
-
-        // Replace in-place: Windows allows renaming a running exe
-        const stagedExe = path.join(stageDir, "hordecode.exe")
-        if (!existsSync(stagedExe))
-          return { code: 1 as ChildProcessSpawner.ExitCode, stdout: "", stderr: "staged binary not found at " + stagedExe }
-        const oldExe = targetExe + `.old_${pid}`
-        renameSync(targetExe, oldExe)
-        try {
-          copyFileSync(stagedExe, targetExe)
-        } catch (e) {
-          renameSync(oldExe, targetExe)
-          return { code: 1 as ChildProcessSpawner.ExitCode, stdout: "", stderr: "failed to copy staged binary: " + (e instanceof Error ? e.message : String(e)) }
-        }
-        rmSync(stageDir, { recursive: true, force: true })
-        try { unlinkSync(oldExe) } catch {}
-
-        log.info("upgraded Windows binary in-place", { target, pid, oldExe })
-        return { code: 0 as ChildProcessSpawner.ExitCode, stdout: "", stderr: "" }
+        return yield* run(["npm", "install", "-g", `hordecode@${target}`])
       })
 
       const methodImpl = Effect.fn("Installation.method")(function* () {

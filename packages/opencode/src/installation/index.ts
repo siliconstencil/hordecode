@@ -148,6 +148,10 @@ const layer: Layer.Layer<Service, never, HttpClient.HttpClient | AppProcess.Serv
 
     const upgradeCurl = Effect.fnUntraced(
       function* (target: string) {
+        // Hordecode ships no PowerShell installer; Windows upgrades through npm.
+        if (process.platform === "win32") {
+          return yield* run(["npm", "install", "-g", `${PACKAGE_NAME}@${target}`])
+        }
         const response = yield* httpOk.execute(HttpClientRequest.get(INSTALL_SCRIPT))
         const body = yield* response.text
         const bodyBytes = new TextEncoder().encode(body)

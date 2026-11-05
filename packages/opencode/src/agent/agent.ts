@@ -330,21 +330,28 @@ const layer = Layer.effect(
             ),
             prompt: PROMPT_TITLE,
           },
-          max: {
-            name: "max",
-            description: "Max mode (experimental). Runs N parallel candidates and executes the best one.",
-            mode: "primary",
-            native: true,
-            hidden: false,
-            options: {},
-            permission: Permission.merge(
-              defaults,
-              Permission.fromConfig({
-                question: "allow",
-              }),
-              user,
-            ),
-          },
+          // Max mode is experimental and opt-in: only registered when
+          // `experimental.maxMode` is configured. Keeps the agent list and switcher
+          // from offering an agent that would run the plain single-candidate path.
+          ...(cfg.experimental?.maxMode
+            ? {
+                max: {
+                  name: "max",
+                  description: "Max mode (experimental). Runs N parallel candidates and executes the best one.",
+                  mode: "primary" as const,
+                  native: true,
+                  hidden: false,
+                  options: {},
+                  permission: Permission.merge(
+                    defaults,
+                    Permission.fromConfig({
+                      question: "allow",
+                    }),
+                    user,
+                  ),
+                },
+              }
+            : {}),
           summary: {
             name: "summary",
             mode: "subagent",

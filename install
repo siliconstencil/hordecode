@@ -552,7 +552,7 @@ echo -e "${MUTED}█░░█ █░░█ █▀▀▀ █░░█ ${NC}█░
 echo -e "${MUTED}▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀  ▀ ${NC}▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀"
 echo -e ""
 echo -e ""
-echo -e "${MUTED}Hordecode includes free models, to start:${NC}"
+echo -e "${MUTED}Hordecode is installed, to start:${NC}"
 echo -e ""
 echo -e "cd <project>  ${MUTED}# Open directory${NC}"
 echo -e "horde         ${MUTED}# Run command${NC}"
