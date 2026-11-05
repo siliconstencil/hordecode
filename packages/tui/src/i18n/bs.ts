@@ -259,8 +259,6 @@ export const dict = {
   "tui.toast.update_available.updating": "Ažuriranje na v{{version}}...",
   "tui.toast.update_available.failed": "Ažuriranje nije uspjelo",
   "tui.toast.update_available.success": "Uspješno ažurirano na Hordecode v{{version}}. Molimo ponovo pokrenite aplikaciju.",
-  "tui.toast.updated.title": "Auto-ažurirano",
-  "tui.toast.updated.message": "Patch ažuriranje primijenjeno: v{{version}}. Ponovo pokrenite za korištenje nove verzije. Onemogućite putem autoupdate: false u konfiguraciji.",
   "tui.sidebar.instructions": "Upute",
   "tui.sidebar.cwd": "Radni direktorij",
   "tui.toast.unknown_error": "Došlo je do nepoznate greške",

@@ -259,8 +259,6 @@ export const dict = {
   "tui.toast.update_available.updating": "Oppdaterer til v{{version}}...",
   "tui.toast.update_available.failed": "Oppdatering mislyktes",
   "tui.toast.update_available.success": "Oppdatert til Hordecode v{{version}}. Vennligst start applikasjonen på nytt.",
-  "tui.toast.updated.title": "Auto-oppdatert",
-  "tui.toast.updated.message": "Patchoppdatering brukt: v{{version}}. Start på nytt for å bruke den nye versjonen. Deaktiver via autoupdate: false i konfigurasjonen.",
   "tui.sidebar.instructions": "Instruksjoner",
   "tui.sidebar.cwd": "Arbeidskatalog",
   "tui.toast.unknown_error": "En ukjent feil har oppstått",

@@ -281,8 +281,6 @@ export const dict = {
   "tui.toast.update_available.updating": "正在更新到 v{{version}}...",
   "tui.toast.update_available.failed": "更新失敗",
   "tui.toast.update_available.success": "已更新到 Hordecode v{{version}}，請重新啟動應用程式。",
-  "tui.toast.updated.title": "已自動更新",
-  "tui.toast.updated.message": "已自動套用修補更新：v{{version}}。重新啟動後生效。可在設定中設置 autoupdate: false 關閉自動更新。",
   "tui.sidebar.instructions": "指令檔案",
   "tui.sidebar.cwd": "工作目錄",
   "tui.toast.unknown_error": "發生未知錯誤",

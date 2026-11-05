@@ -268,8 +268,6 @@ export const dict = {
   "tui.toast.update_available.updating": "v{{version}} surumune guncelleniyor...",
   "tui.toast.update_available.failed": "Guncelleme basarisiz",
   "tui.toast.update_available.success": "Hordecode v{{version}} surumune basariyla guncellendi. Lutfen uygulamayi yeniden baslatin.",
-  "tui.toast.updated.title": "Otomatik guncellendi",
-  "tui.toast.updated.message": "Yama guncellemesi uygulandi: v{{version}}. Yeni surumu kullanmak icin yeniden baslatin. Yapilandirmada autoupdate: false ile devre disi birakin.",
   "tui.sidebar.instructions": "Talimatlar",
   "tui.sidebar.cwd": "Calisma Dizini",
   "tui.toast.unknown_error": "Bilinmeyen bir hata olustu",

@@ -268,8 +268,6 @@ export const dict = {
   "tui.toast.update_available.updating": "v{{version}}(으)로 업데이트 중...",
   "tui.toast.update_available.failed": "업데이트 실패",
   "tui.toast.update_available.success": "Hordecode v{{version}}(으)로 성공적으로 업데이트되었습니다. 애플리케이션을 다시 시작하세요.",
-  "tui.toast.updated.title": "자동 업데이트됨",
-  "tui.toast.updated.message": "패치 업데이트 적용: v{{version}}. 새 버전을 사용하려면 다시 시작하세요. config에서 autoupdate: false로 비활성화.",
   "tui.sidebar.instructions": "지침",
   "tui.sidebar.cwd": "작업 디렉토리",
   "tui.toast.unknown_error": "알 수 없는 오류가 발생했습니다",

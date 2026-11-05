@@ -259,8 +259,6 @@ export const dict = {
   "tui.toast.update_available.updating": "جارٍ التحديث إلى v{{version}}...",
   "tui.toast.update_available.failed": "فشل التحديث",
   "tui.toast.update_available.success": "تم التحديث بنجاح إلى Hordecode v{{version}}. يرجى إعادة تشغيل التطبيق.",
-  "tui.toast.updated.title": "تحديث تلقائي",
-  "tui.toast.updated.message": "تم تطبيق تحديث: v{{version}}. أعد التشغيل لاستخدام الإصدار الجديد. يمكن التعطيل عبر autoupdate: false في التكوين.",
   "tui.sidebar.instructions": "التعليمات",
   "tui.sidebar.cwd": "دليل العمل",
   "tui.toast.unknown_error": "حدث خطأ غير معروف",
