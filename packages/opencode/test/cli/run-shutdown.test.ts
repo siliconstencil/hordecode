@@ -3,7 +3,7 @@ import { SHUTDOWN_GRACE_MS, armShutdownWatchdog } from "../../src/cli/run-shutdo
 
 const original = process.exitCode
 afterEach(() => {
-  process.exitCode = original
+  process.exitCode = original ?? 0
 })
 
 describe("armShutdownWatchdog", () => {
