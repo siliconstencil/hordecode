@@ -1,6 +1,10 @@
-import { describe, expect, test } from "bun:test"
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { Effect, Layer } from "effect"
 import type { LanguageModelV3 } from "@ai-sdk/provider"
+import fs from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import { Global } from "@opencode-ai/global"
 import { Goal } from "../goal"
 import { SessionID, MessageID } from "../schema"
 import type { MessageV2 } from "../message-v2"
@@ -8,14 +12,31 @@ import * as Session from "../session"
 import { Provider } from "../../provider/index"
 import { Auth } from "../../auth"
 import { Config } from "../../config/index"
+import { Storage } from "../../storage"
 import { Bus } from "@opencode-ai/bus"
 
 // runGate (Goal.runGate) is the real stop-condition gate wired into opencode/src/session/prompt.ts
 // and core/src/session/prompt.ts (both "continue the loop" sites). No existing test drives it: the
 // only coverage before this file was the state machine (goal.test.ts: set/get/clear/bumpReact) and
-// the Verdict zod schema. This file drives the real Goal.layer (its in-memory InstanceState map,
-// its bus publication and its MAX_GOAL_REACT cap) against a fake judge model and a fake Session, so
+// the Verdict zod schema. This file drives the real Goal.layer (its persisted goal state, its bus
+// publication and its MAX_GOAL_REACT cap) against a fake judge model and a fake Session, so
 // runGate's branches are exercised for real rather than asserted on a hand-rolled fake service.
+
+// Goal state is persisted through the Storage service, which writes under Global.Path.data.
+// Isolate it so the suite never touches the real data directory.
+const originalData = Global.Path.data
+const isolatedData = path.join(
+  os.tmpdir(),
+  `hordecode-goal-gate-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+)
+beforeAll(() => {
+  Global.Path.data = isolatedData
+})
+
+afterAll(async () => {
+  Global.Path.data = originalData
+  await fs.rm(isolatedData, { recursive: true, force: true })
+})
 
 const ses = SessionID.make("ses_goal_gate")
 
@@ -134,6 +155,7 @@ function layerFor(behavior: () => { ok: boolean; impossible?: boolean; reason: s
   // layer downstream (effect/Layer.js: provide uses an "identity" merge, keeping only self's output);
   // Bus.layer must be provideMerge'd (or merged as a sibling) so Bus.Service stays visible to runGate.
   return Layer.mergeAll(Goal.layer, fakeSessionLayer(calls)).pipe(
+    Layer.provide(Storage.defaultLayer),
     Layer.provide(providerLayer(behavior)),
     Layer.provide(authLayer),
     Layer.provide(configLayer),
@@ -350,18 +372,16 @@ describe("Goal.runGate (real Goal.layer, fake judge model, fake Session)", () =>
   })
 })
 
-describe("Goal state does not survive a process restart (documents current behavior; see OPEN DECISION)", () => {
-  // "Restart" = a brand new build of Goal.layer (a fresh InstanceState cache), the only way Goal state
-  // is held (core/src/session/goal.ts: InstanceState.make backs a plain in-memory Map; there is no disk
-  // or database write anywhere in Goal.layer). This has to be two genuinely separate top-level
+describe("Goal state survives a service layer rebuild (persisted through Storage)", () => {
+  // "Restart" = a brand new build of Goal.layer. Goal state is persisted through the Storage service
+  // (core/src/session/goal.ts writes ["session_goal", sessionID] under Global.Path.data), so a fresh
+  // build of the layer reads the stored goal back. This has to be two genuinely separate top-level
   // Effect.runPromise calls, not two nested Effect.provide calls under one: Effect memoizes a layer's
   // build by its object identity within a single run (so that a diamond dependency is built once), so
   // nesting two Effect.provide(layerFor(...)) calls under one Effect.runPromise -- even with "fresh"
   // closures for the other services -- shares the same Goal.Service instance, because Goal.layer itself
-  // is still the same module-level reference both times. This is not a bug to fix here -- it is the
-  // behavior reports/xray/session-features.md (card 2) flagged as undocumented; persisting goal state
-  // across restarts is a product decision, left OPEN in the report for this slice.
-  test("a goal set under one build of Goal.layer is invisible to a fresh build of the same layer", async () => {
+  // is still the same module-level reference both times.
+  test("a goal set under one build of Goal.layer is visible to a fresh build of the same layer", async () => {
     const calls: SessionCall[] = []
     await Effect.runPromise(
       Effect.scoped(
@@ -381,6 +401,6 @@ describe("Goal state does not survive a process restart (documents current behav
         }).pipe(Effect.provide(layerFor(() => ({ ok: true, reason: "n/a" }), calls))),
       ),
     )
-    expect(afterRestart).toBeUndefined()
+    expect(afterRestart).toEqual({ condition: "persist me", react: 0 })
   })
 })
