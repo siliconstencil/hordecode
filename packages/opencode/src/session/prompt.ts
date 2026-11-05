@@ -1297,16 +1297,17 @@ const layer = Layer.effect(
     const prompt: (input: PromptInput) => Effect.Effect<SessionV1.WithParts, Image.Error> = Effect.fn(
       "SessionPrompt.prompt",
     )(function* (input: PromptInput) {
-      // The opencode-side PromptInput schema does not carry a `source` field
-      // (only the core-side does). opencode's SessionPrompt.prompt is the
-      // user HTTP path -- every call here is a real user turn, so clearing on
-      // every prompt is safe. The source-filtered clear lives in
-      // core/src/session/prompt.ts where `source: "hook"` (cron) and
-      // `source: "spawn"` (supervisor) must NOT clear.
-      const { clearInterrupted } = yield* Effect.promise(() => import("@opencode-ai/inbox/interrupt-latch"))
-      clearInterrupted(input.sessionID)
+      // Cron (`source: "hook"`) and supervisor (`source: "spawn"`) prompts are
+      // internal turns: they must not clear the interrupt latch and must not
+      // revert user-visible work. HTTP/TUI prompts omit `source` and keep the
+      // user-turn behavior. Mirrors core/src/session/prompt.ts:3147-3152.
+      const internal = input.source === "hook" || input.source === "spawn"
+      if (!internal) {
+        const { clearInterrupted } = yield* Effect.promise(() => import("@opencode-ai/inbox/interrupt-latch"))
+        clearInterrupted(input.sessionID)
+      }
       const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
-      yield* revert.cleanup(session)
+      if (!internal) yield* revert.cleanup(session)
       const message = yield* createUserMessage(input)
       yield* sessions.touch(input.sessionID)
 
@@ -2806,6 +2807,7 @@ export const PromptInput = Schema.Struct({
   // Step cap for this loop; overrides agent.steps. Mirrors core/src/session/prompt.ts PromptInput.steps.
   steps: Schema.optional(Schema.Number),
   noReply: Schema.optional(Schema.Boolean),
+  source: Schema.optional(Schema.Literals(["user", "spawn", "hook"])),
   tools: Schema.optional(Schema.Record(Schema.String, Schema.Boolean)).annotate({
     description:
       "@deprecated tools and permissions have been merged, you can set permissions on the session itself now",

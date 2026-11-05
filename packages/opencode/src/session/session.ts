@@ -12,6 +12,43 @@ import z from "zod"
 
 const asyncExec = promisify(exec)
 
+export type ScheduledPromptOrigin = {
+  kind: "cron"
+  taskId: string
+  kindOfTask: "cron" | "loop"
+  firedAt?: string
+}
+
+// Cron fires through the SessionPrompt service mounted by the app layer. The
+// core module is not imported here: its copy carries a different service tag
+// and is reserved for the supervisor's isolated layer. Mirrors
+// core/src/session/prompt.ts:3281.
+export const injectScheduledPrompt = Effect.fn("Session.injectScheduledPrompt")(function* (input: {
+  sessionID: SessionID
+  value: string
+  origin: ScheduledPromptOrigin
+  priority?: "later" | "next" | "now"
+  isMeta?: boolean
+}) {
+  const { SessionPrompt } = yield* Effect.promise(() => import("@/session/prompt"))
+  const prompt = yield* SessionPrompt.Service
+  yield* prompt.prompt({
+    sessionID: input.sessionID,
+    source: "hook",
+    parts: [
+      {
+        type: "text",
+        text: input.value,
+        synthetic: input.isMeta ?? true,
+        metadata: {
+          origin: input.origin,
+          priority: input.priority ?? "later",
+        },
+      },
+    ],
+  })
+})
+
 import { serviceUse } from "@opencode-ai/core/effect/service-use"
 import path from "path"
 import { BackgroundJob } from "@/background/job"
@@ -587,9 +624,6 @@ const layer = Layer.effect(
             return import("@/effect/app-runtime").then(({ AppRuntime }) => {
               AppRuntime.runPromise(
                 withInstance(Effect.gen(function* () {
-                  const injectScheduledPrompt = yield* Effect.promise(() =>
-                    import("@opencode-ai/core/session/prompt").then((m: any) => m.injectScheduledPrompt),
-                  ).pipe(Effect.orDie)
                   const resolveAtFireTime = yield* Effect.promise(() =>
                     import("@opencode-ai/cron/sentinel").then((m: any) => m.resolveAtFireTime),
                   ).pipe(Effect.map((fn: any) => fn as (p: string, d: string, s: string) => Promise<string>), Effect.orDie)
