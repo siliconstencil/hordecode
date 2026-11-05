@@ -139,6 +139,15 @@ const Parameters = Schema.Struct({
   operation: Operation,
 })
 
+export function formatSupervisorValidationError(error: unknown) {
+  return [
+    String(error),
+    "Valid fields: operation, action, description, prompt, subagent_type, model, supervisor_id, timeout_ms, command, context, task_id, output_schema, vision, limit, to_session_id, to_supervisor_id, content, type.",
+    "A run or spawn operation needs description, prompt and subagent_type; subagent_type must be one of the agent types listed in the tool description.",
+    'Example: {"operation":{"action":"run","description":"Inspect the failing test","prompt":"Read test/x and report the failing assertion.","subagent_type":"general"}}',
+  ].join("\n")
+}
+
 type Metadata = {
   [key: string]: any
 }
@@ -201,6 +210,7 @@ export const SupervisorTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
+      formatValidationError: formatSupervisorValidationError,
       execute: (input: typeof Parameters.Type, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const op = input.operation as Op

@@ -34,6 +34,7 @@ import { monitor as tryBestMonitor, type TryBestIncident } from "./try-best-dete
 import { chatSpanAttributes, chatSpanName, recordChatMetrics, type ChatSpanInput } from "./chat-span"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Otlp } from "@opencode-ai/core/observability/otlp"
+import { healDsmlToolCalls, type DsmlCall } from "@opencode-ai/core/session/dsml"
 
 const DOOM_LOOP_THRESHOLD = 3
 
@@ -215,6 +216,10 @@ interface ProcessorContext extends Input {
   reasoningMap: Record<string, SessionV1.ReasoningPart>
   stopReason?: string | null
   stopErrorType?: string | null
+  /** Tools of the running turn. A DSML envelope is healed only into a tool this turn may call. */
+  tools?: ReplayInput["tools"]
+  /** The calls of a healed DSML envelope, waiting to run. */
+  healed?: DsmlCall[]
 }
 
 type StreamEvent = LLMEvent
@@ -255,6 +260,8 @@ const layer = Layer.effect(
         needsCompaction: false,
         currentText: undefined,
         reasoningMap: {},
+        tools: undefined,
+        healed: undefined,
       }
       let aborted = false
 
@@ -816,6 +823,26 @@ const layer = Layer.effect(
               },
               { text: ctx.currentText.text },
             )).text
+            // FORK_DELTA: opencode v1.19.5 packages/opencode/src/session/processor.ts:526 (the text-end
+            // case) - a model that writes its tool call as a DSML envelope is healed here, in the
+            // stream, before the turn ends. An envelope this path refuses (unknown tool, malformed
+            // markup) stays text and the retry and salvage paths take over.
+            const tools = ctx.tools
+            const healed = tools ? healDsmlToolCalls(ctx.currentText.text) : undefined
+            if (
+              healed &&
+              tools &&
+              healed.calls.length > 0 &&
+              healed.calls.every((call) => Object.hasOwn(tools, call.name))
+            ) {
+              ctx.currentText.text = healed.text
+              ctx.healed = healed.calls
+              yield* Effect.logInfo("dsml:heal", {
+                "session.id": ctx.sessionID,
+                messageID: ctx.assistantMessage.id,
+                calls: healed.calls.length,
+              })
+            }
             {
               const end = Date.now()
               ctx.currentText.time = { start: ctx.currentText.time?.start ?? end, end }
@@ -828,6 +855,90 @@ const layer = Layer.effect(
           case "finish":
             return
         }
+      })
+
+      // The one tool-call path: a structured call from the provider and a call healed out of a DSML
+      // envelope both go through it, so the tool part, the permission ask, the plugin hooks and the
+      // agent tool allowlist are the same for both. FORK_DELTA: no upstream counterpart (the fork's
+      // replay path).
+      const executeToolCall = Effect.fnUntraced(function* (input: {
+        call: ProposedToolCall
+        tools: ReplayInput["tools"]
+        messages: ModelMessage[]
+        abortSignal: AbortSignal
+      }) {
+        const { call, tools, messages, abortSignal } = input
+        yield* handleEvent({
+          type: "tool-input-start",
+          id: call.toolCallId,
+          name: call.toolName,
+          providerMetadata: call.providerMetadata,
+        } as unknown as StreamEvent)
+        yield* handleEvent({
+          type: "tool-call",
+          id: call.toolCallId,
+          name: call.toolName,
+          input: call.input,
+          providerMetadata: call.providerMetadata,
+        } as unknown as StreamEvent)
+        const t = tools[call.toolName]
+        if (!t || !t.execute) {
+          yield* handleEvent({
+            type: "tool-error",
+            id: call.toolCallId,
+            name: call.toolName,
+            message: `Tool "${call.toolName}" has no executor`,
+            error: new Error(`Tool "${call.toolName}" has no executor`),
+          } as unknown as StreamEvent) // opencode/src/session/processor.ts:1036 (constructed tool-error event) vs StreamEvent union
+          return
+        }
+        const normalizedInput = normalizeToolInput(call.input, call.toolName) as Record<string, unknown>
+        // opencode/src/session/processor.ts:1040 (tool info schema structure) vs runtime tool definition
+        const schemaCandidate = (t as unknown as { inputSchema?: { "~standard"?: { validate?: (v: unknown) => unknown } } })
+          .inputSchema?.["~standard"]?.validate
+        if (schemaCandidate) {
+          const v = schemaCandidate(normalizedInput) as { issues?: unknown[] }
+          const maybePromise = v as Promise<{ issues?: unknown[] }>
+          const res = typeof (maybePromise as Promise<unknown>).then === "function" ? yield* Effect.promise(() => maybePromise) : v
+          if ((res as { issues?: unknown[] }).issues?.length) {
+            yield* handleEvent({
+              type: "tool-error",
+              id: call.toolCallId,
+              name: call.toolName,
+              message: `Invalid arguments for ${call.toolName}: ${JSON.stringify((res as { issues?: unknown[] }).issues)}`,
+              error: new Error(JSON.stringify((res as { issues?: unknown[] }).issues)),
+            } as unknown as StreamEvent)
+            return
+          }
+        }
+        const outcome = yield* Effect.tryPromise({
+          try: () =>
+            t.execute!(normalizedInput as never, {
+              toolCallId: call.toolCallId,
+              messages,
+              abortSignal,
+            }),
+          catch: (e) => e,
+        }).pipe(
+          Effect.map((output) => ({ ok: true as const, output })),
+          Effect.catch((error) => Effect.succeed({ ok: false as const, error })),
+        )
+        if (!outcome.ok) {
+          yield* handleEvent({
+            type: "tool-error",
+            id: call.toolCallId,
+            name: call.toolName,
+            message: errorMessage(outcome.error),
+            error: outcome.error,
+          } as unknown as StreamEvent)
+          return
+        }
+        yield* handleEvent({
+          type: "tool-result",
+          id: call.toolCallId,
+          name: call.toolName,
+          result: { type: "json" as const, value: outcome.output },
+        } as unknown as StreamEvent)
       })
 
       const cleanup = Effect.fn("SessionProcessor.cleanup")(function* () {
@@ -925,6 +1036,9 @@ const layer = Layer.effect(
         })
         ctx.needsCompaction = false
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
+        // The tools of this turn: a DSML envelope is healed only into a tool this turn may call.
+        ctx.tools = streamInput.tools as never
+        const ctrl = new AbortController()
 
         return yield* Effect.gen(function* () {
           yield* Effect.gen(function* () {
@@ -945,10 +1059,34 @@ const layer = Layer.effect(
               Stream.takeUntil(() => ctx.needsCompaction),
               Stream.runDrain,
             )
+
+            // FORK_DELTA: no upstream counterpart - a DSML envelope healed in the stream runs here,
+            // through the same tool path a structured call takes. The turn goes on because the
+            // assistant message holds a tool part, so the retry and salvage paths never see this stop.
+            const healed = ctx.healed
+            const tools = ctx.tools
+            if (healed && tools && healed.length > 0 && !ctx.needsCompaction) {
+              ctx.healed = undefined
+              for (const [index, call] of healed.entries()) {
+                yield* executeToolCall({
+                  call: {
+                    toolCallId: `dsml_${ctx.assistantMessage.id}_${index}`,
+                    toolName: call.name,
+                    input: call.arguments,
+                  },
+                  tools,
+                  messages: streamInput.messages,
+                  abortSignal: ctrl.signal,
+                })
+              }
+              ctx.assistantMessage.finish = "tool-calls"
+              yield* session.updateMessage(ctx.assistantMessage)
+            }
           }).pipe(
             Effect.onInterrupt(() =>
               Effect.gen(function* () {
                 aborted = true
+                ctrl.abort()
                 if (!ctx.assistantMessage.error) {
                   yield* halt(new DOMException("Aborted", "AbortError"))
                 }
@@ -1042,77 +1180,12 @@ const layer = Layer.effect(
             }
             for (const call of input.toolCalls) {
               if (ctx.needsCompaction) break
-              yield* handleEvent({
-                type: "tool-input-start",
-                id: call.toolCallId,
-                name: call.toolName,
-                providerMetadata: call.providerMetadata,
-              } as unknown as StreamEvent)
-              yield* handleEvent({
-                type: "tool-call",
-                id: call.toolCallId,
-                name: call.toolName,
-                input: call.input,
-                providerMetadata: call.providerMetadata,
-              } as unknown as StreamEvent)
-              const t = input.tools[call.toolName]
-              if (!t || !t.execute) {
-                yield* handleEvent({
-                  type: "tool-error",
-                  id: call.toolCallId,
-                  name: call.toolName,
-                  message: `Tool "${call.toolName}" has no executor`,
-                  error: new Error(`Tool "${call.toolName}" has no executor`),
-                } as unknown as StreamEvent) // opencode/src/session/processor.ts:1036 (constructed tool-error event) vs StreamEvent union
-                continue
-              }
-              const normalizedInput = normalizeToolInput(call.input, call.toolName) as Record<string, unknown>
-              // opencode/src/session/processor.ts:1040 (tool info schema structure) vs runtime tool definition
-              const schemaCandidate = (t as unknown as { inputSchema?: { "~standard"?: { validate?: (v: unknown) => unknown } } })
-                .inputSchema?.["~standard"]?.validate
-              if (schemaCandidate) {
-                const v = schemaCandidate(normalizedInput) as { issues?: unknown[] }
-                const maybePromise = v as Promise<{ issues?: unknown[] }>
-                const res = typeof (maybePromise as Promise<unknown>).then === "function" ? yield* Effect.promise(() => maybePromise) : v
-                if ((res as { issues?: unknown[] }).issues?.length) {
-                  yield* handleEvent({
-                    type: "tool-error",
-                    id: call.toolCallId,
-                    name: call.toolName,
-                    message: `Invalid arguments for ${call.toolName}: ${JSON.stringify((res as { issues: unknown[] }).issues)}`,
-                    error: new Error(JSON.stringify((res as { issues: unknown[] }).issues)),
-                  } as unknown as StreamEvent)
-                  continue
-                }
-              }
-              const outcome = yield* Effect.tryPromise({
-                try: () =>
-                  t.execute!(normalizedInput as never, {
-                    toolCallId: call.toolCallId,
-                    messages: input.messages,
-                    abortSignal: ctrl.signal,
-                  }),
-                catch: (e) => e,
-              }).pipe(
-                Effect.map((output) => ({ ok: true as const, output })),
-                Effect.catch((error) => Effect.succeed({ ok: false as const, error })),
-              )
-              if (!outcome.ok) {
-                yield* handleEvent({
-                  type: "tool-error",
-                  id: call.toolCallId,
-                  name: call.toolName,
-                  message: errorMessage(outcome.error),
-                  error: outcome.error,
-                } as unknown as StreamEvent)
-              } else {
-                yield* handleEvent({
-                  type: "tool-result",
-                  id: call.toolCallId,
-                  name: call.toolName,
-                  result: { type: "json" as const, value: outcome.output },
-                } as unknown as StreamEvent)
-              }
+              yield* executeToolCall({
+                call,
+                tools: input.tools,
+                messages: input.messages,
+                abortSignal: ctrl.signal,
+              })
             }
             yield* handleEvent({
               type: "step-finish",

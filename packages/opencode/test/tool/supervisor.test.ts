@@ -1,5 +1,5 @@
 import { afterEach, describe, expect } from "bun:test"
-import { Deferred, Effect, Fiber, Layer } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect"
 import { SupervisorRegistryService } from "@opencode-ai/supervisor/registry"
 import { SupervisorWaiter } from "@opencode-ai/supervisor/waiter"
 import { TaskRegistry } from "@opencode-ai/task/registry"
@@ -15,7 +15,7 @@ import { Provider } from "@/provider/provider"
 import { SessionCheckpoint } from "@opencode-ai/core/session/checkpoint"
 import { SupervisorTool } from "../../src/tool/supervisor"
 import { MessageID, SessionID } from "../../src/session/schema"
-import type { Context } from "../../src/tool/tool"
+import { InvalidArgumentsError, type Context } from "../../src/tool/tool"
 import { testEffect } from "../lib/effect"
 
 // Only the services the supervisor tool's run path actually touches are mocked:
@@ -411,6 +411,27 @@ describe("supervisor context:state checkpoint injection", () => {
       expect(spawnCallCount).toBe(1)
       expect(lastSpawnInput?.task).toBe(runArgs.operation.prompt)
       expect(lastSpawnInput?.task).not.toContain("<session-state>")
+    }),
+  )
+
+  it.live("a missing subagent_type names the field and one complete run example", () =>
+    Effect.gen(function* () {
+      const info = yield* SupervisorTool
+      const def = yield* info.init()
+      const execute = def.execute as unknown as (args: unknown, ctx: Context) => ReturnType<typeof def.execute>
+
+      const exit = yield* execute({ operation: { action: "run", description: "Inspect", prompt: "Read the file" } }, ctx).pipe(
+        Effect.exit,
+      )
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (!Exit.isFailure(exit)) return
+      const die = exit.cause.reasons.find(Cause.isDieReason)
+      expect(die?.defect).toBeInstanceOf(InvalidArgumentsError)
+      const message = (die?.defect as InvalidArgumentsError).message
+      expect(message).toContain("subagent_type")
+      expect(message).toContain('"action":"run"')
+      expect(message).toContain('"subagent_type":"general"')
     }),
   )
 })
