@@ -249,7 +249,6 @@ const COMPACTABLE_TOOL_NAMES = new Set<string>([
   "write",
   "multiedit",
   "apply_patch",
-  "codesearch",
 ])
 
 function estimateMessageTokens(m: { parts: Array<{ type: string; [k: string]: unknown }> }): number {

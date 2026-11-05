@@ -288,7 +288,6 @@ const layer = Layer.effect(
                 webfetch: "allow",
                 websearch: "allow",
                 read: "allow",
-                codesearch: "allow",
                 external_directory: readonlyExternalDirectory,
               }),
               user,

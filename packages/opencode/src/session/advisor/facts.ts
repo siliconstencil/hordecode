@@ -26,7 +26,6 @@ const READ_ONLY_TOOLS = new Set([
   "glob",
   "webfetch",
   "websearch",
-  "codesearch",
   "lsp",
   "view_image",
   "skill",

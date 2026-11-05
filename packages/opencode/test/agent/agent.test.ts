@@ -159,14 +159,6 @@ it.instance("explore agent denies edit and write", () =>
   }),
 )
 
-it.instance("explore agent allows codesearch", () =>
-  Effect.gen(function* () {
-    const explore = yield* load((svc) => svc.get("explore"))
-    expect(explore).toBeDefined()
-    expect(evalPerm(explore, "codesearch")).toBe("allow")
-  }),
-)
-
 it.instance("explore agent asks for external directories and allows whitelisted external paths", () =>
   Effect.gen(function* () {
     const explore = yield* load((svc) => svc.get("explore"))

@@ -2170,9 +2170,6 @@ function ToolPart(props: { last: boolean; part: ToolPart; message: AssistantMess
         <Match when={display() === "view_image"}>
           <ViewImage {...toolprops} />
         </Match>
-        <Match when={display() === "codesearch"}>
-          <CodeSearch {...toolprops} />
-        </Match>
         <Match when={display() === "write"}>
           <Write {...toolprops} />
         </Match>
@@ -3125,14 +3122,6 @@ function ViewImage(props: ToolProps) {
   )
 }
 
-function CodeSearch(props: ToolProps) {
-  return (
-    <InlineTool icon="⌕" pending="Searching code..." complete={stringValue(props.input.query)} part={props.part}>
-      CodeSearch "{stringValue(props.input.query)}"
-    </InlineTool>
-  )
-}
-
 function Task(props: ToolProps) {
   const { theme } = useTheme()
   const { navigate } = useRoute()
@@ -3748,7 +3737,6 @@ const toolDisplays = new Set([
   "webfetch",
   "websearch",
   "view_image",
-  "codesearch",
   "write",
   "edit",
   "supervisor",
