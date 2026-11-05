@@ -1284,6 +1284,7 @@ PARITY	packages/core/src/schema.ts
 FORK_DELTA	packages/core/src/session.ts
 FORK_ONLY	packages/core/src/session/__tests__/classify.test.ts
 FORK_ONLY	packages/core/src/session/__tests__/dsml.test.ts
+FORK_ONLY	packages/core/src/session/__tests__/goal-gate.test.ts
 FORK_ONLY	packages/core/src/session/__tests__/goal.test.ts
 FORK_ONLY	packages/core/src/session/anchor-trace.ts
 FORK_ONLY	packages/core/src/session/auto-dream.ts
@@ -1606,6 +1607,7 @@ FORK_DELTA	packages/core/test/location-layer.test.ts
 PARITY	packages/core/test/location-mutation.test.ts
 PARITY	packages/core/test/location.test.ts
 PARITY	packages/core/test/model.test.ts
+FORK_ONLY	packages/core/test/models-offline.test.ts
 FORK_DELTA	packages/core/test/models.test.ts
 PARITY	packages/core/test/move-session.test.ts
 PARITY	packages/core/test/npm-config.test.ts
@@ -3022,6 +3024,7 @@ FORK_DELTA	packages/opencode/test/cli/cmd/tui/attention.test.ts
 PARITY	packages/opencode/test/cli/debug-config.test.ts
 FORK_ONLY	packages/opencode/test/cli/debug-lsp.test.ts
 FORK_ONLY	packages/opencode/test/cli/debug-rg-search.test.ts
+FORK_ONLY	packages/opencode/test/cli/debug/embedding-check-exit.test.ts
 FORK_ONLY	packages/opencode/test/cli/debug/embedding-check.test.ts
 PARITY	packages/opencode/test/cli/effect-cmd-instance-als.test.ts
 PARITY	packages/opencode/test/cli/error.test.ts
@@ -3380,6 +3383,7 @@ FORK_ONLY	packages/opencode/test/server/startup-gate.test.ts
 PARITY	packages/opencode/test/server/workspace-proxy.test.ts
 PARITY	packages/opencode/test/server/workspace-routing.test.ts
 PARITY	packages/opencode/test/server/worktree-endpoint-repro.test.ts
+FORK_ONLY	packages/opencode/test/session/advisor-loop-turn.test.ts
 FORK_ONLY	packages/opencode/test/session/advisor/display.test.ts
 FORK_ONLY	packages/opencode/test/session/advisor/emission-guard.test.ts
 FORK_ONLY	packages/opencode/test/session/advisor/facts.test.ts
@@ -3432,6 +3436,7 @@ FORK_ONLY	packages/opencode/test/session/prompt-bounded-context.test.ts
 FORK_ONLY	packages/opencode/test/session/prompt-prefix-capture.test.ts
 FORK_DELTA	packages/opencode/test/session/prompt.test.ts
 FORK_ONLY	packages/opencode/test/session/read-ledger-turn.test.ts
+FORK_ONLY	packages/opencode/test/session/rebuild-command.test.ts
 FORK_DELTA	packages/opencode/test/session/retry.test.ts
 PARITY	packages/opencode/test/session/revert-compact.test.ts
 FORK_DELTA	packages/opencode/test/session/schema-decoding.test.ts
@@ -3469,6 +3474,13 @@ FORK_ONLY	packages/opencode/test/supervisor/max-subagents.test.ts
 FORK_ONLY	packages/opencode/test/supervisor/nested-notify-target.test.ts
 FORK_ONLY	packages/opencode/test/supervisor/nested-task-binding.test.ts
 FORK_ONLY	packages/opencode/test/supervisor/peer-notify-target.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/r6-agent-comms.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/r6-ask-helpers.ts
+FORK_ONLY	packages/opencode/test/supervisor/r6-harness.ts
+FORK_ONLY	packages/opencode/test/supervisor/r6-helpers.ts
+FORK_ONLY	packages/opencode/test/supervisor/r6-limits.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/r6-notify-parent.test.ts
+FORK_ONLY	packages/opencode/test/supervisor/r6-session-ask.test.ts
 FORK_ONLY	packages/opencode/test/supervisor/run-timeout-abort.test.ts
 FORK_ONLY	packages/opencode/test/supervisor/session-create-limits.test.ts
 FORK_ONLY	packages/opencode/test/supervisor/subagent-depth-limit.test.ts
@@ -4241,6 +4253,7 @@ FORK_ONLY	packages/skill/test/builtin-bundle-scripts.test.ts
 FORK_ONLY	packages/skill/test/builtin-extract.test.ts
 FORK_ONLY	packages/skill/test/discovery.test.ts
 FORK_ONLY	packages/skill/test/harness-gate-paths.test.ts
+FORK_ONLY	packages/skill/test/reference-config.test.ts
 FORK_ONLY	packages/skill/test/research-gate.test.ts
 FORK_ONLY	packages/skill/tsconfig.json
 PARITY	packages/slack/.env.example
@@ -4284,6 +4297,7 @@ FORK_ONLY	packages/supervisor/src/events.ts
 FORK_ONLY	packages/supervisor/src/fork-context.sql.ts
 FORK_ONLY	packages/supervisor/src/group.ts
 FORK_ONLY	packages/supervisor/src/index.ts
+FORK_ONLY	packages/supervisor/src/limits.ts
 FORK_ONLY	packages/supervisor/src/outcome-ref.ts
 FORK_ONLY	packages/supervisor/src/registry.ts
 FORK_ONLY	packages/supervisor/src/return-header.ts
@@ -4614,6 +4628,7 @@ FORK_ONLY	packages/tui/src/util/cache-state.ts
 PARITY	packages/tui/src/util/collapse-tool-output.ts
 FORK_ONLY	packages/tui/src/util/collapse.ts
 FORK_ONLY	packages/tui/src/util/context-usage.ts
+FORK_ONLY	packages/tui/src/util/cost.ts
 FORK_ONLY	packages/tui/src/util/default-agent.ts
 FORK_DELTA	packages/tui/src/util/error.ts
 PARITY	packages/tui/src/util/filetype.ts
@@ -4720,6 +4735,7 @@ FORK_DELTA	packages/tui/test/theme.test.ts
 FORK_ONLY	packages/tui/test/util/auto-accept.test.ts
 FORK_ONLY	packages/tui/test/util/cache-state.test.ts
 FORK_ONLY	packages/tui/test/util/context-usage.test.ts
+FORK_ONLY	packages/tui/test/util/cost.test.ts
 FORK_ONLY	packages/tui/test/util/default-agent.test.ts
 PARITY	packages/tui/test/util/error.test.ts
 PARITY	packages/tui/test/util/filetype.test.ts
@@ -7037,7 +7053,7 @@ FORK_DELTA	packages/web/src/content/docs/tr/web.mdx
 PARITY	packages/web/src/content/docs/tr/windows-wsl.mdx
 PARITY	packages/web/src/content/docs/tr/zen.mdx
 PARITY	packages/web/src/content/docs/troubleshooting.mdx
-PARITY	packages/web/src/content/docs/tui.mdx
+FORK_DELTA	packages/web/src/content/docs/tui.mdx
 FORK_DELTA	packages/web/src/content/docs/web.mdx
 PARITY	packages/web/src/content/docs/windows-wsl.mdx
 PARITY	packages/web/src/content/docs/zen.mdx
@@ -7209,7 +7225,10 @@ PARITY	README.vi.md
 PARITY	README.zh.md
 PARITY	README.zht.md
 FORK_ONLY	reports/rnd/fixes-after-0.1.5.md
+FORK_ONLY	reports/rnd/r6-session-tests.md
+FORK_ONLY	reports/rnd/r6-surfaces-evidence.md
 FORK_ONLY	reports/rnd/rnd-harness-triage.md
+FORK_ONLY	reports/rnd/rnd-r6-agents-tests.md
 FORK_ONLY	reports/rnd/rnd-task-contract-slice1.md
 FORK_ONLY	ROADMAP.md
 PARITY	screenshot-uk.png
