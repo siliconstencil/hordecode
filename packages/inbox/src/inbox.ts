@@ -1,6 +1,7 @@
 import { Brand, Context, Effect, Layer, Scope, Schema, Option } from "effect"
 import { ulid } from "ulid"
 import { Database, eq, and, lte, inArray } from "@opencode-ai/core/storage"
+import { KeyedMutex } from "@opencode-ai/core/effect/keyed-mutex"
 import { Bus } from "@opencode-ai/bus"
 import { SupervisorRegistryService } from "@opencode-ai/supervisor"
 import { Session } from "@opencode-ai/core/session"
@@ -118,6 +119,10 @@ export const layer: Layer.Layer<Service, never, Bus.Service | SupervisorRegistry
     const reg = yield* SupervisorRegistryService.Service
     const sessions = yield* Session.Service
     const scope = yield* Scope.Scope
+    // One drain at a time per lane: two drains that both select the same queued rows
+    // would otherwise write the synthetic message twice. The delivered state is the
+    // durable backstop for a second drain that starts after the first commits.
+    const drainLocks = KeyedMutex.makeUnsafe<string>()
     yield* gcInboxRows(Date.now() - GC_TTL_MS)
     log.info("inbox gc-on-init complete")
     const send = Effect.fn("Inbox.send")(function* (input: SendInput) {
@@ -162,7 +167,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | SupervisorRegistry
       }
       return { inboxID: row.id }
     })
-    const drain = Effect.fn("Inbox.drain")(function* (sessionID: SessionID, supervisorID: string) {
+    const drainRows = Effect.fn("Inbox.drainRows")(function* (sessionID: SessionID, supervisorID: string) {
       const rows = yield* Effect.sync(() =>
         Database.use((db) =>
           db
@@ -219,6 +224,9 @@ export const layer: Layer.Layer<Service, never, Bus.Service | SupervisorRegistry
         ),
       )
       return rendered.length
+    })
+    const drain = Effect.fn("Inbox.drain")(function* (sessionID: SessionID, supervisorID: string) {
+      return yield* drainLocks.withLock(`${sessionID}:${supervisorID}`)(drainRows(sessionID, supervisorID))
     })
     const impl = Service.of({ send: send as Interface["send"], drain: drain as Interface["drain"] })
     inboxServiceRef.current = impl

@@ -523,6 +523,41 @@ describe("inbox real DB", () => {
     cleanInboxFor(sid)
   })
 
+  test("two concurrent drains deliver one message exactly once", async () => {
+    const sid = `ses_race_${Date.now()}_${Math.random().toString(36).slice(2)}` as any
+    ensureProjectAndSession(sid)
+    const supID = "supervisor-race"
+    const parts: Array<{ messageID: string; text: string }> = []
+    const result = await runEffectWithLayer(
+      Effect.gen(function* () {
+        const reg = yield* SupervisorRegistryService.Service
+        const inbox = yield* Service
+        yield* reg.register({
+          sessionID: sid,
+          supervisorID: supID,
+          mode: "subagent" as any,
+          agent: "test-agent",
+          description: "race",
+          contextMode: "isolated" as any,
+          background: false,
+          lifecycle: "persistent" as any,
+        })
+        yield* inbox.send({ receiverSessionID: sid, receiverSupervisorID: supID, content: "race me" })
+        const [a, b] = yield* Effect.all([inbox.drain(sid, supID), inbox.drain(sid, supID)], { concurrency: 2 })
+        return { a, b, parts: [...parts] }
+      }),
+      recordingSessionLayer(parts),
+    )
+    expect(result.a + result.b).toBe(1)
+    expect(result.parts.filter((p) => p.text.includes("race me")).length).toBe(1)
+    const rows = useDb((db: any) => db.select().from(InboxTable).all()).filter(
+      (r: any) => r.receiver_session_id === sid && r.receiver_supervisor_id === supID,
+    )
+    expect(rows.length).toBe(1)
+    expect(rows[0].state).toBe("delivered")
+    cleanInboxFor(sid)
+  })
+
   test("a failed wake leaves the message queued for the next drain", async () => {
     const sid = `ses_wakefail_${Date.now()}_${Math.random().toString(36).slice(2)}` as any
     ensureProjectAndSession(sid)
