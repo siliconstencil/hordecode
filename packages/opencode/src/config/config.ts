@@ -38,6 +38,13 @@ import { ConfigV2Compat } from "./v2-compat"
 import { Npm } from "@opencode-ai/core/npm"
 import { withTransientReadRetry } from "@opencode-ai/core/util/effect-http-client"
 
+// Hordecode: the background dependency install is best-effort; bound it so a registry that accepts
+// the connection and never answers cannot keep the process alive on waitForDependencies or hold the
+// npm-install flock. The timeout closes Npm.install's scope, whose acquireRelease removes the lock
+// dir (core/src/util/effect-flock.ts:259-260), so the next boot does not wait for a stale lock.
+// (upstream 1.19.5 config.ts:497-517 has no bound)
+const DEPENDENCY_INSTALL_TIMEOUT = Duration.seconds(15)
+
 // Custom merge function that concatenates array fields instead of replacing them
 // Keep remeda's deep conditional merge type out of hot config-loading paths; TS profiling showed it dominates here.
 function mergeConfig(target: Info, source: Info): Info {
@@ -505,6 +512,7 @@ const layer = Layer.effect(
               ],
             })
             .pipe(
+              Effect.timeout(DEPENDENCY_INSTALL_TIMEOUT),
               Effect.exit,
               Effect.tap((exit) =>
                 Exit.isFailure(exit)
