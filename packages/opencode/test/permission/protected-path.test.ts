@@ -20,7 +20,7 @@ import { Plugin } from "../../src/plugin"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { ShellTool } from "../../src/tool/shell"
 import { assertExternalDirectoryEffect } from "../../src/tool/external-directory"
-import { provideInstance, testInstanceStoreLayer, tmpdirScoped } from "../fixture/fixture"
+import { provideInstance, testInstanceStoreLayer, tmpdirScoped, trackTmpdir } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
 type Request = Omit<PermissionV1.Request, "id" | "sessionID" | "tool">
@@ -83,7 +83,7 @@ const shell = (command: string, directory: string) =>
 describe("ProtectedPath.match", () => {
   test("matches the literal path, a symlink to it and a hard link to it", async () => {
     await ensureAuth()
-    const dir = await fs.mkdtemp(path.join(Global.Path.tmp, "pp-"))
+    const dir = trackTmpdir(await fs.mkdtemp(path.join(Global.Path.tmp, "pp-")))
     await fs.symlink(auth(), path.join(dir, "link.json"))
     await fs.symlink(path.join(dir, "link.json"), path.join(dir, "chain.json"))
     await fs.link(auth(), path.join(dir, "hard.json"))
@@ -122,7 +122,7 @@ describe("ProtectedPath mcp-auth.json", () => {
     const mcp = path.join(Global.Path.data, "mcp-auth.json")
     await fs.mkdir(Global.Path.data, { recursive: true })
     if (!(await Bun.file(mcp).exists())) await Bun.write(mcp, "{}")
-    const dir = await fs.mkdtemp(path.join(Global.Path.tmp, "pp-mcp-"))
+    const dir = trackTmpdir(await fs.mkdtemp(path.join(Global.Path.tmp, "pp-mcp-")))
     await fs.symlink(mcp, path.join(dir, "link.json"))
 
     expect(ProtectedPath.match(mcp)).toBe(mcp)

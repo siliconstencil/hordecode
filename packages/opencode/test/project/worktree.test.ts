@@ -10,7 +10,7 @@ import { Git } from "../../src/git"
 import { InstanceBootstrap } from "../../src/project/bootstrap"
 import { InstanceStore } from "../../src/project/instance-store"
 import { Worktree } from "../../src/worktree"
-import { disposeAllInstances, provideInstance, TestInstance } from "../fixture/fixture"
+import { disposeAllInstances, provideInstance, TestInstance, trackTmpdir } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
 const it = testEffect(
@@ -279,6 +279,7 @@ describe("Worktree", () => {
           const branch = `same-basename-list-${Date.now()}`
 
           yield* fs.ensureDir(parent)
+          trackTmpdir(parent)
           yield* git(test.directory, ["worktree", "add", "-b", branch, target])
 
           const list = yield* svc.list()

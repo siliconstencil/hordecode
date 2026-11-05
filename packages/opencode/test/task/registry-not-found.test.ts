@@ -1,9 +1,6 @@
 delete process.env["OPENCODE_DB"]
 
 import { describe, expect, it } from "bun:test"
-import { mkdtempSync } from "node:fs"
-import { tmpdir } from "node:os"
-import path from "path"
 import { Cause, Effect, Exit, ManagedRuntime } from "effect"
 
 const { AppLayer } = await import("@/effect/app-runtime")
@@ -16,8 +13,9 @@ const { ProjectTable } = await import("@opencode-ai/core/project/sql")
 const { AbsolutePath } = await import("@opencode-ai/core/schema")
 const { Database } = await import("@opencode-ai/core/storage")
 const { RecoverableError } = await import("@opencode-ai/core/tool/recoverable")
+const { mkdtempTmp } = await import("../fixture/fixture")
 
-const dir = mkdtempSync(path.join(tmpdir(), "task-not-found-"))
+const dir = mkdtempTmp("task-not-found-")
 
 const runApp = <A, E>(body: Effect.Effect<A, E, any>) => {
   const rt = ManagedRuntime.make(AppLayer, { memoMap })

@@ -10,7 +10,7 @@ import { memoMap } from "@opencode-ai/core/effect/memo-map"
 import { Database } from "@opencode-ai/core/database/database"
 import { ToolRegistry } from "@/tool/registry"
 import { Tool } from "@/tool/tool"
-import { disposeAllInstances, TestInstance } from "../fixture/fixture"
+import { disposeAllInstances, TestInstance, trackTmpdir } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { TestConfig } from "../fixture/config"
 import { Config } from "@/config/config"
@@ -86,7 +86,8 @@ async function buildDatabaseLayer(filename: string): Promise<Layer.Layer<Databas
 // sets OPENCODE_DB and HORDECODE_DB to the same path, so migrations applied here
 // (including the inbox table) are visible to the storage/ALS layer too. A
 // private mkdtemp file would leave the ALS path unmigrated.
-const databasePath = process.env.OPENCODE_DB ?? path.join(await fs.mkdtemp(path.join(os.tmpdir(), "opencode-registry-")), "test.db")
+const databasePath =
+  process.env.OPENCODE_DB ?? path.join(trackTmpdir(await fs.mkdtemp(path.join(os.tmpdir(), "opencode-registry-"))), "test.db")
 const databaseLayer = await buildDatabaseLayer(databasePath)
 
 const noopBootstrap = Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void }))

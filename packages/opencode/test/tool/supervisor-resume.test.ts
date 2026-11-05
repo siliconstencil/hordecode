@@ -13,8 +13,7 @@
 delete process.env["OPENCODE_DB"]
 
 import { describe, expect, it } from "bun:test"
-import { mkdtempSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { writeFileSync } from "node:fs"
 import path from "path"
 import { Cause, Effect, Exit, Layer, ManagedRuntime } from "effect"
 import type { SessionID } from "@opencode-ai/core/session/schema"
@@ -38,8 +37,9 @@ const { memoMap } = await import("@opencode-ai/core/effect/memo-map")
 const { ProjectTable } = await import("@opencode-ai/core/project/sql")
 const { AbsolutePath } = await import("@opencode-ai/core/schema")
 const { Database } = await import("@opencode-ai/core/storage")
+const { mkdtempTmp } = await import("../fixture/fixture")
 
-const dir = mkdtempSync(path.join(tmpdir(), "supervisor-resume-"))
+const dir = mkdtempTmp("supervisor-resume-")
 
 // The supervisor tool yields services that AppLayer does not expose at top level
 // (production wires them in tool/registry.ts). Provide them on top of AppLayer.
@@ -214,7 +214,7 @@ describe("supervisor_id resume (real AppLayer)", () => {
   // outcome, so when it completes the row ends idle/success. Without the reset, runTurn refuses to
   // overwrite "cancelled" and the row stays cancelled forever.
   it("resume of a cancelled subagent resets its row; the resumed turn completes to idle/success", async () => {
-    const fresh = mkdtempSync(path.join(tmpdir(), "supervisor-resume-cancel-"))
+    const fresh = mkdtempTmp("supervisor-resume-cancel-")
     const r = await run(
       Effect.gen(function* () {
         yield* ensureProject

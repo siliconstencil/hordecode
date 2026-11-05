@@ -3,9 +3,6 @@
 // same way test/session/checkpoint-writer-owns-session.test.ts does.
 delete process.env["OPENCODE_DB"]
 
-import { mkdtempSync } from "node:fs"
-import { tmpdir } from "node:os"
-import path from "path"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import { eq } from "drizzle-orm"
 import type { SessionID } from "@opencode-ai/core/session/schema"
@@ -21,8 +18,9 @@ import { MessageID } from "@/session/schema"
 import type { Context } from "@/tool/tool"
 
 export const { AppLayer } = await import("@/effect/app-runtime")
+const { mkdtempTmp } = await import("../fixture/fixture")
 
-export const dir = mkdtempSync(path.join(tmpdir(), "supervisor-test-"))
+export const dir = mkdtempTmp("supervisor-test-")
 
 // `extra` supplies top-level services that AppLayer does not export (e.g. Bus,
 // Inbox) to the body; its requirements are satisfied by AppLayer.

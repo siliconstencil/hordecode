@@ -17,9 +17,6 @@
 delete process.env["OPENCODE_DB"]
 
 import { describe, expect, it } from "bun:test"
-import { mkdtempSync } from "node:fs"
-import { tmpdir } from "node:os"
-import path from "path"
 import { Effect, ManagedRuntime } from "effect"
 import type { SessionID } from "@opencode-ai/core/session/schema"
 import type { Interface as SupervisorRegistryInterface } from "@opencode-ai/supervisor/registry"
@@ -36,8 +33,9 @@ const { AbsolutePath } = await import("@opencode-ai/core/schema")
 const { Database } = await import("@opencode-ai/core/storage")
 const { Supervisor } = await import("@opencode-ai/supervisor/spawn")
 const { spawnRef } = await import("@opencode-ai/supervisor/spawn-ref")
+const { mkdtempTmp } = await import("../fixture/fixture")
 
-const dir = mkdtempSync(path.join(tmpdir(), "interrupt-cancel-scope-"))
+const dir = mkdtempTmp("interrupt-cancel-scope-")
 
 // SessionPrompt.cancel reaches Supervisor.cancel through the module-global spawnRef, which
 // other test files in the same bun process can leave unset or pointing at a different
