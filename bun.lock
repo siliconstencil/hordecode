@@ -556,7 +556,7 @@
     },
     "packages/opencode": {
       "name": "hordecode",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "bin": {
         "horde": "./bin/horde",
         "hordecode": "./bin/hordecode",
