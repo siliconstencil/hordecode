@@ -310,6 +310,7 @@ describe("V2 configuration loading", () => {
       ])
       expect(yield* fs.readFileString(file)).toBe(text)
     }),
+    { git: true },
   )
 
   it.instance("loads native V2 configuration through the V1 Config service", () =>
