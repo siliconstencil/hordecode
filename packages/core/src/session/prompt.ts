@@ -329,7 +329,12 @@ export interface Interface {
   readonly predict: (input: { sessionID: SessionID }) => Effect.Effect<string>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/SessionPrompt") {}
+// Distinct from the mounted opencode copy: the supervisor provides this layer
+// for isolated child loops, and a shared tag let either implementation satisfy
+// a lookup. opencode-2.2.5 has no SessionPrompt service
+// (packages/core/src/session/prompt.ts is a helper module), so the tag is
+// fork-specific.
+export class Service extends Context.Service<Service, Interface>()("@opencode/CoreSessionPrompt") {}
 
 // ---------------------------------------------------------------------------
 // Layer

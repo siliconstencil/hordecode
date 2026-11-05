@@ -1,5 +1,6 @@
-import { Layer } from "effect"
+import { Effect, Layer } from "effect"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { SessionPrompt as CoreSessionPrompt } from "@opencode-ai/core/session/prompt"
 import { Supervisor } from "@opencode-ai/supervisor/spawn"
 import { SupervisorRegistryService } from "@opencode-ai/supervisor/registry"
 import { TaskRegistry } from "@opencode-ai/task/registry"
@@ -33,6 +34,22 @@ export const SupervisorRegistryNode = LayerNode.make({
   deps: [],
 })
 
+// Supervisor imports the core SessionPrompt service, but spawn only calls
+// .prompt. The tag split would otherwise change which implementation the app
+// runs; provide the mounted opencode copy under the core tag until phase 4
+// decides the single loop.
+export const CoreSessionPromptNode = LayerNode.make({
+  service: CoreSessionPrompt.Service,
+  layer: Layer.effect(
+    CoreSessionPrompt.Service,
+    Effect.gen(function* () {
+      const prompt = yield* SessionPrompt.Service
+      return prompt as unknown as CoreSessionPrompt.Interface
+    }),
+  ),
+  deps: [SessionPrompt.node],
+})
+
 export const MemoryNode = LayerNode.make({
   service: Memory.Service,
   layer: Memory.layer as Layer.Layer<Memory.Service>,
@@ -59,6 +76,7 @@ export const SupervisorNode = LayerNode.make({
     SupervisorRegistryNode,
     Agent.node,
     SessionPrompt.node,
+    CoreSessionPromptNode,
     InboxNode,
     SessionRunState.node,
     PluginV2.node,
