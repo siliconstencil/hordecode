@@ -412,10 +412,6 @@ const layer = Layer.effect(
         if (tool.id === ApplyPatchTool.id) return usePatch
         if (tool.id === EditTool.id || tool.id === WriteTool.id) return !usePatch
 
-        // Hordecode: `session` is documented as orchestrator-only (tool/session.txt:1); other agents do not carry its
-        // 6.6 KB description. Per-agent tool filter pattern: MiMo 0.1.16 tool/registry.ts:387-401 (actor tool).
-        if (tool.id === SessionTool.id) return input.agent.name === "orchestrator"
-
         return true
       })
 
