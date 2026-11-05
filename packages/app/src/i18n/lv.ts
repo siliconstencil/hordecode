@@ -700,8 +700,6 @@ export const dict = {
   "home.sessions.group.today": "Šodien",
   "home.sessions.group.yesterday": "Vakar",
   "home.sessions.group.older": "Vecākas",
-  "home.providerTip":
-    "Pievienojiet vairāk nekā 200 pakalpojumu sniedzējus, lai izmantotu citus modeļus, tostarp Claude, GPT, Gemini u.c.",
   "session.tab.session": "Sesija",
   "session.tab.review": "Pārskats",
   "session.tab.context": "Konteksts",
@@ -874,9 +872,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Ieslēgt darba telpas",
   "sidebar.workspaces.disable": "Izslēgt darba telpas",
   "sidebar.gettingStarted.title": "Darba sākšana",
-  "sidebar.gettingStarted.line1": "OpenCode ietver bezmaksas modeļus, lai varētu sākt uzreiz.",
-  "sidebar.gettingStarted.line2":
-    "Pievienojiet jebkuru nodrošinātāju, lai izmantotu modeļus, t.sk. Claude, GPT, Gemini u.c.",
   "sidebar.project.recentSessions": "Nesenās sesijas",
   "sidebar.project.viewAllSessions": "Skatīt visas sesijas",
   "sidebar.project.clearNotifications": "Notīrīt paziņojumus",

@@ -706,8 +706,6 @@ export const dict = {
   "home.sessions.group.today": "ယနေ့",
   "home.sessions.group.yesterday": "မနေ့က",
   "home.sessions.group.older": "အသက်ကြီးသည်။",
-  "home.providerTip":
-    "Claude၊ GPT၊ Gemini စသည်တို့အပါအဝင် အခြားမော်ဒယ်များကို အသုံးပြုရန် 200+ ဝန်ဆောင်မှုပေးသူများထံ ချိတ်ဆက်ပါ။",
   "session.tab.session": "အပိုင်း",
   "session.tab.review": "သုံးသပ်ချက်",
   "session.tab.context": "ဆက်စပ်အကြောင်းအရာ",
@@ -878,9 +876,6 @@ export const dict = {
   "sidebar.workspaces.enable": "အလုပ်နေရာများကို ဖွင့်ပါ။",
   "sidebar.workspaces.disable": "အလုပ်နေရာများကို ပိတ်ပါ။",
   "sidebar.gettingStarted.title": "စတင်ခြင်း။",
-  "sidebar.gettingStarted.line1": "OpenCode တွင် အခမဲ့မော်ဒယ်များ ပါဝင်သောကြောင့် သင်ချက်ချင်းစတင်နိုင်သည်။",
-  "sidebar.gettingStarted.line2":
-    "မော်ဒယ်များ၊ inc ကိုအသုံးပြုရန် မည်သည့်ပံ့ပိုးသူကိုမဆို ချိတ်ဆက်ပါ။ Claude၊ GPT၊ Gemini စသဖြင့်",
   "sidebar.project.recentSessions": "လတ်တလော စက်ရှင်များ",
   "sidebar.project.viewAllSessions": "ဆက်ရှင်များအားလုံးကို ကြည့်ရှုပါ။",
   "sidebar.project.clearNotifications": "အကြောင်းကြားချက်များကို ရှင်းလင်းပါ။",

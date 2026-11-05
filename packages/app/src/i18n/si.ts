@@ -697,7 +697,6 @@ export const dict: Record<string, string> = {
   "home.sessions.group.today": "අද",
   "home.sessions.group.yesterday": "ඊයේ",
   "home.sessions.group.older": "වැඩිහිටි",
-  "home.providerTip": "Claude, GPT, Gemini, ආදිය ඇතුළුව අනෙකුත් මාදිලි භාවිතා කිරීමට 200+ සපයන්නන් වෙත සම්බන්ධ වන්න",
   "session.tab.session": "සැසිය",
   "session.tab.review": "සමාලෝචනය කරන්න",
   "session.tab.context": "සන්දර්භය",
@@ -866,9 +865,6 @@ export const dict: Record<string, string> = {
   "sidebar.workspaces.enable": "වැඩබිම් සබල කරන්න",
   "sidebar.workspaces.disable": "වැඩබිම් අබල කරන්න",
   "sidebar.gettingStarted.title": "ඇරඹේ",
-  "sidebar.gettingStarted.line1": "OpenCode නොමිලේ ආකෘති ඇතුළත් වන නිසා ඔබට වහාම ආරම්භ කළ හැක.",
-  "sidebar.gettingStarted.line2":
-    "ආකෘති භාවිතා කිරීමට ඕනෑම සැපයුම්කරුවෙකු සම්බන්ධ කරන්න, inc. Claude, GPT, Gemini ආදිය.",
   "sidebar.project.recentSessions": "මෑත සැසි",
   "sidebar.project.viewAllSessions": "සියලුම සැසි බලන්න",
   "sidebar.project.clearNotifications": "දැනුම්දීම් හිස් කරන්න",

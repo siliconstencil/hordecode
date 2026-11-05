@@ -259,8 +259,6 @@ export const dict = {
   "tui.toast.update_available.updating": "Aktualisiere auf v{{version}}...",
   "tui.toast.update_available.failed": "Update fehlgeschlagen",
   "tui.toast.update_available.success": "Erfolgreich auf Hordecode v{{version}} aktualisiert. Bitte starten Sie die Anwendung neu.",
-  "tui.toast.updated.title": "Auto-aktualisiert",
-  "tui.toast.updated.message": "Patch-Update angewendet: v{{version}}. Neustart erforderlich, um die neue Version zu verwenden. Deaktivierbar uber autoupdate: false in der Konfiguration.",
   "tui.sidebar.instructions": "Anweisungen",
   "tui.sidebar.cwd": "Arbeitsverzeichnis",
   "tui.toast.unknown_error": "Ein unbekannter Fehler ist aufgetreten",

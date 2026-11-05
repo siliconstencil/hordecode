@@ -704,8 +704,6 @@ export const dict = {
   "home.sessions.group.today": "Ma",
   "home.sessions.group.yesterday": "Tegnap",
   "home.sessions.group.older": "Régebbi",
-  "home.providerTip":
-    "Csatlakozzon 200+ szolgáltatóhoz más modellek használatához, beleértve a Claude, GPT, Gemini stb.",
   "session.tab.session": "Munkamenet",
   "session.tab.review": "Tekintse át",
   "session.tab.context": "Kontextus",
@@ -876,9 +874,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Munkaterületek engedélyezése",
   "sidebar.workspaces.disable": "Munkaterületek letiltása",
   "sidebar.gettingStarted.title": "Kezdő lépések",
-  "sidebar.gettingStarted.line1": "A OpenCode ingyenes modelleket tartalmaz, így azonnal elkezdheti.",
-  "sidebar.gettingStarted.line2":
-    "Csatlakozzon bármely szolgáltatóhoz a modellek használatához, pl. Claude, GPT, Gemini stb.",
   "sidebar.project.recentSessions": "Legutóbbi munkamenetek",
   "sidebar.project.viewAllSessions": "Az összes munkamenet megtekintése",
   "sidebar.project.clearNotifications": "Értesítések törlése",

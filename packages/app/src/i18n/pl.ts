@@ -692,8 +692,6 @@ export const dict = {
   "home.sessions.group.today": "Dzisiaj",
   "home.sessions.group.yesterday": "Wczoraj",
   "home.sessions.group.older": "Starsze",
-  "home.providerTip":
-    "Połącz się z ponad 200 dostawcami, aby korzystać z innych modeli, w tym Claude, GPT, Gemini i innych",
   "session.tab.session": "Sesja",
   "session.tab.review": "Przegląd",
   "session.tab.context": "Kontekst",
@@ -824,8 +822,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Włącz przestrzenie robocze",
   "sidebar.workspaces.disable": "Wyłącz przestrzenie robocze",
   "sidebar.gettingStarted.title": "Pierwsze kroki",
-  "sidebar.gettingStarted.line1": "OpenCode zawiera darmowe modele, więc możesz zacząć od razu.",
-  "sidebar.gettingStarted.line2": "Połącz dowolnego dostawcę, aby używać modeli, w tym Claude, GPT, Gemini itp.",
   "sidebar.project.recentSessions": "Ostatnie sesje",
   "sidebar.project.viewAllSessions": "Zobacz wszystkie sesje",
   "sidebar.project.clearNotifications": "Wyczyść powiadomienia",

@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { UI } from "../ui"
-import { effectCmd } from "../effect-cmd"
+import { effectCmd, fail } from "../effect-cmd"
 import { withNetworkOptions, resolveNetworkOptions } from "../network"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { openUrl } from "@opencode-ai/core/open"
@@ -36,6 +36,16 @@ export const WebCommand = effectCmd({
   // ambient project InstanceContext needed at startup.
   instance: false,
   handler: Effect.fn("Cli.web")(function* (args) {
+    const { RuntimeFlags } = yield* Effect.promise(() => import("@/effect/runtime-flags"))
+    const { embeddedUI } = yield* Effect.promise(() => import("../../server/shared/ui"))
+    const flags = yield* RuntimeFlags.Service
+    const embedded = yield* Effect.promise(() => embeddedUI(flags.disableEmbeddedWebUi))
+    if (!embedded) {
+      return yield* fail(
+        "The Hordecode web UI is not available in this build. Rebuild with the embedded web UI, or use `horde` for the terminal UI.",
+      )
+    }
+
     const { Server } = yield* Effect.promise(() => import("../../server/server"))
     if (!Flag.HORDECODE_SERVER_PASSWORD) {
       UI.println(UI.Style.TEXT_WARNING_BOLD + "!  HORDECODE_SERVER_PASSWORD is not set; server is unsecured.")

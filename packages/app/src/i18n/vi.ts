@@ -709,7 +709,6 @@ export const dict = {
   "home.sessions.group.today": "Hôm nay",
   "home.sessions.group.yesterday": "Hôm qua",
   "home.sessions.group.older": "Cũ hơn",
-  "home.providerTip": "Kết nối với hơn 200 nhà cung cấp để sử dụng các mô hình khác, bao gồm Claude, GPT, Gemini, v.v.",
   "session.tab.session": "Phiên",
   "session.tab.review": "Xem lại",
   "session.tab.context": "Ngữ cảnh",
@@ -880,9 +879,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Bật không gian làm việc",
   "sidebar.workspaces.disable": "Tắt không gian làm việc",
   "sidebar.gettingStarted.title": "Bắt đầu",
-  "sidebar.gettingStarted.line1": "OpenCode bao gồm các mô hình miễn phí để bạn có thể bắt đầu ngay lập tức.",
-  "sidebar.gettingStarted.line2":
-    "Kết nối với bất kỳ nhà cung cấp nào để sử dụng các mô hình như Claude, GPT, Gemini, v.v.",
   "sidebar.project.recentSessions": "Phiên gần đây",
   "sidebar.project.viewAllSessions": "Xem tất cả các phiên",
   "sidebar.project.clearNotifications": "Xóa thông báo",

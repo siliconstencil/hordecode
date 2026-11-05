@@ -733,7 +733,6 @@ export const dict = {
   "home.sessions.group.today": "今天",
   "home.sessions.group.yesterday": "昨天",
   "home.sessions.group.older": "更早",
-  "home.providerTip": "連線 200 個以上的提供者，使用 Claude、GPT、Gemini 等其他模型",
 
   "session.tab.session": "工作階段",
   "session.tab.review": "檢閱",
@@ -864,8 +863,6 @@ export const dict = {
   "sidebar.workspaces.enable": "啟用工作區",
   "sidebar.workspaces.disable": "停用工作區",
   "sidebar.gettingStarted.title": "開始使用",
-  "sidebar.gettingStarted.line1": "OpenCode 提供免費模型，你可以立即開始使用。",
-  "sidebar.gettingStarted.line2": "連線任意提供者即可使用更多模型，如 Claude、GPT、Gemini 等。",
   "sidebar.project.recentSessions": "最近工作階段",
   "sidebar.project.viewAllSessions": "查看全部工作階段",
   "sidebar.project.clearNotifications": "清除通知",

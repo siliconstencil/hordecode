@@ -699,8 +699,6 @@ export const dict = {
   "home.sessions.group.today": "Í dag",
   "home.sessions.group.yesterday": "Í gjár",
   "home.sessions.group.older": "Eldri",
-  "home.providerTip":
-    "Set teg í samband við 200+ veitarar fyri at brúka onnur modell, eitt nú Claude, GPT, Gemini, osfr.",
   "session.tab.session": "Seta",
   "session.tab.review": "Ummæli",
   "session.tab.context": "Samanhangur",
@@ -869,9 +867,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Virkja workspace",
   "sidebar.workspaces.disable": "Slá workspace frá",
   "sidebar.gettingStarted.title": "Kom í gongd",
-  "sidebar.gettingStarted.line1": "OpenCode inniheldur ókeypis modellir so tú kanst byrja beinanvegin.",
-  "sidebar.gettingStarted.line2":
-    "Set ein og hvønn veitara í samband við at brúka modellir, inc. Claude, GPT, Gemini o.s.fr.",
   "sidebar.project.recentSessions": "Seinastu fundir",
   "sidebar.project.viewAllSessions": "Vís allar setur",
   "sidebar.project.clearNotifications": "Rudda fráboðanir",

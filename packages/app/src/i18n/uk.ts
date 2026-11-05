@@ -767,8 +767,6 @@ export const dict = {
   "home.sessions.group.today": "Сьогодні",
   "home.sessions.group.yesterday": "Учора",
   "home.sessions.group.older": "Раніше",
-  "home.providerTip":
-    "Підключіться до понад 200 провайдерів, щоб використовувати інші моделі, зокрема Claude, GPT, Gemini та інші",
 
   "session.tab.session": "Сесія",
   "session.tab.review": "Огляд",
@@ -958,9 +956,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Увімкнути робочі області",
   "sidebar.workspaces.disable": "Вимкнути робочі області",
   "sidebar.gettingStarted.title": "Початок роботи",
-  "sidebar.gettingStarted.line1": "OpenCode містить безкоштовні моделі, тому ви можете почати негайно.",
-  "sidebar.gettingStarted.line2":
-    "Підключіть будь-якого провайдера, щоб використовувати моделі, включаючи Claude, GPT, Gemini тощо.",
   "sidebar.project.recentSessions": "Нещодавні сесії",
   "sidebar.project.viewAllSessions": "Переглянути всі сесії",
   "sidebar.project.clearNotifications": "Очистити сповіщення",

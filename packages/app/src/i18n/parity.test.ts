@@ -96,13 +96,23 @@ const domains = [
   },
 ] as const
 
+// These provider claims were corrected in English. Locales without a verified
+// replacement use the English fallback deliberately.
+const intentionalAppFallback = new Set([
+  "home.providerTip",
+  "sidebar.gettingStarted.line1",
+  "sidebar.gettingStarted.line2",
+])
+
 describe("i18n parity", () => {
   test("non-English locales have every English key and required plural variants", async () => {
     for (const domain of domains) {
       const source = await dictionary(domain.source)
       for (const locale of domain.locales) {
         const target = await dictionary(domain.target(locale))
-        const missing = Object.keys(source).filter((key) => !Object.hasOwn(target, key))
+        const missing = Object.keys(source).filter(
+          (key) => !Object.hasOwn(target, key) && !(domain.name === "app" && intentionalAppFallback.has(key)),
+        )
         const extra = Object.keys(target)
           .filter((key) => !Object.hasOwn(source, key))
           .sort()
@@ -116,6 +126,13 @@ describe("i18n parity", () => {
           extra: expected,
         })
       }
+    }
+  })
+
+  test("app locales defer the provider keys to English", async () => {
+    for (const locale of appLocales) {
+      const target = await dictionary(`./${locale}.ts`)
+      for (const key of intentionalAppFallback) expect(Object.hasOwn(target, key)).toBe(false)
     }
   })
 

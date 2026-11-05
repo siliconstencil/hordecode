@@ -259,8 +259,6 @@ export const dict = {
   "tui.toast.update_available.updating": "กำลังอัปเดตเป็น v{{version}}...",
   "tui.toast.update_available.failed": "อัปเดตล้มเหลว",
   "tui.toast.update_available.success": "อัปเดตเป็น Hordecode v{{version}} สำเร็จ โปรดรีสตาร์ทแอปพลิเคชัน",
-  "tui.toast.updated.title": "อัปเดตอัตโนมัติ",
-  "tui.toast.updated.message": "ใช้แพตช์อัปเดต: v{{version}} รีสตาร์ทเพื่อใช้เวอร์ชันใหม่ ปิดใช้งานผ่าน autoupdate: false ในการกำหนดค่า",
   "tui.sidebar.instructions": "คำแนะนำ",
   "tui.sidebar.cwd": "ไดเรกทอรีทำงาน",
   "tui.toast.unknown_error": "เกิดข้อผิดพลาดที่ไม่รู้จัก",

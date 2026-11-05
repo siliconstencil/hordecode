@@ -744,8 +744,6 @@ export const dict = {
   "home.sessions.group.today": "Danas",
   "home.sessions.group.yesterday": "Jučer",
   "home.sessions.group.older": "Starije",
-  "home.providerTip":
-    "Poveži se s više od 200 provajdera da koristiš druge modele, uključujući Claude, GPT, Gemini i druge",
 
   "session.tab.session": "Sesija",
   "session.tab.review": "Pregled",
@@ -884,8 +882,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Omogući radne prostore",
   "sidebar.workspaces.disable": "Onemogući radne prostore",
   "sidebar.gettingStarted.title": "Početak",
-  "sidebar.gettingStarted.line1": "OpenCode uključuje besplatne modele, tako da možeš odmah početi.",
-  "sidebar.gettingStarted.line2": "Poveži bilo kojeg provajdera da koristiš modele, npr. Claude, GPT, Gemini itd.",
   "sidebar.project.recentSessions": "Nedavne sesije",
   "sidebar.project.viewAllSessions": "Prikaži sve sesije",
   "sidebar.project.clearNotifications": "Očisti obavijesti",
