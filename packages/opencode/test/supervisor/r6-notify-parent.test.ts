@@ -1,4 +1,5 @@
-// R6-1 item 6: `notifyParentOnComplete` is passed by the inbox wake and read by nobody.
+// R6-1 item 6: `notifyParentOnComplete` was passed by the inbox wake and read by nobody.
+// The parameter was removed; this test pins that it stays gone.
 import { describe, expect, test } from "bun:test"
 import { Effect, Fiber } from "effect"
 import fs from "node:fs"
@@ -31,15 +32,13 @@ const mentions = () =>
     })
 
 describe("notifyParentOnComplete (R6-1 item 6)", () => {
-  test("the name appears only where it is written: the wake call and the ref type, never as a read", () => {
+  test("the name appears nowhere in package sources", () => {
     const found = mentions()
-    expect(found.map((m) => m.file).sort()).toEqual(["inbox/src/inbox-ref.ts", "inbox/src/inbox.ts"])
-    // a read would be a property access on an input or a destructuring of it
-    expect(found.filter((m) => /\.notifyParentOnComplete|\{[^}]*notifyParentOnComplete[^}]*\}\s*=/.test(m.text))).toEqual([])
+    expect(found.map((m) => m.file)).toEqual([])
   })
 
   it.instance(
-    "the inbox wake passes it to the loop, and the loop's behavior does not depend on it",
+    "the inbox wake asks the loop to run without the removed parameter",
     () =>
       Effect.gen(function* () {
         const { llm } = yield* useServerConfig()
@@ -78,7 +77,8 @@ describe("notifyParentOnComplete (R6-1 item 6)", () => {
           sessionPromptRef.current = real
         }
         expect(seen).toHaveLength(1)
-        expect(seen[0]).toMatchObject({ sessionID: chat.id, agentID: "main", notifyParentOnComplete: true })
+        expect(seen[0]).toMatchObject({ sessionID: chat.id, agentID: "main" })
+        expect(seen[0]).not.toHaveProperty("notifyParentOnComplete")
         // The real loop's input type has no such field, so nothing downstream can have read it.
         const loopInputKeys = fs.readFileSync(path.join(import.meta.dir, "../../src/session/prompt.ts"), "utf8")
         expect(loopInputKeys).not.toContain("notifyParentOnComplete")

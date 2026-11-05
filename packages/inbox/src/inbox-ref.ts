@@ -4,7 +4,7 @@ import type { MessageV2 } from "@opencode-ai/core/session/message-v2"
 import type { Interface as InboxInterface } from "./inbox"
 
 export interface SessionPromptLoopRef {
-  loop: (input: { sessionID: SessionID; agentID: string; notifyParentOnComplete?: boolean }) => Effect.Effect<MessageV2.WithParts>
+  loop: (input: { sessionID: SessionID; agentID: string }) => Effect.Effect<MessageV2.WithParts>
   prompt: (input: unknown) => Effect.Effect<unknown>
 }
 

@@ -162,7 +162,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | SupervisorRegistry
         })
       } else {
         yield* promptRef
-          .loop({ sessionID: input.receiverSessionID, agentID: receiverSupervisorID, notifyParentOnComplete: true })
+          .loop({ sessionID: input.receiverSessionID, agentID: receiverSupervisorID })
           .pipe(Effect.tapError((e) => Effect.logWarning(`[inbox loop wake] ${e}`)), Effect.ignore, Effect.forkIn(scope))
       }
       return { inboxID: row.id }
