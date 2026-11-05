@@ -150,7 +150,7 @@ FORK_ONLY	packages/agent/test/agent.test.ts
 FORK_ONLY	packages/agent/test/config.test.ts
 FORK_ONLY	packages/agent/tsconfig.json
 PARITY	packages/app/.gitignore
-PARITY	packages/app/AGENTS.md
+FORK_DELTA	packages/app/AGENTS.md
 PARITY	packages/app/bunfig.toml
 PARITY	packages/app/create-effect-simplification-spec.md
 PARITY	packages/app/e2e/AGENTS.md
@@ -1441,7 +1441,6 @@ PARITY	packages/core/src/tool/http-body.ts
 FORK_ONLY	packages/core/src/tool/index.ts
 FORK_ONLY	packages/core/src/tool/invocation-style.ts
 FORK_ONLY	packages/core/src/tool/lsp.ts
-FORK_ONLY	packages/core/src/tool/mcp-exa.ts
 FORK_ONLY	packages/core/src/tool/memory-path-guard.ts
 FORK_ONLY	packages/core/src/tool/memory.ts
 FORK_ONLY	packages/core/src/tool/memory.txt
