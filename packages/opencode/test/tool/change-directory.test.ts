@@ -13,7 +13,7 @@ import { Truncate } from "@/tool/truncate"
 import { InstanceState } from "@/effect/instance-state"
 import { ChangeDirectoryTool } from "../../src/tool/change-directory"
 import { MessageID, SessionID } from "../../src/session/schema"
-import { TestInstance, testInstanceStoreLayer } from "../fixture/fixture"
+import { TestInstance, testInstanceStoreLayer, trackTmpdir } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import type * as Tool from "../../src/tool/tool"
 
@@ -227,6 +227,7 @@ describe("change_directory tool", () => {
       const fs = yield* FSUtil.Service
       const outside = path.join(path.dirname(test.directory), "ppp-s3-outside-cd")
       yield* fs.ensureDir(outside)
+      trackTmpdir(outside)
 
       const result = yield* run(sessionID, { path: outside }, ctx)
 

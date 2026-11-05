@@ -11,8 +11,6 @@
 delete process.env["OPENCODE_DB"]
 
 import { describe, expect, it } from "bun:test"
-import { mkdtempSync } from "node:fs"
-import { tmpdir } from "node:os"
 import path from "path"
 import { Effect, Exit, Layer, ManagedRuntime, Schema } from "effect"
 import type { Tool } from "@/tool/tool"
@@ -42,8 +40,9 @@ const { ToolRegistry } = await import("@/tool/registry")
 const { RuntimeFlags } = await import("@/effect/runtime-flags")
 const { ProviderV2 } = await import("@opencode-ai/core/provider")
 const { ModelV2 } = await import("@opencode-ai/core/model")
+const { mkdtempTmp } = await import("../fixture/fixture")
 
-const dir = mkdtempSync(path.join(tmpdir(), "task-binding-"))
+const dir = mkdtempTmp("task-binding-")
 const tid = `T-binding-${Date.now()}`
 
 const runApp = <A, E>(body: Effect.Effect<A, E, any>) => {

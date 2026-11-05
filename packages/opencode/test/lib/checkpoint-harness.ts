@@ -17,8 +17,6 @@
 // Tests must call `useCheckpointHarness()` in beforeEach (or first line of
 // the test) and `resetCheckpointHarness()` in afterEach.
 
-import { mkdtempSync } from "node:fs"
-import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, beforeAll, describe, expect } from "bun:test"
 import { eq } from "drizzle-orm"
@@ -40,6 +38,7 @@ const { SessionCheckpoint } = await import("@opencode-ai/core/session/checkpoint
 const { AppLayer } = await import("@/effect/app-runtime")
 const { SessionTable, MessageTable, PartTable } = await import("@opencode-ai/core/session/sql")
 const { ProjectTable } = await import("@opencode-ai/core/project/sql")
+const { mkdtempTmp } = await import("../fixture/fixture")
 
 // Per-test mutable state for the controllable supervisor stub. Pushed to
 // from spawn, drained in afterEach.
@@ -72,7 +71,7 @@ const stubPrefixCapture = (() => {
 
 // Default proof dir; tests can override via `useProofDir(path)` if they
 // need a stable location.
-let proofDir = mkdtempSync(path.join(tmpdir(), "p814-checkpoint-"))
+let proofDir = mkdtempTmp("p814-checkpoint-")
 
 export const useProofDir = (dir: string) => {
   proofDir = dir

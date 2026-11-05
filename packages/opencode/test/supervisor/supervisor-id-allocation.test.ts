@@ -4,9 +4,6 @@
 delete process.env["OPENCODE_DB"]
 
 import { describe, expect, it } from "bun:test"
-import { mkdtempSync } from "node:fs"
-import { tmpdir } from "node:os"
-import path from "path"
 import { randomUUID } from "node:crypto"
 import { Effect, ManagedRuntime } from "effect"
 
@@ -19,8 +16,9 @@ const { ProjectTable } = await import("@opencode-ai/core/project/sql")
 const { AbsolutePath } = await import("@opencode-ai/core/schema")
 const { Database } = await import("@opencode-ai/core/storage")
 const { SupervisorRegistryService } = await import("@opencode-ai/supervisor/registry")
+const { mkdtempTmp } = await import("../fixture/fixture")
 
-const dir = mkdtempSync(path.join(tmpdir(), "supervisor-test-id-allocation-"))
+const dir = mkdtempTmp("supervisor-test-id-allocation-")
 
 const run = <A, E, R>(projectID: typeof ProjectID.Type, body: Effect.Effect<A, E, R>) => {
   const rt = ManagedRuntime.make(AppLayer, { memoMap })

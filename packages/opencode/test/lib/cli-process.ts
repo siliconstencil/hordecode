@@ -28,6 +28,7 @@ import { ChildProcess } from "effect/unstable/process"
 import path from "node:path"
 import { TestLLMServer } from "./llm-server"
 import { testProviderConfig } from "./test-provider"
+import { trackTmpdir } from "../fixture/fixture"
 import { it } from "./effect"
 
 const opencodeRoot = path.resolve(import.meta.dir, "../../")
@@ -205,7 +206,7 @@ export function withCliFixture<A, E>(
     const fs = yield* FSUtil.Service
     const appProc = yield* AppProcess.Service
 
-    const home = yield* fs.makeTempDirectory({ prefix: "oc-cli-" })
+    const home = trackTmpdir(yield* fs.makeTempDirectory({ prefix: "oc-cli-" }))
     yield* Effect.addFinalizer(() =>
       fs
         .remove(home, { recursive: true })

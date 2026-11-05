@@ -1,5 +1,6 @@
 import { $ } from "bun"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
+import { mkdirSync, mkdtempSync } from "node:fs"
 import * as fs from "fs/promises"
 import os from "os"
 import path from "path"
@@ -60,13 +61,61 @@ function exists(dir: string) {
     .catch(() => false)
 }
 
-function clean(dir: string) {
-  return fs.rm(dir, {
-    recursive: true,
-    force: true,
-    maxRetries: 5,
-    retryDelay: 100,
-  })
+const liveTmpdirs = new Set<string>()
+
+export function testTmpRoot() {
+  return process.env.HORDECODE_TEST_TMP || os.tmpdir()
+}
+
+export function liveTmpdirCount() {
+  return liveTmpdirs.size
+}
+
+/** Register a temp dir created outside tmpdir() so process teardown still removes it. */
+export function trackTmpdir(dir: string) {
+  liveTmpdirs.add(dir)
+  return dir
+}
+
+/** Synchronous temp dir for module-level fixtures; removed by cleanupTmpdirs on process teardown. */
+export function mkdtempTmp(prefix: string) {
+  const root = testTmpRoot()
+  mkdirSync(root, { recursive: true })
+  return trackTmpdir(mkdtempSync(path.join(root, prefix)))
+}
+
+/** Remove every temp dir this process still owns, including dirs whose test forgot to dispose. */
+export async function cleanupTmpdirs() {
+  const results = await Promise.all(
+    [...liveTmpdirs].map(async (dir) => ({ dir, removed: await clean(dir, 120) })),
+  )
+  let removed = 0
+  for (const result of results) {
+    if (!result.removed) continue
+    liveTmpdirs.delete(result.dir)
+    removed++
+  }
+  return removed
+}
+
+async function clean(dir: string, attempts = 30) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      await fs.rm(dir, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      })
+      return true
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error ? error.code : undefined
+      if (code !== "EBUSY" && code !== "ENOTEMPTY" && code !== "EPERM") return false
+      Bun.gc(true)
+      await Bun.sleep(100)
+    }
+  }
+  return false
 }
 
 async function stop(dir: string) {
@@ -81,7 +130,7 @@ type TmpDirOptions<T> = {
   dispose?: (dir: string) => Promise<T>
 }
 export async function tmpdir<T>(options?: TmpDirOptions<T>) {
-  const dirpath = sanitizePath(path.join(os.tmpdir(), "opencode-test-" + Math.random().toString(36).slice(2)))
+  const dirpath = sanitizePath(path.join(testTmpRoot(), "opencode-test-" + Math.random().toString(36).slice(2)))
   await fs.mkdir(dirpath, { recursive: true })
   if (options?.git) {
     await $`git init`.cwd(dirpath).quiet()
@@ -101,6 +150,7 @@ export async function tmpdir<T>(options?: TmpDirOptions<T>) {
     )
   }
   const realpath = sanitizePath(await fs.realpath(dirpath))
+  trackTmpdir(realpath)
   const extra = await options?.init?.(realpath)
   const result = {
     [Symbol.asyncDispose]: async () => {
@@ -108,7 +158,7 @@ export async function tmpdir<T>(options?: TmpDirOptions<T>) {
         await options?.dispose?.(realpath)
       } finally {
         if (options?.git) await stop(realpath).catch(() => undefined)
-        await clean(realpath).catch(() => undefined)
+        await clean(realpath, 1)
       }
     },
     path: realpath,
@@ -125,14 +175,15 @@ export function tmpdirScoped<E = never, R = never>(options?: {
 }) {
   return Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-    const dirpath = sanitizePath(path.join(os.tmpdir(), "opencode-test-" + Math.random().toString(36).slice(2)))
+    const dirpath = sanitizePath(path.join(testTmpRoot(), "opencode-test-" + Math.random().toString(36).slice(2)))
     yield* Effect.promise(() => fs.mkdir(dirpath, { recursive: true }))
     const dir = sanitizePath(yield* Effect.promise(() => fs.realpath(dirpath)))
+    trackTmpdir(dir)
 
     yield* Effect.addFinalizer(() =>
       Effect.promise(async () => {
         if (options?.git) await stop(dir).catch(() => undefined)
-        await clean(dir).catch(() => undefined)
+        await clean(dir, 1)
       }),
     )
 

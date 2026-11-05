@@ -9,9 +9,6 @@
 delete process.env["OPENCODE_DB"]
 
 import { describe, expect, it } from "bun:test"
-import { mkdtempSync } from "node:fs"
-import { tmpdir } from "node:os"
-import path from "path"
 import { Effect, ManagedRuntime } from "effect"
 import type { SessionID } from "@opencode-ai/core/session/schema"
 
@@ -27,8 +24,9 @@ const { AbsolutePath } = await import("@opencode-ai/core/schema")
 const { Database } = await import("@opencode-ai/core/storage")
 
 const { classifySession } = await import("@opencode-ai/core/session/visibility")
+const { mkdtempTmp } = await import("../fixture/fixture")
 
-const dir = mkdtempSync(path.join(tmpdir(), "ckpt-owns-"))
+const dir = mkdtempTmp("ckpt-owns-")
 
 const run = <A, E, R>(body: Effect.Effect<A, E, R>) => {
   const rt = ManagedRuntime.make(AppLayer, { memoMap })

@@ -5,8 +5,7 @@
 delete process.env["OPENCODE_DB"]
 
 import { describe, expect, it } from "bun:test"
-import { mkdirSync, mkdtempSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { mkdirSync } from "node:fs"
 import path from "path"
 import { Effect, ManagedRuntime } from "effect"
 
@@ -20,8 +19,9 @@ const { AbsolutePath } = await import("@opencode-ai/core/schema")
 const { Database } = await import("@opencode-ai/core/storage")
 const { Supervisor } = await import("@opencode-ai/supervisor/spawn")
 const { spawnRef } = await import("@opencode-ai/supervisor/spawn-ref")
+const { mkdtempTmp } = await import("../fixture/fixture")
 
-const dir = mkdtempSync(path.join(tmpdir(), "supervisor-test-child-session-dir-"))
+const dir = mkdtempTmp("supervisor-test-child-session-dir-")
 const sub = path.join(dir, "sub")
 mkdirSync(sub, { recursive: true })
 

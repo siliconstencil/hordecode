@@ -18,10 +18,19 @@ process.env["XDG_STATE_HOME"] = path.join(dir, "state")
 const _testDbPathEarly = path.join(dir, "test.db")
 process.env["OPENCODE_DB"] = _testDbPathEarly
 process.env["HORDECODE_DB"] = _testDbPathEarly
+process.env["HORDECODE_TEST_DATA"] = dir
 await fs.mkdir(dir, { recursive: true })
 afterAll(async () => {
   const { AppRuntime } = await import("../src/effect/app-runtime")
   await AppRuntime.dispose()
+
+  const db = process.env.OPENCODE_DB
+  if (db) await Promise.all([db, `${db}-wal`, `${db}-shm`].map((file) => fs.rm(file, { force: true }).catch(() => undefined)))
+
+  const { cleanupTmpdirs } = await import("./fixture/fixture")
+  await cleanupTmpdirs()
+  const { Global } = await import("@opencode-ai/core/global")
+  await fs.rmdir(Global.Path.tmp).catch(() => undefined)
 
   const busy = (error: unknown) =>
     typeof error === "object" && error !== null && "code" in error && error.code === "EBUSY"

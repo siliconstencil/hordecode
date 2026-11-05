@@ -7,8 +7,6 @@ delete process.env["OPENCODE_DB"]
 import { afterEach, beforeAll, describe, expect, it, afterAll } from "bun:test"
 import fs from "fs/promises"
 import { eq } from "drizzle-orm"
-import { mkdtempSync } from "node:fs"
-import { tmpdir } from "node:os"
 import path from "path"
 import { SessionID, MessageID, PartID } from "@opencode-ai/core/session/schema"
 import { Effect, Deferred, ManagedRuntime } from "effect"
@@ -32,6 +30,7 @@ const { InstanceRef, WorkspaceRef } = await import("@/effect/instance-ref")
 const { spawnRef } = await import("@opencode-ai/supervisor/spawn-ref")
 const { prefixCaptureRef } = await import("@opencode-ai/core/session/prefix-capture-ref")
 const { memoMap } = await import("@opencode-ai/core/effect/memo-map")
+const { mkdtempTmp } = await import("../fixture/fixture")
 import type { Interface as SupervisorInterface, AgentOutcome } from "@opencode-ai/supervisor/spawn"
 import type { Interface as SessionCheckpointInterface } from "@opencode-ai/core/session/checkpoint"
 
@@ -67,7 +66,7 @@ const stubPrefixCapture = (() =>
     parentPermission: [] as never,
   })) as unknown as NonNullable<typeof prefixCaptureRef.current>
 
-const proofDir = mkdtempSync(path.join(tmpdir(), "p798-child-"))
+const proofDir = mkdtempTmp("p798-child-")
 
 const seedParent = (sessionID: SessionID) =>
   Database.use((db) => {
