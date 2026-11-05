@@ -1,4 +1,6 @@
 import { expect } from "bun:test"
+import os from "os"
+import path from "path"
 import { Effect, Layer, Context } from "effect"
 import { InstanceRef } from "../../src/effect/instance-ref"
 import { makeRuntime } from "../../src/effect/run-service"
@@ -6,7 +8,7 @@ import { ProjectV2 } from "@opencode-ai/core/project"
 import { it } from "../lib/effect"
 
 class Shared extends Context.Service<Shared, { readonly id: number }>()("@test/Shared") {}
-const testDirectory = "/tmp/opencode-test"
+const testDirectory = path.join(os.tmpdir(), "opencode-test")
 
 it.live("makeRuntime shares dependent layers through the shared memo map", () =>
   Effect.gen(function* () {
