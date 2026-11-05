@@ -54,7 +54,9 @@ function seedDb() {
     db.run(`CREATE TABLE IF NOT EXISTS "inbox" (
       "id" text PRIMARY KEY NOT NULL, "receiver_session_id" text NOT NULL REFERENCES "session"("id") ON DELETE CASCADE,
       "receiver_supervisor_id" text NOT NULL, "sender_session_id" text, "sender_supervisor_id" text,
-      "type" text NOT NULL DEFAULT 'text', "content" text NOT NULL, "created_at" integer NOT NULL)`)
+      "type" text NOT NULL DEFAULT 'text', "content" text NOT NULL,
+      "state" text DEFAULT 'queued' NOT NULL, "delivery_message_id" text, "delivered_at" integer,
+      "created_at" integer NOT NULL)`)
     db.insert(ProjectTable)
       .values({ id: PROJECT, worktree: "/tmp/sv-stuck-notice", vcs: "git", sandboxes: [], time_created: Date.now(), time_updated: Date.now() } as any)
       .onConflictDoNothing()

@@ -1,6 +1,7 @@
 import { Brand, Context, Effect, Layer, Scope, Schema, Option } from "effect"
 import { ulid } from "ulid"
 import { Database, eq, and, lte, inArray } from "@opencode-ai/core/storage"
+import { KeyedMutex } from "@opencode-ai/core/effect/keyed-mutex"
 import { Bus } from "@opencode-ai/bus"
 import { SupervisorRegistryService } from "@opencode-ai/supervisor"
 import { Session } from "@opencode-ai/core/session"
@@ -19,7 +20,14 @@ const GC_TTL_MS = 7 * 24 * 60 * 60 * 1000
 export const MAX_DRAIN_PER_TURN = 100
 
 export function gcInboxRows(cutoffMs: number) {
-  return Effect.sync(() => Database.use((db) => db.delete(InboxTable).where(lte(InboxTable.created_at, cutoffMs)).run()))
+  return Effect.sync(() =>
+    Database.use((db) =>
+      db
+        .delete(InboxTable)
+        .where(and(eq(InboxTable.state, "delivered"), lte(InboxTable.delivered_at, cutoffMs)))
+        .run(),
+    ),
+  )
 }
 
 export class InboxReceiverNotFound extends Schema.TaggedErrorClass<InboxReceiverNotFound>()("InboxReceiverNotFound", {
@@ -111,6 +119,10 @@ export const layer: Layer.Layer<Service, never, Bus.Service | SupervisorRegistry
     const reg = yield* SupervisorRegistryService.Service
     const sessions = yield* Session.Service
     const scope = yield* Scope.Scope
+    // One drain at a time per lane: two drains that both select the same queued rows
+    // would otherwise write the synthetic message twice. The delivered state is the
+    // durable backstop for a second drain that starts after the first commits.
+    const drainLocks = KeyedMutex.makeUnsafe<string>()
     yield* gcInboxRows(Date.now() - GC_TTL_MS)
     log.info("inbox gc-on-init complete")
     const send = Effect.fn("Inbox.send")(function* (input: SendInput) {
@@ -127,6 +139,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | SupervisorRegistry
         sender_supervisor_id: senderSupervisorID ?? null,
         type: input.type ?? "text",
         content: { text: input.content },
+        state: "queued" as const,
         created_at: Date.now(),
       }
       if (receiverSupervisorID === "main" && (input.type ?? "text") === "text" && senderSupervisorID != null) {
@@ -154,13 +167,19 @@ export const layer: Layer.Layer<Service, never, Bus.Service | SupervisorRegistry
       }
       return { inboxID: row.id }
     })
-    const drain = Effect.fn("Inbox.drain")(function* (sessionID: SessionID, supervisorID: string) {
+    const drainRows = Effect.fn("Inbox.drainRows")(function* (sessionID: SessionID, supervisorID: string) {
       const rows = yield* Effect.sync(() =>
         Database.use((db) =>
           db
             .select()
             .from(InboxTable)
-            .where(and(eq(InboxTable.receiver_session_id, sessionID), eq(InboxTable.receiver_supervisor_id, supervisorID)))
+            .where(
+              and(
+                eq(InboxTable.receiver_session_id, sessionID),
+                eq(InboxTable.receiver_supervisor_id, supervisorID),
+                eq(InboxTable.state, "queued"),
+              ),
+            )
             .orderBy(InboxTable.id)
             .limit(MAX_DRAIN_PER_TURN)
             .all(),
@@ -195,8 +214,19 @@ export const layer: Layer.Layer<Service, never, Bus.Service | SupervisorRegistry
       const now = Date.now()
       yield* sessions.updateMessage({ id: msgID, role: "user" as const, sessionID, agentID: supervisorID, time: { created: now }, agent: seed.agent, model: seed.model as { providerID: Brand.Brand<"ProviderID"> & string; modelID: Brand.Brand<"ModelID"> & string } })
       for (const entry of rendered) yield* sessions.updatePart({ id: PartID.ascending(), messageID: msgID, sessionID, type: "text" as const, synthetic: true, text: entry.text })
-      yield* Effect.sync(() => Database.use((db) => db.delete(InboxTable).where(inArray(InboxTable.id, rows.map((r) => r.id))).run()))
+      yield* Effect.sync(() =>
+        Database.use((db) =>
+          db
+            .update(InboxTable)
+            .set({ state: "delivered" as const, delivery_message_id: msgID, delivered_at: now })
+            .where(inArray(InboxTable.id, rendered.map((entry) => entry.row.id)))
+            .run(),
+        ),
+      )
       return rendered.length
+    })
+    const drain = Effect.fn("Inbox.drain")(function* (sessionID: SessionID, supervisorID: string) {
+      return yield* drainLocks.withLock(`${sessionID}:${supervisorID}`)(drainRows(sessionID, supervisorID))
     })
     const impl = Service.of({ send: send as Interface["send"], drain: drain as Interface["drain"] })
     inboxServiceRef.current = impl

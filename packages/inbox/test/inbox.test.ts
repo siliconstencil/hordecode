@@ -52,6 +52,26 @@ function noSeedSessionLayer() {
   )
 }
 
+function recordingSessionLayer(parts: Array<{ messageID: string; text: string }>) {
+  return Layer.succeed(
+    Session.Service,
+    Session.Service.of({
+      findMessage: () =>
+        Effect.succeed(
+          Option.some({
+            info: { role: "assistant", agent: "test-agent", model: { providerID: "test", modelID: "test-model" } },
+          } as any),
+        ),
+      updateMessage: () => Effect.sleep("10 millis"),
+      updatePart: (part: any) =>
+        Effect.sleep("10 millis").pipe(
+          Effect.tap(() => Effect.sync(() => parts.push({ messageID: part.messageID, text: part.text }))),
+          Effect.as(part),
+        ),
+    } as any),
+  )
+}
+
 beforeAll(() => {
   sessionPromptRef.current = { loop: () => Effect.void } as any
   defaultModelRef.current = undefined
@@ -139,6 +159,9 @@ beforeAll(() => {
       "sender_supervisor_id" text,
       "type" text DEFAULT 'text' NOT NULL,
       "content" text NOT NULL,
+      "state" text DEFAULT 'queued' NOT NULL,
+      "delivery_message_id" text,
+      "delivered_at" integer,
       "created_at" integer NOT NULL
     )`)
     db.run(`CREATE INDEX IF NOT EXISTS "inbox_receiver_idx" ON "inbox" ("receiver_session_id","receiver_supervisor_id","id")`)
@@ -349,7 +372,7 @@ describe("inbox real DB", () => {
     cleanInboxFor(sid)
   })
 
-  test("drain round-trip: send then drain returns 1, deletes row, second drain 0", async () => {
+  test("drain round-trip: send then drain returns 1, marks delivered, second drain 0", async () => {
     const sid = `ses_drain_${Date.now()}_${Math.random().toString(36).slice(2)}` as any
     ensureProjectAndSession(sid)
     const supID = "supervisor-drain"
@@ -373,7 +396,8 @@ describe("inbox real DB", () => {
     )
     expect(n1).toBe(1)
     const remaining = useDb((db: any) => db.select().from(InboxTable).all()).filter((r: any) => r.receiver_supervisor_id === supID)
-    expect(remaining.length).toBe(0)
+    expect(remaining.length).toBe(1)
+    expect(remaining[0].state).toBe("delivered")
     const n2 = await runEffect(
       Effect.gen(function* () {
         const inbox = yield* Service
@@ -438,12 +462,19 @@ describe("inbox real DB", () => {
         const before = useDb((db: any) => db.select().from(InboxTable).all()).filter((r: any) => r.receiver_supervisor_id === supID)
         const drained = yield* inbox.drain(sid, supID)
         const after = useDb((db: any) => db.select().from(InboxTable).all()).filter((r: any) => r.receiver_supervisor_id === supID)
-        return { before: before.length, drained, after: after.length, ids: before.map((r: any) => r.id) }
+        return {
+          before: before.length,
+          drained,
+          after: after.length,
+          states: after.map((r: any) => r.state),
+          ids: before.map((r: any) => r.id),
+        }
       }),
     )
     expect(result.before).toBe(3)
     expect(result.drained).toBe(3)
-    expect(result.after).toBe(0)
+    expect(result.after).toBe(3)
+    expect(result.states).toEqual(["delivered", "delivered", "delivered"])
     // IDs are ULIDs generated in rapid succession: same-millisecond inserts have
     // no guaranteed creation order. Assert set semantics only (3 unique,
     // non-empty string IDs), never insertion order.
@@ -451,6 +482,121 @@ describe("inbox real DB", () => {
     expect(new Set(result.ids).size).toBe(3)
     expect(result.ids.every((id: string) => typeof id === "string" && id.length > 0)).toBe(true)
     cleanInboxFor(sid)
+  })
+
+  test("drain records delivered state and does not deliver the same row twice", async () => {
+    const sid = `ses_state_${Date.now()}_${Math.random().toString(36).slice(2)}` as any
+    ensureProjectAndSession(sid)
+    const supID = "supervisor-state"
+    const parts: Array<{ messageID: string; text: string }> = []
+    const result = await runEffectWithLayer(
+      Effect.gen(function* () {
+        const reg = yield* SupervisorRegistryService.Service
+        const inbox = yield* Service
+        yield* reg.register({
+          sessionID: sid,
+          supervisorID: supID,
+          mode: "subagent" as any,
+          agent: "test-agent",
+          description: "state",
+          contextMode: "isolated" as any,
+          background: false,
+          lifecycle: "persistent" as any,
+        })
+        yield* inbox.send({ receiverSessionID: sid, receiverSupervisorID: supID, content: "state once" })
+        const first = yield* inbox.drain(sid, supID)
+        const second = yield* inbox.drain(sid, supID)
+        return { first, second, parts: [...parts] }
+      }),
+      recordingSessionLayer(parts),
+    )
+    expect(result.first).toBe(1)
+    expect(result.second).toBe(0)
+    expect(result.parts.filter((p) => p.text.includes("state once")).length).toBe(1)
+    const rows = useDb((db: any) => db.select().from(InboxTable).all()).filter(
+      (r: any) => r.receiver_session_id === sid && r.receiver_supervisor_id === supID,
+    )
+    expect(rows.length).toBe(1)
+    expect(rows[0].state).toBe("delivered")
+    expect(rows[0].delivery_message_id).toBeTruthy()
+    expect(rows[0].delivered_at).toBeGreaterThan(0)
+    cleanInboxFor(sid)
+  })
+
+  test("two concurrent drains deliver one message exactly once", async () => {
+    const sid = `ses_race_${Date.now()}_${Math.random().toString(36).slice(2)}` as any
+    ensureProjectAndSession(sid)
+    const supID = "supervisor-race"
+    const parts: Array<{ messageID: string; text: string }> = []
+    const result = await runEffectWithLayer(
+      Effect.gen(function* () {
+        const reg = yield* SupervisorRegistryService.Service
+        const inbox = yield* Service
+        yield* reg.register({
+          sessionID: sid,
+          supervisorID: supID,
+          mode: "subagent" as any,
+          agent: "test-agent",
+          description: "race",
+          contextMode: "isolated" as any,
+          background: false,
+          lifecycle: "persistent" as any,
+        })
+        yield* inbox.send({ receiverSessionID: sid, receiverSupervisorID: supID, content: "race me" })
+        const [a, b] = yield* Effect.all([inbox.drain(sid, supID), inbox.drain(sid, supID)], { concurrency: 2 })
+        return { a, b, parts: [...parts] }
+      }),
+      recordingSessionLayer(parts),
+    )
+    expect(result.a + result.b).toBe(1)
+    expect(result.parts.filter((p) => p.text.includes("race me")).length).toBe(1)
+    const rows = useDb((db: any) => db.select().from(InboxTable).all()).filter(
+      (r: any) => r.receiver_session_id === sid && r.receiver_supervisor_id === supID,
+    )
+    expect(rows.length).toBe(1)
+    expect(rows[0].state).toBe("delivered")
+    cleanInboxFor(sid)
+  })
+
+  test("a failed wake leaves the message queued for the next drain", async () => {
+    const sid = `ses_wakefail_${Date.now()}_${Math.random().toString(36).slice(2)}` as any
+    ensureProjectAndSession(sid)
+    const supID = "supervisor-wakefail"
+    const originalRef = sessionPromptRef.current
+    sessionPromptRef.current = {
+      loop: (() => Effect.fail(new Error("wake failed"))) as any,
+      prompt: (() => Effect.void) as any,
+    }
+    try {
+      const result = await runEffect(
+        Effect.gen(function* () {
+          const reg = yield* SupervisorRegistryService.Service
+          const inbox = yield* Service
+          yield* reg.register({
+            sessionID: sid,
+            supervisorID: supID,
+            mode: "subagent" as any,
+            agent: "test-agent",
+            description: "wakefail",
+            contextMode: "isolated" as any,
+            background: false,
+            lifecycle: "persistent" as any,
+          })
+          yield* inbox.send({ receiverSessionID: sid, receiverSupervisorID: supID, content: "survive wake failure" })
+          yield* Effect.sleep("50 millis")
+          const queued = useDb((db: any) => db.select().from(InboxTable).all()).filter(
+            (r: any) => r.receiver_session_id === sid && r.receiver_supervisor_id === supID,
+          )
+          const drained = yield* inbox.drain(sid, supID)
+          return { queued: queued.map((r: any) => r.state), drained }
+        }),
+      )
+      expect(result.queued).toEqual(["queued"])
+      expect(result.drained).toBe(1)
+    } finally {
+      sessionPromptRef.current = originalRef
+      cleanInboxFor(sid)
+    }
   })
 
   // Abort + 3 sends -> 0 loops, rows drained on next user prompt.
