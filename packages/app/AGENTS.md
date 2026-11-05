@@ -9,7 +9,7 @@
 
 ## Local Dev
 
-- `opencode dev web` proxies `https://app.opencode.ai`, so local UI/CSS changes will not show there.
+- Fork delta (upstream opencode-1.19.5 `packages/app/AGENTS.md:12`): the upstream line about `opencode dev web` proxying `app.opencode.ai` is gone; this fork has no `dev` command and no such proxy.
 - For local UI changes, run the backend and app dev servers separately.
 - Backend (from `packages/opencode`): `bun run ./src/index.ts serve --port 4096`
 - App (from `packages/app`): `bun dev -- --port 4444`
