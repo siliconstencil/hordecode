@@ -86,7 +86,6 @@ import { Memory } from "@opencode-ai/memory"
 import { node as EmbeddingNode } from "@opencode-ai/memory/embedding/service"
 import { node as VectorStoreNode } from "@opencode-ai/memory/embedding/vector-store"
 import { SupervisorWaiter } from "@opencode-ai/supervisor/waiter"
-import { Team } from "@opencode-ai/team"
 import { TaskRegistry } from "@opencode-ai/task/registry"
 import { Inbox } from "@opencode-ai/inbox"
 import { Scheduler, defaultLayer } from "@opencode-ai/cron/scheduler"
@@ -538,7 +537,6 @@ const SupervisorRegistryNode = makeGlobalNode({ service: SupervisorRegistryServi
 const BusNode = makeGlobalNode({ service: Bus.Service, layer: Bus.defaultLayer, deps: [] })
 const MemoryNode = makeGlobalNode({ service: Memory.Service, layer: Memory.layer as Layer.Layer<Memory.Service>, deps: [Database.node, Config.node, EmbeddingNode, VectorStoreNode] })
 const SchedulerNode = makeGlobalNode({ service: Scheduler, layer: defaultLayer, deps: [] })
-const TeamNode = makeGlobalNode({ service: Team.Service, layer: Team.defaultLayer, deps: [] })
 const SupervisorWaiterNode = makeGlobalNode({
   service: SupervisorWaiter.Service,
   layer: SupervisorWaiter.defaultLayer,
@@ -573,7 +571,6 @@ export const node = LayerNode.make({
     TaskRegistryNode,
     InboxNode,
     SchedulerNode,
-    TeamNode,
     Config.node,
     Plugin.node,
     Question.node,

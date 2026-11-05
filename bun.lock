@@ -556,7 +556,7 @@
     },
     "packages/opencode": {
       "name": "hordecode",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "bin": {
         "horde": "./bin/horde",
         "hordecode": "./bin/hordecode",
@@ -611,7 +611,6 @@
         "@opencode-ai/skill": "workspace:*",
         "@opencode-ai/supervisor": "workspace:*",
         "@opencode-ai/task": "workspace:*",
-        "@opencode-ai/team": "workspace:*",
         "@opencode-ai/tui": "workspace:*",
         "@opencode-ai/workflow": "workspace:*",
         "@openrouter/ai-sdk-provider": "2.9.0",
@@ -972,21 +971,6 @@
         "@opencode-ai/bus": "workspace:*",
         "@opencode-ai/core": "workspace:*",
         "drizzle-orm": "catalog:",
-        "effect": "catalog:",
-        "zod": "catalog:",
-      },
-      "devDependencies": {
-        "@tsconfig/bun": "catalog:",
-        "@types/bun": "catalog:",
-        "@typescript/native-preview": "catalog:",
-      },
-    },
-    "packages/team": {
-      "name": "@opencode-ai/team",
-      "version": "0.0.0",
-      "dependencies": {
-        "@opencode-ai/bus": "workspace:*",
-        "@opencode-ai/core": "workspace:*",
         "effect": "catalog:",
         "zod": "catalog:",
       },
@@ -2067,8 +2051,6 @@
     "@opencode-ai/supervisor": ["@opencode-ai/supervisor@workspace:packages/supervisor"],
 
     "@opencode-ai/task": ["@opencode-ai/task@workspace:packages/task"],
-
-    "@opencode-ai/team": ["@opencode-ai/team@workspace:packages/team"],
 
     "@opencode-ai/tui": ["@opencode-ai/tui@workspace:packages/tui"],
 

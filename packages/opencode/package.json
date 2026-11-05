@@ -96,7 +96,6 @@
     "@opencode-ai/skill": "workspace:*",
     "@opencode-ai/supervisor": "workspace:*",
     "@opencode-ai/task": "workspace:*",
-    "@opencode-ai/team": "workspace:*",
     "@opencode-ai/tui": "workspace:*",
     "@opencode-ai/workflow": "workspace:*",
     "@openrouter/ai-sdk-provider": "2.9.0",

@@ -67,7 +67,6 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Database } from "@opencode-ai/core/database/database"
 import { ModelV2 } from "@opencode-ai/core/model"
-import { Team } from "@opencode-ai/team"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { eq } from "drizzle-orm"
 import { SessionTable } from "@opencode-ai/core/session/sql"
@@ -2925,12 +2924,6 @@ export function cleanSessionTitle(text: string): string {
     .trim()
 }
 
-const TeamNode = LayerNode.make({
-  service: Team.Service,
-  layer: Team.defaultLayer,
-  deps: [],
-})
-
 const GoalNode = LayerNode.make({
   service: Goal.Service,
   layer: Goal.defaultLayer as Layer.Layer<Goal.Service>,
@@ -3008,7 +3001,6 @@ export const node = LayerNode.make({
     EventV2Bridge.node,
     RuntimeFlags.node,
     Database.node,
-    TeamNode,
     GoalNode,
     BusNode,
     SupervisorRegistryNode,
