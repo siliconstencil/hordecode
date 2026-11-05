@@ -256,6 +256,7 @@ const B = "\uFF5C\uFF5C"
 const D = `${B}DSML${B}`
 const dsmlCall = [
   `<${D} calls>`,
+  `tool call follows`,
   `<${D} invoke name="edit">`,
   `<${D} parameter name="filePath" string="true">/x/y.rs</${D} parameter>`,
   `</${D} invoke>`,
@@ -358,6 +359,7 @@ const withEnv = <A, E, R>(env: Record<string, string>, effect: Effect.Effect<A, 
 const readCall = (file: string) =>
   [
     `<${D} calls>`,
+    `tool call follows`,
     `<${D} invoke name="read">`,
     `<${D} parameter name="filePath" string="true">${file}</${D} parameter>`,
     `</${D} invoke>`,
@@ -640,6 +642,7 @@ it.instance("with salvage off the only change from 0.1.5 is the visible notice (
 const salvageBlock = (calls: Array<[string, string]>) =>
   [
     `<${D} calls>`,
+    `tool call follows`,
     ...calls.flatMap(([name, file]) => [
       `<${D} invoke name="${name}">`,
       `<${D} parameter name="filePath" string="true">${file}</${D} parameter>`,

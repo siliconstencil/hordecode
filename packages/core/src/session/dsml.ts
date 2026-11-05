@@ -37,6 +37,31 @@ export type DsmlParse = {
   trailing: boolean
 }
 
+export type DsmlHeal = {
+  /** Every call of every healed envelope, in document order. */
+  calls: DsmlCall[]
+  /** The text with the healed envelopes removed. */
+  text: string
+}
+
+// The healing grammar. Ported from oh-my-pi packages/ai/src/dialect/deepseek.ts:35-42,651-737,897
+// (MIT, Copyright (c) 2025 Mario Zechner, 2025-2026 Can Boluk, 2026 Stencil Labs, Inc.): the same
+// DSML envelope, the same `string="false"` JSON coercion, and the reference wrapper word
+// `tool_calls` next to the observed `calls` and `function_calls`. The reference scanner is
+// incremental and heals while the stream runs; here the envelope is parsed as a whole, so a
+// half-written envelope is never healed.
+const HEAL_TAG_OPEN = `<${BAR}\\s*DSML\\s*${BAR}`
+const HEAL_TAG_CLOSE = `</${BAR}\\s*DSML\\s*${BAR}`
+const HEAL_OPEN = new RegExp(`${HEAL_TAG_OPEN}\\s*(?:function_calls|tool_calls|calls)>`, "gu")
+const HEAL_CLOSE = new RegExp(`${HEAL_TAG_CLOSE}\\s*(?:function_calls|tool_calls|calls)>`, "gu")
+const HEAL_INVOKE_OPEN = new RegExp(`${HEAL_TAG_OPEN}\\s*invoke\\s+name="([^"]+)"\\s*>`, "uy")
+const HEAL_INVOKE_CLOSE = new RegExp(`${HEAL_TAG_CLOSE}\\s*invoke\\s*>`, "uy")
+const HEAL_PARAMETER_OPEN = new RegExp(
+  `${HEAL_TAG_OPEN}\\s*parameter\\s+name="([^"]+)"(?:\\s+string="(true|false)")?\\s*>`,
+  "uy",
+)
+const HEAL_PARAMETER_CLOSE = new RegExp(`${HEAL_TAG_CLOSE}\\s*parameter\\s*>`, "gu")
+
 /** True when the text opens a DSML function_calls block. A bare invoke without the wrapper is not conformant output. */
 export function hasDsmlToolCall(text: string): boolean {
   return OPEN.test(text)
@@ -55,6 +80,88 @@ export function parseDsmlToolCalls(text: string): DsmlParse {
   }))
   const trailing = close ? rest.slice(close.index + close[0].length).trim() === "" : false
   return { calls, complete: close !== null, trailing }
+}
+
+/**
+ * Parses every complete DSML envelope in `text` and returns the calls plus the text without the
+ * markup. Returns undefined when the text holds no envelope, when an envelope is not closed, or
+ * when any part of it is malformed: a partial envelope stays text so the retry and salvage paths
+ * can still handle it.
+ */
+export function healDsmlToolCalls(text: string): DsmlHeal | undefined {
+  const envelopes = findEnvelopes(text)
+  if (!envelopes || envelopes.length === 0) return undefined
+  const calls: DsmlCall[] = []
+  for (const envelope of envelopes) {
+    const parsed = parseEnvelope(text.slice(envelope.bodyStart, envelope.bodyEnd))
+    if (!parsed) return undefined
+    calls.push(...parsed)
+  }
+  if (calls.length === 0) return undefined
+  return { calls, text: stripEnvelopes(text, envelopes) }
+}
+
+type Envelope = { start: number; end: number; bodyStart: number; bodyEnd: number }
+
+function findEnvelopes(text: string): Envelope[] | undefined {
+  const found: Envelope[] = []
+  let cursor = 0
+  while (cursor < text.length) {
+    HEAL_OPEN.lastIndex = cursor
+    const open = HEAL_OPEN.exec(text)
+    if (!open) break
+    const bodyStart = open.index + open[0].length
+    HEAL_CLOSE.lastIndex = bodyStart
+    const close = HEAL_CLOSE.exec(text)
+    if (!close) return undefined
+    found.push({ start: open.index, end: close.index + close[0].length, bodyStart, bodyEnd: close.index })
+    cursor = close.index + close[0].length
+  }
+  return found
+}
+
+function parseEnvelope(body: string): DsmlCall[] | undefined {
+  const calls: DsmlCall[] = []
+  let cursor = 0
+  while (cursor < body.length) {
+    while (cursor < body.length && /\s/.test(body[cursor]!)) cursor++
+    if (cursor >= body.length) break
+    HEAL_INVOKE_OPEN.lastIndex = cursor
+    const invoke = HEAL_INVOKE_OPEN.exec(body)
+    if (!invoke) return undefined
+    cursor += invoke[0].length
+    const args: Record<string, unknown> = {}
+    while (true) {
+      while (cursor < body.length && /\s/.test(body[cursor]!)) cursor++
+      HEAL_INVOKE_CLOSE.lastIndex = cursor
+      const invokeClose = HEAL_INVOKE_CLOSE.exec(body)
+      if (invokeClose) {
+        cursor += invokeClose[0].length
+        break
+      }
+      HEAL_PARAMETER_OPEN.lastIndex = cursor
+      const parameter = HEAL_PARAMETER_OPEN.exec(body)
+      if (!parameter) return undefined
+      cursor += parameter[0].length
+      HEAL_PARAMETER_CLOSE.lastIndex = cursor
+      const close = HEAL_PARAMETER_CLOSE.exec(body)
+      if (!close) return undefined
+      args[parameter[1]!] = value(parameter[2], body.slice(cursor, close.index))
+      cursor = close.index + close[0].length
+    }
+    calls.push({ name: invoke[1]!, arguments: args })
+  }
+  return calls
+}
+
+function stripEnvelopes(text: string, envelopes: Envelope[]): string {
+  let out = ""
+  let cursor = 0
+  for (const envelope of envelopes) {
+    out += text.slice(cursor, envelope.start)
+    cursor = envelope.end
+  }
+  return (out + text.slice(cursor)).trim()
 }
 
 function value(string: string | undefined, raw: string): unknown {
