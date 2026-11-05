@@ -19,6 +19,8 @@ const generated = await import("./generate.ts")
 import { Script } from "@opencode-ai/script"
 import pkg from "../package.json"
 
+const productVersion = process.env.HORDECODE_VERSION || process.env.OPENCODE_VERSION || pkg.version
+
 function getDirSize(dirPath: string): string {
   let total = 0
   try {
@@ -344,7 +346,7 @@ for (const item of targets) {
     define: {
       FFF_LIBC: JSON.stringify(item.abi === "musl" ? "musl" : "gnu"),
       OPENCODE_VERSION: `'${Script.version}'`,
-      HORDECODE_VERSION: `'${pkg.version}'`,
+      HORDECODE_VERSION: `'${productVersion}'`,
       OPENCODE_MODELS_DEV: generated.modelsData,
       OTUI_TREE_SITTER_WORKER_PATH: bunfsRoot + treeSitterWorkerPath,
       OPENCODE_WORKER_PATH: workerPath,
