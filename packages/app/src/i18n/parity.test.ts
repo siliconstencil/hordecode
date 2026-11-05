@@ -129,6 +129,13 @@ describe("i18n parity", () => {
     }
   })
 
+  test("app locales defer the provider keys to English", async () => {
+    for (const locale of appLocales) {
+      const target = await dictionary(`./${locale}.ts`)
+      for (const key of intentionalAppFallback) expect(Object.hasOwn(target, key)).toBe(false)
+    }
+  })
+
   test("non-English locales preserve English placeholders", async () => {
     for (const domain of domains) {
       const source = await dictionary(domain.source)
