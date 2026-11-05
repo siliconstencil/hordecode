@@ -18,6 +18,13 @@ import { has, lastRole, waitFor } from "./r6-helpers"
 const inboxRows = (sessionID: string) =>
   Database.use((db) => db.select().from(InboxTable).where(eq(InboxTable.receiver_session_id, sessionID as SessionID)).all())
 
+// A drained inbox row is kept with the delivered state instead of being deleted.
+const expectInboxConsumed = (sessionID: string) => {
+  const rows = inboxRows(sessionID)
+  expect(rows.filter((row) => row.state === "queued")).toHaveLength(0)
+  expect(rows.filter((row) => row.state === "delivered").length).toBeGreaterThan(0)
+}
+
 const textOf = (m: { parts: { type: string; text?: string }[] }) =>
   m.parts.flatMap((p) => (p.type === "text" && p.text ? [p.text] : [])).join("\n")
 
@@ -61,7 +68,7 @@ describe("background completion reaches the parent (R6-1 item 2)", () => {
         const inputs = yield* llm.inputs
         expect(inputs.some((b) => has({ body: b }, "<supervisor-notification>") && has({ body: b }, "CHILD-RESULT-XYZ"))).toBe(true)
         // and the row was consumed
-        expect(inboxRows(chat.id)).toHaveLength(0)
+        expectInboxConsumed(chat.id)
       }),
     40_000,
   )
@@ -84,11 +91,9 @@ describe("a finished background child wakes its parent (R6-1 item 3)", () => {
     40_000,
   )
 
-  // OPEN DECISION: packages/opencode/src/tool/supervisor.txt tells the model the parent is NOT woken; the code
-  // (packages/inbox/src/inbox.ts:151-153) always wakes it. The test above pins the code. This one pins the doc and is
-  // expected to fail until the owner picks which side changes.
-  test.failing("supervisor.txt describes the behavior the code has (it says there is no auto-wake)", () => {
+  test("supervisor.txt describes the wake the code has (the result reaches the inbox and wakes the loop)", () => {
     const doc = fs.readFileSync(path.join(import.meta.dir, "../../src/tool/supervisor.txt"), "utf8")
+    expect(doc).toContain("wakes this loop")
     expect(doc).not.toContain("does NOT auto-wake")
   })
 })
@@ -137,7 +142,7 @@ describe("inbox delivery through the real loop (R6-1 item 1)", () => {
         )
         const delivered = msgs.find((m) => m.info.role === "user" && textOf(m).includes("PING-FROM-PEER"))!
         expect(textOf(delivered)).toContain('<inbox from="ses_r6_sender:worker-1"')
-        expect(inboxRows(chat.id)).toHaveLength(0)
+        expectInboxConsumed(chat.id)
       }),
     40_000,
   )
