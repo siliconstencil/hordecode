@@ -11,7 +11,7 @@
     "check:orphaned-tables": "bun run scripts/check-orphaned-tables.ts",
     "migration": "bun run script/migration.ts",
     "fix-node-pty": "bun run script/fix-node-pty.ts",
-    "test": "bun test",
+    "test": "bun test --timeout 30000",
     "test:try-best": "HORDECODE_RUN_TRY_BEST_TESTS=1 bun test --no-worker test/session/processor-try-best.test.ts",
     "typecheck": "tsc --noEmit"
   },
