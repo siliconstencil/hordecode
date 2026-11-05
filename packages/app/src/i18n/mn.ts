@@ -704,8 +704,6 @@ export const dict = {
   "home.sessions.group.today": "Өнөөдөр",
   "home.sessions.group.yesterday": "Өчигдөр",
   "home.sessions.group.older": "Хуучин",
-  "home.providerTip":
-    "Claude, GPT, Gemini гэх мэт бусад загваруудыг ашиглахын тулд 200+ үйлчилгээ үзүүлэгчтэй холбогдоно уу.",
   "session.tab.session": "Сесс",
   "session.tab.review": "Хяналт",
   "session.tab.context": "Контекст",
@@ -876,9 +874,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Ажлын талбаруудыг идэвхжүүлэх",
   "sidebar.workspaces.disable": "Ажлын талбаруудыг идэвхгүй болгох",
   "sidebar.gettingStarted.title": "Эхлэх",
-  "sidebar.gettingStarted.line1": "OpenCode үнэ төлбөргүй загваруудыг багтаасан тул та шууд эхлэх боломжтой.",
-  "sidebar.gettingStarted.line2":
-    "Models, inc ашиглахын тулд дурын үйлчилгээ үзүүлэгчийг холбоно уу. Claude, GPT, Gemini гэх мэт.",
   "sidebar.project.recentSessions": "Сүүлийн хуралдаанууд",
   "sidebar.project.viewAllSessions": "Бүх сешнүүдийг үзэх",
   "sidebar.project.clearNotifications": "Мэдэгдлийг арилгах",

@@ -708,8 +708,6 @@ export const dict = {
   "home.sessions.group.today": "آج",
   "home.sessions.group.yesterday": "کل",
   "home.sessions.group.older": "پرانا",
-  "home.providerTip":
-    "دوجے ماڈل استعمال کرن لئی 200+ فراہم کرن آلیاں نال جڑو، جنہاں چ Claude، GPT، Gemini، وغیرہ شامل نیں",
   "session.tab.session": "سیشن",
   "session.tab.review": "جائزہ",
   "session.tab.context": "تناظر",
@@ -877,8 +875,6 @@ export const dict = {
   "sidebar.workspaces.enable": "ورک سپیس چالو کرو",
   "sidebar.workspaces.disable": "ورک اسپیسز نو غیر فعال کرو",
   "sidebar.gettingStarted.title": "شروع کرنا",
-  "sidebar.gettingStarted.line1": "OpenCode چ مفت ماڈل شامل نیں تاکہ تسی فوری طور تے شروع کر سکو۔",
-  "sidebar.gettingStarted.line2": "Claude، GPT، Gemini وغیرہ ماڈل ورتن لئی کوئی وی پرووائیڈر جوڑو۔",
   "sidebar.project.recentSessions": "حالیہ سیشن",
   "sidebar.project.viewAllSessions": "سارے سیشن ویکھو",
   "sidebar.project.clearNotifications": "نوٹیفکیشن صاف کرو",

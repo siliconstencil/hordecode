@@ -571,8 +571,6 @@ export const dict = {
   "sidebar.workspaces.enable": "작업 공간 활성화",
   "sidebar.workspaces.disable": "작업 공간 비활성화",
   "sidebar.gettingStarted.title": "시작하기",
-  "sidebar.gettingStarted.line1": "OpenCode에는 무료 모델이 포함되어 있어 즉시 시작할 수 있습니다.",
-  "sidebar.gettingStarted.line2": "Claude, GPT, Gemini 등을 포함한 모델을 사용하려면 공급자를 연결하세요.",
   "sidebar.project.recentSessions": "최근 세션",
   "sidebar.project.viewAllSessions": "모든 세션 보기",
   "sidebar.project.clearNotifications": "알림 지우기",
@@ -992,7 +990,6 @@ export const dict = {
   "home.sessions.group.today": "오늘",
   "home.sessions.group.yesterday": "어제",
   "home.sessions.group.older": "이전",
-  "home.providerTip": "200개 이상의 공급자에 연결하여 Claude, GPT, Gemini 등의 다른 모델을 사용하세요",
 
   "session.tab.unknown": "알 수 없는 세션",
   "session.error.notFound": "이 세션을 찾을 수 없습니다",

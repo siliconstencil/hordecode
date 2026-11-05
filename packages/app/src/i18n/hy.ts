@@ -703,8 +703,6 @@ export const dict = {
   "home.sessions.group.today": "Այսօր",
   "home.sessions.group.yesterday": "Երեկ",
   "home.sessions.group.older": "Հին",
-  "home.providerTip":
-    "Միացեք 200+ մատակարարների՝ այլ մոդելներ օգտագործելու համար, այդ թվում՝ Claude, GPT, Gemini և այլն",
   "session.tab.session": "Նիստ",
   "session.tab.review": "Վերանայել",
   "session.tab.context": "Համատեքստ",
@@ -875,9 +873,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Միացնել աշխատանքային տարածքները",
   "sidebar.workspaces.disable": "Անջատել աշխատանքային տարածքները",
   "sidebar.gettingStarted.title": "Սկսում",
-  "sidebar.gettingStarted.line1": "OpenCode ներառում է անվճար մոդելներ, որպեսզի կարողանաք անմիջապես սկսել:",
-  "sidebar.gettingStarted.line2":
-    "Միացրեք ցանկացած մատակարարի՝ մոդելներ օգտագործելու համար, inc. Claude, GPT, Gemini և այլն",
   "sidebar.project.recentSessions": "Վերջին նիստերը",
   "sidebar.project.viewAllSessions": "Դիտել բոլոր նիստերը",
   "sidebar.project.clearNotifications": "Մաքրել ծանուցումները",

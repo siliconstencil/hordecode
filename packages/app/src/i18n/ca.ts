@@ -704,8 +704,6 @@ export const dict = {
   "home.sessions.group.today": "Avui",
   "home.sessions.group.yesterday": "Ahir",
   "home.sessions.group.older": "Més vell",
-  "home.providerTip":
-    "Connecteu-vos a més de 200 proveïdors per utilitzar altres models, inclosos Claude, GPT, Gemini, etc.",
   "session.tab.session": "Sessió",
   "session.tab.review": "Revisió",
   "session.tab.context": "Context",
@@ -879,8 +877,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Habilita els espais de treball",
   "sidebar.workspaces.disable": "Desactivar els espais de treball",
   "sidebar.gettingStarted.title": "Per començar",
-  "sidebar.gettingStarted.line1": "OpenCode inclou models gratuïts perquè pugueu començar immediatament.",
-  "sidebar.gettingStarted.line2": "Connecteu qualsevol proveïdor per utilitzar models, inc. Claude, GPT, Gemini etc.",
   "sidebar.project.recentSessions": "Sessions recents",
   "sidebar.project.viewAllSessions": "Veure totes les sessions",
   "sidebar.project.clearNotifications": "Esborra les notificacions",

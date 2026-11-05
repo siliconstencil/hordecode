@@ -699,8 +699,6 @@ export const dict = {
   "home.sessions.group.today": "dnes",
   "home.sessions.group.yesterday": "včera",
   "home.sessions.group.older": "Starší",
-  "home.providerTip":
-    "Připojte se k více než 200 poskytovatelům a použijte další modely, včetně Claude, GPT, Gemini atd",
   "session.tab.session": "Relace",
   "session.tab.review": "Recenze",
   "session.tab.context": "Kontext",
@@ -874,9 +872,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Povolit pracovní prostory",
   "sidebar.workspaces.disable": "Zakázat pracovní prostory",
   "sidebar.gettingStarted.title": "Začínáme",
-  "sidebar.gettingStarted.line1": "OpenCode obsahuje bezplatné modely, takže můžete začít okamžitě.",
-  "sidebar.gettingStarted.line2":
-    "Připojte libovolného poskytovatele, abyste mohli používat modely, vč. Claude, GPT, Gemini atd.",
   "sidebar.project.recentSessions": "Nedávné relace",
   "sidebar.project.viewAllSessions": "Zobrazit všechny relace",
   "sidebar.project.clearNotifications": "Vymazat oznámení",

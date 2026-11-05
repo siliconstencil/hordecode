@@ -705,8 +705,6 @@ export const dict = {
   "home.sessions.group.today": "Σήμερα",
   "home.sessions.group.yesterday": "Χθες",
   "home.sessions.group.older": "Παλαιότερο",
-  "home.providerTip":
-    "Συνδεθείτε σε 200+ παρόχους για να χρησιμοποιήσετε άλλα μοντέλα, συμπεριλαμβανομένων των Claude, GPT, Gemini, κ.λπ.",
   "session.tab.session": "Συνεδρία",
   "session.tab.review": "Επισκόπηση",
   "session.tab.context": "Πλαίσιο",
@@ -878,8 +876,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Ενεργοποίηση χώρων εργασίας",
   "sidebar.workspaces.disable": "Απενεργοποίηση χώρων εργασίας",
   "sidebar.gettingStarted.title": "Ξεκινώντας",
-  "sidebar.gettingStarted.line1": "OpenCode περιλαμβάνει δωρεάν μοντέλα, ώστε να μπορείτε να ξεκινήσετε αμέσως.",
-  "sidebar.gettingStarted.line2": "Συνδέστε οποιονδήποτε πάροχο για χρήση μοντέλων, inc. Claude, GPT, Gemini κ.λπ.",
   "sidebar.project.recentSessions": "Πρόσφατες συνεδρίες",
   "sidebar.project.viewAllSessions": "Προβολή όλων των συνεδριών",
   "sidebar.project.clearNotifications": "Διαγραφή ειδοποιήσεων",

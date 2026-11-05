@@ -706,8 +706,6 @@ export const dict = {
   "home.sessions.group.today": "Vandaag",
   "home.sessions.group.yesterday": "Gisteren",
   "home.sessions.group.older": "Ouder",
-  "home.providerTip":
-    "Maak verbinding met meer dan 200 providers om andere modellen te gebruiken, waaronder Claude, GPT, Gemini, enz.",
   "session.tab.session": "Sessie",
   "session.tab.review": "Beoordeling",
   "session.tab.context": "Context",
@@ -878,9 +876,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Schakel werkruimten in",
   "sidebar.workspaces.disable": "Schakel werkruimten uit",
   "sidebar.gettingStarted.title": "Aan de slag",
-  "sidebar.gettingStarted.line1": "OpenCode bevat gratis modellen, zodat je direct aan de slag kunt.",
-  "sidebar.gettingStarted.line2":
-    "Maak verbinding met een aanbieder om modellen te gebruiken, waaronder Claude, GPT en Gemini.",
   "sidebar.project.recentSessions": "Recente sessies",
   "sidebar.project.viewAllSessions": "Bekijk alle sessies",
   "sidebar.project.clearNotifications": "Meldingen wissen",

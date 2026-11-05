@@ -699,8 +699,6 @@ export const dict = {
   "home.sessions.group.today": "დღეს",
   "home.sessions.group.yesterday": "გუშინ",
   "home.sessions.group.older": "ძველი",
-  "home.providerTip":
-    "დაკავშირება 200+ პროვაიდერთან სხვა მოდელების გამოსაყენებლად, მათ შორის, Claude, GPT, Gemini და ა.შ.",
   "session.tab.session": "სესია",
   "session.tab.review": "მიმოხილვა",
   "session.tab.context": "კონტექსტი",
@@ -868,9 +866,6 @@ export const dict = {
   "sidebar.workspaces.enable": "სამუშაო სივრცის ჩართვა",
   "sidebar.workspaces.disable": "სამუშაო სივრცის გამორთვა",
   "sidebar.gettingStarted.title": "დაწყება",
-  "sidebar.gettingStarted.line1": "OpenCode მოიცავს უფასო მოდელებს, ასე რომ თქვენ შეგიძლიათ დაუყოვნებლივ დაიწყოთ.",
-  "sidebar.gettingStarted.line2":
-    "დააკავშირეთ ნებისმიერი პროვაიდერი მოდელების გამოსაყენებლად, inc. Claude, GPT, Gemini და სხვ.",
   "sidebar.project.recentSessions": "ბოლო სესიები",
   "sidebar.project.viewAllSessions": "ყველა სესიის ნახვა",
   "sidebar.project.clearNotifications": "შეტყობინებების გასუფთავება",

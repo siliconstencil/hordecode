@@ -597,7 +597,6 @@ export const dict = {
   "home.sessions.group.today": "Tänään",
   "home.sessions.group.yesterday": "Eilen",
   "home.sessions.group.older": "Vanhemmat",
-  "home.providerTip": "Yhdistä yli 200 palveluntarjoajaan käyttääksesi muita malleja, kuten Claude, GPT, Gemini jne",
   "session.tab.session": "Istunto",
   "session.tab.review": "Tarkistus",
   "session.tab.context": "Konteksti",
@@ -768,9 +767,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Ota työtilat käyttöön",
   "sidebar.workspaces.disable": "Poista työtilat käytöstä",
   "sidebar.gettingStarted.title": "Aloittaminen",
-  "sidebar.gettingStarted.line1": "OpenCode sisältää ilmaisia malleja, joten voit aloittaa heti.",
-  "sidebar.gettingStarted.line2":
-    "Yhdistä mikä tahansa palveluntarjoaja käyttääksesi malleja, mm. Claude, GPT, Gemini jne.",
   "sidebar.project.recentSessions": "Viimeaikaiset istunnot",
   "sidebar.project.viewAllSessions": "Näytä kaikki istunnot",
   "sidebar.project.clearNotifications": "Tyhjennä ilmoitukset",

@@ -699,8 +699,6 @@ export const dict = {
   "home.sessions.group.today": "Astăzi",
   "home.sessions.group.yesterday": "Ieri",
   "home.sessions.group.older": "Mai vechi",
-  "home.providerTip":
-    "Conectează-te la peste 200 de furnizori pentru a folosi alte modele, inclusiv Claude, GPT, Gemini etc.",
   "session.tab.session": "Sesiune",
   "session.tab.review": "Revizuire",
   "session.tab.context": "Context",
@@ -874,8 +872,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Activează spațiile de lucru",
   "sidebar.workspaces.disable": "Dezactivează spațiile de lucru",
   "sidebar.gettingStarted.title": "Începe rapid",
-  "sidebar.gettingStarted.line1": "OpenCode include modele gratuite ca să poți începe imediat.",
-  "sidebar.gettingStarted.line2": "Conectează orice furnizor pentru a folosi modele, inclusiv Claude, GPT, Gemini etc.",
   "sidebar.project.recentSessions": "Sesiuni recente",
   "sidebar.project.viewAllSessions": "Vezi toate sesiunile",
   "sidebar.project.clearNotifications": "Șterge notificările",

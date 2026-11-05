@@ -749,8 +749,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Aktiver arbeidsområder",
   "sidebar.workspaces.disable": "Deaktiver arbeidsområder",
   "sidebar.gettingStarted.title": "Kom i gang",
-  "sidebar.gettingStarted.line1": "OpenCode inkluderer gratis modeller så du kan starte umiddelbart.",
-  "sidebar.gettingStarted.line2": "Koble til en leverandør for å bruke modeller, inkl. Claude, GPT, Gemini osv.",
   "sidebar.project.recentSessions": "Nylige sesjoner",
   "sidebar.project.viewAllSessions": "Vis alle sesjoner",
   "sidebar.project.clearNotifications": "Fjern varsler",
@@ -1204,8 +1202,6 @@ export const dict = {
   "home.sessions.group.today": "I dag",
   "home.sessions.group.yesterday": "I går",
   "home.sessions.group.older": "Eldre",
-  "home.providerTip":
-    "Koble til over 200 leverandører for å bruke andre modeller, inkludert Claude, GPT, Gemini og flere",
 
   "session.tab.unknown": "Ukjent sesjon",
   "session.error.notFound": "Denne sesjonen finnes ikke",

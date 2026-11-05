@@ -699,7 +699,6 @@ export const dict = {
   "home.sessions.group.today": "Bu gün",
   "home.sessions.group.yesterday": "Düýn",
   "home.sessions.group.older": "Köne",
-  "home.providerTip": "Claude, GPT, Gemini we ş.m. ýaly beýleki modelleri ulanmak üçin 200+ üpjün edijä birikdiriň.",
   "session.tab.session": "Sessiýa",
   "session.tab.review": "Syn",
   "session.tab.context": "Kontekst",
@@ -869,9 +868,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Workspace-lary açyň",
   "sidebar.workspaces.disable": "Workspace-lary öçüriň",
   "sidebar.gettingStarted.title": "Başlamak",
-  "sidebar.gettingStarted.line1": "OpenCode mugt modelleri öz içine alýar, derrew başlap bilersiňiz.",
-  "sidebar.gettingStarted.line2":
-    "Modelleri ulanmak üçin islendik üpjün edijini birikdiriň. Claude, GPT, Gemini we ş.m.",
   "sidebar.project.recentSessions": "Soňky sessiýalar",
   "sidebar.project.viewAllSessions": "Allhli sessiýalary görüň",
   "sidebar.project.clearNotifications": "Duýduryşlary arassalaň",

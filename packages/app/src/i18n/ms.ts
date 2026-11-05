@@ -697,8 +697,6 @@ export const dict = {
   "home.sessions.group.today": "Hari ini",
   "home.sessions.group.yesterday": "Semalam",
   "home.sessions.group.older": "Lama",
-  "home.providerTip":
-    "Sambung ke lebih 200 penyedia untuk menggunakan model lain, termasuk Claude, GPT, Gemini dan lain-lain",
   "session.tab.session": "Sesi",
   "session.tab.review": "Semak",
   "session.tab.context": "Konteks",
@@ -868,9 +866,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Aktifkan ruang kerja",
   "sidebar.workspaces.disable": "Nyahaktifkan ruang kerja",
   "sidebar.gettingStarted.title": "Bermula",
-  "sidebar.gettingStarted.line1": "OpenCode merangkumi model percuma supaya anda boleh bermula serta-merta.",
-  "sidebar.gettingStarted.line2":
-    "Sambungkan mana-mana penyedia untuk menggunakan model, termasuk Claude, GPT, Gemini dan lain-lain.",
   "sidebar.project.recentSessions": "Sesi terkini",
   "sidebar.project.viewAllSessions": "Lihat semua sesi",
   "sidebar.project.clearNotifications": "Kosongkan notifikasi",

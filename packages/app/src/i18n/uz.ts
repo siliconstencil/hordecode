@@ -702,8 +702,6 @@ export const dict = {
   "home.sessions.group.today": "Bugun",
   "home.sessions.group.yesterday": "Kecha",
   "home.sessions.group.older": "Kattaroq",
-  "home.providerTip":
-    "Claude, GPT, Gemini va boshqalar kabi boshqa modellardan foydalanish uchun 200 dan ortiq provayderlarga ulaning.",
   "session.tab.session": "Sessiya",
   "session.tab.review": "Koʻrib chiqish",
   "session.tab.context": "Kontekst",
@@ -875,10 +873,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Ish joylarini yoqish",
   "sidebar.workspaces.disable": "Ish joylarini o'chirib qo'ying",
   "sidebar.gettingStarted.title": "Boshlanmoqda",
-  "sidebar.gettingStarted.line1":
-    "OpenCode bepul modellarni o'z ichiga oladi, shuning uchun siz darhol boshlashingiz mumkin.",
-  "sidebar.gettingStarted.line2":
-    "Modellardan foydalanish uchun har qanday provayderni ulang, inc. Claude, GPT, Gemini va boshqalar.",
   "sidebar.project.recentSessions": "Oxirgi sessiyalar",
   "sidebar.project.viewAllSessions": "Barcha seanslarni ko'rish",
   "sidebar.project.clearNotifications": "Bildirishnomalarni tozalash",

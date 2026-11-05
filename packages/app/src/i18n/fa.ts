@@ -698,8 +698,6 @@ export const dict = {
   "home.sessions.group.today": "امروز",
   "home.sessions.group.yesterday": "دیروز",
   "home.sessions.group.older": "قدیمی تر",
-  "home.providerTip":
-    "برای استفاده از مدل‌های دیگر، از جمله Claude، GPT، Gemini و غیره به بیش از 200 ارائه‌دهنده متصل شوید.",
   "session.tab.session": "جلسه",
   "session.tab.review": "بررسی کنید",
   "session.tab.context": "زمینه",
@@ -868,8 +866,6 @@ export const dict = {
   "sidebar.workspaces.enable": "فضاهای کاری را فعال کنید",
   "sidebar.workspaces.disable": "غیرفعال کردن فضاهای کاری",
   "sidebar.gettingStarted.title": "شروع کردن",
-  "sidebar.gettingStarted.line1": "OpenCode شامل مدل های رایگان است، بنابراین می توانید بلافاصله شروع کنید.",
-  "sidebar.gettingStarted.line2": "هر ارائه دهنده ای را برای استفاده از مدل ها وصل کنید. Claude، GPT، Gemini و غیره",
   "sidebar.project.recentSessions": "جلسات اخیر",
   "sidebar.project.viewAllSessions": "مشاهده تمام جلسات",
   "sidebar.project.clearNotifications": "پرامپت ها را پاک کنید",

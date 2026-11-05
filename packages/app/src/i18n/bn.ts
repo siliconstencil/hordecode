@@ -699,7 +699,6 @@ export const dict: Record<string, string> = {
   "home.sessions.group.today": "আজ",
   "home.sessions.group.yesterday": "গতকাল",
   "home.sessions.group.older": "বয়স্ক",
-  "home.providerTip": "Claude, GPT, Gemini, ইত্যাদি সহ অন্যান্য মডেল ব্যবহার করতে 200+ প্রদানকারীর সাথে সংযোগ করুন",
   "session.tab.session": "সেশন",
   "session.tab.review": "পর্যালোচনা",
   "session.tab.context": "প্রসঙ্গ",
@@ -868,9 +867,6 @@ export const dict: Record<string, string> = {
   "sidebar.workspaces.enable": "ওয়ার্কস্পেস সক্রিয় করুন",
   "sidebar.workspaces.disable": "ওয়ার্কস্পেস অক্ষম করুন",
   "sidebar.gettingStarted.title": "শুরু হচ্ছে",
-  "sidebar.gettingStarted.line1": "OpenCode বিনামূল্যে মডেল অন্তর্ভুক্ত করে যাতে আপনি অবিলম্বে শুরু করতে পারেন।",
-  "sidebar.gettingStarted.line2":
-    "মডেল, inc ব্যবহার করতে যেকোনো প্রদানকারীকে সংযুক্ত করুন। Claude, GPT, Gemini ইত্যাদি।",
   "sidebar.project.recentSessions": "সাম্প্রতিক সেশন",
   "sidebar.project.viewAllSessions": "সব সেশন দেখুন",
   "sidebar.project.clearNotifications": "বিজ্ঞপ্তিগুলি সাফ করুন",

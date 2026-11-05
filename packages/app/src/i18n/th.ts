@@ -737,7 +737,6 @@ export const dict = {
   "home.sessions.group.today": "วันนี้",
   "home.sessions.group.yesterday": "เมื่อวาน",
   "home.sessions.group.older": "ก่อนหน้านี้",
-  "home.providerTip": "เชื่อมต่อกับผู้ให้บริการกว่า 200 รายเพื่อใช้โมเดลอื่น ๆ รวมถึง Claude, GPT, Gemini และอีกมากมาย",
 
   "session.tab.session": "เซสชัน",
   "session.tab.review": "ตรวจสอบ",
@@ -871,8 +870,6 @@ export const dict = {
   "sidebar.workspaces.enable": "เปิดใช้งานพื้นที่ทำงาน",
   "sidebar.workspaces.disable": "ปิดใช้งานพื้นที่ทำงาน",
   "sidebar.gettingStarted.title": "เริ่มต้นใช้งาน",
-  "sidebar.gettingStarted.line1": "OpenCode รวมถึงโมเดลฟรีเพื่อให้คุณเริ่มต้นได้ทันที",
-  "sidebar.gettingStarted.line2": "เชื่อมต่อผู้ให้บริการใด ๆ เพื่อใช้โมเดล รวมถึง Claude, GPT, Gemini ฯลฯ",
   "sidebar.project.recentSessions": "เซสชันล่าสุด",
   "sidebar.project.viewAllSessions": "ดูเซสชันทั้งหมด",
   "sidebar.project.clearNotifications": "ล้างการแจ้งเตือน",

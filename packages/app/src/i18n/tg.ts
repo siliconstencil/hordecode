@@ -701,8 +701,6 @@ export const dict = {
   "home.sessions.group.today": "Имруз",
   "home.sessions.group.yesterday": "Дируз",
   "home.sessions.group.older": "калонсолтар",
-  "home.providerTip":
-    "Барои истифодаи моделҳои дигар, аз ҷумла Claude, GPT, Gemini ва ғайра ба 200+ провайдерҳо пайваст шавед",
   "session.tab.session": "Сессия",
   "session.tab.review": "Барраси",
   "session.tab.context": "Контекст",
@@ -872,9 +870,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Фазои кории фаъолро фаъол созед",
   "sidebar.workspaces.disable": "Ҷойҳои кории худро ғайрифаъол кунед",
   "sidebar.gettingStarted.title": "Сар кардани кор",
-  "sidebar.gettingStarted.line1": "OpenCode моделҳои ройгонро дар бар мегирад, то шумо метавонед фавран оғоз кунед.",
-  "sidebar.gettingStarted.line2":
-    "Ҳар як провайдерро барои истифодаи моделҳо пайваст кунед, Inc. Claude, GPT, Gemini ва гайра.",
   "sidebar.project.recentSessions": "Сеансхои охирин",
   "sidebar.project.viewAllSessions": "Ҳама сессияҳоро бинед",
   "sidebar.project.clearNotifications": "Огоҳиҳоро тоза кунед",

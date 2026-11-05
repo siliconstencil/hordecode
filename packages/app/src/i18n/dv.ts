@@ -710,8 +710,6 @@ export const dict = {
   "home.sessions.group.today": "މިއަދު",
   "home.sessions.group.yesterday": "އިއްޔެ",
   "home.sessions.group.older": "އުމުރުން ދުވަސްވީއެވެ",
-  "home.providerTip":
-    "200+ ޕްރޮވައިޑަރުންނާ ގުޅިގެން އެހެން މޮޑެލްތައް ބޭނުންކުރުން، އޭގެ ތެރޭގައި Claude، GPT، Gemini ފަދަ މޮޑެލްތައް ހިމެނެއެވެ",
   "session.tab.session": "ސެޝަން",
   "session.tab.review": "ރިވިއު",
   "session.tab.context": "ކޮންޓެކްސްޓް",
@@ -882,9 +880,6 @@ export const dict = {
   "sidebar.workspaces.enable": "ވޯކްސްޕޭސްތައް އެނެބަލްކުރުން",
   "sidebar.workspaces.disable": "ވޯކްސްޕޭސްތައް ޑިސެބަލްކުރުން",
   "sidebar.gettingStarted.title": "ފަށަނީ",
-  "sidebar.gettingStarted.line1": "OpenCode ގައި ހިލޭ މޮޑެލްތައް ހިމެނޭތީ ވަގުތުން ފަށައިގަނެވޭނެ އެވެ.",
-  "sidebar.gettingStarted.line2":
-    "މޮޑެލްތައް ބޭނުން ކުރުމަށް އެއްވެސް ޕްރޮވައިޑަރެއް ގުޅުވާލުން، inc. Claude، GPT، Gemini ފަދަ ކަންކަމެވެ.",
   "sidebar.project.recentSessions": "ފަހުގެ ސެޝަންތަކެވެ",
   "sidebar.project.viewAllSessions": "ހުރިހާ ސެޝަންތަކެއް ބަލާށެވެ",
   "sidebar.project.clearNotifications": "ނޮޓިފިކޭޝަންތައް ސާފުކުރުން",

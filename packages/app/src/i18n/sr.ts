@@ -700,8 +700,6 @@ export const dict = {
   "home.sessions.group.today": "Данас",
   "home.sessions.group.yesterday": "јуче",
   "home.sessions.group.older": "старији",
-  "home.providerTip":
-    "Повежите се са 200+ провајдера да бисте користили друге моделе, укључујући Claude, GPT, Gemini итд",
   "session.tab.session": "Сесија",
   "session.tab.review": "Преглед",
   "session.tab.context": "Контекст",
@@ -872,9 +870,6 @@ export const dict = {
   "sidebar.workspaces.enable": "Омогућите радне просторе",
   "sidebar.workspaces.disable": "Онемогућите радне просторе",
   "sidebar.gettingStarted.title": "Почетак",
-  "sidebar.gettingStarted.line1": "OpenCode укључује бесплатне моделе тако да можете одмах да почнете.",
-  "sidebar.gettingStarted.line2":
-    "Повежите било ког провајдера да бисте користили моделе, вк. Claude, GPT, Gemini итд.",
   "sidebar.project.recentSessions": "Недавне сесије",
   "sidebar.project.viewAllSessions": "Погледајте све сесије",
   "sidebar.project.clearNotifications": "Обришите обавештења",

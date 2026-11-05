@@ -708,8 +708,6 @@ export const dict = {
   "home.sessions.group.today": "Bu gün",
   "home.sessions.group.yesterday": "Dünən",
   "home.sessions.group.older": "Daha əvvəl",
-  "home.providerTip":
-    "Claude, GPT, Gemini və s. daxil olmaqla, digər modellərdən istifadə etmək üçün 200+ provayderə qoşulun",
   "session.tab.session": "Sessiya",
   "session.tab.review": "İcmal",
   "session.tab.context": "Kontekst",
@@ -878,9 +876,6 @@ export const dict = {
   "sidebar.workspaces.enable": "İş sahələrini aktivləşdir",
   "sidebar.workspaces.disable": "İş sahələrini deaktiv et",
   "sidebar.gettingStarted.title": "Başlanğıc",
-  "sidebar.gettingStarted.line1": "OpenCode-a pulsuz modellər daxildir, buna görə dərhal başlaya bilərsiniz.",
-  "sidebar.gettingStarted.line2":
-    "Claude, GPT, Gemini və s. kimi modellərdən istifadə etmək üçün istənilən provayderi qoşun.",
   "sidebar.project.recentSessions": "Son sessiyalar",
   "sidebar.project.viewAllSessions": "Bütün sessiyalara bax",
   "sidebar.project.clearNotifications": "Bildirişləri təmizlə",
