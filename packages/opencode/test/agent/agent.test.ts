@@ -724,14 +724,6 @@ description: Permission skill.
         ),
       )
 
-      const home = process.env.OPENCODE_TEST_HOME
-      process.env.OPENCODE_TEST_HOME = test.directory
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => {
-          process.env.OPENCODE_TEST_HOME = home
-        }),
-      )
-
       const build = yield* load((svc) => svc.get("build"))
       const target = path.join(skillDir, "reference", "notes.md")
       expect(Permission.evaluate("external_directory", target, build!.permission).action).toBe("allow")
