@@ -59,6 +59,7 @@ function createMockApi(opts: MockStateOpts): TuiPluginApi {
         get: () => ({ id: opts.sessionID, cost: 0 } as never),
         diff: () => [],
         todo: () => [],
+        todoUpdatedAt: () => undefined,
         count: () => 1,
         status: () => undefined,
         permission: () => [],

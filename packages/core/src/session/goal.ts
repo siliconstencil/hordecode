@@ -81,32 +81,54 @@ export const layer = Layer.effect(
     const storage = yield* Storage.Service
     const elog = EffectLogger.create({ service: "SessionGoal" })
     const key = (sessionID: SessionID) => ["session_goal", sessionID]
+    const fallback = new Map<SessionID, Goal>()
+
+    // A storage outage must not end the turn: keep the goal in memory and warn. The
+    // fallback wins over a stale stored row until a write succeeds again.
+    const write = (sessionID: SessionID, goal: Goal) =>
+      storage.write(key(sessionID), goal).pipe(
+        Effect.as(true),
+        Effect.catch((error) =>
+          Effect.logWarning("goal storage write failed; keeping the goal in memory", { sessionID, error }).pipe(
+            Effect.as(false),
+          ),
+        ),
+        Effect.tap((written) =>
+          Effect.sync(() => {
+            if (written) fallback.delete(sessionID)
+            else fallback.set(sessionID, goal)
+          }),
+        ),
+      )
+
+    const read = (sessionID: SessionID) =>
+      storage
+        .read<Goal>(key(sessionID))
+        .pipe(Effect.catch(() => Effect.succeed<Goal | undefined>(undefined)))
+        .pipe(Effect.map((stored) => fallback.get(sessionID) ?? stored))
 
     const set = Effect.fn("SessionGoal.set")(function* (sessionID: SessionID, condition: string) {
-      yield* storage.write(key(sessionID), { condition, react: 0 } satisfies Goal).pipe(Effect.orDie)
+      yield* write(sessionID, { condition, react: 0 } satisfies Goal)
       yield* elog.info("goal set", { sessionID, condition })
       yield* bus.publish(Event.Updated, { sessionID, goal: { condition } })
     })
 
     const get = Effect.fn("SessionGoal.get")(function* (sessionID: SessionID) {
-      return yield* storage
-        .read<Goal>(key(sessionID))
-        .pipe(Effect.catch(() => Effect.succeed<Goal | undefined>(undefined)))
+      return yield* read(sessionID)
     })
 
     const clear = Effect.fn("SessionGoal.clear")(function* (sessionID: SessionID) {
+      fallback.delete(sessionID)
       yield* storage.remove(key(sessionID)).pipe(Effect.ignore)
       yield* elog.info("goal cleared", { sessionID })
       yield* bus.publish(Event.Updated, { sessionID, goal: undefined })
     })
 
     const bumpReact = Effect.fn("SessionGoal.bumpReact")(function* (sessionID: SessionID) {
-      const goal = yield* storage
-        .read<Goal>(key(sessionID))
-        .pipe(Effect.catch(() => Effect.succeed<Goal | undefined>(undefined)))
+      const goal = yield* read(sessionID)
       if (!goal) return 0
       const next = { ...goal, react: goal.react + 1 }
-      yield* storage.write(key(sessionID), next satisfies Goal).pipe(Effect.orDie)
+      yield* write(sessionID, next satisfies Goal)
       return next.react
     })
 

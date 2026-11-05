@@ -141,6 +141,10 @@ function stateApi(sync: ReturnType<typeof useSync>): TuiPluginApi["state"] {
       todo(sessionID) {
         return sync.data.todo[sessionID] ?? []
       },
+      // Hordecode: last todo update, used to hide a plan from an earlier request.
+      todoUpdatedAt(sessionID) {
+        return sync.data.todo_updated_at[sessionID]
+      },
       messages(sessionID) {
         return Object.values(sync.data.message[sessionID] ?? {}).flat()
       },

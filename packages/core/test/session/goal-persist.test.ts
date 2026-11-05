@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test"
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { Effect, Layer } from "effect"
 import fs from "node:fs/promises"
 import os from "node:os"
@@ -17,7 +17,9 @@ const isolatedData = path.join(
   os.tmpdir(),
   `hordecode-goal-persist-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 )
-Global.Path.data = isolatedData
+beforeAll(() => {
+  Global.Path.data = isolatedData
+})
 
 afterAll(async () => {
   Global.Path.data = originalData
