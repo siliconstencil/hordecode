@@ -20,11 +20,11 @@ Reference points:
 | kept (upstream removed) | Hordecode still carries a file upstream deleted | Decide per file at the next port. |
 | UPSTREAM_ONLY | present in 1.19.5, absent here | Not yet ported (deliberately dropped: `packages/console`, `packages/stats`). |
 
-Totals: PARITY 4921, LAGGING 55, FORK_DELTA 911, FORK_ONLY 1383, FORK_KEPT_UPSTREAM_REMOVED 11, UPSTREAM_ONLY 30.
+Totals: PARITY 4921, LAGGING 55, FORK_DELTA 911, FORK_ONLY 1361, FORK_KEPT_UPSTREAM_REMOVED 11, UPSTREAM_ONLY 30.
 
 ## Packages that are entirely Hordecode's
 
-agent, bus, control-plane, cron, global, inbox, memory, project, shared, skill, supervisor, task, team, workflow, worktree.
+agent, bus, control-plane, cron, global, inbox, memory, project, shared, skill, supervisor, task, workflow, worktree.
 
 `packages/skill` carries the harness skill bundle; `packages/supervisor` is the MiMo "actor" port; the harness pipeline is the MiMo "compose" port. Both are customized, neither is a verbatim copy.
 
@@ -33,13 +33,13 @@ agent, bus, control-plane, cron, global, inbox, memory, project, shared, skill, 
 | path | parity | lagging | fork delta | fork only | kept (upstream removed) | upstream only |
 |---|---|---|---|---|---|---|
 | packages/opencode | 582 | 0 | 244 | 298 | 4 | 5 |
-| packages/core | 369 | 0 | 119 | 350 | 0 | 5 |
-| packages/tui | 122 | 1 | 116 | 161 | 0 | 5 |
+| packages/core | 369 | 0 | 119 | 348 | 0 | 5 |
+| packages/tui | 122 | 1 | 116 | 148 | 0 | 5 |
 | packages/desktop | 140 | 0 | 165 | 3 | 1 | 1 |
 | packages/app | 547 | 14 | 83 | 0 | 4 | 0 |
 | packages/web | 634 | 13 | 58 | 0 | 0 | 0 |
 | packages/ui | 1651 | 0 | 45 | 0 | 0 | 1 |
-| packages/server | 27 | 0 | 4 | 15 | 0 | 0 |
+| packages/server | 27 | 0 | 4 | 14 | 0 | 0 |
 | packages/cli | 22 | 0 | 3 | 7 | 0 | 0 |
 | packages/client | 11 | 0 | 10 | 0 | 0 | 0 |
 | packages/plugin | 35 | 0 | 6 | 4 | 0 | 1 |

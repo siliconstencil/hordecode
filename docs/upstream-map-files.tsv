@@ -1433,8 +1433,6 @@ FORK_ONLY	packages/core/src/tool/bash-interactive.ts
 FORK_DELTA	packages/core/src/tool/bash.ts
 FORK_DELTA	packages/core/src/tool/builtins.ts
 FORK_ONLY	packages/core/src/tool/change-directory.ts
-FORK_ONLY	packages/core/src/tool/codesearch.ts
-FORK_ONLY	packages/core/src/tool/codesearch.txt
 FORK_DELTA	packages/core/src/tool/edit.ts
 FORK_ONLY	packages/core/src/tool/external-directory.ts
 FORK_DELTA	packages/core/src/tool/glob.ts
@@ -2887,8 +2885,6 @@ FORK_ONLY	packages/opencode/src/tool/bash-interactive.ts
 FORK_ONLY	packages/opencode/src/tool/change-directory.ts
 FORK_ONLY	packages/opencode/src/tool/change-directory.txt
 PARITY	packages/opencode/src/tool/code-mode.ts
-FORK_ONLY	packages/opencode/src/tool/codesearch.ts
-FORK_ONLY	packages/opencode/src/tool/codesearch.txt
 FORK_ONLY	packages/opencode/src/tool/cron.ts
 FORK_ONLY	packages/opencode/src/tool/cron.txt
 FORK_DELTA	packages/opencode/src/tool/edit.ts
@@ -3223,6 +3219,7 @@ PARITY	packages/opencode/test/fixtures/recordings/session/native-openai-oauth-to
 PARITY	packages/opencode/test/fixtures/recordings/session/native-zen-tool-loop.json
 PARITY	packages/opencode/test/format/format.test.ts
 PARITY	packages/opencode/test/git/git.test.ts
+FORK_ONLY	packages/opencode/test/id/id.test.ts
 PARITY	packages/opencode/test/ide/ide.test.ts
 PARITY	packages/opencode/test/image/fixtures/picture-5mb-base64.png
 PARITY	packages/opencode/test/image/image.test.ts
@@ -3443,6 +3440,7 @@ FORK_ONLY	packages/opencode/test/session/preload.ts
 FORK_DELTA	packages/opencode/test/session/processor-effect.test.ts
 FORK_ONLY	packages/opencode/test/session/prompt-bounded-context.test.ts
 FORK_ONLY	packages/opencode/test/session/prompt-prefix-capture.test.ts
+FORK_ONLY	packages/opencode/test/session/prompt-tag.test.ts
 FORK_DELTA	packages/opencode/test/session/prompt.test.ts
 FORK_ONLY	packages/opencode/test/session/read-ledger-turn.test.ts
 FORK_ONLY	packages/opencode/test/session/rebuild-command.test.ts
@@ -3451,6 +3449,7 @@ PARITY	packages/opencode/test/session/revert-compact.test.ts
 FORK_DELTA	packages/opencode/test/session/schema-decoding.test.ts
 FORK_ONLY	packages/opencode/test/session/session-arming.test.ts
 FORK_ONLY	packages/opencode/test/session/session-cron-latch.test.ts
+FORK_ONLY	packages/opencode/test/session/session-cron-mounted.test.ts
 PARITY	packages/opencode/test/session/session-schema.test.ts
 FORK_DELTA	packages/opencode/test/session/session.test.ts
 FORK_DELTA	packages/opencode/test/session/snapshot-tool-race.test.ts
@@ -3514,7 +3513,6 @@ FORK_ONLY	packages/opencode/test/tool/assert-write-allowed-sandbox.test.ts
 FORK_ONLY	packages/opencode/test/tool/change-directory.test.ts
 PARITY	packages/opencode/test/tool/code-mode-integration.test.ts
 PARITY	packages/opencode/test/tool/code-mode.test.ts
-FORK_ONLY	packages/opencode/test/tool/codesearch.test.ts
 FORK_ONLY	packages/opencode/test/tool/cron.test.ts
 FORK_DELTA	packages/opencode/test/tool/edit.test.ts
 FORK_DELTA	packages/opencode/test/tool/external-directory.test.ts
@@ -3831,7 +3829,6 @@ FORK_ONLY	packages/server/src/pty-ticket.ts
 FORK_ONLY	packages/server/src/rate-limit.ts
 FORK_DELTA	packages/server/src/routes.ts
 FORK_ONLY	packages/server/src/routes/instance/event.ts
-FORK_ONLY	packages/server/src/routes/ui.ts
 PARITY	packages/server/sst-env.d.ts
 FORK_ONLY	packages/server/test/authorization.test.ts
 FORK_ONLY	packages/server/test/cors.test.ts
@@ -4355,12 +4352,6 @@ FORK_ONLY	packages/task/test/contract.test.ts
 FORK_ONLY	packages/task/test/gate.test.ts
 FORK_ONLY	packages/task/test/schema.test.ts
 FORK_ONLY	packages/task/tsconfig.json
-FORK_ONLY	packages/team/package.json
-FORK_ONLY	packages/team/src/events.ts
-FORK_ONLY	packages/team/src/index.ts
-FORK_ONLY	packages/team/src/schema.ts
-FORK_ONLY	packages/team/test/team.test.ts
-FORK_ONLY	packages/team/tsconfig.json
 PARITY	packages/tui/bunfig.toml
 FORK_DELTA	packages/tui/package.json
 FORK_DELTA	packages/tui/src/app.tsx
@@ -4374,7 +4365,6 @@ PARITY	packages/tui/src/audio.ts
 FORK_DELTA	packages/tui/src/clipboard.ts
 FORK_ONLY	packages/tui/src/component/advisor-note.tsx
 FORK_ONLY	packages/tui/src/component/advisor-state.ts
-FORK_ONLY	packages/tui/src/component/background-image.tsx
 UPSTREAM_ONLY	packages/tui/src/component/bg-pulse-render.ts
 FORK_DELTA	packages/tui/src/component/bg-pulse.tsx
 FORK_ONLY	packages/tui/src/component/border.tsx
@@ -4387,13 +4377,9 @@ FORK_ONLY	packages/tui/src/component/dialog-command.tsx
 PARITY	packages/tui/src/component/dialog-console-org.tsx
 FORK_ONLY	packages/tui/src/component/dialog-context-limit.tsx
 PARITY	packages/tui/src/component/dialog-debug.tsx
-FORK_ONLY	packages/tui/src/component/dialog-go-upsell.tsx
 FORK_ONLY	packages/tui/src/component/dialog-image-list.tsx
 FORK_ONLY	packages/tui/src/component/dialog-language-list.tsx
-FORK_ONLY	packages/tui/src/component/dialog-login.tsx
-FORK_ONLY	packages/tui/src/component/dialog-logo-design.tsx
 PARITY	packages/tui/src/component/dialog-mcp.tsx
-FORK_ONLY	packages/tui/src/component/dialog-modalities.tsx
 PARITY	packages/tui/src/component/dialog-model.tsx
 FORK_DELTA	packages/tui/src/component/dialog-move-session.tsx
 FORK_DELTA	packages/tui/src/component/dialog-provider.tsx
@@ -4418,7 +4404,6 @@ FORK_ONLY	packages/tui/src/component/dialog-worktree.tsx
 FORK_DELTA	packages/tui/src/component/error-component.tsx
 FORK_DELTA	packages/tui/src/component/logo.tsx
 PARITY	packages/tui/src/component/plugin-route-missing.tsx
-FORK_ONLY	packages/tui/src/component/prompt/autocomplete-detect.ts
 FORK_DELTA	packages/tui/src/component/prompt/autocomplete.tsx
 PARITY	packages/tui/src/component/prompt/cwd.ts
 FORK_ONLY	packages/tui/src/component/prompt/footer.ts
@@ -4459,7 +4444,6 @@ FORK_ONLY	packages/tui/src/context/locales.ts
 PARITY	packages/tui/src/context/location.tsx
 FORK_DELTA	packages/tui/src/context/path-format.tsx
 FORK_DELTA	packages/tui/src/context/permission.tsx
-FORK_ONLY	packages/tui/src/context/plugin-keybinds.ts
 PARITY	packages/tui/src/context/project.tsx
 PARITY	packages/tui/src/context/prompt.tsx
 FORK_DELTA	packages/tui/src/context/route.tsx
@@ -4501,7 +4485,6 @@ FORK_ONLY	packages/tui/src/context/theme/vercel.json
 FORK_ONLY	packages/tui/src/context/theme/vesper.json
 FORK_ONLY	packages/tui/src/context/theme/zenburn.json
 FORK_DELTA	packages/tui/src/context/thinking.ts
-FORK_ONLY	packages/tui/src/context/tui-config.tsx
 UPSTREAM_ONLY	packages/tui/src/context/update-notification.tsx
 FORK_ONLY	packages/tui/src/context/visual.ts
 PARITY	packages/tui/src/editor-zed.ts
@@ -4548,7 +4531,6 @@ FORK_ONLY	packages/tui/src/i18n/no.ts
 FORK_ONLY	packages/tui/src/i18n/pl.ts
 FORK_ONLY	packages/tui/src/i18n/ru.ts
 FORK_ONLY	packages/tui/src/i18n/skill.ts
-FORK_ONLY	packages/tui/src/i18n/slash-command.ts
 FORK_ONLY	packages/tui/src/i18n/th.ts
 FORK_ONLY	packages/tui/src/i18n/tr.ts
 FORK_ONLY	packages/tui/src/i18n/zh-Hant.ts
@@ -4580,9 +4562,7 @@ FORK_DELTA	packages/tui/src/routes/session/dialog-timeline.tsx
 FORK_DELTA	packages/tui/src/routes/session/footer.tsx
 FORK_DELTA	packages/tui/src/routes/session/index.tsx
 FORK_DELTA	packages/tui/src/routes/session/permission.tsx
-FORK_ONLY	packages/tui/src/routes/session/plan-switch.ts
 FORK_DELTA	packages/tui/src/routes/session/question.tsx
-FORK_ONLY	packages/tui/src/routes/session/sidebar-state.ts
 FORK_DELTA	packages/tui/src/routes/session/sidebar.tsx
 FORK_DELTA	packages/tui/src/routes/session/subagent-footer.tsx
 FORK_ONLY	packages/tui/src/routes/session/supervisor-tool-state.ts
@@ -4633,7 +4613,6 @@ PARITY	packages/tui/src/ui/dialog-prompt.tsx
 FORK_DELTA	packages/tui/src/ui/dialog-select.tsx
 FORK_DELTA	packages/tui/src/ui/dialog.tsx
 PARITY	packages/tui/src/ui/link.tsx
-FORK_ONLY	packages/tui/src/ui/press.ts
 FORK_DELTA	packages/tui/src/ui/spinner.ts
 FORK_DELTA	packages/tui/src/ui/toast.tsx
 FORK_ONLY	packages/tui/src/util/auto-accept.ts
@@ -4670,7 +4649,6 @@ FORK_ONLY	packages/tui/src/util/terminal.ts
 PARITY	packages/tui/src/util/tool-display.ts
 FORK_ONLY	packages/tui/src/util/tps.ts
 FORK_DELTA	packages/tui/src/util/transcript.ts
-FORK_ONLY	packages/tui/src/win32.ts
 PARITY	packages/tui/sst-env.d.ts
 FORK_DELTA	packages/tui/test/app-lifecycle.test.tsx
 PARITY	packages/tui/test/cli/cmd/tui/dialog-workspace-create.test.ts
