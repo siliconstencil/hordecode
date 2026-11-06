@@ -38,6 +38,7 @@ import os from "os"
 import z from "zod"
 import { SessionID, MessageID, PartID } from "./schema"
 import { MessageV2 } from "./message-v2"
+import { resolveStepLimit } from "./step-budget"
 import { classifyAssistantStep } from "./classify"
 import { Log } from "../util"
 import { SessionRevert } from "./revert"
@@ -2479,10 +2480,17 @@ const runLoop: (sessionID: SessionID, agentID?: string, task_id?: string, steps?
         }
         // steps (subagent cap from spawn) wins over agent.steps, which wins over the global
         // `steps` config key, which wins over this twin's own fallback. Mirrors
-        // packages/opencode/src/session/prompt.ts:1987 (main loop); upstream opencode-1.19.0
+        // packages/opencode/src/session/prompt.ts (main loop); upstream opencode-1.19.0
         // session/prompt.ts:1178 and MiMo Code v0.1.11 have no global step limit.
-        const globalSteps = (yield* config.get()).steps
-        const maxSteps = steps ?? agent.steps ?? globalSteps ?? Infinity
+        // The twin has no 200 ceiling and no hard break on a spawn budget: there the budget
+        // is a soft limit that only flips isLastStep. Pre-existing divergence from the main
+        // loop, recorded as an open decision in reports/rnd/dev-0.1.6-steps.md.
+        const maxSteps = resolveStepLimit({
+          spawn: steps,
+          agent: agent.steps,
+          global: (yield* config.get()).steps,
+          fallback: Infinity,
+        })
         const isLastStep = step >= maxSteps
         msgs = yield* insertReminders({ messages: msgs, agent, session })
 

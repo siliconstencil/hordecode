@@ -1,16 +1,22 @@
 // The fork session twin (packages/core/src/session/prompt.ts) is the loop the
 // supervisor spawns (packages/supervisor/src/spawn.ts:6 imports it as
 // SessionPrompt). It must honour the same global `steps` config key as the
-// main loop (packages/opencode/src/session/prompt.ts): spawn steps (hard) >
-// agent steps (soft) > global steps (soft) > the twin's own fallback.
+// main loop (packages/opencode/src/session/prompt.ts): spawn steps > agent
+// steps > global steps > the twin's own fallback.
+//
+// In the twin a spawn budget is a SOFT limit: it only flips isLastStep (the last
+// allowed step is forced to answer with text), it does not end the loop. The
+// twin also has no 200 ceiling. Both are pre-existing divergences from the main
+// loop, recorded as an open decision in reports/rnd/dev-0.1.6-steps.md.
 //
 // The two SessionPrompt services sit on distinct service tags (see
 // test/session/prompt-tag.test.ts), so the main loop's harness does not mount
-// the twin. The twin's chain is asserted against its source. The config side
-// is asserted on the CORE config module, because that is the service the twin
-// reads: the twin takes `Config.Service` (packages/core/src/session/prompt.ts:355)
-// and its own layer provides the core config service
-// (packages/core/src/session/prompt.ts:3228).
+// the twin. The precedence is therefore asserted at runtime on the shared
+// helper both loops use (packages/core/src/session/step-budget.ts); one wiring
+// check asserts that the twin calls that helper. The config side is asserted on
+// the CORE config module, because that is the service the twin reads: the twin
+// takes `Config.Service` (packages/core/src/session/prompt.ts:355) and its own
+// layer provides the core config service (packages/core/src/session/prompt.ts:3228).
 //
 // The core config SERVICE is not mounted here: it carries the same
 // "@opencode/Config" tag as the app config service
@@ -26,30 +32,34 @@ import { Effect } from "effect"
 import path from "path"
 import { Config } from "@/config/config"
 import { Config as CoreConfig, ConfigParse } from "@opencode-ai/core/config/index"
+import { resolveStepLimit } from "@opencode-ai/core/session/step-budget"
 import { it, useServerConfig } from "../supervisor/supervisor-test-harness"
 
 const twinSource = await Bun.file(path.join(import.meta.dir, "../../../core/src/session/prompt.ts")).text()
 
-// Only the step-budget lines, so a failed assertion does not print the whole
-// twin source.
-const twinStepBudget = twinSource
-  .split("\n")
-  .filter((line) => line.includes("maxSteps") || line.includes("globalSteps"))
-  .map((line) => line.trim())
-
 describe("fork session twin", () => {
-  test("reads the global step limit from the config service it already uses", () => {
-    expect(
-      twinStepBudget,
-      "the twin must read the global `steps` key from its own config service",
-    ).toContain("const globalSteps = (yield* config.get()).steps")
+  test("the shared helper resolves the spawn budget over every other limit", () => {
+    expect(resolveStepLimit({ spawn: 9, agent: 5, global: 3, fallback: 100 })).toBe(9)
   })
 
-  test("keeps the spawn, agent, global and fallback precedence of the main loop", () => {
+  test("the shared helper resolves the agent limit over the global one", () => {
+    expect(resolveStepLimit({ agent: 5, global: 3, fallback: 100 })).toBe(5)
+  })
+
+  test("the shared helper resolves the global limit over the fallback", () => {
+    expect(resolveStepLimit({ global: 3, fallback: 100 })).toBe(3)
+  })
+
+  test("the twin's fallback is Infinity and the main loop's is 100", () => {
+    expect(resolveStepLimit({ fallback: Infinity })).toBe(Infinity)
+    expect(resolveStepLimit({ fallback: 100 })).toBe(100)
+  })
+
+  test("the twin calls the shared helper (wiring check)", () => {
     expect(
-      twinStepBudget,
-      "the twin must resolve the step budget as spawn > agent > global > its own fallback",
-    ).toContain("const maxSteps = steps ?? agent.steps ?? globalSteps ?? Infinity")
+      /resolveStepLimit\(\s*\{/.test(twinSource),
+      "the twin must resolve its step budget through the shared helper",
+    ).toBe(true)
   })
 
   test("the config schema the twin's service parses with keeps the global step limit", () => {

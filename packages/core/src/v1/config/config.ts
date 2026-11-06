@@ -30,6 +30,10 @@ const LogLevelRef = Schema.Literals(["DEBUG", "INFO", "WARN", "ERROR"]).annotate
   description: "Log level",
 })
 
+// The ceiling of the root-level `steps` key. Same bound as the TUI's custom input
+// (packages/tui/src/component/dialog-step-limit.tsx).
+const MAX_GLOBAL_STEPS = 1000
+
 export const Info = Schema.Struct({
   $schema: Schema.optional(Schema.String).annotate({
     description: "JSON schema reference for configuration validation",
@@ -132,7 +136,9 @@ export const Info = Schema.Struct({
   // Hordecode addition: upstream v1.19.5 packages/core/src/v1/config/config.ts has no root-level step
   // limit (its `agent` key is at :96) and MiMo Code v0.1.11 packages/opencode/src/config/config.ts has
   // none either. Consumer: packages/opencode/src/session/prompt.ts (the session loop).
-  steps: Schema.optional(PositiveInt).annotate({
+  // The value is bounded so the fork's 200-step safety net stays meaningful
+  // (packages/opencode/src/session/prompt.ts, the `step > Math.max(200, maxSteps)` break).
+  steps: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(MAX_GLOBAL_STEPS))).annotate({
     description:
       "Default maximum number of agentic iterations before the model is forced to answer with text only. Applies to every agent that does not set its own 'steps'. Overridden by 'agent.<name>.steps'. Default: 100.",
   }),

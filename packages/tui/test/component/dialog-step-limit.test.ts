@@ -21,6 +21,11 @@ describe("dialog step limit", () => {
     expect(parseStepLimit("1e3")).toBeUndefined()
   })
 
+  test("parseStepLimit accepts 1000 and rejects a value above it", () => {
+    expect(parseStepLimit("1000")).toBe(1000)
+    expect(parseStepLimit("1001")).toBeUndefined()
+  })
+
   test("stepLimitPatch writes the root-level steps key", () => {
     expect(stepLimitPatch(150)).toEqual({ steps: 150 })
   })

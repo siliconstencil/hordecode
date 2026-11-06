@@ -299,10 +299,10 @@ export const dict: Record<string, string> = {
   // Step limit dialog
   "tui.step_limit.title": "Step limit",
   "tui.step_limit.saved": "Step limit set to {{value}}.",
-  "tui.step_limit.invalid": "Enter a positive whole number.",
+  "tui.step_limit.invalid": "Enter a whole number between 1 and 1000.",
   "tui.step_limit.custom_title": "Custom step limit",
   "tui.step_limit.option.custom": "Custom",
-  "tui.step_limit.option.custom_description": "Enter how many agentic iterations an agent may run",
+  "tui.step_limit.option.custom_description": "Enter the global step limit (1-1000); it does not apply to an agent spawned with its own budget",
 
   "tui.modalities.title": "Input modalities — {{model}}",
   "tui.modalities.saved": "Input modalities updated: {{modalities}}",

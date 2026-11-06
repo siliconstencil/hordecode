@@ -7,18 +7,27 @@ import { useSync } from "../context/sync"
 import { useToast } from "../ui/toast"
 import { useLanguage } from "../context/language"
 
-// Fork addition (FORK_ONLY). Edits the root-level `steps` key of the main user config
-// (hordecode.json): the step limit the session loop applies to an agent that sets no `steps` of
-// its own. The server reads the key on every loop step, so no restart is needed.
+// Fork addition (FORK_ONLY). Edits the root-level `steps` key of the user's GLOBAL
+// config through the server's global config endpoint: the step limit the session loop
+// applies to an agent that sets no `steps` of its own. The server writes the first
+// existing candidate among hordecode.jsonc, hordecode.json, opencode.jsonc,
+// opencode.json and config.json in the global config directory
+// (packages/opencode/src/config/config.ts:148-156). The server reads the key on every
+// loop step, so no restart is needed.
 
 export const STEP_LIMIT_PRESETS = [100, 200, 300]
 
-// Pure: the custom value must be a positive integer; 0 and negatives are rejected. Exported for tests.
+// The ceiling of the custom value, the same bound the config schema enforces
+// (packages/core/src/v1/config/config.ts).
+export const STEP_LIMIT_MAX = 1000
+
+// Pure: the custom value must be a positive integer no larger than the ceiling;
+// 0, negatives, non-integers and larger values are rejected. Exported for tests.
 export function parseStepLimit(raw: string): number | undefined {
   const text = raw.trim()
   if (!/^\d+$/.test(text)) return undefined
   const value = Number(text)
-  return Number.isInteger(value) && value > 0 ? value : undefined
+  return Number.isInteger(value) && value > 0 && value <= STEP_LIMIT_MAX ? value : undefined
 }
 
 // The generated SDK config type does not carry the root-level `steps` key yet, so it is declared here.

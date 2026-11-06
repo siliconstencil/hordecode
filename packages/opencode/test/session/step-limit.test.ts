@@ -6,13 +6,22 @@
 // carries tool_choice "none" gets the text answer, a request without it gets the
 // queued tool call. The queue is split with matchers so the scripted turn answers
 // the way the provider would answer it.
+//
+// Two limits meet here: the configured limit is a SOFT limit (the last allowed
+// step is forced to text only) and the hard ceiling is an INDEPENDENT backstop
+// that only fires after the soft limit had its chance. A configured value above
+// the ceiling must therefore still reach its forced text-only step.
 
-import { describe, expect } from "bun:test"
-import { Effect } from "effect"
+import { describe, expect, test } from "bun:test"
+import { Effect, Schema } from "effect"
+import { TestConsole } from "effect/testing"
 import path from "path"
 import { SessionPrompt } from "../../src/session/prompt"
 import { Session } from "@/session/session"
+import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
+import { Config as CoreConfig } from "@opencode-ai/core/config/index"
 import { allowAll, it, useServerConfig } from "../supervisor/supervisor-test-harness"
+import { reply } from "../lib/llm-server"
 
 const isTitleRequest = (body: Record<string, unknown>) =>
   JSON.stringify(body).includes("Generate a title for this conversation")
@@ -24,6 +33,9 @@ const forcedText = (body: Record<string, unknown>) => JSON.stringify(body).inclu
 // A provider asked for text only answers with text only.
 const toolsForbidden = (hit: { body: Record<string, unknown> }) => hit.body.tool_choice === "none"
 const toolsAllowed = (hit: { body: Record<string, unknown> }) => hit.body.tool_choice !== "none"
+
+// The hard ceiling logs this warning when it stops the loop.
+const hardCapBreached = (line: unknown) => typeof line === "string" && line.includes("rl:hard-cap breached")
 
 describe("global step limit", () => {
   it.instance(
@@ -143,4 +155,74 @@ describe("global step limit", () => {
       }),
     20_000,
   )
+
+  it.instance(
+    "a configured limit above the ceiling reaches its forced text-only step",
+    () =>
+      Effect.gen(function* () {
+        const { dir, llm } = yield* useServerConfig({ steps: 300 })
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Ceiling steps", permission: allowAll })
+
+        // 299 tool answers, then the forced text-only answer of the last allowed step.
+        for (let i = 0; i < 299; i++) {
+          yield* llm.toolMatch(toolsAllowed, "read", { filePath: path.join(dir, `missing-${i}.txt`) })
+        }
+        yield* llm.textMatch(toolsForbidden, "done")
+
+        yield* prompt.prompt({
+          sessionID: chat.id,
+          agent: "build",
+          agentID: "ceiling-steps",
+          parts: [{ type: "text", text: "keep reading" }],
+        })
+
+        const inputs = (yield* llm.inputs).filter((body) => !isTitleRequest(body))
+        expect(inputs.length).toBe(300)
+        expect(inputs.slice(0, 299).some((body) => forcedText(body))).toBe(false)
+        expect(forcedText(inputs[299])).toBe(true)
+        // The soft limit had its chance, so the hard ceiling must not have fired.
+        expect((yield* TestConsole.logLines).some(hardCapBreached)).toBe(false)
+      }),
+    300_000,
+  )
+
+  it.instance(
+    "without a configured limit the hard ceiling stops the loop",
+    () =>
+      Effect.gen(function* () {
+        const { dir, llm } = yield* useServerConfig()
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Hard ceiling", permission: allowAll })
+
+        // The provider asks for a tool on every step, even on the step the soft limit
+        // forces to text, so only the hard ceiling can end this loop.
+        for (let i = 0; i < 201; i++) {
+          yield* llm.push(reply().tool("read", { filePath: path.join(dir, `missing-${i}.txt`) }))
+        }
+
+        yield* prompt.prompt({
+          sessionID: chat.id,
+          agent: "build",
+          agentID: "hard-ceiling",
+          parts: [{ type: "text", text: "keep reading" }],
+        })
+
+        const inputs = (yield* llm.inputs).filter((body) => !isTitleRequest(body))
+        expect(inputs.length).toBe(201)
+        expect((yield* TestConsole.logLines).some(hardCapBreached)).toBe(true)
+      }),
+    300_000,
+  )
+})
+
+describe("global step limit schema", () => {
+  test("the root schemas accept 1000 and reject 1001", () => {
+    expect(Schema.decodeUnknownSync(ConfigV1.Info)({ steps: 1000 }).steps).toBe(1000)
+    expect(() => Schema.decodeUnknownSync(ConfigV1.Info)({ steps: 1001 })).toThrow()
+    expect(CoreConfig.Info.parse({ steps: 1000 }).steps).toBe(1000)
+    expect(() => CoreConfig.Info.parse({ steps: 1001 })).toThrow()
+  })
 })

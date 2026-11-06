@@ -92,6 +92,8 @@ const LogLevelRef = Schema.Any.annotate({ [ZodOverride]: Log.Level })
 
 const PositiveInt = Schema.Number.check(Schema.isInt()).check(Schema.isGreaterThan(0))
 const NonNegativeInt = Schema.Number.check(Schema.isInt()).check(Schema.isGreaterThanOrEqualTo(0))
+// The ceiling of the root-level `steps` key, mirroring core/src/v1/config/config.ts.
+const MAX_GLOBAL_STEPS = 1000
 const TokenQuantity = Schema.Union([NonNegativeInt, Schema.String])
 
 const InfoSchema = Schema.Struct({
@@ -196,7 +198,7 @@ const InfoSchema = Schema.Struct({
   ).annotate({ description: "Agent configuration, see https://opencode.ai/docs/agents" }),
   // Mirrors core/src/v1/config/config.ts:135 so fork packages reading
   // Config.Service see the key the runtime parser keeps.
-  steps: Schema.optional(PositiveInt).annotate({
+  steps: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(MAX_GLOBAL_STEPS))).annotate({
     description:
       "Default maximum number of agentic iterations before the model is forced to answer with text only. Applies to every agent that does not set its own 'steps'. Overridden by 'agent.<name>.steps'.",
   }),
