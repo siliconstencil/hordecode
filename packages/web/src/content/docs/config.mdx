@@ -560,6 +560,32 @@ The default is `1`, which allows primary agents to launch subagents but prevents
 
 ---
 
+{/* Hordecode: fork section for the global `steps` config key (packages/core/src/v1/config/config.ts:135); upstream 1.19.5 config.mdx:563 has no root-level step limit. */}
+### Steps
+
+You can set a default step limit for every agent with the `steps` option. It is the number of agentic iterations an agent may run before it is forced to answer with text only.
+
+```json title="opencode.json"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "steps": 50
+}
+```
+
+The value must be a positive integer. The default is `100`.
+
+The limit that applies to a session is the first one that is set:
+
+- The `steps` budget a subagent was spawned with. A hard cap: the loop ends when the budget is used up.
+- The `steps` of the agent itself ([learn more](/docs/agents#max-steps)). A soft limit: on the last allowed step the agent is forced to answer with text only.
+- The global `steps`. A soft limit: on the last allowed step the agent is forced to answer with text only.
+
+:::caution
+The global `steps` does not apply to an agent that sets its own `steps`, and it does not raise the budget of a subagent that was spawned with a step budget.
+:::
+
+---
+
 ### Sharing
 
 You can configure the [share](/docs/share) feature through the `share` option.
