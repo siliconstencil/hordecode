@@ -22,7 +22,7 @@ export type ScheduledPromptOrigin = {
 // Cron fires through the SessionPrompt service mounted by the app layer. The
 // core module is not imported here: its copy carries a different service tag
 // and is reserved for the supervisor's isolated layer. Mirrors
-// core/src/session/prompt.ts:3281.
+// core/src/session/prompt.ts:3286.
 export const injectScheduledPrompt = Effect.fn("Session.injectScheduledPrompt")(function* (input: {
   sessionID: SessionID
   value: string

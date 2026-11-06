@@ -1299,7 +1299,7 @@ const layer = Layer.effect(
       // Cron (`source: "hook"`) and supervisor (`source: "spawn"`) prompts are
       // internal turns: they must not clear the interrupt latch and must not
       // revert user-visible work. HTTP/TUI prompts omit `source` and keep the
-      // user-turn behavior. Mirrors core/src/session/prompt.ts:3147-3152.
+      // user-turn behavior. Mirrors core/src/session/prompt.ts:3151-3157.
       const internal = input.source === "hook" || input.source === "spawn"
       if (!internal) {
         const { clearInterrupted } = yield* Effect.promise(() => import("@opencode-ai/inbox/interrupt-latch"))
