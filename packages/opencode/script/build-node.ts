@@ -11,6 +11,8 @@ const dir = path.resolve(__dirname, "..")
 
 process.chdir(dir)
 
+const productVersion = process.env.HORDECODE_VERSION || process.env.OPENCODE_VERSION || pkg.version
+
 const generated = await import("./generate.ts")
 
 await Bun.build({
@@ -24,7 +26,7 @@ await Bun.build({
     OPENCODE_MODELS_DEV: generated.modelsData,
     OPENCODE_VERSION: `'${Script.version}'`,
     OPENCODE_CHANNEL: `'${Script.channel}'`,
-    HORDECODE_VERSION: `'${pkg.version}'`,
+    HORDECODE_VERSION: `'${productVersion}'`,
     HORDECODE_CHANNEL: `'${Script.channel}'`,
   },
   files: {
