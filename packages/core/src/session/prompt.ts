@@ -2477,7 +2477,12 @@ const runLoop: (sessionID: SessionID, agentID?: string, task_id?: string, steps?
           yield* bus.publish(Session.Event.Error, { sessionID, error: error.toObject() })
           throw error
         }
-        const maxSteps = steps ?? agent.steps ?? Infinity
+        // steps (subagent cap from spawn) wins over agent.steps, which wins over the global
+        // `steps` config key, which wins over this twin's own fallback. Mirrors
+        // packages/opencode/src/session/prompt.ts:1987 (main loop); upstream opencode-1.19.0
+        // session/prompt.ts:1178 and MiMo Code v0.1.11 have no global step limit.
+        const globalSteps = (yield* config.get()).steps
+        const maxSteps = steps ?? agent.steps ?? globalSteps ?? Infinity
         const isLastStep = step >= maxSteps
         msgs = yield* insertReminders({ messages: msgs, agent, session })
 

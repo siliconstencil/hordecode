@@ -1981,7 +1981,7 @@ const layer = Layer.effect(
           // See divergence note above (Infinity vs fork 100): agent.steps ?? Infinity in v0.1.11.
           // steps (subagent cap from spawn) wins over agent.steps, which wins over the global `steps`
           // config key, which wins over the default 100.
-          // Mirrors core/src/session/prompt.ts:2480 (fork twin); upstream opencode-1.19.0
+          // Mirrors core/src/session/prompt.ts:2485 (fork twin); upstream opencode-1.19.0
           // session/prompt.ts:1178 has only agent.steps.
           const globalSteps = (yield* config.get()).steps
           const maxSteps = steps ?? agent.steps ?? globalSteps ?? 100

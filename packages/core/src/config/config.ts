@@ -194,6 +194,12 @@ const InfoSchema = Schema.Struct({
       [Schema.Record(Schema.String, AgentRef)],
     ),
   ).annotate({ description: "Agent configuration, see https://opencode.ai/docs/agents" }),
+  // Mirrors core/src/v1/config/config.ts:135 so fork packages reading
+  // Config.Service see the key the runtime parser keeps.
+  steps: Schema.optional(PositiveInt).annotate({
+    description:
+      "Default maximum number of agentic iterations before the model is forced to answer with text only. Applies to every agent that does not set its own 'steps'. Overridden by 'agent.<name>.steps'.",
+  }),
   provider: Schema.optional(Schema.Record(Schema.String, ConfigProvider.Info)).annotate({
     description: "Custom provider configurations and model overrides",
   }),
