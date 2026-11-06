@@ -31,6 +31,7 @@ import { SessionCallTable } from "@opencode-ai/core/session/call.sql"
 import { Metrics } from "@opencode-ai/core/metrics"
 import { Usage, type LLMEvent } from "@opencode-ai/llm"
 import { monitor as tryBestMonitor, type TryBestIncident } from "./try-best-detector"
+import { monitor } from "./stop-rules"
 import { chatSpanAttributes, chatSpanName, recordChatMetrics, type ChatSpanInput } from "./chat-span"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Otlp } from "@opencode-ai/core/observability/otlp"
@@ -270,6 +271,7 @@ const layer = Layer.effect(
       const tryBest = Flag.HORDECODE_ENABLE_TRY_BEST_HANDOFF
         ? tryBestMonitor(input.sessionID, input.assistantMessage.agentID, tryBestConfig)
         : undefined
+      const stopRules = monitor(input.sessionID, input.assistantMessage.agentID)
 
       let streamStartMs: number | undefined
       let firstTokenMs: number | undefined
@@ -288,45 +290,72 @@ const layer = Layer.effect(
         return "provider_error"
       }
 
-      const detectTryBest = Effect.fn("SessionProcessor.detectTryBest")(function* (part: SessionV1.ToolPart) {
+      const detectStop = Effect.fn("SessionProcessor.detectStop")(function* (part: SessionV1.ToolPart) {
         if (ctx.blocked) return
         const incident = tryBest?.consume(part)
-        if (!incident) return
-        tryBest?.reset()
+        if (incident) {
+          tryBest?.reset()
+          ctx.blocked = true
+          ctx.stopReason = "blocked_try_best"
+          ctx.stopErrorType = "blocked_try_best"
+          const detail = describeTryBest(incident)
+          yield* session.updatePart({
+            id: PartID.ascending(),
+            messageID: ctx.assistantMessage.id,
+            sessionID: ctx.sessionID,
+            type: "text",
+            text: `Try-best loop detected; this turn was paused. ${detail}`,
+            synthetic: true,
+            metadata: {
+              origin: {
+                kind: "try_best",
+                providerID: input.model.providerID,
+                modelID: input.model.id,
+                incident,
+              },
+            },
+            time: { start: Date.now(), end: Date.now() },
+          }).pipe(Effect.ignore)
+          yield* bus.publish(Session.Event.TryBestDetected, {
+            sessionID: ctx.sessionID,
+            agentID: ctx.assistantMessage.agentID,
+            providerID: input.model.providerID,
+            modelID: input.model.id,
+            ...incident,
+          }).pipe(Effect.ignore)
+          yield* bus.publish(Metrics.TryBestDetected, {
+            sessionID: ctx.sessionID,
+            reason: incident.reason,
+            provider: input.model.providerID,
+            model_id: input.model.id,
+            count: incident.evidence?.count ?? 1,
+          }).pipe(Effect.ignore)
+          return
+        }
+        // Fork stop rules: the deterministic no-progress stop that follows the
+        // doom-loop ask (three identical calls) at six, and the same normalised
+        // error three times in one turn. See session/stop-rules.ts.
+        const rule = stopRules.consume(part, ctx.assistantMessage.parentID)
+        if (!rule) return
         ctx.blocked = true
-        ctx.stopReason = "blocked_try_best"
-        ctx.stopErrorType = "blocked_try_best"
-        const detail = describeTryBest(incident)
+        ctx.stopReason = "blocked_stop_rule"
+        ctx.stopErrorType = "blocked_stop_rule"
         yield* session.updatePart({
           id: PartID.ascending(),
           messageID: ctx.assistantMessage.id,
           sessionID: ctx.sessionID,
           type: "text",
-          text: `Try-best loop detected; this turn was paused. ${detail}`,
+          text: `Stop rule fired (${rule.reason}); this turn was paused. ${rule.detail}`,
           synthetic: true,
           metadata: {
             origin: {
-              kind: "try_best",
+              kind: "stop_rule",
               providerID: input.model.providerID,
               modelID: input.model.id,
-              incident,
+              incident: rule,
             },
           },
           time: { start: Date.now(), end: Date.now() },
-        }).pipe(Effect.ignore)
-        yield* bus.publish(Session.Event.TryBestDetected, {
-          sessionID: ctx.sessionID,
-          agentID: ctx.assistantMessage.agentID,
-          providerID: input.model.providerID,
-          modelID: input.model.id,
-          ...incident,
-        }).pipe(Effect.ignore)
-        yield* bus.publish(Metrics.TryBestDetected, {
-          sessionID: ctx.sessionID,
-          reason: incident.reason,
-          provider: input.model.providerID,
-          model_id: input.model.id,
-          count: incident.evidence?.count ?? 1,
         }).pipe(Effect.ignore)
       })
 
@@ -396,7 +425,7 @@ const layer = Layer.effect(
             attachments: output.attachments,
           },
         })
-        yield* detectTryBest(part)
+        yield* detectStop(part)
         yield* settleToolCall(toolCallID)
       })
 
@@ -417,7 +446,7 @@ const layer = Layer.effect(
             time: { start: match.part.state.time.start, end: Date.now() },
           },
         })
-        yield* detectTryBest(part)
+        yield* detectStop(part)
         if (error instanceof PermissionV1.RejectedError || error instanceof Question.RejectedError) {
           ctx.blocked = ctx.shouldBreak
           if (ctx.blocked) {
