@@ -129,6 +129,13 @@ export const Info = Schema.Struct({
       [Schema.Record(Schema.String, ConfigAgentV1.Info)],
     ),
   ).annotate({ description: "Agent configuration, see https://opencode.ai/docs/agents" }),
+  // Hordecode addition: upstream v1.19.5 packages/core/src/v1/config/config.ts has no root-level step
+  // limit (its `agent` key is at :96) and MiMo Code v0.1.11 packages/opencode/src/config/config.ts has
+  // none either. Consumer: packages/opencode/src/session/prompt.ts (the session loop).
+  steps: Schema.optional(PositiveInt).annotate({
+    description:
+      "Default maximum number of agentic iterations before the model is forced to answer with text only. Applies to every agent that does not set its own 'steps'. Overridden by 'agent.<name>.steps'. Default: 100.",
+  }),
   harness: Schema.optional(ConfigHarness.Info).annotate({ description: "Harness mode configuration" }),
   workflow: Schema.optional(
     Schema.Struct({

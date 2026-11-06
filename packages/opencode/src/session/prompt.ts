@@ -1462,7 +1462,8 @@ const layer = Layer.effect(
       if (!agent) return undefined
       // Same budget as the loop (maxSteps below): the step that wrote the DSML was the last one allowed, the
       // model had its tools switched off on it, so its calls do not run.
-      if (input.step >= (input.steps ?? agent.steps ?? 100)) return undefined
+      const globalSteps = (yield* config.get()).steps
+      if (input.step >= (input.steps ?? agent.steps ?? globalSteps ?? 100)) return undefined
       const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
       const handle = yield* processor.create({ assistantMessage: lastAssistant, sessionID, model })
       // The loop's own agentID: the DSML retry re-entry user message carries none, so lastUser.agentID is
@@ -1585,8 +1586,8 @@ const layer = Layer.effect(
 
         while (true) {
           // Intentional divergence from v0.1.11 (packages/opencode/src/session/prompt.ts:3251,3661),
-          // which uses while(true) + agent.steps ?? Infinity. Fork caps at 100/200
-          // because an unbounded loop hung in practice (see commit f6cac78ae0).
+          // which uses while(true) + agent.steps ?? Infinity. Fork caps at the global `steps` config key,
+          // else 100/200, because an unbounded loop hung in practice (see commit f6cac78ae0).
           // Do not revert to Infinity without first root-causing that hang.
           if (step > 200) {
             yield* Effect.logWarning("rl:hard-cap breached, forcing exit", { "session.id": sessionID, step })
@@ -1978,9 +1979,12 @@ const layer = Layer.effect(
           }
           skipOverflowCheck = false
           // See divergence note above (Infinity vs fork 100): agent.steps ?? Infinity in v0.1.11.
-          // steps (subagent cap from spawn) wins over agent.steps. Mirrors core/src/session/prompt.ts:2502
-          // (fork twin); upstream opencode-1.19.0 session/prompt.ts:1178 has only agent.steps.
-          const maxSteps = steps ?? agent.steps ?? 100
+          // steps (subagent cap from spawn) wins over agent.steps, which wins over the global `steps`
+          // config key, which wins over the default 100.
+          // Mirrors core/src/session/prompt.ts:2480 (fork twin); upstream opencode-1.19.0
+          // session/prompt.ts:1178 has only agent.steps.
+          const globalSteps = (yield* config.get()).steps
+          const maxSteps = steps ?? agent.steps ?? globalSteps ?? 100
           const isLastStep = step >= maxSteps
           msgs = yield* SessionReminders.apply({ messages: msgs, agent, session }).pipe(
             Effect.provideService(RuntimeFlags.Service, flags),
@@ -2555,7 +2559,8 @@ const layer = Layer.effect(
           }
           // An explicit step budget (subagent spawn, PromptInput.steps) is a hard cap: once
           // the last allowed step has run, the loop ends even if the model asked for more
-          // tools. agent.steps stays a soft limit (the last step is only forced to text).
+          // tools. agent.steps and the global `steps` config key stay soft limits (the last
+          // step is only forced to text).
           // Fork-only: neither upstream nor MiMo 0.1.11 stops a loop on a spawn-level cap.
           if (steps !== undefined && isLastStep) {
             yield* Effect.logInfo("rl:exit", { "session.id": sessionID, step, site: "steps:cap" })
@@ -2803,7 +2808,8 @@ export const PromptInput = Schema.Struct({
   agentID: Schema.optional(Schema.String),
   // Bound user-task id from the supervisor (spawn.ts:404). Ported from MiMo prompt.ts:4776-4777.
   task_id: Schema.optional(Schema.String),
-  // Step cap for this loop; overrides agent.steps. Mirrors core/src/session/prompt.ts PromptInput.steps.
+  // Step cap for this loop; overrides agent.steps and the global `steps` config key.
+  // Mirrors core/src/session/prompt.ts PromptInput.steps.
   steps: Schema.optional(Schema.Number),
   noReply: Schema.optional(Schema.Boolean),
   source: Schema.optional(Schema.Literals(["user", "spawn", "hook"])),
