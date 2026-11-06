@@ -21,6 +21,7 @@ import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
 import { Plugin } from "../plugin"
 import { MAX_STEPS_PROMPT } from "@opencode-ai/core/session/runner/max-steps"
+import { resolveStepLimit, STEP_LIMIT_CEILING } from "@opencode-ai/core/session/step-budget"
 import { applyHarnessInjection } from "@opencode-ai/core/session/harness-injection"
 import * as MaxMode from "./max-mode"
 import { ToolRegistry } from "@/tool/registry"
@@ -1460,9 +1461,16 @@ const layer = Layer.effect(
       const sessionID = session.id
       const agent = yield* agents.get(lastUser.agent)
       if (!agent) return undefined
-      // Same budget as the loop (maxSteps below): the step that wrote the DSML was the last one allowed, the
-      // model had its tools switched off on it, so its calls do not run.
-      if (input.step >= (input.steps ?? agent.steps ?? 100)) return undefined
+      // Same budget as the loop (maxSteps at the top of the iteration): the step that
+      // wrote the DSML was the last one allowed, the model had its tools switched off on
+      // it, so its calls do not run.
+      const limit = resolveStepLimit({
+        spawn: input.steps,
+        agent: agent.steps,
+        global: (yield* config.get()).steps,
+        fallback: 100,
+      })
+      if (input.step >= limit) return undefined
       const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
       const handle = yield* processor.create({ assistantMessage: lastAssistant, sessionID, model })
       // The loop's own agentID: the DSML retry re-entry user message carries none, so lastUser.agentID is
@@ -1584,14 +1592,6 @@ const layer = Layer.effect(
         const contract = ContractGate.make({ sessionID, agentID, directory: ctx.directory, sessions, permission, agents, registry, db })
 
         while (true) {
-          // Intentional divergence from v0.1.11 (packages/opencode/src/session/prompt.ts:3251,3661),
-          // which uses while(true) + agent.steps ?? Infinity. Fork caps at 100/200
-          // because an unbounded loop hung in practice (see commit f6cac78ae0).
-          // Do not revert to Infinity without first root-causing that hang.
-          if (step > 200) {
-            yield* Effect.logWarning("rl:hard-cap breached, forcing exit", { "session.id": sessionID, step })
-            break
-          }
           yield* status.set(sessionID, { type: "busy" })
           yield* Effect.logInfo("loop", { "session.id": sessionID, step })
 
@@ -1615,6 +1615,32 @@ const layer = Layer.effect(
           const { user: lastUser, assistant: lastAssistant, finished: lastFinished, tasks } = MessageV2.latest(msgs)
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+
+          // The effective step limit of THIS iteration, resolved once and before the cap
+          // check below, so the two can never disagree: the last allowed step always
+          // gets the forced text-only answer and the cap only fires after it. The agent
+          // is the one of this iteration's last user message; a re-entry (task gate, goal
+          // gate, contract gate, DSML retry) writes its user message with the same agent,
+          // so the identity is stable across the loop.
+          const agent = yield* agents.get(lastUser.agent)
+          const maxSteps = resolveStepLimit({
+            spawn: steps,
+            agent: agent?.steps,
+            global: (yield* config.get()).steps,
+            fallback: 100,
+          })
+
+          // Intentional divergence from v0.1.11 (packages/opencode/src/session/prompt.ts:3251,3661),
+          // which uses while(true) + agent.steps ?? Infinity. Fork caps at the effective limit
+          // (the precedence chain above), else 100, because an unbounded loop hung in practice
+          // (see commit f6cac78ae0). Do not revert to Infinity without first root-causing that hang.
+          // Fork decision (owner, 2026-11-05): the hard cap follows the configured limit -
+          // it is a backstop AFTER the soft limit. Math.max keeps the 200 net for the default
+          // (100) and lets a configured value above 200 reach its forced text-only step.
+          if (step > Math.max(STEP_LIMIT_CEILING, maxSteps)) {
+            yield* Effect.logWarning("rl:hard-cap breached, forcing exit", { "session.id": sessionID, step })
+            break
+          }
           // FORK_DELTA: opencode v1.19.5 packages/opencode/src/session/prompt.ts:1098 (after the lastUser check)
           if (yield* contract.envelope()) break
 
@@ -1886,7 +1912,6 @@ const layer = Layer.effect(
             continue
           }
 
-          const agent = yield* agents.get(lastUser.agent)
           if (!agent) {
             const available = (yield* agents.list()).filter((a) => !a.hidden).map((a) => a.name)
             const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
@@ -1978,9 +2003,9 @@ const layer = Layer.effect(
           }
           skipOverflowCheck = false
           // See divergence note above (Infinity vs fork 100): agent.steps ?? Infinity in v0.1.11.
-          // steps (subagent cap from spawn) wins over agent.steps. Mirrors core/src/session/prompt.ts:2502
-          // (fork twin); upstream opencode-1.19.0 session/prompt.ts:1178 has only agent.steps.
-          const maxSteps = steps ?? agent.steps ?? 100
+          // steps (subagent cap from spawn) wins over agent.steps, which wins over the global `steps`
+          // config key, which wins over the default 100.
+          // The effective limit was resolved at the top of this iteration, before the cap check.
           const isLastStep = step >= maxSteps
           msgs = yield* SessionReminders.apply({ messages: msgs, agent, session }).pipe(
             Effect.provideService(RuntimeFlags.Service, flags),
@@ -2555,7 +2580,8 @@ const layer = Layer.effect(
           }
           // An explicit step budget (subagent spawn, PromptInput.steps) is a hard cap: once
           // the last allowed step has run, the loop ends even if the model asked for more
-          // tools. agent.steps stays a soft limit (the last step is only forced to text).
+          // tools. agent.steps and the global `steps` config key stay soft limits (the last
+          // step is only forced to text).
           // Fork-only: neither upstream nor MiMo 0.1.11 stops a loop on a spawn-level cap.
           if (steps !== undefined && isLastStep) {
             yield* Effect.logInfo("rl:exit", { "session.id": sessionID, step, site: "steps:cap" })
@@ -2803,7 +2829,8 @@ export const PromptInput = Schema.Struct({
   agentID: Schema.optional(Schema.String),
   // Bound user-task id from the supervisor (spawn.ts:404). Ported from MiMo prompt.ts:4776-4777.
   task_id: Schema.optional(Schema.String),
-  // Step cap for this loop; overrides agent.steps. Mirrors core/src/session/prompt.ts PromptInput.steps.
+  // Step cap for this loop; overrides agent.steps and the global `steps` config key.
+  // Mirrors core/src/session/prompt.ts PromptInput.steps.
   steps: Schema.optional(Schema.Number),
   noReply: Schema.optional(Schema.Boolean),
   source: Schema.optional(Schema.Literals(["user", "spawn", "hook"])),

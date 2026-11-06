@@ -415,4 +415,12 @@ export const dict = {
   "tui.advisor.notes.blockers": "Notlar: sadece engelleyiciler",
   "tui.advisor.updated": "Advisor guncellendi.",
   "tui.advisor.no_provider": "Bagli saglayici yok. Once /connect ile bir saglayici baglayin.",
+
+  // Step limit dialog
+  "tui.step_limit.title": "Adim limiti",
+  "tui.step_limit.saved": "Adim limiti {{value}} olarak ayarlandi.",
+  "tui.step_limit.invalid": "1 ile 1000 arasinda bir tam sayi girin.",
+  "tui.step_limit.custom_title": "Ozel adim limiti",
+  "tui.step_limit.option.custom": "Ozel",
+  "tui.step_limit.option.custom_description": "Genel adim limitini girin (1-1000); kendi butcesiyle baslatilan bir ajana uygulanmaz",
 } satisfies Partial<Record<Keys, string>>

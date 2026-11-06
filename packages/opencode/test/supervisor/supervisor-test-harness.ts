@@ -232,13 +232,17 @@ const cfg = (url: string): Partial<ConfigV1.Info> => ({
   },
 } as Partial<ConfigV1.Info>)
 
-export const useServerConfig = Effect.fn("supervisorTest.useServerConfig")(function* () {
+// `extra` is merged into the written config file, so a test can set product
+// config keys (agent limits, global defaults) next to the test provider.
+export const useServerConfig = Effect.fn("supervisorTest.useServerConfig")(function* (
+  extra?: Partial<ConfigV1.Info>,
+) {
   const { directory: dir } = yield* TestInstance
   const llm = yield* TestLLMServer
   const fs = yield* FSUtil.Service
   yield* fs.writeWithDirs(
     path.join(dir, "opencode.json"),
-    JSON.stringify({ $schema: "https://opencode.ai/config.json", ...cfg(llm.url) }),
+    JSON.stringify({ $schema: "https://opencode.ai/config.json", ...cfg(llm.url), ...extra }),
   )
   return { dir, llm }
 })
