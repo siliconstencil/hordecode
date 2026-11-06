@@ -17,6 +17,8 @@ import SidebarTodo from "./sidebar/todo"
 import DiffViewer from "./system/diff-viewer"
 import Notifications from "./system/notifications"
 import PluginManager from "./system/plugins"
+// Fork addition (FORK_ONLY): the "Step limit" palette command (system/step-limit.tsx).
+import StepLimit from "./system/step-limit"
 import WhichKey from "./system/which-key"
 
 export type BuiltinTuiPlugin = Omit<TuiPluginModule, "id"> & {
@@ -46,5 +48,6 @@ export function createBuiltinPlugins(options: { experimentalEventSystem: boolean
     PluginManager,
     WhichKey,
     DiffViewer,
+    StepLimit,
   ]
 }
