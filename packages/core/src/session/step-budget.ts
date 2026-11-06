@@ -8,7 +8,7 @@
 // the agent's own `steps` (soft) > the global `steps` config key (soft) > the
 // caller's fallback.
 //
-// Fork decision (owner, 2026-11-05): the hard cap follows the configured limit -
+// Fork decision (coordinator, 2026-11-06, on the owner direction of 2026-11-05): the hard cap follows the configured limit -
 // it is a backstop AFTER the soft limit. The main loop therefore breaks on
 // `step > Math.max(STEP_LIMIT_CEILING, limit)`: the last allowed step still gets
 // the forced text-only answer, and the 200 net stays the ceiling of the default
