@@ -134,32 +134,39 @@ the spawn key (`PromptInput.steps`) is only reachable from code that spawns a su
 key is the only place that reaches all of them, and it matches how the loop already resolved the
 limit (`packages/opencode/src/session/prompt.ts:1987`).
 
-Type: positive integer (`packages/core/src/v1/config/config.ts:135` +
+Type: positive integer, at most 1000 (`packages/core/src/v1/config/config.ts:141` +
 `packages/schema/src/schema.ts:3`). The same key exists in the core schema
-(`packages/core/src/config/config.ts:199`) for the reason given in section 3.
+(`packages/core/src/config/config.ts:201`) for the reason given in section 3.
 
 ## Precedence and default
 
-The limit of a session is the first of these that is set
-(`packages/opencode/src/session/prompt.ts:1987`):
+The limit of a session is the first of these that is set. Both loops resolve it through one shared
+helper, `resolveStepLimit` (`packages/core/src/session/step-budget.ts:19`):
 
 1. `steps` budget the session was spawned with - HARD cap, the loop ends when the budget is used up
-   (`packages/opencode/src/session/prompt.ts:2566`).
+   (`packages/opencode/src/session/prompt.ts:2586`).
 2. `agent.<name>.steps` - SOFT limit, the last allowed step is forced to text
-   (`packages/opencode/src/session/prompt.ts:1988`, `:2220`).
+   (`packages/opencode/src/session/prompt.ts:2009`, `:2241`).
 3. global `steps` - SOFT limit, the last allowed step is forced to text
-   (`packages/opencode/src/session/prompt.ts:1986`, `:1987`, `:2220`).
-4. default `100` (`packages/opencode/src/session/prompt.ts:1987`).
+   (`packages/opencode/src/session/prompt.ts:2009`, `:2241`).
+4. default `100` in the main loop (`packages/opencode/src/session/prompt.ts:1626`).
 
 The global key therefore does not lower an agent's own `steps` and does not raise a spawn budget.
-The same expression guards the DSML salvage path
-(`packages/opencode/src/session/prompt.ts:1466`).
+The main loop resolves the effective limit ONCE per iteration, at the top of the iteration
+(`packages/opencode/src/session/prompt.ts:1626`), so the soft limit and the hard ceiling can never
+disagree. The same expression guards the DSML salvage path
+(`packages/opencode/src/session/prompt.ts:1467`).
+
+The hard ceiling is a backstop AFTER the soft limit: the loop breaks on
+`step > Math.max(200, maxSteps)` (`packages/opencode/src/session/prompt.ts:1640`). With the default
+(100) the ceiling stays 200; a configured value above 200 reaches its forced text-only step before
+the ceiling can fire.
 
 The fork twin resolves the same chain
-(`packages/core/src/session/prompt.ts:2485`): spawn budget > `agent.steps` > global `steps` > the
-twin's own fallback. The fallback is `Infinity` there, not `100`, and the twin has no 200-step cap
-(measured: `grep -n "> 200" packages/core/src/session/prompt.ts` returns nothing). Both differences
-are left untouched on purpose; see OPEN DECISION 2.
+(`packages/core/src/session/prompt.ts:2488`): spawn budget > `agent.steps` > global `steps` > the
+twin's own fallback. The fallback is `Infinity` there, not `100`, the twin has no 200-step cap and
+a spawn budget is only a SOFT limit there. Both differences are left untouched on purpose; see
+OPEN DECISION 2.
 
 ## Evidence
 
@@ -231,6 +238,109 @@ Ran 5 tests across 1 file. [1.79s]
 
 These are coordinator measurements and are quoted as such.
 
+### The ceiling change (DECISION 1) - red-then-green, coordinator measured
+
+The change to the hard ceiling, the 1000 bound and the shared helper were verified by the
+coordinator in the foreground at the head of this branch.
+
+Typechecks: `packages/core` **exit 0**, `packages/opencode` **exit 0**, `packages/tui` **exit 0**.
+
+Green, after the change:
+
+```
+cd packages/opencode && bun test --timeout 300000 test/session/step-limit.test.ts test/session/step-limit-fork-twin.test.ts
+ 15 pass
+ 0 fail
+ 29 expect() calls
+Ran 15 tests across 2 files. [22.45s]
+
+cd packages/tui && bun test --timeout 30000 test/component/dialog-step-limit.test.ts
+ 7 pass
+ 0 fail
+ 17 expect() calls
+Ran 7 tests across 1 file. [1119.00ms]
+```
+
+Red: the pre-change source files were put back over the working tree with
+`git checkout fec9874c9a -- <the five changed source files>` (the tests stayed at the new state),
+the targeted tests were run, and the committed files were restored with `git checkout HEAD -- ...`.
+No stash, no reset, no delete.
+
+```
+cd packages/opencode && bun test --timeout 300000 test/session/step-limit.test.ts test/session/step-limit-fork-twin.test.ts
+(fail) fork session twin > the twin calls the shared helper (wiring check)
+(fail) global step limit > a configured limit above the ceiling reaches its forced text-only step
+(fail) global step limit schema > the root schemas accept 1000 and reject 1001
+ 12 pass
+ 3 fail
+ 24 expect() calls
+Ran 15 tests across 2 files. [18.02s]
+
+cd packages/tui && bun test --timeout 30000 test/component/dialog-step-limit.test.ts
+(fail) dialog step limit > parseStepLimit accepts 1000 and rejects a value above it
+ 6 pass
+ 1 fail
+ 17 expect() calls
+Ran 7 tests across 1 file. [1276.00ms]
+```
+
+Every failure is a case that describes the NEW behaviour: the pre-change loop cut the session at
+200 instead of reaching the forced text-only step at 300, the pre-change schemas accepted 1001, the
+pre-change TUI input accepted 1001, and the pre-change twin did not call the shared helper. The
+case `without a configured limit the hard ceiling stops the loop` passed in the red state as well -
+it guards the unchanged default, not the new behaviour.
+
+The logs are in `/home/hank/Desktop/developer/reports/0.1.6/p3-logs-final/`
+(`red-step-limit-tests.log`, `red-tui-step-limit-test.log`). After the restore `git status --short`
+showed only the report file.
+
+The new cases in `packages/opencode/test/session/step-limit.test.ts`:
+
+- `a configured limit above the ceiling reaches its forced text-only step` - the global key is 300,
+  the provider answers with a tool call on 299 steps and the forced text-only answer on the 300th;
+  the test asserts 300 provider inputs, that no earlier input carried the forced text-only tool
+  choice, that the 300th did, and that the ceiling never fired.
+- `without a configured limit the hard ceiling stops the loop` - nothing is configured, the provider
+  asks for a tool on every step, and the loop ends on the ceiling: 201 provider inputs and the
+  `rl:hard-cap breached` warning.
+- `the root schemas accept 1000 and reject 1001` - both config roots.
+
+The new case in `packages/tui/test/component/dialog-step-limit.test.ts`:
+`parseStepLimit accepts 1000 and rejects a value above it`.
+
+The fork-twin test no longer asserts source text. It asserts the shared helper at runtime
+(`packages/core/src/session/step-budget.ts:19`): the spawn budget wins over every other limit, the
+agent limit wins over the global one, the global one wins over the fallback, the twin's fallback is
+`Infinity` and the main loop's is `100`. One labelled wiring check asserts that the twin calls the
+helper.
+
+### Full suite measurement at the ceiling-change head (`e3c33ec743`)
+
+Coordinator measurements, foreground, `TMPDIR` under the project, logs in
+`/home/hank/Desktop/developer/reports/0.1.6/p3-logs-final/`:
+
+| Package | Typecheck | Test result |
+|---|---|---|
+| `packages/core` | exit 0 | 1539 pass / 0 fail (1549 tests, 199 files, 38.00s) |
+| `packages/tui` | exit 0 | 418 pass / 0 fail (419 tests, 85 files, 6.71s) |
+| `packages/supervisor` | exit 0 | 100 pass / 0 fail (100 tests, 17 files, 1.24s) |
+| `packages/opencode` | exit 0 | 4739 pass / 25 skip / 1 todo / 0 fail (4765 tests, 442 files, 50 snapshots, 17453 expect() calls, 892.01s) |
+
+`packages/supervisor` is in the set because it mounts the fork twin
+(`packages/supervisor/src/spawn.ts:6`). The opencode delta against the previous head
+(`fec9874c9a`: 4733 pass / 4759 tests / 17439 expect() calls) is +6 tests and +14 expect() calls -
+exactly the new cases in the two step-limit test files.
+
+One measurement note: the FIRST opencode suite run in this session reported 1 failure in
+`test/tool/shell.test.ts` ("exports the harness paths of the session and of its child sessions to
+the command"). That file is not touched by this branch (its last commit is `334d00852b`) and the
+failure is environmental: the harness runtime exports `HORDECODE_HARNESS_DOCS` and
+`HORDECODE_HARNESS_EVIDENCE` into every shell command of the session, and the test asserts that a
+non-harness session does NOT inherit them. The received value was byte-identical to the ambient
+environment of the session. The file passes 41/41 when the two variables are removed
+(`env -u HORDECODE_HARNESS_DOCS -u HORDECODE_HARNESS_EVIDENCE bun test test/tool/shell.test.ts`),
+and the suite number above is the run with the two variables removed.
+
 ### Per-package typecheck (agent run, this branch, at `d607bdbf69`)
 
 ```
@@ -289,42 +399,31 @@ The same generator run FROM `packages/web` (the working directory
 `packages/web/astro.config.mjs:321` uses) fails in this tree for a pre-existing reason; see
 OPEN DECISION 3.
 
-## OPEN DECISION 1: the 200-step safety cap bounds every configured value
+## DECISION 1 (owner, 2026-11-05): the hard cap follows the configured limit
 
-`packages/opencode/src/session/prompt.ts:1588-1595`:
+The earlier draft of this report raised the 200-step safety cap as an open decision: the cap was
+checked before the configured limit, so a configured value above 200 never took effect and the TUI
+preset 300 was unreachable. The owner ruled against leaving it and against dropping the preset:
+long sessions are the product claim.
 
-```ts
-// Intentional divergence from v0.1.11 (packages/opencode/src/session/prompt.ts:3251,3661),
-// which uses while(true) + agent.steps ?? Infinity. Fork caps at the global `steps` config key,
-// else 100/200, because an unbounded loop hung in practice (see commit f6cac78ae0).
-// Do not revert to Infinity without first root-causing that hang.
-if (step > 200) {
-  yield* Effect.logWarning("rl:hard-cap breached, forcing exit", { "session.id": sessionID, step })
-  break
-}
-```
+The decision: the hard cap is a backstop AFTER the soft limit. The effective limit is computed once
+per loop iteration, before the cap check, and the loop breaks only on
+`step > Math.max(200, maxSteps)` (`packages/opencode/src/session/prompt.ts:1640`). Consequences:
 
-Consequence: this cap is checked before the configured limit is consulted, so a configured value
-above 200 never takes effect in this loop. The TUI preset 300
-(`packages/tui/src/component/dialog-step-limit.tsx:14`) is therefore unreachable there. The same was
-already true before this branch for a per-agent `steps` above 200.
+- The last allowed step always gets the forced text-only answer, because the soft limit fires before
+  the ceiling can.
+- With the default (100) the ceiling stays 200: the 200 net is unchanged.
+- A configured value above 200 is reachable, so the 300 preset
+  (`packages/tui/src/component/dialog-step-limit.tsx:18`) works.
+- The fork's recorded failure mode stays behind the ceiling: the comment keeps the warning not to
+  revert to `Infinity` without root-causing the hang of commit `f6cac78ae0`.
 
-Options:
-
-1. Leave the cap at 200 and flag the 300 preset (the TUI offers a value the server cannot honour).
-2. Raise the cap (for example to 1000) and keep 300 reachable.
-3. Let the cap follow the configured limit (remove the fixed 200 and rely on the configured value).
-
-Recommendation: **option 1, leave the cap alone.** The comment at
-`packages/opencode/src/session/prompt.ts:1588-1591` records that an unbounded loop hung in practice
-and that the cap must not be reverted before that hang is root-caused; raising or removing it is an
-owner decision with a recorded failure mode behind it. The cheap, reversible half of option 1 is to
-make the TUI not offer a value the loop silently overrides (drop 300 from
-`packages/tui/src/component/dialog-step-limit.tsx:14`, or document the ceiling next to it), and to
-add the ceiling to the release-phase docs section, which currently states only "The value must be a
-positive integer".
-
-Nothing in this branch changes, raises or removes the cap.
+The safety net stays meaningful because the configured value is bounded: the global key accepts a
+positive integer up to 1000 in both config roots
+(`packages/core/src/v1/config/config.ts:141`, `packages/core/src/config/config.ts:201`) and the TUI
+custom input rejects anything above 1000
+(`packages/tui/src/component/dialog-step-limit.tsx:22`). The per-agent `steps` key is not bounded by
+this change.
 
 ## OPEN DECISION 2: the twin keeps `Infinity` as its fallback and has no 200-cap
 
@@ -337,6 +436,13 @@ copy has it at `packages/opencode/src/session/prompt.ts:1592`).
 Consequence: a supervisor-spawned session with no spawn budget, no `agent.steps` and no global
 `steps` is unbounded on the twin's path, while the live copy is bounded at 100 steps. The global key
 now reaches the twin, but the two defaults still differ.
+
+A second, related divergence: in the twin a spawn budget is a SOFT limit. It flips `isLastStep`
+(`packages/core/src/session/prompt.ts:2494`), so the last allowed step is forced to text, but it does
+not end the loop; the main loop breaks hard on it
+(`packages/opencode/src/session/prompt.ts:2586`). This is pre-existing fork behaviour, it was not
+changed here, and the fork-twin test header states it instead of claiming the opposite
+(`packages/opencode/test/session/step-limit-fork-twin.test.ts:1-11`).
 
 Options:
 
@@ -392,10 +498,10 @@ sentence in the release-phase docs section of the Hordecode docs site.
    (`docs/upstream-map-files.tsv:6510,6544,6582,6616,6652,6687,6726,6760,6795,6832,6868,6905,6940,6979,7015,7054,7088`),
    so a translated sentence would have had to be added 18 times into files that must not change.
    The reader path belongs to the release-phase docs section instead.
-3. **The 200-step cap is not documented in this repository.** It is an open owner decision
-   (OPEN DECISION 1), so nothing here freezes behaviour that may change. Follow-up if the cap
-   stays: one sentence stating the effective ceiling in the release-phase docs section, and the
-   300 preset question.
+3. **The 200-step cap is not documented in this repository.** The cap now follows the configured limit
+   (DECISION 1) and the global value is bounded at 1000, but the behaviour is not frozen in a
+   `packages/web` page: `packages/web` stays at PARITY and the ready-to-paste section in the
+   coordinator's report has to state the 1-1000 range and the ceiling behaviour.
 
 ## Findings not fixed here (post-release backlog)
 
