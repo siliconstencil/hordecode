@@ -33,6 +33,7 @@ import { SessionPrompt } from "../../src/session/prompt"
 import { SessionRevert } from "../../src/session/revert"
 import { SessionRunState } from "../../src/session/run-state"
 import { SessionStatus } from "../../src/session/status"
+import { SessionWake } from "../../src/session/wake"
 import { SystemPrompt } from "../../src/session/system"
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "@/tool/registry"
@@ -164,6 +165,7 @@ const promptRoot = LayerNode.group([
   FSUtil.node,
   BackgroundJob.node,
   SessionStatus.node,
+  SessionWake.node,
   SessionRunState.node,
   Database.node,
   EventV2Bridge.node,
