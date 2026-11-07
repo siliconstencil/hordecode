@@ -24,7 +24,6 @@
     "@opencode-ai/global": "workspace:*",
     "@opencode-ai/inbox": "workspace:*",
     "@opencode-ai/project": "workspace:*",
-    "@opencode-ai/worktree": "workspace:*",
     "@jitl/quickjs-singlefile-mjs-release-sync": "latest",
     "drizzle-orm": "catalog:",
     "effect": "catalog:",

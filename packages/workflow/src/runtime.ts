@@ -7,7 +7,6 @@ import { Config } from "@opencode-ai/core/config/index"
 import { EffectBridge } from "@opencode-ai/core/effect"
 import { Bus } from "@opencode-ai/bus"
 import { Inbox } from "@opencode-ai/inbox"
-import { Worktree } from "@opencode-ai/worktree"
 import { Provider } from "@opencode-ai/core/provider/index"
 import { Permission } from "@opencode-ai/core/permission/index"
 import { InstanceRef } from "@opencode-ai/core/effect/instance-ref"
@@ -34,6 +33,19 @@ import {
   subagentDepthOf,
   subagentDepthRefusal,
 } from "@opencode-ai/supervisor/limits"
+
+// The app (opencode) depends on this package, so the runtime cannot import the
+// opencode Worktree module; it declares the same service key the app provides.
+// Deviation from MiMo, whose workflow runtime imports @/worktree directly.
+type WorktreeInfo = { name: string; branch: string; directory: string }
+interface WorktreeOps {
+  readonly makeWorktreeInfo: () => Effect.Effect<WorktreeInfo>
+  readonly createFromInfo: (info: WorktreeInfo) => Effect.Effect<void>
+  readonly head: (directory: string) => Effect.Effect<string>
+  readonly isPristine: (directory: string, base: string) => Effect.Effect<boolean>
+  readonly remove: (input: { directory: string }) => Effect.Effect<boolean>
+}
+class WorktreeService extends Context.Service<WorktreeService, WorktreeOps>()("@opencode/Worktree") {}
 
 const log = Log.create({ service: "workflow.runtime" })
 
@@ -319,7 +331,7 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const bus = yield* Bus.Service
     const inbox = yield* Inbox.Service
-    const worktree = yield* Worktree.Service
+    const worktree = yield* WorktreeService
     const provider = yield* Provider.Service
     // Layer-scoped so its requirement is discharged here (like Config below) and
     // does not leak into start/resume's effect signatures. Used by launch() to
@@ -1646,7 +1658,6 @@ export const layer = Layer.effect(
 export const defaultLayer = layer.pipe(
   Layer.provide(Bus.defaultLayer),
   Layer.provide(Inbox.defaultLayer),
-  Layer.provide(Worktree.defaultLayer),
   Layer.provide(Provider.defaultLayer),
   Layer.provide(Config.defaultLayer),
 )
