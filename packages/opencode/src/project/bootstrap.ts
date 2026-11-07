@@ -13,6 +13,7 @@ import { Bus } from "@opencode-ai/bus"
 import { Service as BackfillService, layer as backfillLayer } from "@opencode-ai/core/history/backfill"
 import { Service as WriterService, layer as writerLayer } from "@opencode-ai/core/history/writer"
 import { wireMetricsSubscriber } from "@/metrics/subscriber"
+import { SessionWake } from "../session/wake"
 
 export { Service } from "./bootstrap-service"
 export type { Interface } from "./bootstrap-service"
@@ -55,6 +56,7 @@ const layer = Layer.effect(
     const backfill = yield* BackfillService
     const writer = yield* WriterService
     const bus = yield* Bus.Service
+    const wake = yield* SessionWake.Service
 
     const run = Effect.gen(function* () {
       const ctx = yield* InstanceState.context
@@ -74,6 +76,11 @@ const layer = Layer.effect(
       yield* wireMetricsSubscriber()
         .pipe(Effect.provideService(Bus.Service, bus))
         .pipe(Effect.catchCause((cause) => Effect.logWarning("metrics subscriber init failed", { cause })))
+      // Fork (brief C): wake a waiting parent on a child terminal state or on 15
+      // minutes of silence with open tasks. Fire-and-forget; it never starts a run.
+      yield* wake
+        .init()
+        .pipe(Effect.catchCause((cause) => Effect.logWarning("session wake init failed", { cause })))
       yield* Effect.forEach(
         [lsp, format, vcs, snapshot, project],
         (s) => s.init().pipe(Effect.catchCause((cause) => Effect.logWarning("init failed", { cause }))),
@@ -88,7 +95,7 @@ const layer = Layer.effect(
 export const node = makeGlobalNode({
   service: Service,
   layer: layer,
-  deps: [Config.node, Format.node, LSP.node, Plugin.node, Project.node, Snapshot.node, Vcs.node, BusNode, WriterNode, BackfillNode],
+  deps: [Config.node, Format.node, LSP.node, Plugin.node, Project.node, Snapshot.node, Vcs.node, BusNode, WriterNode, BackfillNode, SessionWake.node],
 })
 
 export * as InstanceBootstrap from "./bootstrap"
