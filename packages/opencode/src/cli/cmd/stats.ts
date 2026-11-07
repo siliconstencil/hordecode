@@ -70,7 +70,7 @@ export const StatsCommand = effectCmd({
         type: "string",
       })
       .option("runs", {
-        describe: "show the per-run scorecard instead of the totals (the horde-dev run-scorecard)",
+        describe: "show one row per root run instead of the totals",
         type: "boolean",
       })
       .option("root", {
