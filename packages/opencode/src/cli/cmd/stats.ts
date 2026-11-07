@@ -449,7 +449,7 @@ export const aggregateRunStats = Effect.fn("Cli.stats.runs")(function* (input: {
 }) {
   const { db } = yield* Database.Service
   const filter = input.root
-    ? sql`id LIKE ${`${input.root}%`}`
+    ? sql`parent_id IS NULL AND id GLOB ${`${input.root}*`}`
     : sql`parent_id IS NULL AND project_id = ${input.project.id}`
   const cutoff = (() => {
     if (input.days === undefined) return
@@ -484,7 +484,7 @@ export const aggregateRunStats = Effect.fn("Cli.stats.runs")(function* (input: {
       a AS (
         SELECT t.root, m.session_id sid, m.time_created c,
           COALESCE(json_extract(m.data, '$.time.completed'), m.time_created) d,
-          json_extract(m.data, '$.tokens.input') + json_extract(m.data, '$.tokens.cache.read') tin
+          COALESCE(json_extract(m.data, '$.tokens.input'), 0) + COALESCE(json_extract(m.data, '$.tokens.cache.read'), 0) tin
         FROM tree t JOIN message m ON m.session_id = t.id
         WHERE json_extract(m.data, '$.role') = 'assistant'
       ),
@@ -498,7 +498,7 @@ export const aggregateRunStats = Effect.fn("Cli.stats.runs")(function* (input: {
       SELECT substr(r.id, 1, 14) root,
         datetime(r.time_created / 1000, 'unixepoch', '-8 hours') start_pst,
         substr(r.title, 1, 34) title,
-        (SELECT COUNT(*) - 1 FROM st WHERE st.root = r.id) subs,
+        (SELECT CASE WHEN COUNT(*) > 0 THEN COUNT(*) - 1 ELSE 0 END FROM st WHERE st.root = r.id) subs,
         (SELECT SUM(n) FROM st WHERE st.root = r.id) steps,
         (SELECT COUNT(*) FROM st WHERE st.root = r.id AND n >= 100) cap_hits,
         (SELECT ROUND((MAX(d) - MIN(c)) / 3600000.0, 1) FROM a WHERE a.root = r.id) span_h,

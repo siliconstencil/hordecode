@@ -3,7 +3,7 @@
 // the same normalised error seen SAME_ERROR_STOP times in one turn. The doom-loop
 // ask at three identical calls stays in processor.ts; these rules are the stop
 // that follows it. The turn ends with a synthetic text message (try-best
-// precedent, processor.ts detectTryBest).
+// precedent, processor.ts detectStop).
 import type { SessionV1 } from "@opencode-ai/core/v1/session"
 import { errorKey } from "./advisor/facts"
 
@@ -17,6 +17,12 @@ export type StopIncident = {
   tool: string
   count: number
   detail: string
+}
+
+export type StopOptions = {
+  // A denied permission is not a failure to count: the permission path owns that
+  // decision and overwrites the stop reason.
+  errors?: boolean
 }
 
 // A finished tool call either failed as a tool error, or completed as a shell
@@ -36,40 +42,59 @@ export class StopRuleMonitor {
   private errors = new Map<string, number>()
 
   // `turn` is the user message this step belongs to. Counters reset when it
-  // changes, so an error repeated once per turn never stops the session.
-  consume(part: SessionV1.ToolPart, turn: string): StopIncident | undefined {
+  // changes, so an error repeated once per turn never stops the session. They
+  // also reset after a stop, so an exact retry of the same prompt starts clean
+  // instead of stopping on its first call.
+  consume(part: SessionV1.ToolPart, turn: string, options?: StopOptions): StopIncident | undefined {
     if (part.state.status === "pending" || part.state.status === "running") return
     if (turn !== this.turn) {
       this.turn = turn
-      this.signature = undefined
-      this.identical = 0
-      this.errors.clear()
+      this.clear()
     }
 
     const signature = JSON.stringify([part.tool, part.state.input])
     this.identical = signature === this.signature ? this.identical + 1 : 1
     this.signature = signature
     if (this.identical >= IDENTICAL_CALL_STOP) {
-      return {
+      const incident: StopIncident = {
         reason: "identical_calls",
         tool: part.tool,
         count: this.identical,
         detail: `${this.identical} identical ${part.tool} calls in a row`,
       }
+      this.clear()
+      return incident
     }
 
+    if (options?.errors === false) return
     const error = errorText(part)
     if (error === undefined) return
     const key = errorKey(error)
     const count = (this.errors.get(key) ?? 0) + 1
     this.errors.set(key, count)
     if (count < SAME_ERROR_STOP) return
-    return {
+    const incident: StopIncident = {
       reason: "same_error",
       tool: part.tool,
       count,
       detail: `the same error repeated ${count} times: ${error}`,
     }
+    this.clear()
+    return incident
+  }
+
+  // A text or reasoning part between calls breaks the "in a row" streak, the way
+  // the doom-loop ask requires its last three parts to all be tool parts. It does
+  // not clear the error counts: a note does not make a failure go away.
+  interrupt() {
+    this.signature = undefined
+    this.identical = 0
+  }
+
+  private clear() {
+    this.signature = undefined
+    this.identical = 0
+    this.errors.clear()
   }
 }
 

@@ -87,4 +87,31 @@ describe("stop-rules", () => {
     const running = { tool: "read", state: { status: "running", input: {} } } as unknown as SessionV1.ToolPart
     for (let i = 0; i < 10; i++) expect(m.consume(running, TURN)).toBeUndefined()
   })
+
+  test("a stop resets the counters so an exact retry starts clean", () => {
+    const m = new StopRuleMonitor()
+    for (let i = 1; i < IDENTICAL_CALL_STOP; i++) m.consume(call("read", { filePath: "a" }), TURN)
+    expect(m.consume(call("read", { filePath: "a" }), TURN)?.count).toBe(IDENTICAL_CALL_STOP)
+    expect(m.consume(call("read", { filePath: "a" }), TURN)).toBeUndefined()
+  })
+
+  test("a stop on the same error also resets the error count", () => {
+    const m = new StopRuleMonitor()
+    m.consume(failed("bash", "Error 12"), TURN)
+    m.consume(failed("bash", "Error 12"), TURN)
+    expect(m.consume(failed("bash", "Error 12"), TURN)?.reason).toBe("same_error")
+    expect(m.consume(failed("bash", "Error 12"), TURN)).toBeUndefined()
+  })
+
+  test("a denied permission is not counted as a repeated error", () => {
+    const m = new StopRuleMonitor()
+    for (let i = 0; i < 5; i++) expect(m.consume(failed("bash", "permission denied"), TURN, { errors: false })).toBeUndefined()
+  })
+
+  test("a text note between calls breaks the identical streak", () => {
+    const m = new StopRuleMonitor()
+    for (let i = 0; i < 5; i++) m.consume(call("read", { filePath: "a" }), TURN)
+    m.interrupt()
+    for (let i = 0; i < 5; i++) expect(m.consume(call("read", { filePath: "a" }), TURN)).toBeUndefined()
+  })
 })

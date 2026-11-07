@@ -290,7 +290,10 @@ const layer = Layer.effect(
         return "provider_error"
       }
 
-      const detectStop = Effect.fn("SessionProcessor.detectStop")(function* (part: SessionV1.ToolPart) {
+      const detectStop = Effect.fn("SessionProcessor.detectStop")(function* (
+        part: SessionV1.ToolPart,
+        options?: { errors?: boolean },
+      ) {
         if (ctx.blocked) return
         const incident = tryBest?.consume(part)
         if (incident) {
@@ -335,7 +338,7 @@ const layer = Layer.effect(
         // Fork stop rules: the deterministic no-progress stop that follows the
         // doom-loop ask (three identical calls) at six, and the same normalised
         // error three times in one turn. See session/stop-rules.ts.
-        const rule = stopRules.consume(part, ctx.assistantMessage.parentID)
+        const rule = stopRules.consume(part, ctx.assistantMessage.parentID, options)
         if (!rule) return
         ctx.blocked = true
         ctx.stopReason = "blocked_stop_rule"
@@ -446,7 +449,11 @@ const layer = Layer.effect(
             time: { start: match.part.state.time.start, end: Date.now() },
           },
         })
-        yield* detectStop(part)
+        // Fork stop rules: a denied permission is not a repeated tool error; the
+        // permission path below owns that stop.
+        yield* detectStop(part, {
+          errors: !(error instanceof PermissionV1.RejectedError || error instanceof Question.RejectedError),
+        })
         if (error instanceof PermissionV1.RejectedError || error instanceof Question.RejectedError) {
           ctx.blocked = ctx.shouldBreak
           if (ctx.blocked) {
@@ -533,6 +540,7 @@ const layer = Layer.effect(
         switch (value.type) {
           case "reasoning-start":
             if (value.id in ctx.reasoningMap) return
+            stopRules.interrupt()
             ctx.reasoningMap[value.id] = {
               id: PartID.ascending(),
               messageID: ctx.assistantMessage.id,
@@ -814,6 +822,7 @@ const layer = Layer.effect(
           }
 
           case "text-start":
+            stopRules.interrupt()
             ctx.currentText = {
               id: PartID.ascending(),
               messageID: ctx.assistantMessage.id,
