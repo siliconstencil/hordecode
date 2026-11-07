@@ -16,11 +16,26 @@
 
 export const STEP_LIMIT_CEILING = 200
 
+// The bounds of the global `steps` config key (packages/core/src/config/config.ts:96
+// MAX_GLOBAL_STEPS = 1000, plus that schema's PositiveInt floor). The config schema
+// applies them to the root key only; `agent.<name>.steps` (packages/core/src/config/agent.ts:56)
+// and a workflow/spawn `steps` argument (packages/supervisor/src/spawn.ts:258) reach the
+// loops without that parse, so the shared resolver clamps every budget source to the
+// same range. The fallback is deliberately not clamped: it is the loop's own default
+// (100 in the main loop, Infinity in the twin).
+export const STEP_LIMIT_MAX = 1000
+export const STEP_LIMIT_MIN = 1
+
+function clamp(value: number | undefined) {
+  if (value === undefined) return undefined
+  return Math.min(STEP_LIMIT_MAX, Math.max(STEP_LIMIT_MIN, value))
+}
+
 export function resolveStepLimit(input: {
   spawn?: number
   agent?: number
   global?: number
   fallback: number
 }) {
-  return input.spawn ?? input.agent ?? input.global ?? input.fallback
+  return clamp(input.spawn) ?? clamp(input.agent) ?? clamp(input.global) ?? input.fallback
 }
