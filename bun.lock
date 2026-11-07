@@ -1114,28 +1114,9 @@
         "@opencode-ai/inbox": "workspace:*",
         "@opencode-ai/project": "workspace:*",
         "@opencode-ai/supervisor": "workspace:*",
-        "@opencode-ai/worktree": "workspace:*",
         "drizzle-orm": "catalog:",
         "effect": "catalog:",
         "quickjs-emscripten-core": "latest",
-        "zod": "catalog:",
-      },
-      "devDependencies": {
-        "@tsconfig/bun": "catalog:",
-        "@types/bun": "catalog:",
-        "@typescript/native-preview": "catalog:",
-      },
-    },
-    "packages/worktree": {
-      "name": "@opencode-ai/worktree",
-      "version": "0.1.0",
-      "dependencies": {
-        "@effect/platform-node": "catalog:",
-        "@opencode-ai/bus": "workspace:*",
-        "@opencode-ai/core": "workspace:*",
-        "@opencode-ai/project": "workspace:*",
-        "@opencode-ai/shared": "workspace:*",
-        "effect": "catalog:",
         "zod": "catalog:",
       },
       "devDependencies": {
@@ -2059,8 +2040,6 @@
     "@opencode-ai/web": ["@opencode-ai/web@workspace:packages/web"],
 
     "@opencode-ai/workflow": ["@opencode-ai/workflow@workspace:packages/workflow"],
-
-    "@opencode-ai/worktree": ["@opencode-ai/worktree@workspace:packages/worktree"],
 
     "@openrouter/ai-sdk-provider": ["@openrouter/ai-sdk-provider@2.9.0", "", { "peerDependencies": { "ai": "^6.0.0", "zod": "^3.25.0 || ^4.0.0" } }, "sha512-Seva+NCa0WUQnJIUE5GzHsUv1WTIeyqwz0ELl2VtS6NP+eF+77yCXGFVOMbvoCM7QMjlnhv7931e89R+8pJdcQ=="],
 
