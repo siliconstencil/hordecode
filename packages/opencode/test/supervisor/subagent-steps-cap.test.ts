@@ -4,7 +4,6 @@
 
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
-import path from "path"
 import { SessionPrompt } from "../../src/session/prompt"
 import { Session } from "@/session/session"
 import { allowAll, it, useServerConfig } from "./supervisor-test-harness"
@@ -17,13 +16,15 @@ const TOOL_REPLIES = 6
 describe("subagent steps cap", () => {
   it.instance("without steps every queued model call runs", () =>
     Effect.gen(function* () {
-      const { dir, llm } = yield* useServerConfig()
+      const { llm } = yield* useServerConfig()
       const prompt = yield* SessionPrompt.Service
       const sessions = yield* Session.Service
       const chat = yield* sessions.create({ title: "Steps control", permission: allowAll })
 
+      // Succeeding, varying calls: a missing-file read repeats the same normalised error
+      // and would trip the same-error stop rule before the step cap does.
       for (let i = 0; i < TOOL_REPLIES; i++) {
-        yield* llm.tool("read", { filePath: path.join(dir, `missing-${i}.txt`) })
+        yield* llm.tool("bash", { command: `echo ${i}` })
       }
       yield* llm.text("done")
 
@@ -44,13 +45,15 @@ describe("subagent steps cap", () => {
 
   it.instance("steps: 2 caps the subagent loop at about two model calls", () =>
     Effect.gen(function* () {
-      const { dir, llm } = yield* useServerConfig()
+      const { llm } = yield* useServerConfig()
       const prompt = yield* SessionPrompt.Service
       const sessions = yield* Session.Service
       const chat = yield* sessions.create({ title: "Steps cap", permission: allowAll })
 
+      // Succeeding, varying calls: a missing-file read repeats the same normalised error
+      // and would trip the same-error stop rule before the step cap does.
       for (let i = 0; i < TOOL_REPLIES; i++) {
-        yield* llm.tool("read", { filePath: path.join(dir, `missing-${i}.txt`) })
+        yield* llm.tool("bash", { command: `echo ${i}` })
       }
       yield* llm.text("done")
 
