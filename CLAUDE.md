@@ -21,7 +21,7 @@ features. Primary command `horde`, alias `hordecode`, npm package `hordecode`, G
 - MiMo "actor" is Hordecode `supervisor`; MiMo "compose" is the Hordecode `harness` pipeline.
   Both are customized ports, not copies. The name "compose" is retired.
 - Hordecode-only packages: agent, bus, control-plane, cron, global, inbox, memory, project,
-  shared, skill, supervisor, task, workflow, worktree. Fork features surface as tools
+  shared, skill, supervisor, task, workflow. Fork features surface as tools
   (`memory-*`, `supervisor`, `task`, `workflow`, `cron`, `fleet`, `skill*`), not as CLI commands.
 - Config: `hordecode.json` / `hordecode.jsonc` and `.hordecode/` first, `opencode.*` and
   `.opencode/` as lower-priority compatibility. Env: `HORDECODE_*` first, `OPENCODE_*` fallback.
@@ -136,12 +136,12 @@ ever made, it is complete only when all three land together: the code, the `hord
   (`supervisor.max_subagents`) while the peer's first turn runs (`tool/subagent-limits.ts`).
   Open: nesting through `session ask` and the workflow runtime is not checked; a chain of peers is
   not bounded by depth.
-- Fork package tests: `agent`, `control-plane`, `shared`, `task`, `worktree` and `memory` have a `test`
+- Fork package tests: `agent`, `control-plane`, `shared`, `task` and `memory` have a `test`
   script; `project` tests cover project ids, workspace trust and the directory guard. Task registry lifecycle
   tests live in `packages/opencode/test/task` (they need the app database layer). `global` has no scripts at all.
-  Two branch prefixes are in use and both are kept: runtime isolated children (`isolate`) are created by
-  `packages/opencode/src/worktree/index.ts:183` as `opencode/<name>`, while the workflow package
-  (`packages/worktree/src/index.ts:219`) names its branches `hordecode/<name>`. Users see both; refs are not renamed.
+  Git worktrees have one implementation, `packages/opencode/src/worktree/index.ts` (the workflow package
+  `packages/worktree` was merged into it and removed in 0.1.6 phase 4); new branches are `opencode/<name>`, older
+  `hordecode/<name>` refs stay readable and are not renamed.
 - `packages/docs` is untouched upstream scaffolding; the fork subsystems are undocumented there.
 - Type shortcuts: the session hot path is clean (`core/src/session/prompt.ts` 0 `as any`,
   `processor.ts` 2, `max-mode.ts` 5, `opencode/src/session/processor.ts` 0); the remaining
