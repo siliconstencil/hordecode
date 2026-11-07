@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { effectCmd } from "../effect-cmd"
 import { Session } from "@/session/session"
 import { NotFoundError } from "@/storage/storage"
@@ -68,10 +68,23 @@ export const StatsCommand = effectCmd({
       .option("project", {
         describe: "filter by project (default: all projects, empty string: current project)",
         type: "string",
+      })
+      .option("runs", {
+        describe: "show the per-run scorecard instead of the totals (the horde-dev run-scorecard)",
+        type: "boolean",
+      })
+      .option("root", {
+        describe: "limit --runs to one root session id prefix",
+        type: "string",
       }),
   handler: Effect.fn("Cli.stats")(function* (args) {
     const ctx = yield* InstanceRef
     if (!ctx) return
+    if (args.runs) {
+      const runs = yield* aggregateRunStats({ days: args.days, root: args.root, project: ctx.project })
+      displayRunStats(runs)
+      return
+    }
     const stats = yield* aggregateSessionStats(args.days, args.project, ctx.project)
     let modelLimit: number | undefined
     if (args.models === true) {
@@ -409,6 +422,158 @@ export function displayStats(stats: SessionStats, toolLimit?: number, modelLimit
     console.log("└────────────────────────────────────────────────────────┘")
   }
   console.log()
+}
+
+export interface RunRow {
+  root: string
+  start: string
+  title: string
+  subs: number
+  steps: number
+  capHits: number
+  spanH: number
+  modelH: number
+  idleH: number
+  idleGaps: number
+  tools: number
+  toolErr: number
+  inMtok: number
+}
+
+// Fork: the per-run scorecard. Port of dev-lab/dev-tools/run-scorecard.sh, kept
+// expression-for-expression so both report the same numbers on the same root.
+export const aggregateRunStats = Effect.fn("Cli.stats.runs")(function* (input: {
+  days?: number
+  root?: string
+  project: Project.Info
+}) {
+  const { db } = yield* Database.Service
+  const filter = input.root
+    ? sql`id LIKE ${`${input.root}%`}`
+    : sql`parent_id IS NULL AND project_id = ${input.project.id}`
+  const cutoff = (() => {
+    if (input.days === undefined) return
+    if (input.days === 0) {
+      const now = new Date()
+      now.setHours(0, 0, 0, 0)
+      return now.getTime()
+    }
+    return Date.now() - input.days * 24 * 60 * 60 * 1000
+  })()
+  const since = cutoff === undefined ? sql`1 = 1` : sql`time_created >= ${cutoff}`
+  const rows = yield* db
+    .all<{
+      root: string
+      start_pst: string
+      title: string | null
+      subs: number | null
+      steps: number | null
+      cap_hits: number | null
+      span_h: number | null
+      model_h: number | null
+      idle_h: number | null
+      idle_gaps: number | null
+      tools: number | null
+      tool_err: number | null
+      in_Mtok: number | null
+    }>(sql`
+      WITH RECURSIVE tree(root, id) AS (
+        SELECT id, id FROM session WHERE ${filter} AND ${since}
+        UNION ALL SELECT tree.root, s.id FROM session s JOIN tree ON s.parent_id = tree.id
+      ),
+      a AS (
+        SELECT t.root, m.session_id sid, m.time_created c,
+          COALESCE(json_extract(m.data, '$.time.completed'), m.time_created) d,
+          json_extract(m.data, '$.tokens.input') + json_extract(m.data, '$.tokens.cache.read') tin
+        FROM tree t JOIN message m ON m.session_id = t.id
+        WHERE json_extract(m.data, '$.role') = 'assistant'
+      ),
+      g AS (SELECT root, c - LAG(d) OVER (PARTITION BY root ORDER BY c) gap FROM a),
+      st AS (SELECT root, sid, COUNT(*) n FROM a GROUP BY root, sid),
+      tl AS (
+        SELECT t.root, json_extract(p.data, '$.state.status') s
+        FROM tree t JOIN message m ON m.session_id = t.id JOIN part p ON p.message_id = m.id
+        WHERE json_extract(p.data, '$.type') = 'tool'
+      )
+      SELECT substr(r.id, 1, 14) root,
+        datetime(r.time_created / 1000, 'unixepoch', '-8 hours') start_pst,
+        substr(r.title, 1, 34) title,
+        (SELECT COUNT(*) - 1 FROM st WHERE st.root = r.id) subs,
+        (SELECT SUM(n) FROM st WHERE st.root = r.id) steps,
+        (SELECT COUNT(*) FROM st WHERE st.root = r.id AND n >= 100) cap_hits,
+        (SELECT ROUND((MAX(d) - MIN(c)) / 3600000.0, 1) FROM a WHERE a.root = r.id) span_h,
+        (SELECT ROUND(SUM(d - c) / 3600000.0, 1) FROM a WHERE a.root = r.id) model_h,
+        (SELECT ROUND(COALESCE(SUM(gap), 0) / 3600000.0, 1) FROM g WHERE g.root = r.id AND gap > 900000) idle_h,
+        (SELECT COUNT(*) FROM g WHERE g.root = r.id AND gap > 900000) idle_gaps,
+        (SELECT COUNT(*) FROM tl WHERE tl.root = r.id) tools,
+        (SELECT SUM(s = 'error') FROM tl WHERE tl.root = r.id) tool_err,
+        (SELECT ROUND(SUM(tin) / 1e6, 1) FROM a WHERE a.root = r.id) in_Mtok
+      FROM session r WHERE r.id IN (SELECT DISTINCT root FROM tree)
+      ORDER BY r.time_created
+    `)
+    .pipe(Effect.orDie)
+  return rows.map(
+    (row): RunRow => ({
+      root: row.root,
+      start: row.start_pst,
+      title: row.title ?? "",
+      subs: Number(row.subs ?? 0),
+      steps: Number(row.steps ?? 0),
+      capHits: Number(row.cap_hits ?? 0),
+      spanH: Number(row.span_h ?? 0),
+      modelH: Number(row.model_h ?? 0),
+      idleH: Number(row.idle_h ?? 0),
+      idleGaps: Number(row.idle_gaps ?? 0),
+      tools: Number(row.tools ?? 0),
+      toolErr: Number(row.tool_err ?? 0),
+      inMtok: Number(row.in_Mtok ?? 0),
+    }),
+  )
+})
+
+const RUN_HEADERS = [
+  "root",
+  "start_pst",
+  "title",
+  "subs",
+  "steps",
+  "cap_hits",
+  "span_h",
+  "model_h",
+  "idle_h",
+  "idle_gaps",
+  "tools",
+  "tool_err",
+  "in_Mtok",
+]
+
+export function formatRunTable(rows: RunRow[]) {
+  const cells = rows.map((row) => [
+    row.root,
+    row.start,
+    row.title,
+    String(row.subs),
+    String(row.steps),
+    String(row.capHits),
+    row.spanH.toFixed(1),
+    row.modelH.toFixed(1),
+    row.idleH.toFixed(1),
+    String(row.idleGaps),
+    String(row.tools),
+    String(row.toolErr),
+    row.inMtok.toFixed(1),
+  ])
+  const numeric = RUN_HEADERS.map((_, index) => index >= 3)
+  const widths = RUN_HEADERS.map((header, index) =>
+    Math.max(header.length, ...cells.map((row) => row[index].length)),
+  )
+  const line = (row: string[]) =>
+    row.map((cell, index) => (numeric[index] ? cell.padStart(widths[index]) : cell.padEnd(widths[index]))).join("  ")
+  return [line(RUN_HEADERS), ...cells.map(line)].join("\n")
+}
+
+export function displayRunStats(rows: RunRow[]) {
+  console.log(formatRunTable(rows))
 }
 
 function formatNumber(num: number): string {
