@@ -168,7 +168,7 @@ If you find issues, fix them inline. No need to re-review — just fix and move 
 
 After saving the plan, determine execution approach:
 
-1. **Check memory** for a saved `execution-style` preference: call the `memory_recall` tool with
+1. **Check memory** for a saved `execution-style` preference: call the `memory` tool with
    query `harness-preferences execution-style` and scope `global`. Preferences are memories in the
    global scope (type `preference`), written with `memory_add`; the memory tools need no directory
    permission, so never read or write a preferences file by path. If found (`subagent` or

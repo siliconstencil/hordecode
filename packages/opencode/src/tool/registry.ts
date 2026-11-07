@@ -67,7 +67,6 @@ import { MCP } from "@/mcp"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { McpCatalog } from "@/mcp/catalog"
 import { MemoryTool } from "./memory"
-import { MemoryRecallTool } from "./memory-recall"
 import { MemoryStatusTool } from "./memory-status"
 import { MemoryDumpTool } from "./memory-dump"
 import { MemoryGcTool } from "./memory-gc"
@@ -170,7 +169,6 @@ const layer = Layer.effect(
     const sessiontool = yield* SessionTool
     const agent = yield* Agent.Service
     const memorytool = yield* MemoryTool
-    const memoryrecalltool = yield* MemoryRecallTool
     const memorystatustool = yield* MemoryStatusTool
     const memorydump = yield* MemoryDumpTool
     const memorygc = yield* MemoryGcTool
@@ -306,7 +304,6 @@ const layer = Layer.effect(
           plan: Tool.init(plan),
           plan_enter: Tool.init(planEnter),
           memory: Tool.init(memorytool),
-          memory_recall: Tool.init(memoryrecalltool),
           memory_status: Tool.init(memorystatustool),
           memory_dump: Tool.init(memorydump),
           memory_gc: Tool.init(memorygc),
@@ -352,7 +349,6 @@ const layer = Layer.effect(
             ...(flags.experimentalLspTool ? [tool.lsp] : []),
             ...(flags.experimentalPlanMode && flags.client === "cli" ? [tool.plan, tool.plan_enter] : []),
             tool.memory,
-            tool.memory_recall,
             tool.memory_status,
             tool.memory_dump,
             tool.memory_gc,

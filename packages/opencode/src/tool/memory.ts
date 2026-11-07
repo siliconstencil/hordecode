@@ -8,7 +8,7 @@ export const Parameters = Schema.Struct({
     description: "Memory operation to perform",
   }),
   query: Schema.String.annotate({ description: "Search query (BM25 over markdown bodies)" }),
-  scope: Schema.optional(Schema.Literals(["global", "projects", "sessions", "cc"])).annotate({
+  scope: Schema.optional(Schema.Literals(["global", "projects", "sessions", "cc", "episodic"])).annotate({
     description: "Filter by memory scope",
   }),
   scope_id: Schema.optional(Schema.String).annotate({
@@ -31,7 +31,8 @@ export const MemoryTool = Tool.define(
       parameters: Parameters,
       execute: (input: Schema.Schema.Type<typeof Parameters>) =>
         Effect.gen(function* () {
-          const results = yield* memory.search({
+          const recall = (memory as unknown as { recall?: typeof memory.search }).recall ?? memory.search
+          const results = yield* recall({
             query: input.query,
             scope: input.scope,
             scope_id: input.scope_id,

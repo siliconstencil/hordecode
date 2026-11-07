@@ -16,7 +16,7 @@ export const MemorySessionTool = Tool.define(
   Effect.gen(function* () {
     const memory = yield* Memory.Service
     return {
-      description: "Record a session episode: summary + decisions + problems + next_steps. Stored in memory_episodes and searchable via `memory_recall` with scope=episodic.",
+      description: "Record a session episode: summary + decisions + problems + next_steps. Stored in memory_episodes and searchable via `memory` with scope=episodic.",
       parameters: Parameters,
       execute: (input: Schema.Schema.Type<typeof Parameters>) =>
         Effect.gen(function* () {

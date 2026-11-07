@@ -38,6 +38,19 @@ describe("hasSessionTool", () => {
   })
 })
 
+describe("memory tool surface", () => {
+  it.instance(
+    "memory replaces memory_recall",
+    () =>
+      Effect.gen(function* () {
+        const cost = yield* measure("memory-merge", "build")
+        expect(names(cost)).toContain("memory")
+        expect(names(cost)).not.toContain("memory_recall")
+      }),
+    30_000,
+  )
+})
+
 describe("session tool gating", () => {
   it.instance("primary agents keep the session tool", () =>
     Effect.gen(function* () {

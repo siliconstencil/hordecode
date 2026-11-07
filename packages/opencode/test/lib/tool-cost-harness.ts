@@ -7,6 +7,7 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { InstanceBootstrap } from "@/project/bootstrap"
 import { InstanceStore } from "@/project/instance-store"
+import { SupervisorNode, WorkflowNode } from "@/effect/supervisor-node"
 
 const noopBootstrapLayer = Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void }))
 import { SessionProjector } from "@opencode-ai/core/session/projector"
@@ -187,6 +188,21 @@ const makeHttp = AppNodeBuilder.build(
 )
 
 export const it = testEffect(makeHttp)
+
+// Same app graph plus the workflow runtime. The runtime's Worktree requirement is
+// satisfied by the opencode Worktree service already pulled in by ToolRegistry.
+const makeWorkflowHttp = AppNodeBuilder.build(
+  LayerNode.group([promptRoot, WorkflowNode, SupervisorNode, testLLMServerNode]),
+  [
+    [SessionSummary.node, summary],
+    [LSP.node, lsp],
+    [MCP.node, makeMcp()],
+    [RuntimeFlags.node, runtimeFlags],
+    [InstanceStore.bootstrapNode, InstanceBootstrap.node],
+  ] as const,
+)
+
+export const itWorkflow = testEffect(makeWorkflowHttp)
 
 // Config that registers a custom "test" provider with a "test-model" model
 // so provider model lookup succeeds inside the loop.

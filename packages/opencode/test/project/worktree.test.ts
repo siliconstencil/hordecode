@@ -297,6 +297,118 @@ describe("Worktree", () => {
     )
   })
 
+  describe("head and isPristine", () => {
+    it.instance(
+      "head returns the commit checked out in the worktree",
+      () =>
+        withCreatedWorktree(undefined, ({ info }) =>
+          Effect.gen(function* () {
+            const test = yield* TestInstance
+            const svc = yield* Worktree.Service
+            const expected = (yield* git(test.directory, ["rev-parse", "HEAD"])).trim()
+
+            expect((yield* svc.head(info.directory)).trim()).toBe(expected)
+          }),
+        ),
+      { git: true },
+    )
+
+    it.instance(
+      "isPristine is true before edits and false after an edit",
+      () =>
+        withCreatedWorktree(undefined, ({ info }) =>
+          Effect.gen(function* () {
+            const svc = yield* Worktree.Service
+            const base = yield* svc.head(info.directory)
+
+            expect(yield* svc.isPristine(info.directory, base)).toBe(true)
+
+            yield* Effect.promise(() => Bun.write(path.join(info.directory, "dirty.txt"), "x"))
+            expect(yield* svc.isPristine(info.directory, base)).toBe(false)
+          }),
+        ),
+      { git: true },
+    )
+  })
+
+  describe("concurrency", () => {
+    it.instance(
+      "serializes concurrent git worktree adds on one repo",
+      () =>
+        Effect.gen(function* () {
+          const test = yield* TestInstance
+          const realGit = Bun.which("git")
+          if (!realGit) return yield* Effect.die(new Error("git not found on PATH"))
+
+          const bin = path.join(test.directory, ".test-bin")
+          const log = path.join(test.directory, ".test-bin.log")
+          const shim = path.join(bin, "git")
+          yield* Effect.promise(async () => {
+            await Bun.$`mkdir -p ${bin}`
+            await Bun.write(
+              shim,
+              [
+                "#!/bin/sh",
+                `if [ "$1" = "worktree" ] && [ "$2" = "add" ]; then`,
+                `  echo "ADD START $(date +%s%N)" >> "${log}"`,
+                "  sleep 0.4",
+                `  "${realGit}" "$@"`,
+                "  code=$?",
+                `  echo "ADD END $(date +%s%N)" >> "${log}"`,
+                "  exit $code",
+                "fi",
+                `exec "${realGit}" "$@"`,
+                "",
+              ].join("\n"),
+            )
+            await Bun.$`chmod +x ${shim}`
+          })
+
+          const previousPath = process.env.PATH
+          process.env.PATH = `${bin}:${previousPath ?? ""}`
+          yield* Effect.addFinalizer(() =>
+            Effect.sync(() => {
+              process.env.PATH = previousPath
+            }),
+          )
+
+          const svc = yield* Worktree.Service
+          const infos = yield* Effect.all([svc.create(), svc.create()], { concurrency: 2 })
+          const lines = (yield* Effect.promise(() => Bun.file(log).text()))
+            .split("\n")
+            .filter((line) => line.startsWith("ADD "))
+
+          expect(lines.map((line) => line.split(" ")[1])).toEqual(["START", "END", "START", "END"])
+
+          yield* Effect.forEach(infos, (info) => svc.remove({ directory: info.directory }).pipe(Effect.ignore), {
+            concurrency: 1,
+          })
+        }),
+      { git: true },
+    )
+  })
+
+  describe("legacy hordecode refs", () => {
+    it.instance(
+      "lists and removes a pre-existing hordecode/* worktree",
+      () =>
+        Effect.gen(function* () {
+          const test = yield* TestInstance
+          const svc = yield* Worktree.Service
+          const target = path.join(test.directory, "legacy-worktree")
+          yield* git(test.directory, ["worktree", "add", "-b", "hordecode/legacy", target])
+
+          const list = yield* svc.list()
+          expect(list).toContainEqual(expect.objectContaining({ name: "legacy-worktree", branch: "hordecode/legacy" }))
+
+          expect(yield* svc.remove({ directory: target })).toBe(true)
+          const refs = yield* gitResult(test.directory, ["branch", "--list", "hordecode/legacy"])
+          expect(refs.text().trim()).toBe("")
+        }),
+      { git: true },
+    )
+  })
+
   describe("remove edge cases", () => {
     it.instance(
       "remove non-existent directory succeeds silently",

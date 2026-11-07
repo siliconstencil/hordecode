@@ -11,7 +11,7 @@ import { Slug } from "@opencode-ai/shared/util/slug"
 import { errorMessage } from "../util/error"
 import { GlobalBus } from "@/bus/global"
 import { Git } from "@/git"
-import { Effect, Layer, Path, Schema, Scope, Context } from "effect"
+import { Effect, Layer, Path, Schema, Scope, Context, Semaphore } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { AppProcess } from "@opencode-ai/core/process"
@@ -123,6 +123,8 @@ export interface Interface {
   readonly list: () => Effect.Effect<(Omit<Info, "branch"> & { branch?: string })[], Error>
   readonly remove: (input: RemoveInput) => Effect.Effect<boolean, Error>
   readonly reset: (input: ResetInput) => Effect.Effect<boolean, Error>
+  readonly head: (directory: string) => Effect.Effect<string>
+  readonly isPristine: (directory: string, base: string) => Effect.Effect<boolean>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Worktree") {}
@@ -150,6 +152,16 @@ const layer: Layer.Layer<
     const gitSvc = yield* Git.Service
     const project = yield* Project.Service
     const store = yield* InstanceStore.Service
+
+    // Fork: worktree-add lock from packages/worktree/src/index.ts:186-197.
+    const locks = new Map<string, Semaphore.Semaphore>()
+    const lock = (key: string) => {
+      const hit = locks.get(key)
+      if (hit) return hit
+      const next = Semaphore.makeUnsafe(1)
+      locks.set(key, next)
+      return next
+    }
 
     const git = Effect.fnUntraced(
       function* (args: string[], opts?: { cwd?: string }) {
@@ -213,11 +225,13 @@ const layer: Layer.Layer<
 
     const setup = Effect.fnUntraced(function* (info: Info) {
       const ctx = yield* InstanceState.context
-      const created = yield* git(
-        info.branch
-          ? ["worktree", "add", "--no-checkout", "-b", info.branch, info.directory]
-          : ["worktree", "add", "--no-checkout", "--detach", info.directory, "HEAD"],
-        { cwd: ctx.worktree },
+      const created = yield* lock(ctx.worktree).withPermits(1)(
+        git(
+          info.branch
+            ? ["worktree", "add", "--no-checkout", "-b", info.branch, info.directory]
+            : ["worktree", "add", "--no-checkout", "--detach", info.directory, "HEAD"],
+          { cwd: ctx.worktree },
+        ),
       )
       if (created.code !== 0) {
         return yield* new CreateFailedError({
@@ -614,7 +628,21 @@ const layer: Layer.Layer<
       return true
     })
 
-    return Service.of({ makeWorktreeInfo, createFromInfo, create, list, remove, reset })
+    // Fork: head/isPristine from packages/worktree/src/index.ts:607-618.
+    const head = Effect.fn("Worktree.head")(function* (directory: string) {
+      const res = yield* git(["rev-parse", "HEAD"], { cwd: directory })
+      return res.text.trim()
+    })
+
+    const isPristine = Effect.fn("Worktree.isPristine")(function* (directory: string, base: string) {
+      const status = yield* git(["status", "--porcelain"], { cwd: directory })
+      if (status.code !== 0) return false
+      if (status.text.trim() !== "") return false
+      const current = yield* git(["rev-parse", "HEAD"], { cwd: directory })
+      return current.code === 0 && current.text.trim() === base
+    })
+
+    return Service.of({ makeWorktreeInfo, createFromInfo, create, list, remove, reset, head, isPristine })
   }),
 )
 

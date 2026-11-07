@@ -171,7 +171,7 @@ A browser-based companion for showing mockups, diagrams, and visual options duri
 
 **Offering the companion:** When you anticipate visual content (mockups, layouts, diagrams):
 
-1. **Check memory** for a `visual-companion` preference: call the `memory_recall` tool with query
+1. **Check memory** for a `visual-companion` preference: call the `memory` tool with query
    `harness-preferences visual-companion` and scope `global`. Preferences are memories in the global
    scope (type `preference`), written with `memory_add`; the memory tools need no directory
    permission, so never read or write a preferences file by path. If found, honor it.
