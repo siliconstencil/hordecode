@@ -752,10 +752,15 @@ export const RunCommand = effectCmd({
                 if (emit("step_finish", { part })) continue
               }
 
-              // Fork (brief E): synthetic system notes (stop rules, wake, the run
-              // scorecard) stay in the session, not in the CLI output.
-              if (part.type === "text" && part.time?.end && !part.synthetic) {
+              // Fork (brief E): --format json keeps every text part. Default
+              // text output hides only the two synthetic notes this slice adds
+              // (the run scorecard and the wake notice); stop-rule and try-best
+              // notes stay visible so a headless user still sees why a run
+              // stopped.
+              if (part.type === "text" && part.time?.end) {
                 if (emit("text", { part })) continue
+                const origin = (part.metadata as { origin?: { kind?: string } } | undefined)?.origin?.kind
+                if (part.synthetic && (origin === "run_score" || origin === "wake")) continue
                 const text = part.text.trim()
                 if (!text) continue
                 if (!process.stdout.isTTY) {
