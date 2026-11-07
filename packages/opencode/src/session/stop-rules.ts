@@ -71,13 +71,6 @@ export class StopRuleMonitor {
       detail: `the same error repeated ${count} times: ${error}`,
     }
   }
-
-  reset() {
-    this.turn = undefined
-    this.signature = undefined
-    this.identical = 0
-    this.errors.clear()
-  }
 }
 
 const monitors = new Map<string, StopRuleMonitor>()
@@ -89,8 +82,4 @@ export function monitor(sessionID: string, agentID?: string) {
   const created = new StopRuleMonitor()
   monitors.set(key, created)
   return created
-}
-
-export function resetMonitor(sessionID: string, agentID?: string) {
-  monitors.delete(`${sessionID}:${agentID ?? "main"}`)
 }
