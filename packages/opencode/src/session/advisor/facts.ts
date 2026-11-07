@@ -34,7 +34,7 @@ const READ_ONLY_TOOLS = new Set([
   "skill_search",
   "mcp_tool_search",
   "history",
-  "memory_recall",
+  "memory",
   "memory_status",
 ])
 const ERROR_KEY_LIMIT = 200

@@ -38,7 +38,7 @@ Report with branch state:
 
 **If `GIT_DIR == GIT_COMMON` (or in a submodule):** You are in a normal repo checkout.
 
-1. **Check memory** for a `worktree-consent` preference: call the `memory_recall` tool with query
+1. **Check memory** for a `worktree-consent` preference: call the `memory` tool with query
    `harness-preferences worktree-consent` and scope `global`. Preferences are memories in the global
    scope (type `preference`), written with `memory_add`; the memory tools need no directory
    permission, so never read or write a preferences file by path. Also check your instructions for a

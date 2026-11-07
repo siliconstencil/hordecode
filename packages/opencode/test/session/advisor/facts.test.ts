@@ -214,8 +214,8 @@ describe("readOnlyStreak", () => {
     expect(collectFacts([user("hi")], undefined).readOnlyStreak).toBe(0)
   })
 
-  test("fork read-only tools (history, memory_recall, memory_status, skill_search) count", () => {
-    const messages = [user("go"), read("history"), read("memory_recall"), read("memory_status"), read("skill_search")]
+  test("fork read-only tools (history, memory, memory_status, skill_search) count", () => {
+    const messages = [user("go"), read("history"), read("memory"), read("memory_status"), read("skill_search")]
     expect(collectFacts(messages, undefined).readOnlyStreak).toBe(4)
   })
 
