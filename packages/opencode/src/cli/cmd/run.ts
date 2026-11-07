@@ -752,7 +752,9 @@ export const RunCommand = effectCmd({
                 if (emit("step_finish", { part })) continue
               }
 
-              if (part.type === "text" && part.time?.end) {
+              // Fork (brief E): synthetic system notes (stop rules, wake, the run
+              // scorecard) stay in the session, not in the CLI output.
+              if (part.type === "text" && part.time?.end && !part.synthetic) {
                 if (emit("text", { part })) continue
                 const text = part.text.trim()
                 if (!text) continue
