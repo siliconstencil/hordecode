@@ -3,7 +3,8 @@ import { Effect } from "effect"
 import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Path as GlobalPath } from "@opencode-ai/global"
-import { InstallationLocal, InstallationVersion } from "@opencode-ai/core/installation/version"
+import { InstallationVersion } from "@opencode-ai/core/installation/version"
+import { Hash } from "@opencode-ai/core/util/hash"
 import { Log } from "@opencode-ai/core/util"
 import { loadBuiltinBundle } from "./bundle.macro" with { type: "macro" }
 import { loadBuiltinBundle as loadBuiltinBundleDev } from "./bundle.macro"
@@ -91,20 +92,50 @@ const BUILTIN_BUNDLE = safeLoadBuiltinBundle()
 
 const log = Log.create({ service: "skill.builtin" })
 
+// Identity of the files this process would write, keyed by the official-skills
+// flag so the marker also changes when HORDECODE_DISABLE_OFFICIAL_SKILLS flips.
+// Two entries at most; this is not an extraction result cache (nothing captures
+// an fsys instance).
+const identities = new Map<boolean, string>()
+
+function bundleIdentity(disableOfficial: boolean) {
+  const known = identities.get(disableOfficial)
+  if (known) return known
+  const identity = Hash.sha256(
+    JSON.stringify(
+      Object.entries(BUILTIN_BUNDLE)
+        .filter(([skillName]) => !(disableOfficial && OFFICIAL_SKILL_NAMES.has(skillName)))
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([skillName, files]) => [
+          skillName,
+          Object.keys(files)
+            .sort()
+            .map((relPath) => [relPath, files[relPath]]),
+        ]),
+    ),
+  ).slice(0, 16)
+  identities.set(disableOfficial, identity)
+  return identity
+}
+
 export const extractBuiltinBundle = Effect.fn("Skill.extractBuiltinBundle")(function* (
   fsys: AppFileSystem.Interface,
 ) {
   const skillsRoot = builtinSkillRoot()
   const root = path.dirname(skillsRoot)
-  const marker = path.join(root, ".extracted")
+  const disableOfficial = Flag.HORDECODE_DISABLE_OFFICIAL_SKILLS
+  // The marker carries the content hash of the bundle, so dev/test/local builds
+  // (InstallationLocal, which used to skip the marker entirely) extract once per
+  // data root instead of once per Skill layer build, and still re-extract when the
+  // embedded bundle or the official-skills flag changes.
+  const marker = path.join(root, `.extracted-${bundleIdentity(disableOfficial)}`)
 
-  if (!InstallationLocal && (yield* fsys.existsSafe(marker))) return root
+  if (yield* fsys.existsSafe(marker)) return root
 
-  // Files are independent; writing them concurrently takes a third of the time of one at a time (dev and test
-  // runs extract on every start, as InstallationLocal skips the marker).
+  // Files are independent; writing them concurrently takes a third of the time of one at a time.
   yield* Effect.forEach(
     Object.entries(BUILTIN_BUNDLE).filter(
-      ([skillName]) => !(Flag.HORDECODE_DISABLE_OFFICIAL_SKILLS && OFFICIAL_SKILL_NAMES.has(skillName)),
+      ([skillName]) => !(disableOfficial && OFFICIAL_SKILL_NAMES.has(skillName)),
     ),
     ([skillName, files]) =>
       Effect.forEach(
