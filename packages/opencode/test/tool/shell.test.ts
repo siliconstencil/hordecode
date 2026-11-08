@@ -1122,6 +1122,78 @@ describe("tool.shell permissions", () => {
     )
   }
 
+  // Field case (reports/0.1.6/FIELD-LOG.md:32-34): from the project root, a chained
+  // `cd <nested dir> && cd ../sibling` must resolve `../sibling` against the first
+  // cd, not against the session cwd. Resolving against the session cwd pointed at
+  // ~/Desktop/tui and asked for an external directory the command never touches.
+  each("a chained cd resolves against the previous cd, not the session cwd", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      yield* runIn(
+        tmp,
+        Effect.gen(function* () {
+          for (const command of [
+            "cd build-worktrees/p3-steps/packages/opencode && cd ../tui && bun test",
+            "pushd build-worktrees/p3-steps/packages/opencode && pushd ../tui && popd && bun test",
+          ]) {
+            const requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" | "tool">> = []
+            yield* fail({ command }, capture(requests, new Error("stop")))
+            expect(requests.map((r) => r.permission)).toEqual(["bash"])
+            expect(requests[0].patterns).toEqual(["bun test"])
+          }
+        }),
+      )
+    }),
+  )
+
+  // The tracked-cwd fix must not open a hole: a chained cd that really leaves the
+  // worktree has to keep asking for the external directory.
+  each("a chained cd that really leaves the worktree keeps asking", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      yield* runIn(
+        tmp,
+        Effect.gen(function* () {
+          for (const command of [
+            "cd build-worktrees/p3-steps/packages/opencode && cd ../../../../.. && bun test",
+            "cd build-worktrees/p3-steps/packages/opencode && cd / && bun test",
+          ]) {
+            const requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" | "tool">> = []
+            yield* fail({ command }, capture(requests, new Error("stop")))
+            expect(requests[0].permission).toBe("external_directory")
+            expect(
+              requests[0].patterns.some(
+                (item) => !item.replaceAll("\\", "/").startsWith(tmp.replaceAll("\\", "/")),
+              ),
+            ).toBe(true)
+          }
+        }),
+      )
+    }),
+  )
+
+  // A `;` or `||` separator means the preceding cd may not have run (or may have
+  // failed), so the cwd is uncertain and every candidate must be checked. A
+  // successful `&&` cd still has to ask when the path itself is outside.
+  const asksExternal = (command: string) =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      yield* runIn(
+        tmp,
+        Effect.gen(function* () {
+          const requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" | "tool">> = []
+          yield* fail({ command }, capture(requests, new Error("stop")))
+          expect(requests[0].permission).toBe("external_directory")
+        }),
+      )
+    })
+
+  each("a cd before a semicolon may fail, so the path still asks", () => asksExternal("cd nonexistent; cat ../x"))
+
+  each("a cd after a `||` may not run, so the path still asks", () => asksExternal("cd a || cd b; cat ../../x"))
+
+  each("a successful `&&` cd to an outside path still asks", () => asksExternal("cd a && cat ../../x"))
+
   each("matches redirects in permission pattern", () =>
     Effect.gen(function* () {
       const tmp = yield* tmpdirScoped()
