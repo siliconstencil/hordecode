@@ -224,6 +224,32 @@ function commands(node: Node) {
   return node.descendantsOfType("command").filter((child): child is Node => Boolean(child))
 }
 
+// Only a command in the top-level sequential chain (`;`, `&&`, `||`) moves the
+// shell's cwd for the segment after it. A command inside a subshell, a command
+// substitution, a pipeline or a function body does not change the parent shell's
+// cwd (or runs in a branch we cannot decide statically), so its `cd` must not
+// leak into later segments.
+const SEQUENTIAL = new Set(["program", "list", "redirected_statement"])
+
+function sequential(node: Node) {
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if (!SEQUENTIAL.has(parent.type)) return false
+  }
+  return true
+}
+
+// Resolve a cwd command's target against the cwd tracked so far. A target that
+// cannot be pinned down statically (`-`, `~`, `$VAR`, a substitution, a glob)
+// leaves the tracked cwd unchanged: the scan may then ask for a directory it did
+// not need to, but it never silently skips one.
+function staticPath(target: string | undefined, cwd: string) {
+  if (!target) return
+  const text = unquote(target)
+  if (!text || text === "-" || text.startsWith("~")) return
+  if (text.includes("$") || text.includes("`") || /[?*[]/.test(text)) return
+  return path.resolve(cwd, text)
+}
+
 function unquote(text: string) {
   if (text.length < 2) return text
   const first = text[0]
@@ -600,6 +626,11 @@ export const ShellTool = Tool.define(
         deletes: new Set<string>(),
       }
       const shellKind = ShellID.toKind(Shell.name(shell))
+      // Effective cwd as the shell walks the command left to right. A chained
+      // `cd a && cd ../b` resolves each target against the previous cd, not the
+      // session cwd (field case: reports/0.1.6/FIELD-LOG.md:32-34).
+      let current = cwd
+      const stack: string[] = []
 
       for (const node of commands(root)) {
         const command = parts(node)
@@ -608,7 +639,7 @@ export const ShellTool = Tool.define(
 
         if (cmd && (FILES.has(cmd) || (shellKind === "cmd" && CMD_FILES.has(cmd)))) {
           for (const arg of pathArgs(command, ps, shellKind === "cmd")) {
-            const resolved = yield* argPath(arg, cwd, ps, shell)
+            const resolved = yield* argPath(arg, current, ps, shell)
             yield* Effect.logInfo("resolved path", { arg, resolved })
             if (!resolved || insideProject(resolved, instance)) continue
             const dir = (yield* fs.isDir(resolved)) ? resolved : path.dirname(resolved)
@@ -624,9 +655,21 @@ export const ShellTool = Tool.define(
         if (isDelete(tokens, ps)) scan.deletes.add(source(node))
 
         for (const word of tokens.slice(1)) {
-          const file = ProtectedPath.matchWord(word, cwd)
+          const file = ProtectedPath.matchWord(word, current)
           if (file) scan.protected.add(file)
         }
+
+        if (!cmd || !CWD.has(cmd) || !sequential(node)) continue
+        const target = pathArgs(command, ps, shellKind === "cmd")[0]
+        if (cmd === "popd") {
+          const prev = stack.pop()
+          if (prev) current = prev
+          continue
+        }
+        const next = staticPath(target, current)
+        if (!next) continue
+        if (cmd === "pushd") stack.push(current)
+        current = next
       }
 
       for (const node of root.descendantsOfType("file_redirect")) {
