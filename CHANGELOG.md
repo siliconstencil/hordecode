@@ -12,13 +12,6 @@ All notable changes to this project will be documented in this file.
 - Complete DSML calls that survive the text tool-call retry cap run as real tool calls through the normal
   permission path, at most 3 per session (default on; `HORDECODE_DSML_SALVAGE=0` turns it off).
 - `HORDECODE_HARNESS_DOCS` and `HORDECODE_HARNESS_EVIDENCE` for the harness gate and aggregate scripts.
-- A waiting parent gets a short notice when a child session finishes, or when the run has shown no assistant
-  activity for 15 minutes while tasks are still open. The notice is written to the parent and shown as a toast;
-  it never starts a turn on its own.
-- A one-line run scorecard records steps, calls, uniqueness, errors and idle time; `horde stats` keeps the
-  per-run scorecard.
-- Stop rules end a turn that repeats the same tool call or the same error; a read-only shell command counts
-  toward the advisor no-progress streak.
 - Root-level `steps` config key sets a global step limit (1 to 1000), and the command palette offers a Step
   limit setting. An agent with its own `steps` keeps it.
 - Generated ids carry a 64-bit time field behind a sort mark and stay order-compatible with v1 ids.
