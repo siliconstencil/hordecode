@@ -36,6 +36,7 @@ import { resolveStepLimit } from "@opencode-ai/core/session/step-budget"
 import { it, useServerConfig } from "../supervisor/supervisor-test-harness"
 
 const twinSource = await Bun.file(path.join(import.meta.dir, "../../../core/src/session/prompt.ts")).text()
+const mainSource = await Bun.file(path.join(import.meta.dir, "../../src/session/prompt.ts")).text()
 
 describe("fork session twin", () => {
   test("the shared helper resolves the spawn budget over every other limit", () => {
@@ -50,9 +51,9 @@ describe("fork session twin", () => {
     expect(resolveStepLimit({ global: 3, fallback: 100 })).toBe(3)
   })
 
-  test("the twin's fallback is Infinity and the main loop's is 100", () => {
+  test("both loops fall back to Infinity (no default cap)", () => {
     expect(resolveStepLimit({ fallback: Infinity })).toBe(Infinity)
-    expect(resolveStepLimit({ fallback: 100 })).toBe(100)
+    expect(mainSource).toMatch(/fallback:\s*Infinity/)
   })
 
   test("the twin calls the shared helper (wiring check)", () => {

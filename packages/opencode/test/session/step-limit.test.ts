@@ -189,39 +189,43 @@ describe("global step limit", () => {
   )
 
   it.instance(
-    "without a configured limit the hard ceiling stops the loop",
+    "without a configured limit the loop runs past 100 steps and the ceiling does not stop it",
     () =>
       Effect.gen(function* () {
         const { dir, llm } = yield* useServerConfig()
         const prompt = yield* SessionPrompt.Service
         const sessions = yield* Session.Service
-        const chat = yield* sessions.create({ title: "Hard ceiling", permission: allowAll })
+        const chat = yield* sessions.create({ title: "No default cap", permission: allowAll })
 
-        // The provider asks for a tool on every step, even on the step the soft limit
-        // forces to text, so only the hard ceiling can end this loop.
+        // 201 tool steps, then the provider finally answers with text. The old default of
+        // 100 and the 200 hard ceiling must not cut this run.
         for (let i = 0; i < 201; i++) {
           yield* llm.push(reply().tool("read", { filePath: path.join(dir, `missing-${i}.txt`) }))
         }
+        yield* llm.push(reply().text("done").stop())
 
         yield* prompt.prompt({
           sessionID: chat.id,
           agent: "build",
-          agentID: "hard-ceiling",
+          agentID: "no-default-cap",
           parts: [{ type: "text", text: "keep reading" }],
         })
 
         const inputs = (yield* llm.inputs).filter((body) => !isTitleRequest(body))
-        expect(inputs.length).toBe(201)
-        expect((yield* TestConsole.logLines).some(hardCapBreached)).toBe(true)
+        expect(inputs.length).toBe(202)
+        expect(inputs.some((body) => forcedText(body))).toBe(false)
+        expect((yield* TestConsole.logLines).some(hardCapBreached)).toBe(false)
       }),
     300_000,
   )
 })
 
 describe("global step limit schema", () => {
-  test("the root schemas accept 1000 and reject 1001", () => {
+  test("the root schemas accept 0 (no limit) and 1000, and reject 1001", () => {
+    expect(Schema.decodeUnknownSync(ConfigV1.Info)({ steps: 0 }).steps).toBe(0)
     expect(Schema.decodeUnknownSync(ConfigV1.Info)({ steps: 1000 }).steps).toBe(1000)
     expect(() => Schema.decodeUnknownSync(ConfigV1.Info)({ steps: 1001 })).toThrow()
+    expect(CoreConfig.Info.parse({ steps: 0 }).steps).toBe(0)
     expect(CoreConfig.Info.parse({ steps: 1000 }).steps).toBe(1000)
     expect(() => CoreConfig.Info.parse({ steps: 1001 })).toThrow()
   })

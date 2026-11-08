@@ -297,6 +297,8 @@ export const dict: Record<string, string> = {
   // Step limit dialog
   "tui.step_limit.title": "Step limit",
   "tui.step_limit.saved": "Step limit set to {{value}}.",
+  "tui.step_limit.saved_none": "Step limit removed; there is no limit.",
+  "tui.step_limit.option.none": "No limit",
   "tui.step_limit.invalid": "Enter a whole number between 1 and 1000.",
   "tui.step_limit.custom_title": "Custom step limit",
   "tui.step_limit.option.custom": "Custom",

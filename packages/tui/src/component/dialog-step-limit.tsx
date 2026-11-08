@@ -17,6 +17,11 @@ import { useLanguage } from "../context/language"
 
 export const STEP_LIMIT_PRESETS = [100, 200, 300]
 
+// The value the dialog writes for "no limit". The server drops the sentinel before it
+// writes the config file (packages/opencode/src/config/config.ts writableGlobal), so the
+// loop sees no `steps` key and does not cap the turn.
+export const STEP_LIMIT_NO_LIMIT = 0
+
 // The ceiling of the custom value, the same bound the config schema enforces
 // (packages/core/src/v1/config/config.ts).
 export const STEP_LIMIT_MAX = 1000
@@ -65,10 +70,22 @@ export function DialogStepLimit() {
       return
     }
     dialog.clear()
-    toast.show({ variant: "success", message: t("tui.step_limit.saved", { value }), duration: 3000 })
+    toast.show({
+      variant: "success",
+      message:
+        value === STEP_LIMIT_NO_LIMIT
+          ? t("tui.step_limit.saved_none")
+          : t("tui.step_limit.saved", { value }),
+      duration: 3000,
+    })
   }
 
   const options = (): DialogSelectOption<number | "custom">[] => [
+    {
+      value: STEP_LIMIT_NO_LIMIT,
+      title: t("tui.step_limit.option.none"),
+      onSelect: () => void save(STEP_LIMIT_NO_LIMIT),
+    },
     ...STEP_LIMIT_PRESETS.map((preset) => ({
       value: preset,
       title: String(preset),
@@ -102,7 +119,7 @@ export function DialogStepLimit() {
     <DialogSelect<number | "custom">
       title={t("tui.step_limit.title")}
       flat={true}
-      current={current()}
+      current={current() ?? STEP_LIMIT_NO_LIMIT}
       options={options()}
     />
   )

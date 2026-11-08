@@ -629,9 +629,8 @@ export const SupervisorTool = Tool.define(
             model,
             background,
             task_id: effectiveTaskId,
-            // Step cap: the agent's configured steps, else the loop default (100, session/prompt.ts).
-            // It stops runaway loops; it is not meant to cut a worker's task short.
-            steps: next.steps ?? 100,
+            // Step cap: the agent's configured steps; unset means no cap (the loop fallback is Infinity).
+            steps: next.steps,
             format: op.output_schema
               ? { type: "json_schema" as const, schema: op.output_schema, retryCount: 2 }
               : undefined,
