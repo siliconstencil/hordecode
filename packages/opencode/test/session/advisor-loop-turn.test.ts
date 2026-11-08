@@ -296,11 +296,10 @@ it.instance("advisor review fires from the real loop after tool_failures reaches
       (hit) => isAdvisorCall(hit.body),
       '[{"severity":"concern","note":"stop retrying the same failing command"}]',
     )
-    // Three different failures: the advisor counts tool failures, and the same
-    // normalised error three times is now a stop rule of its own.
-    yield* llm.tool("bash", { command: "echo alpha; exit 1", description: "fail 1" })
-    yield* llm.tool("bash", { command: "echo beta; exit 2", description: "fail 2" })
-    yield* llm.tool("bash", { command: "echo gamma; exit 3", description: "fail 3" })
+    // Three failing bash calls (tool_failures threshold is 3), then a plain stop.
+    yield* llm.tool("bash", { command: "exit 1", description: "fail 1" })
+    yield* llm.tool("bash", { command: "exit 1", description: "fail 2" })
+    yield* llm.tool("bash", { command: "exit 1", description: "fail 3" })
     yield* llm.text("done")
 
     yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
@@ -335,7 +334,7 @@ it.instance("no advisor call when the trigger never fires (tool_failures below t
       (hit) => isAdvisorCall(hit.body),
       '[{"severity":"concern","note":"should not be seen"}]',
     )
-    yield* llm.tool("bash", { command: "echo alpha; exit 1", description: "fail 1" })
+    yield* llm.tool("bash", { command: "exit 1", description: "fail 1" })
     yield* llm.tool("bash", { command: "exit 1", description: "fail 2" })
     yield* llm.text("done")
 
@@ -354,10 +353,9 @@ it.instance("the advisor is a no-op when experimental.advisor is absent (default
     const chat = yield* sessions.create({ title: "advisor off", permission: allowAll })
 
     yield* llm.textMatch((hit) => isAdvisorCall(hit.body), '[{"severity":"concern","note":"should not be seen"}]')
-    // Three different failures; the advisor is off, so no note is produced.
-    yield* llm.tool("bash", { command: "echo alpha; exit 1", description: "fail 1" })
-    yield* llm.tool("bash", { command: "echo beta; exit 2", description: "fail 2" })
-    yield* llm.tool("bash", { command: "echo gamma; exit 3", description: "fail 3" })
+    yield* llm.tool("bash", { command: "exit 1", description: "fail 1" })
+    yield* llm.tool("bash", { command: "exit 1", description: "fail 2" })
+    yield* llm.tool("bash", { command: "exit 1", description: "fail 3" })
     yield* llm.text("done")
 
     yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })

@@ -15,8 +15,7 @@
 import { describe, expect, test } from "bun:test"
 import { Effect, Schema } from "effect"
 import { TestConsole } from "effect/testing"
-// A succeeding, varying call: a missing-file read repeats the same normalised
-// error and would trip the same-error stop rule before the step limit does.
+import path from "path"
 import { SessionPrompt } from "../../src/session/prompt"
 import { Session } from "@/session/session"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
@@ -43,13 +42,13 @@ describe("global step limit", () => {
     "the global limit forces the text-only answer at the configured step",
     () =>
       Effect.gen(function* () {
-        const { llm } = yield* useServerConfig({ steps: 3 })
+        const { dir, llm } = yield* useServerConfig({ steps: 3 })
         const prompt = yield* SessionPrompt.Service
         const sessions = yield* Session.Service
         const chat = yield* sessions.create({ title: "Global steps", permission: allowAll })
 
         for (let i = 0; i < 2; i++) {
-          yield* llm.toolMatch(toolsAllowed, "bash", { command: `echo ${i}` })
+          yield* llm.toolMatch(toolsAllowed, "read", { filePath: path.join(dir, `missing-${i}.txt`) })
         }
         yield* llm.textMatch(toolsForbidden, "done")
 
@@ -73,13 +72,13 @@ describe("global step limit", () => {
     "the agent limit wins over the global limit",
     () =>
       Effect.gen(function* () {
-        const { llm } = yield* useServerConfig({ steps: 5, agent: { build: { steps: 2 } } })
+        const { dir, llm } = yield* useServerConfig({ steps: 5, agent: { build: { steps: 2 } } })
         const prompt = yield* SessionPrompt.Service
         const sessions = yield* Session.Service
         const chat = yield* sessions.create({ title: "Agent steps", permission: allowAll })
 
         for (let i = 0; i < 4; i++) {
-          yield* llm.toolMatch(toolsAllowed, "bash", { command: `echo ${i}` })
+          yield* llm.toolMatch(toolsAllowed, "read", { filePath: path.join(dir, `missing-${i}.txt`) })
         }
         yield* llm.textMatch(toolsForbidden, "done")
 
@@ -101,13 +100,13 @@ describe("global step limit", () => {
     "the spawn budget wins over the agent limit",
     () =>
       Effect.gen(function* () {
-        const { llm } = yield* useServerConfig({ steps: 9, agent: { build: { steps: 5 } } })
+        const { dir, llm } = yield* useServerConfig({ steps: 9, agent: { build: { steps: 5 } } })
         const prompt = yield* SessionPrompt.Service
         const sessions = yield* Session.Service
         const chat = yield* sessions.create({ title: "Spawn steps", permission: allowAll })
 
         for (let i = 0; i < 4; i++) {
-          yield* llm.toolMatch(toolsAllowed, "bash", { command: `echo ${i}` })
+          yield* llm.toolMatch(toolsAllowed, "read", { filePath: path.join(dir, `missing-${i}.txt`) })
         }
         yield* llm.textMatch(toolsForbidden, "done")
 
@@ -133,13 +132,13 @@ describe("global step limit", () => {
     "without a configured limit the loop does not force the text answer early",
     () =>
       Effect.gen(function* () {
-        const { llm } = yield* useServerConfig()
+        const { dir, llm } = yield* useServerConfig()
         const prompt = yield* SessionPrompt.Service
         const sessions = yield* Session.Service
         const chat = yield* sessions.create({ title: "Default steps", permission: allowAll })
 
         for (let i = 0; i < 3; i++) {
-          yield* llm.toolMatch(toolsAllowed, "bash", { command: `echo ${i}` })
+          yield* llm.toolMatch(toolsAllowed, "read", { filePath: path.join(dir, `missing-${i}.txt`) })
         }
         yield* llm.textMatch(toolsAllowed, "done")
 
@@ -161,14 +160,14 @@ describe("global step limit", () => {
     "a configured limit above the ceiling reaches its forced text-only step",
     () =>
       Effect.gen(function* () {
-        const { llm } = yield* useServerConfig({ steps: 300 })
+        const { dir, llm } = yield* useServerConfig({ steps: 300 })
         const prompt = yield* SessionPrompt.Service
         const sessions = yield* Session.Service
         const chat = yield* sessions.create({ title: "Ceiling steps", permission: allowAll })
 
         // 299 tool answers, then the forced text-only answer of the last allowed step.
         for (let i = 0; i < 299; i++) {
-          yield* llm.toolMatch(toolsAllowed, "bash", { command: `echo ${i}` })
+          yield* llm.toolMatch(toolsAllowed, "read", { filePath: path.join(dir, `missing-${i}.txt`) })
         }
         yield* llm.textMatch(toolsForbidden, "done")
 
@@ -193,7 +192,7 @@ describe("global step limit", () => {
     "without a configured limit the hard ceiling stops the loop",
     () =>
       Effect.gen(function* () {
-        const { llm } = yield* useServerConfig()
+        const { dir, llm } = yield* useServerConfig()
         const prompt = yield* SessionPrompt.Service
         const sessions = yield* Session.Service
         const chat = yield* sessions.create({ title: "Hard ceiling", permission: allowAll })
@@ -201,7 +200,7 @@ describe("global step limit", () => {
         // The provider asks for a tool on every step, even on the step the soft limit
         // forces to text, so only the hard ceiling can end this loop.
         for (let i = 0; i < 201; i++) {
-          yield* llm.push(reply().tool("bash", { command: `echo ${i}` }))
+          yield* llm.push(reply().tool("read", { filePath: path.join(dir, `missing-${i}.txt`) }))
         }
 
         yield* prompt.prompt({

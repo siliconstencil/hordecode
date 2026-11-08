@@ -285,9 +285,7 @@ Options:
       --tools       number of tools to show (default: all)                                  [number]
       --models      show model statistics (default: hidden). Pass a number to show top N, otherwise
                     shows all
-      --project     filter by project (default: all projects, empty string: current project)[string]
-      --runs        show one row per root run instead of the totals                        [boolean]
-      --root        limit --runs to one root session id prefix                              [string]"
+      --project     filter by project (default: all projects, empty string: current project)[string]"
 `;
 
 exports[`horde CLI help-text snapshots every documented command emits stable help text: horde export --help 1`] = `
