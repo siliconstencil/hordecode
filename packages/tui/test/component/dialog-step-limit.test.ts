@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import { parseStepLimit, stepLimitPatch, STEP_LIMIT_PRESETS } from "../../src/component/dialog-step-limit"
+import {
+  parseStepLimit,
+  stepLimitPatch,
+  STEP_LIMIT_NO_LIMIT,
+  STEP_LIMIT_PRESETS,
+} from "../../src/component/dialog-step-limit"
 import { createBuiltinPlugins } from "../../src/feature-plugins/builtins"
 
 describe("dialog step limit", () => {
@@ -28,6 +33,11 @@ describe("dialog step limit", () => {
 
   test("stepLimitPatch writes the root-level steps key", () => {
     expect(stepLimitPatch(150)).toEqual({ steps: 150 })
+  })
+
+  test("no limit is the default choice", () => {
+    expect(STEP_LIMIT_NO_LIMIT).toBe(0)
+    expect(stepLimitPatch(STEP_LIMIT_NO_LIMIT)).toEqual({ steps: 0 })
   })
 
   test("the presets are positive integers", () => {

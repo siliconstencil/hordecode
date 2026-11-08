@@ -12,8 +12,12 @@ All notable changes to this project will be documented in this file.
 - Complete DSML calls that survive the text tool-call retry cap run as real tool calls through the normal
   permission path, at most 3 per session (default on; `HORDECODE_DSML_SALVAGE=0` turns it off).
 - `HORDECODE_HARNESS_DOCS` and `HORDECODE_HARNESS_EVIDENCE` for the harness gate and aggregate scripts.
-- Root-level `steps` config key sets a global step limit (1 to 1000), and the command palette offers a Step
-  limit setting. An agent with its own `steps` keeps it.
+- Root-level `steps` config key sets a global step limit (1 to 1000); unset means no limit, matching
+  upstream. The command palette offers No limit and presets, and removing the limit deletes the key. An
+  agent with its own `steps` keeps it.
+- Loop guard (warn only): when three consecutive steps repeat similar tool actions (Jaccard over the tool
+  name and normalised input above 0.7), the agent gets one reminder to change approach and the turn
+  continues. It fires again only after the streak breaks and re-forms.
 - Generated ids carry a 64-bit time field behind a sort mark and stay order-compatible with v1 ids.
 - Task contract (armed with `/contract`; caps off by default): safety envelope, caps, git checkpoint and
   unattended defaults, plus the `contract.baseline` arm-time test-count check (on by default).
@@ -49,7 +53,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- Step budgets for spawn, agent and the global budget clamp to 1 to 1000.
+- Step budgets for spawn, agent and the global budget clamp to 1 to 1000; a global 0 means no limit.
 - DeepSeek thinking mode keeps an empty `reasoning_content`.
 - A DSML envelope is healed into a real tool call in the stream.
 - Compaction rolls back its boundary when no summary lands; the empty-summary check gets a Database.

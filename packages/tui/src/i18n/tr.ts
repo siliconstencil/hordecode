@@ -419,6 +419,8 @@ export const dict = {
   // Step limit dialog
   "tui.step_limit.title": "Adim limiti",
   "tui.step_limit.saved": "Adim limiti {{value}} olarak ayarlandi.",
+  "tui.step_limit.saved_none": "Adim limiti kaldirildi; limit yok.",
+  "tui.step_limit.option.none": "Limit yok",
   "tui.step_limit.invalid": "1 ile 1000 arasinda bir tam sayi girin.",
   "tui.step_limit.custom_title": "Ozel adim limiti",
   "tui.step_limit.option.custom": "Ozel",

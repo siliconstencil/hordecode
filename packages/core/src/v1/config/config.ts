@@ -136,11 +136,10 @@ export const Info = Schema.Struct({
   // Hordecode addition: upstream v1.19.5 packages/core/src/v1/config/config.ts has no root-level step
   // limit (its `agent` key is at :96) and MiMo Code v0.1.11 packages/opencode/src/config/config.ts has
   // none either. Consumer: packages/opencode/src/session/prompt.ts (the session loop).
-  // The value is bounded so the fork's 200-step safety net stays meaningful
-  // (packages/opencode/src/session/prompt.ts, the `step > Math.max(200, maxSteps)` break).
-  steps: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(MAX_GLOBAL_STEPS))).annotate({
+  // FORK_DELTA: no default cap; 0 is the UI's no-limit sentinel, dropped before the file is written.
+  steps: Schema.optional(NonNegativeInt.check(Schema.isLessThanOrEqualTo(MAX_GLOBAL_STEPS))).annotate({
     description:
-      "Default maximum number of agentic iterations before the model is forced to answer with text only. Applies to every agent that does not set its own 'steps'. Overridden by 'agent.<name>.steps'. Default: 100.",
+      "Default maximum number of agentic iterations before the model is forced to answer with text only. Applies to every agent that does not set its own 'steps'. Overridden by 'agent.<name>.steps'. When unset, there is no limit; 0 is the UI's no-limit sentinel.",
   }),
   harness: Schema.optional(ConfigHarness.Info).annotate({ description: "Harness mode configuration" }),
   workflow: Schema.optional(

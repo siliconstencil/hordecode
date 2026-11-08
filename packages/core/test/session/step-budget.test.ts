@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { resolveStepLimit } from "../../src/session/step-budget"
 
-// The global `steps` config key is bounded to 1..1000 by the config schema
-// (packages/core/src/config/config.ts:201). The other two budget sources --
-// agent.<name>.steps and a workflow/spawn `steps` argument -- are not parsed by
-// that schema, so the shared resolver is the only place that can bound them.
+// The global `steps` config key is bounded to 0..1000 by the config schema
+// (packages/core/src/config/config.ts:201); 0 is the no-limit sentinel the TUI
+// writes and never persists. The other two budget sources -- agent.<name>.steps
+// and a workflow/spawn `steps` argument -- are not parsed by that schema, so the
+// shared resolver is the only place that can bound them.
 describe("resolveStepLimit bounds", () => {
   test("clamps an over-limit agent budget to the global ceiling", () => {
     expect(resolveStepLimit({ agent: 5000, fallback: 100 })).toBe(1000)
@@ -29,6 +30,10 @@ describe("resolveStepLimit bounds", () => {
     expect(resolveStepLimit({ global: 7, fallback: 100 })).toBe(7)
     expect(resolveStepLimit({ spawn: 1, fallback: 100 })).toBe(1)
     expect(resolveStepLimit({ agent: 1000, fallback: 100 })).toBe(1000)
+  })
+
+  test("a global 0 means no limit", () => {
+    expect(resolveStepLimit({ global: 0, fallback: Infinity })).toBe(Infinity)
   })
 
   test("leaves the caller fallback unbounded", () => {

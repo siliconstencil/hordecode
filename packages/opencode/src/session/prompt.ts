@@ -16,6 +16,7 @@ import { SessionCompaction } from "./compaction"
 import * as ModelValue from "./model-value"
 import * as Advisor from "./advisor/hook"
 import * as AdvisorRun from "./advisor/run"
+import * as LoopGuard from "./loop-guard"
 import { CompactionGuard } from "./compaction-guard"
 import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
@@ -1464,11 +1465,12 @@ const layer = Layer.effect(
       // Same budget as the loop (maxSteps at the top of the iteration): the step that
       // wrote the DSML was the last one allowed, the model had its tools switched off on
       // it, so its calls do not run.
+      // FORK_DELTA: opencode v1.19.5 packages/opencode/src/session/prompt.ts:1178 (agent.steps ?? Infinity)
       const limit = resolveStepLimit({
         spawn: input.steps,
         agent: agent.steps,
         global: (yield* config.get()).steps,
-        fallback: 100,
+        fallback: Infinity,
       })
       if (input.step >= limit) return undefined
       const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
@@ -1623,20 +1625,18 @@ const layer = Layer.effect(
           // gate, contract gate, DSML retry) writes its user message with the same agent,
           // so the identity is stable across the loop.
           const agent = yield* agents.get(lastUser.agent)
+          // FORK_DELTA: opencode v1.19.5 packages/opencode/src/session/prompt.ts:1178 (agent.steps ?? Infinity)
+          // No default cap (owner, 2026-11-07): the fallback is Infinity, matching upstream opencode
+          // and MiMo 0.1.11. The hard ceiling only backstops a configured limit: with Infinity,
+          // Math.max(STEP_LIMIT_CEILING, Infinity) is Infinity, so neither the cap nor the forced
+          // text-only step fires.
           const maxSteps = resolveStepLimit({
             spawn: steps,
             agent: agent?.steps,
             global: (yield* config.get()).steps,
-            fallback: 100,
+            fallback: Infinity,
           })
 
-          // Intentional divergence from v0.1.11 (packages/opencode/src/session/prompt.ts:3251,3661),
-          // which uses while(true) + agent.steps ?? Infinity. Fork caps at the effective limit
-          // (the precedence chain above), else 100, because an unbounded loop hung in practice
-          // (see commit f6cac78ae0). Do not revert to Infinity without first root-causing that hang.
-          // Fork decision (owner, 2026-11-05): the hard cap follows the configured limit -
-          // it is a backstop AFTER the soft limit. Math.max keeps the 200 net for the default
-          // (100) and lets a configured value above 200 reach its forced text-only step.
           if (step > Math.max(STEP_LIMIT_CEILING, maxSteps)) {
             yield* Effect.logWarning("rl:hard-cap breached, forcing exit", { "session.id": sessionID, step })
             break
@@ -2079,6 +2079,36 @@ const layer = Layer.effect(
           if (advice?.usage && advice.model) {
             msg.cost += Session.getUsage({ model: advice.model, usage: advice.usage }).cost
             yield* sessions.updateMessage(msg)
+          }
+
+          // FORK_ONLY: loop guard warning (session/loop-guard.ts). Warn only: the warning reaches the
+          // model as a synthetic reminder on the next step and the user as an ignored display part.
+          // The turn never stops, and the upstream doom-loop ask in processor.ts is unchanged.
+          const loopGuard = LoopGuard.loopGuardFromMessages(msgs)
+          if (loopGuard) {
+            const target = msgs.findLast((m) => m.info.role === "user")
+            target?.parts.push({
+              id: PartID.ascending(),
+              messageID: target.info.id,
+              sessionID: target.info.sessionID,
+              type: "text",
+              text: loopGuard.warning,
+              synthetic: true,
+            })
+            const now = Date.now()
+            yield* sessions
+              .updatePart({
+                id: PartID.ascending(),
+                messageID: msg.id,
+                sessionID: msg.sessionID,
+                type: "text",
+                text: loopGuard.warning,
+                synthetic: true,
+                ignored: true,
+                time: { start: now, end: now },
+                metadata: { loopGuard: { tools: loopGuard.tools } },
+              })
+              .pipe(Effect.ignore)
           }
 
           const finalizeInterruptedAssistant = Effect.gen(function* () {

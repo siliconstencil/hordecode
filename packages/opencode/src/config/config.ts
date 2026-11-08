@@ -178,6 +178,8 @@ function writableGlobal(info: Info) {
   const next = writable(info)
   // When a user changes config from a value back to default in the Desktop app, we don't want to leave a blank `"shell": "",` key
   if ("shell" in next && next.shell === "") return { ...next, shell: undefined }
+  // FORK_DELTA: the TUI writes steps=0 for "no limit"; drop the sentinel instead of persisting it.
+  if (next.steps === 0) return { ...next, steps: undefined }
   return next
 }
 

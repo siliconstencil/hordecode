@@ -77,7 +77,7 @@ afterEach(() => {
 })
 
 describe("supervisor tool spawn steps cap (ported from core twin)", () => {
-  it.effect("caps spawn steps at the loop default (100) when the agent defines no steps", () =>
+  it.effect("leaves spawn steps unset (no cap) when the agent defines no steps", () =>
     Effect.gen(function* () {
       mockSpawn()
       const info = yield* SupervisorTool
@@ -93,7 +93,7 @@ describe("supervisor tool spawn steps cap (ported from core twin)", () => {
         },
         ctx,
       ).pipe(Effect.catchCause(() => Effect.void))
-      expect(spawnInputs[0]?.steps).toBe(100)
+      expect(spawnInputs[0]?.steps).toBeUndefined()
     }))
 
   it.effect("uses the agent's own steps when configured", () =>
