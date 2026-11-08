@@ -45,7 +45,6 @@ All notable changes to this project will be documented in this file.
   spawns enforce the subagent depth limit and `supervisor.max_subagents`.
 - The server no longer exposes the internal prompt source over HTTP.
 - Bash path scanning tracks a chained `cd` and stays conservative around `;` and `||`.
-- CLI text output keeps stop-rule and try-best notes and drops synthetic system notes.
 - The app copy and locales no longer claim free models.
 - The TUI shows sub-cent and plan costs, the diff_open and session_move keybinds work again, the max agent is
   hidden until configured, and a missing provider says to connect one.
@@ -84,8 +83,8 @@ All notable changes to this project will be documented in this file.
 - `codesearch` and its permission key.
 - `packages/team` and its mounts.
 - Dead code: 18 environment flags with no consumer, the orphaned mcp-exa module, 13 orphaned TUI files, the
-  unreachable UI route module, unused stop-rule reset hooks, dead update and voice strings, the unused
-  `serveUIEffect` client parameter, and the dead `notifyParentOnComplete` parameter.
+  unreachable UI route module, dead update and voice strings, the unused `serveUIEffect` client parameter,
+  and the dead `notifyParentOnComplete` parameter.
 
 ## [0.1.5] - 2026-11-03
 
