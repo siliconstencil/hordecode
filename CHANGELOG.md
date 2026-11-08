@@ -2,16 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.1.6] - 2026-11-07
 
 ### Added
 
 - Advisor `no_progress` trigger: consecutive read-only tool calls at the end of the turn (bash, edits and
   delegated work reset it; default 25, high 15, low 0 = off). `experimental.advisor.rearm: true` (default off) lets it fire again after the count grows by its
   threshold.
-- `HORDECODE_DSML_SALVAGE=1`: when the text tool-call retry cap is exhausted, complete DSML calls run as real
-  tool calls through the normal permission path (default off, at most 3 per session).
+- Complete DSML calls that survive the text tool-call retry cap run as real tool calls through the normal
+  permission path, at most 3 per session (default on; `HORDECODE_DSML_SALVAGE=0` turns it off).
 - `HORDECODE_HARNESS_DOCS` and `HORDECODE_HARNESS_EVIDENCE` for the harness gate and aggregate scripts.
+- A waiting parent gets a short notice when a child session finishes, or when the run has shown no assistant
+  activity for 15 minutes while tasks are still open. The notice is written to the parent and shown as a toast;
+  it never starts a turn on its own.
+- `horde run` ends with a one-line scorecard (steps, tool calls, tokens, cost), and `horde stats` keeps the
+  per-run scorecard.
+- Stop rules end a turn that repeats the same tool call or the same error; a read-only shell command counts
+  toward the advisor no-progress streak.
+- Root-level `steps` config key sets a global step limit (1 to 1000), and the command palette offers a Step
+  limit setting. An agent with its own `steps` keeps it.
+- Generated ids carry a 64-bit time field behind a sort mark and stay order-compatible with v1 ids.
+- Task contract (off by default): safety envelope, caps, git checkpoint and unattended defaults, plus the
+  `contract.baseline` arm-time test-count baseline.
+- `harness.triage` (default off) applies a conservative triage to routine requests.
+- Inbox rows carry queued and delivered state.
+- Bundled skills are extracted once per data root (a content-hash marker), so startup no longer rewrites the
+  skill tree on every run.
 
 ### Changed
 
@@ -22,11 +38,57 @@ All notable changes to this project will be documented in this file.
   out of the docs tree (state dir for a custom `harness.docs`; default layout unchanged). The research agent
   prompt is unchanged.
 - The cron scheduler also honours a live legacy `.hordecode/.cron-lock` during an upgrade.
-- A turn that ends because the model kept writing a tool call as text now says so with a display-only note on the
-  message; nothing else changes with salvage off (`HORDECODE_DSML_NOTICE=0` removes the note). Salvage stops at
-  the agent's step budget.
+- A turn that ends because the model kept writing a tool call as text says so with a display-only note on the
+  message (`HORDECODE_DSML_NOTICE=0` removes the note). Salvage stops at the agent's step budget.
 - `script/fork-release.sh verify` runs the installer check under `env -i` with an isolated HOME and a minimal PATH
   (`HORDECODE_VERIFY_PATH` overrides it; proxy and CA variables are dropped, run verify with direct access).
+- The task tool description no longer lists the subagent list, which trims the description sent with every
+  request.
+- `session ask` forks only the main conversation or the peer's own slice, and session asks and workflow agent
+  spawns enforce the subagent depth limit and `supervisor.max_subagents`.
+- The server no longer exposes the internal prompt source over HTTP.
+- Bash path scanning tracks a chained `cd` and stays conservative around `;` and `||`.
+- CLI text output keeps stop-rule and try-best notes and drops synthetic system notes.
+- The app copy and locales no longer claim free models.
+- The TUI shows sub-cent and plan costs, the diff_open and session_move keybinds work again, the max agent is
+  hidden until configured, and a missing provider says to connect one.
+- The `session` tool is gated by agent mode.
+
+### Fixed
+
+- Step budgets for spawn, agent and the global budget clamp to 1 to 1000.
+- DeepSeek thinking mode keeps an empty `reasoning_content`.
+- A DSML envelope is healed into a real tool call in the stream.
+- Compaction rolls back its boundary when no summary lands; the empty-summary check gets a Database.
+- Cron task prompts run through the mounted service.
+- Goals persist in session storage and in memory when storage fails; `Goal.runGate` fails open on a judge
+  failure.
+- Harness: the HarnessEnv store is bounded, a deleted session's mapping is cleared, the session's own evidence
+  dir is granted without an external_directory ask, and only the harness agent gets the resolved harness paths.
+- Advisor: the read-only tool id list is real, pending parts do not count, and no_progress counts only
+  consecutive read-only calls.
+- Concurrent inbox drains are serialized.
+- Supervisor validation errors show a complete, valid call.
+- Task model arguments accept valid shapes and field names.
+- TUI task and todo panels scope to the current request, and auto-approve stays session-scoped.
+- The installer banner is truthful and the npm Windows upgrade works.
+- Web: the embedded-UI flag comes from RuntimeFlags, a missing embedded UI fails clearly, and dead update
+  command references are gone.
+- The models catalog degrades to an empty catalog when the models host cannot be fetched instead of failing.
+- Same-millisecond ids stay increasing, and ids minted either side of the 2026-08-14 time-field wrap sort by
+  creation order.
+- Builds honour the explicit version override.
+- The harness merge gate no longer exits silently when the eval JSON path is missing.
+
+### Removed
+
+- The workflow worktree package (`packages/worktree`) is merged onto the opencode worktree service.
+- `memory_recall` is retired; searching is part of `memory`.
+- `codesearch` and its permission key.
+- `packages/team` and its mounts.
+- Dead code: 18 environment flags with no consumer, the orphaned mcp-exa module, 13 orphaned TUI files, the
+  unreachable UI route module, unused stop-rule reset hooks, dead update and voice strings, the unused
+  `serveUIEffect` client parameter, and the dead `notifyParentOnComplete` parameter.
 
 ## [0.1.5] - 2026-11-03
 
