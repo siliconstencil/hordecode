@@ -46,4 +46,15 @@ describe("harness-gate.sh evidence location", () => {
     const r = await gate({ HORDECODE_HARNESS_DOCS: "notes/h", HORDECODE_HARNESS_EVIDENCE: "ev/x" }, "r3", "brainstorm")
     expect(r.err).toContain("ev/x/r3")
   })
+
+  test("merge passes when eval evidence cites no result JSON (field: silent exit under pipefail)", async () => {
+    const root = path.join(work, "merge-evidence")
+    const dir = path.join(root, "r4")
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(path.join(dir, "eval.evidence"), "# Eval evidence\n\nScores:\n- plan PASS (0.78)\n")
+    writeFileSync(path.join(dir, "merge.evidence"), "Merge decision: keep-as-is\nno commit made\nowner decides\n")
+    const r = await gate({ HORDECODE_HARNESS_EVIDENCE: root, HORDECODE_HARNESS_DOCS: path.join(work, "no-docs") }, "r4", "merge")
+    expect(r.err).toBe("")
+    expect(r.code).toBe(0)
+  })
 })

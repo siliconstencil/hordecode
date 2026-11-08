@@ -18,6 +18,8 @@
 # A FAIL must stop the pipeline -- "I did it anyway" is not an override.
 
 set -euo pipefail
+# A command that fails outside a check must never end the gate silently.
+trap 'rc=$?; echo "FAIL: harness-gate.sh internal error at line ${LINENO} (exit ${rc})" >&2' ERR
 
 RUN_ID="${1:?Usage: harness-gate.sh <run-id> <phase>}"
 PHASE="${2:?Usage: harness-gate.sh <run-id> <phase>}"
@@ -288,10 +290,10 @@ case "${PHASE}" in
     ESCALATION_REQUIRED=""
     EVAL_JSON=""
     if [[ -f "${EVIDENCE_DIR}/eval.evidence" ]]; then
-      EVAL_JSON=$(grep -oE "[^[:space:]\`'\"]*eval/[A-Za-z0-9._-]+\.json" "${EVIDENCE_DIR}/eval.evidence" | head -1)
+      EVAL_JSON=$(grep -oE "[^[:space:]\`'\"]*eval/[A-Za-z0-9._-]+\.json" "${EVIDENCE_DIR}/eval.evidence" | head -1 || true)
     fi
     if [[ -z "${EVAL_JSON}" && -d "${DOCS_DIR}/eval" ]] && command -v jq >/dev/null 2>&1; then
-      EVAL_JSON=$(ls -t "${DOCS_DIR}"/eval/*.json 2>/dev/null | head -1)
+      EVAL_JSON=$(ls -t "${DOCS_DIR}"/eval/*.json 2>/dev/null | head -1 || true)
     fi
     if [[ -n "${EVAL_JSON}" && -f "${EVAL_JSON}" ]] && command -v jq >/dev/null 2>&1; then
       while IFS=$'\t' read -r FTYPE OCC CONS; do
