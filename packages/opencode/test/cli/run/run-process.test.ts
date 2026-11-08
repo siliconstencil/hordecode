@@ -45,59 +45,6 @@ describe("opencode run (non-interactive subprocess)", () => {
     60_000,
   )
 
-  // The CLI keeps the pre-slice text output: a synthetic stop-rule note is
-  // still shown so a headless user sees why the run paused. The run scorecard
-  // (and the wake notice) are the only synthetic notes kept out of default
-  // text output. Regression guard for a filter that hides every synthetic part.
-  cliIt.concurrent(
-    "prints the stop-rule note in default text output and hides the scorecard",
-    ({ llm, opencode }) =>
-      Effect.gen(function* () {
-        for (let i = 0; i < 6; i++) {
-          yield* llm.tool("bash", { command: "printf loop", description: "Repeat the same call" })
-        }
-        yield* llm.text("done")
-
-        const result = yield* opencode.run("loop the same call", {
-          extraArgs: ["--dangerously-skip-permissions"],
-          timeoutMs: 30_000,
-        })
-
-        opencode.expectExit(result, 0)
-        expect(result.stdout).toContain("Stop rule fired (identical_calls)")
-        expect(result.stdout).not.toContain("score: steps")
-      }),
-    60_000,
-  )
-
-  // JSON consumers get every text part, including the synthetic stop-rule and
-  // scorecard notes that default text output filters.
-  cliIt.concurrent(
-    "--format json keeps the synthetic stop-rule and scorecard text parts",
-    ({ llm, opencode }) =>
-      Effect.gen(function* () {
-        for (let i = 0; i < 6; i++) {
-          yield* llm.tool("bash", { command: "printf loop", description: "Repeat the same call" })
-        }
-        yield* llm.text("done")
-
-        const result = yield* opencode.run("loop the same call", {
-          format: "json",
-          extraArgs: ["--dangerously-skip-permissions"],
-          timeoutMs: 30_000,
-        })
-
-        opencode.expectExit(result, 0)
-        const texts = opencode
-          .parseJsonEvents(result.stdout)
-          .filter((event) => event.type === "text")
-          .map((event) => (event.part as { text: string }).text)
-        expect(texts.some((text) => text.includes("Stop rule fired (identical_calls)"))).toBe(true)
-        expect(texts.some((text) => text.startsWith("score: steps "))).toBe(true)
-      }),
-    60_000,
-  )
-
   cliIt.concurrent(
     "prints reasoning before text only with --thinking",
     ({ llm, opencode }) =>
@@ -175,7 +122,7 @@ describe("opencode run (non-interactive subprocess)", () => {
           expect(typeof evt.type).toBe("string")
           expect(typeof evt.sessionID).toBe("string")
         }
-        expect(events.map((event) => event.type)).toEqual(["step_start", "text", "step_finish", "text"])
+        expect(events.map((event) => event.type)).toEqual(["step_start", "text", "step_finish"])
         expect(events.map(({ timestamp: _, sessionID: __, ...event }) => event)).toEqual([
           { type: "step_start", part: expect.objectContaining({ type: "step-start" }) },
           {
@@ -183,10 +130,6 @@ describe("opencode run (non-interactive subprocess)", () => {
             part: expect.objectContaining({ type: "text", text: "structured output" }),
           },
           { type: "step_finish", part: expect.objectContaining({ type: "step-finish" }) },
-          {
-            type: "text",
-            part: expect.objectContaining({ type: "text", text: expect.stringMatching(/^score: steps /) }),
-          },
         ])
         expect(result.stdout.endsWith("\n")).toBe(true)
         expect(
@@ -250,7 +193,6 @@ describe("opencode run (non-interactive subprocess)", () => {
           "step_start",
           "text",
           "step_finish",
-          "text",
         ])
         expect(events.find((event) => event.type === "reasoning")?.part).toEqual(
           expect.objectContaining({ type: "reasoning", text: "reasoning" }),
@@ -298,15 +240,11 @@ describe("opencode run (non-interactive subprocess)", () => {
           "step_start",
           "text",
           "step_finish",
-          "text",
         ])
         expect(events[1]?.part).toEqual(expect.objectContaining({ type: "text", text: "partial json" }))
         expect(events[5]?.part).toEqual(expect.objectContaining({ type: "step-finish", reason: "unknown" }))
         expect(events[7]?.part).toEqual(expect.objectContaining({ type: "text", text: "recovered" }))
-        expect(events.at(-2)?.part).toEqual(expect.objectContaining({ type: "step-finish", reason: "stop" }))
-        expect(events.at(-1)?.part).toEqual(
-          expect.objectContaining({ type: "text", text: expect.stringMatching(/^score: steps /) }),
-        )
+        expect(events.at(-1)?.part).toEqual(expect.objectContaining({ type: "step-finish", reason: "stop" }))
       }),
     60_000,
   )

@@ -56,31 +56,6 @@ import { Shell } from "@opencode-ai/core/shell"
 import { ShellID } from "@/tool/shell/id"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Truncate } from "@/tool/truncate"
-import { formatRunScore, scoreRun, type ScoreMessage } from "./run-score"
-
-// Fork (brief E): the scorecard line of one turn. See session/run-score.ts.
-function turnScoreMessages(messages: SessionV1.WithParts[], turnID: string): ScoreMessage[] {
-  return messages.flatMap((message) => {
-    if (message.info.role !== "assistant" || message.info.parentID !== turnID) return []
-    return [
-      {
-        created: message.info.time.created,
-        completed: message.info.time.completed,
-        parts: message.parts
-          .filter((part) => part.type === "tool")
-          .map((part) => ({
-            tool: part.tool,
-            input: "input" in part.state ? part.state.input : undefined,
-            error:
-              part.state.status === "error" ||
-              (part.state.status === "completed" &&
-                typeof (part.state.metadata as { exit?: unknown } | undefined)?.exit === "number" &&
-                (part.state.metadata as { exit: number }).exit !== 0),
-          })),
-      },
-    ]
-  })
-}
 import { Image } from "@/image/image"
 import { decodeDataUrl } from "@opencode-ai/core/util/data-url"
 import { Process } from "@/util/process"
@@ -2037,9 +2012,6 @@ const layer = Layer.effect(
             Effect.provideService(FSUtil.Service, fsys),
             Effect.provideService(Session.Service, sessions),
           )
-          // Fork (brief E): the scorecard line of this turn rides on the forced
-          // last-step prompt. It is computed only on that step.
-          const scoreLine = isLastStep ? formatRunScore(scoreRun(turnScoreMessages(msgs, lastUser.id))) : ""
 
           const msg: SessionV1.Assistant = {
             id: MessageID.ascending(),
@@ -2266,7 +2238,7 @@ const layer = Layer.effect(
                       system: forkCtx.system,
                       messages: [
                         ...forkModelMsgs,
-                        ...(isLastStep ? [{ role: "assistant" as const, content: `${MAX_STEPS_PROMPT}\n\n${scoreLine}` }] : []),
+                        ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS_PROMPT }] : []),
                       ],
                       tools,
                       model,
@@ -2294,7 +2266,7 @@ const layer = Layer.effect(
                       system: forkCtx.system,
                       messages: [
                         ...forkModelMsgs,
-                        ...(isLastStep ? [{ role: "assistant" as const, content: `${MAX_STEPS_PROMPT}\n\n${scoreLine}` }] : []),
+                        ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS_PROMPT }] : []),
                       ],
                       tools,
                       model,
@@ -2437,7 +2409,7 @@ const layer = Layer.effect(
                     system,
                     messages: [
                       ...modelMsgs,
-                      ...(isLastStep ? [{ role: "assistant" as const, content: `${MAX_STEPS_PROMPT}\n\n${scoreLine}` }] : []),
+                      ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS_PROMPT }] : []),
                     ],
                     tools,
                     model,
@@ -2461,7 +2433,7 @@ const layer = Layer.effect(
                     system,
                     messages: [
                       ...modelMsgs,
-                      ...(isLastStep ? [{ role: "assistant" as const, content: `${MAX_STEPS_PROMPT}\n\n${scoreLine}` }] : []),
+                      ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS_PROMPT }] : []),
                     ],
                     tools,
                     model,
@@ -2619,27 +2591,8 @@ const layer = Layer.effect(
         }
 
         yield* compaction.prune({ sessionID }).pipe(Effect.ignore, Effect.forkIn(scope))
-        // Fork (brief E): the end-of-run text carries the same one-line scorecard.
-        const final = yield* lastAssistant(sessionID)
-        if (final.info.role === "assistant") {
-          const score = scoreRun(
-            turnScoreMessages(yield* sessions.messages({ sessionID }).pipe(Effect.orDie), final.info.parentID),
-          )
-          yield* sessions
-            .updatePart({
-              id: PartID.ascending(),
-              messageID: final.info.id,
-              sessionID,
-              type: "text",
-              text: formatRunScore(score),
-              synthetic: true,
-              metadata: { origin: { kind: "run_score" } },
-              time: { start: Date.now(), end: Date.now() },
-            })
-            .pipe(Effect.ignore)
-        }
         yield* Effect.logInfo("rl:return", { "session.id": sessionID, step })
-        return final
+        return yield* lastAssistant(sessionID)
       },
     )
 

@@ -181,16 +181,6 @@ describe("readOnlyStreak", () => {
     expect(collectFacts(messages, undefined).readOnlyStreak).toBe(1)
   })
 
-  test("a read-only shell command counts like a read", () => {
-    const messages = [user("go"), read(), tool("bash", "completed", { command: "rg foo packages" }), read()]
-    expect(collectFacts(messages, undefined).readOnlyStreak).toBe(3)
-  })
-
-  test("a shell command that writes does not count: a redirect or a pipe into a writer", () => {
-    expect(collectFacts([user("go"), read(), tool("bash", "completed", { command: "rg foo > out.txt" })], undefined).readOnlyStreak).toBe(0)
-    expect(collectFacts([user("go"), read(), tool("bash", "completed", { command: "cat f | tee out.txt" })], undefined).readOnlyStreak).toBe(0)
-  })
-
   test("delegated work resets the streak: task, supervisor, workflow and session calls", () => {
     for (const name of ["task", "supervisor", "workflow", "session"]) {
       const messages = [user("go"), read(), read(), tool(name, "completed", { prompt: "do it" }), read()]

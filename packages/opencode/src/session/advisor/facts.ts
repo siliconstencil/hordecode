@@ -3,7 +3,6 @@
 // advisor trigger inputs; this is a Hordecode-owned reduction, not a copy.
 import path from "path"
 import type { SessionV1 } from "@opencode-ai/core/v1/session"
-import { isReadOnlyCommand } from "./read-only-command"
 
 export interface AdvisorFacts {
   filesTouched: number
@@ -11,8 +10,8 @@ export interface AdvisorFacts {
   maxSameError: number
   contextPercent: number | null
   // Consecutive read-only tool calls at the end of the current turn. Any call that is not read-only
-  // (edit, write, patch, task, an unknown tool, or a shell command that writes) ends the streak.
-  // A shell command on the read-only whitelist counts like a read: see read-only-command.ts.
+  // (bash, edit, write, patch, task and every other tool) ends the streak: a shell write or delegated
+  // work is progress.
   readOnlyStreak: number
 }
 
@@ -20,8 +19,7 @@ type Message = SessionV1.WithParts
 type ToolPart = SessionV1.ToolPart
 
 const FILE_TOOLS = new Set(["edit", "write", "multiedit", "apply_patch", "hashline_edit", "notebook_edit"])
-// Tools that only look. Everything else, including delegation and unknown MCP tools, counts as
-// progress. Bash is decided per command: a read-only command counts as looking.
+// Tools that only look. Everything else, including bash, delegation and unknown MCP tools, counts as progress.
 const READ_ONLY_TOOLS = new Set([
   "read",
   "grep",
@@ -120,12 +118,7 @@ export function collectFacts(messages: Message[], contextLimit: number | undefin
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
 
-  const readOnly = (part: ToolPart) => {
-    if (READ_ONLY_TOOLS.has(part.tool)) return true
-    if (part.tool !== "bash") return false
-    return isReadOnlyCommand(text(part.state.input.command) ?? "")
-  }
-  const lastProgress = tools.findLastIndex((part) => !readOnly(part))
+  const lastProgress = tools.findLastIndex((part) => !READ_ONLY_TOOLS.has(part.tool))
   const streak = tools
     .slice(lastProgress + 1)
     .filter((part) => part.state.status === "completed" || part.state.status === "error").length
