@@ -15,15 +15,15 @@ All notable changes to this project will be documented in this file.
 - A waiting parent gets a short notice when a child session finishes, or when the run has shown no assistant
   activity for 15 minutes while tasks are still open. The notice is written to the parent and shown as a toast;
   it never starts a turn on its own.
-- `horde run` ends with a one-line scorecard (steps, tool calls, tokens, cost), and `horde stats` keeps the
+- A one-line run scorecard records steps, calls, uniqueness, errors and idle time; `horde stats` keeps the
   per-run scorecard.
 - Stop rules end a turn that repeats the same tool call or the same error; a read-only shell command counts
   toward the advisor no-progress streak.
 - Root-level `steps` config key sets a global step limit (1 to 1000), and the command palette offers a Step
   limit setting. An agent with its own `steps` keeps it.
 - Generated ids carry a 64-bit time field behind a sort mark and stay order-compatible with v1 ids.
-- Task contract (off by default): safety envelope, caps, git checkpoint and unattended defaults, plus the
-  `contract.baseline` arm-time test-count baseline.
+- Task contract (armed with `/contract`; caps off by default): safety envelope, caps, git checkpoint and
+  unattended defaults, plus the `contract.baseline` arm-time test-count check (on by default).
 - `harness.triage` (default off) applies a conservative triage to routine requests.
 - Inbox rows carry queued and delivered state.
 - Bundled skills are extracted once per data root (a content-hash marker), so startup no longer rewrites the
