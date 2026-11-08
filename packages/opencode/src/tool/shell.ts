@@ -238,6 +238,19 @@ function sequential(node: Node) {
   return true
 }
 
+// The separator before a top-level command, climbing out of the nested `list`
+// and `redirected_statement` wrappers tree-sitter builds for `a && b; c`.
+function separator(node: Node) {
+  let cur: Node | null = node
+  while (cur) {
+    const prev = cur.previousSibling
+    if (prev) return prev.type
+    const parent: Node | null = cur.parent
+    if (!parent || !SEQUENTIAL.has(parent.type)) return
+    cur = parent
+  }
+}
+
 // Resolve a cwd command's target against the cwd tracked so far. A target that
 // cannot be pinned down statically (`-`, `~`, `$VAR`, a substitution, a glob)
 // leaves the tracked cwd unchanged: the scan may then ask for a directory it did
@@ -630,6 +643,10 @@ export const ShellTool = Tool.define(
       // `cd a && cd ../b` resolves each target against the previous cd, not the
       // session cwd (field case: reports/0.1.6/FIELD-LOG.md:32-34).
       let current = cwd
+      // The tracked cwd is certain only while every separator so far is `&&`
+      // and every cd target was statically resolvable.
+      let certain = true
+      const candidates = new Set<string>([cwd])
       const stack: string[] = []
 
       for (const node of commands(root)) {
@@ -637,13 +654,20 @@ export const ShellTool = Tool.define(
         const tokens = command.map((item) => item.text)
         const cmd = ps || shellKind === "cmd" ? tokens[0]?.toLowerCase() : tokens[0]
 
+        if (sequential(node)) {
+          const sep = separator(node)
+          if (sep && sep !== "&&") certain = false
+        }
+
         if (cmd && (FILES.has(cmd) || (shellKind === "cmd" && CMD_FILES.has(cmd)))) {
           for (const arg of pathArgs(command, ps, shellKind === "cmd")) {
-            const resolved = yield* argPath(arg, current, ps, shell)
-            yield* Effect.logInfo("resolved path", { arg, resolved })
-            if (!resolved || insideProject(resolved, instance)) continue
-            const dir = (yield* fs.isDir(resolved)) ? resolved : path.dirname(resolved)
-            scan.dirs.add(dir)
+            for (const base of certain ? [current] : candidates) {
+              const resolved = yield* argPath(arg, base, ps, shell)
+              yield* Effect.logInfo("resolved path", { arg, resolved })
+              if (!resolved || insideProject(resolved, instance)) continue
+              const dir = (yield* fs.isDir(resolved)) ? resolved : path.dirname(resolved)
+              scan.dirs.add(dir)
+            }
           }
         }
 
@@ -664,12 +688,24 @@ export const ShellTool = Tool.define(
         if (cmd === "popd") {
           const prev = stack.pop()
           if (prev) current = prev
+          if (!certain) candidates.add(current)
           continue
         }
         const next = staticPath(target, current)
-        if (!next) continue
+        if (!next) {
+          certain = false
+          continue
+        }
+        const text = unquote(target ?? "")
         if (cmd === "pushd") stack.push(current)
+        if (certain) {
+          current = next
+          candidates.add(current)
+          continue
+        }
+        for (const base of [...candidates]) candidates.add(path.resolve(base, text))
         current = next
+        candidates.add(current)
       }
 
       for (const node of root.descendantsOfType("file_redirect")) {

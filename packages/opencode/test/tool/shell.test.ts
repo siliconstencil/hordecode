@@ -1172,6 +1172,28 @@ describe("tool.shell permissions", () => {
     }),
   )
 
+  // A `;` or `||` separator means the preceding cd may not have run (or may have
+  // failed), so the cwd is uncertain and every candidate must be checked. A
+  // successful `&&` cd still has to ask when the path itself is outside.
+  const asksExternal = (command: string) =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      yield* runIn(
+        tmp,
+        Effect.gen(function* () {
+          const requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" | "tool">> = []
+          yield* fail({ command }, capture(requests, new Error("stop")))
+          expect(requests[0].permission).toBe("external_directory")
+        }),
+      )
+    })
+
+  each("a cd before a semicolon may fail, so the path still asks", () => asksExternal("cd nonexistent; cat ../x"))
+
+  each("a cd after a `||` may not run, so the path still asks", () => asksExternal("cd a || cd b; cat ../../x"))
+
+  each("a successful `&&` cd to an outside path still asks", () => asksExternal("cd a && cat ../../x"))
+
   each("matches redirects in permission pattern", () =>
     Effect.gen(function* () {
       const tmp = yield* tmpdirScoped()
