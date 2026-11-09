@@ -35,6 +35,10 @@ type Usage = {
 function usage(part: (typeof SessionV1.Event.PartUpdated.Type)["data"]["part"] | unknown): Usage | undefined {
   if (typeof part !== "object" || part === null) return undefined
   const value = part as Record<string, unknown>
+  // Hordecode: the advisor display part carries the advisor call's usage so the
+  // session cost is projected, and removed with the message on revert (FORK_DELTA).
+  const advisor = (value.metadata as { advisor?: { usage?: Usage } } | undefined)?.advisor?.usage
+  if (advisor) return advisor
   if (value.type !== "step-finish") return undefined
   if (!("cost" in value) || !("tokens" in value)) return undefined
   return { cost: value.cost as Usage["cost"], tokens: value.tokens as Usage["tokens"] }

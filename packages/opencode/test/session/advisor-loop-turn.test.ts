@@ -44,7 +44,7 @@ import { Database } from "@opencode-ai/core/database/database"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Skill } from "../../src/skill"
 import { TestInstance } from "../fixture/fixture"
-import { testEffect } from "../lib/effect"
+import { pollWithTimeout, testEffect } from "../lib/effect"
 import { TestLLMServer } from "../lib/llm-server"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Location } from "@opencode-ai/core/location"
@@ -326,6 +326,24 @@ it.instance("advisor review fires from the real loop after tool_failures reaches
     )
     expect(messageCost).toBeGreaterThan(0)
     expect(info.cost).toBeCloseTo(messageCost, 9)
+
+    // The advisor cost must ride on a persisted part the projector sees, not on
+    // a side write: removing the message (revert/undo) must take it back out.
+    const stepFinishes = messages.flatMap((m) => m.parts).filter((p) => p.type === "step-finish").length
+    expect(stepFinishes).toBe(4)
+    const advisorMessage = messages.find((m) =>
+      m.parts.some((p) => (p as { metadata?: { advisor?: unknown } }).metadata?.advisor !== undefined),
+    )
+    expect(advisorMessage).toBeDefined()
+    yield* sessions.removeMessage({ sessionID: chat.id, messageID: advisorMessage!.info.id })
+    const afterRevert = yield* pollWithTimeout(
+      Effect.gen(function* () {
+        const session = yield* sessions.get(chat.id)
+        return Math.abs(session.cost ?? 0) < 1e-9 ? session : undefined
+      }),
+      "session cost did not return to zero after removing the advisor message",
+    )
+    expect(afterRevert.cost ?? 0).toBeCloseTo(0, 9)
   }),
   20_000,
 )
