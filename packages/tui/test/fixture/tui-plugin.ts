@@ -28,7 +28,7 @@ export function createTuiPluginApi(opts: Opts = {}) {
       },
       ready: true,
     },
-    state: { session: { get: () => undefined, ...opts.state?.session } },
+    state: { session: { get: () => undefined, children: () => [], ...opts.state?.session } },
     theme: { current: new Proxy({}, { get: () => color }) },
     tuiConfig: createTuiResolvedConfig(),
     ui: { dialog },

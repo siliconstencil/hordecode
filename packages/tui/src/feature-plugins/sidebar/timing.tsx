@@ -5,6 +5,7 @@ import type { BuiltinTuiPlugin } from "../builtins"
 import { createMemo, createSignal, onCleanup, createEffect, Show, For } from "solid-js"
 import { Locale } from "../../util/locale"
 import { formatCost } from "../../util/cost"
+import { memoryWriterCost } from "../../util/session-spend"
 
 const id = "internal:sidebar-timing"
 
@@ -97,6 +98,10 @@ function ViewInternal(props: { api: TuiPluginApi; session_id: string }) {
   const messages = createMemo(() => props.api.state.session.messages(props.session_id) ?? [])
   const session = createMemo(() => props.api.state.session.get(props.session_id))
   const cost = createMemo(() => session()?.cost ?? 0)
+  // Hordecode: the checkpoint writer spends in a child session, so show its
+  // cost as part of what the session cost without changing the session row (r6 A3).
+  const writerCost = createMemo(() => memoryWriterCost(props.api.state.session.children(props.session_id)))
+  const shownCost = createMemo(() => cost() + writerCost())
   const [now, setNow] = createSignal(Date.now())
 
   const assistants = createMemo(() =>
@@ -291,7 +296,10 @@ function ViewInternal(props: { api: TuiPluginApi; session_id: string }) {
             <box flexDirection="row" justifyContent="space-between">
               <text fg={theme().text}>{"Spent   ".padEnd(8)}</text>
               <text fg={theme().text}>
-                {formatCost(cost(), costModel(), lastAssistant()?.providerID)}
+                {formatCost(shownCost(), costModel(), lastAssistant()?.providerID)}
+                <Show when={writerCost() > 0}>
+                  {` (+${formatCost(writerCost(), costModel(), lastAssistant()?.providerID)} memory)`}
+                </Show>
               </text>
             </box>
             <Show when={anyToolRunning()}>

@@ -131,6 +131,11 @@ function stateApi(sync: ReturnType<typeof useSync>): TuiPluginApi["state"] {
       get(sessionID) {
         return sync.session.get(sessionID)
       },
+      // Hordecode: child sessions from the synced session list, used to show
+      // the checkpoint writer's spend as part of the parent's cost (r6 A3).
+      children(sessionID) {
+        return sync.data.session.filter((item) => item.parentID === sessionID)
+      },
       diff(sessionID) {
         return (sync.data.session_diff[sessionID] ?? []).map((item) => ({
           file: item.file ?? "",

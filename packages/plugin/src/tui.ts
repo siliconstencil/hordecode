@@ -386,6 +386,9 @@ export type TuiState = {
   session: {
     count: () => number
     get: (sessionID: string) => Session | undefined
+    // Hordecode: child sessions of this session, used to attribute the
+    // checkpoint writer's spend to the parent (r6 A3).
+    children: (sessionID: string) => ReadonlyArray<Session>
     diff: (sessionID: string) => ReadonlyArray<TuiSidebarFileItem>
     todo: (sessionID: string) => ReadonlyArray<TuiSidebarTodoItem>
     // Hordecode: last todo update, used to hide a plan from an earlier request (upstream 1.19.5 has no timestamp).

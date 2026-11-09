@@ -52,6 +52,10 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- The displayed session cost updates after every step and after the advisor part, so the footer and
+  sidebar show the current total without waiting for the next prompt.
+- The sidebar and Activity "Spent" include the checkpoint writer's child-session spend as part of the
+  session cost; `horde stats` still counts each session once.
 - Step budgets for spawn, agent and the global budget clamp to 1 to 1000; a global 0 means no limit.
 - DeepSeek thinking mode keeps an empty `reasoning_content`.
 - A DSML envelope is healed into a real tool call in the stream.

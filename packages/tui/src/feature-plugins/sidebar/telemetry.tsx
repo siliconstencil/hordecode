@@ -6,6 +6,7 @@ import { streamingTPS, completedTPS, formatTPS } from "../../util/tps"
 import { contextUsage } from "../../util/context-usage"
 import { cacheLineFor, cacheTickDelay, type CacheTTL } from "../../util/cache-state"
 import { formatCost } from "../../util/cost"
+import { memoryWriterCost } from "../../util/session-spend"
 
 const id = "internal:sidebar-telemetry"
 
@@ -53,6 +54,10 @@ export function View(props: { api: TuiPluginApi; session_id: string }) {
   const messages = createMemo(() => props.api.state.session.messages(props.session_id) ?? [])
   const session = createMemo(() => props.api.state.session.get(props.session_id))
   const cost = createMemo(() => session()?.cost ?? 0)
+  // Hordecode: the checkpoint writer spends in a child session, so show its
+  // cost as part of what the session cost without changing the session row (r6 A3).
+  const writerCost = createMemo(() => memoryWriterCost(props.api.state.session.children(props.session_id)))
+  const shownCost = createMemo(() => cost() + writerCost())
   const [now, setNow] = createSignal(Date.now())
 
   const assistants = createMemo(() =>
@@ -314,7 +319,11 @@ export function View(props: { api: TuiPluginApi; session_id: string }) {
           <box flexDirection="row" justifyContent="space-between">
             <text fg={theme().text}>{"Usage   ".padEnd(8)}</text>
             <text fg={theme().textMuted} wrapMode="none">
-              <span style={{ fg: theme().text }}>{formatCost(cost(), costModel(), lastAssistant()?.providerID)}</span> spent · {formatTokens(totalTokens())} tkn
+              <span style={{ fg: theme().text }}>{formatCost(shownCost(), costModel(), lastAssistant()?.providerID)}</span> spent
+              <Show when={writerCost() > 0}>
+                {` (+${formatCost(writerCost(), costModel(), lastAssistant()?.providerID)} memory)`}
+              </Show>
+              {" · "}{formatTokens(totalTokens())} tkn
             </text>
           </box>
         </box>
