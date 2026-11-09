@@ -167,6 +167,15 @@ export function fromRow(row: SessionRow): Info {
   }
 }
 
+// Hordecode: a part whose usage the projector adds to the session row. The
+// advisor display part carries its usage in metadata, every other usage-bearing
+// part is a step-finish (r6 A2).
+function partCarriesUsage(part: SessionV1.Part): boolean {
+  if (part.type === "step-finish") return true
+  const advisor = (part as { metadata?: { advisor?: { usage?: unknown } } }).metadata?.advisor?.usage
+  return advisor !== undefined
+}
+
 export function toRow(info: Info) {
   return {
     id: info.id,
@@ -885,6 +894,10 @@ const layer = Layer.effect(
           part: structuredClone(part),
           time: Date.now(),
         })
+        // Hordecode: the projector applies this part's usage to the session row
+        // but emits no session.updated, so the TUI cost lagged one turn. Publish
+        // the refreshed session after any part that carries usage (r6 A2).
+        if (partCarriesUsage(part)) yield* touch(part.sessionID)
         return part
       }).pipe(Effect.withSpan("Session.updatePart"))
 
