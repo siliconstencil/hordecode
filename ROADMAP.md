@@ -13,7 +13,18 @@
 How a port is done and recorded: [docs/UPSTREAM-MAP.md](docs/UPSTREAM-MAP.md) and
 [docs/FORK-RULES.md](docs/FORK-RULES.md).
 
-## 0.1.5 (in progress)
+## 0.1.6 (in progress)
+
+- Base: opencode 1.19.5, the last 1.x release.
+- Steps: no default step limit, and a loop guard that warns while the turn continues.
+- Advisor: a no-progress trigger when a turn keeps making read-only calls.
+- Models: complete DSML tool calls written as text run as real tool calls.
+- Tasks: a task contract keeps delegated work inside its scope.
+- Long sessions: bounded by a checkpoint rebuild that shrinks the model view.
+- Cost: the displayed session cost is current after every step, and the sidebar shows the memory
+  writer's spend as part of the session cost.
+
+## 0.1.5 (released 2026-11-03)
 
 - Base: opencode 1.19.5, the latest 1.x release.
 - Root sessions: a stop with open tasks is nudged back to work, up to three times.
