@@ -1454,7 +1454,14 @@ const layer = Layer.effect(
       const existing = hasCP
         ? yield* checkpoint.lastBoundary(input.sessionID).pipe(Effect.catch(() => Effect.succeed(undefined)))
         : undefined
-      const canBound = yield* fits()
+      // The loop's filterCompacted does not trim checkpoint boundaries, so a
+      // checkpoint rebuild cannot reduce the model view at all: it only appends
+      // its rendered summary. Gate the rebuild path off until the loop filter
+      // honors `checkpoint` parts (open decision in the r5 report); the writers
+      // still run and checkpoint.md still lands, and the turn uses the existing
+      // plain compaction fallback. `fits` is kept for that follow-up.
+      const CHECKPOINT_REBUILD_TRIMS = false
+      const canBound = CHECKPOINT_REBUILD_TRIMS && (yield* fits())
       if (existing && canBound) {
         if (yield* rebuild()) return "rebuilt" as const
         return "insert-failed" as const
