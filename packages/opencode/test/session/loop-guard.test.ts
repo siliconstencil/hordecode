@@ -58,6 +58,22 @@ describe("loop guard warning", () => {
     expect(loopGuard([[read("/a")], [read("/b")], [bash("ls")], [read("/c")]])).toBeUndefined()
   })
 
+  test("descriptive labels do not count toward similarity", () => {
+    const ls = (description: string): ToolAction => ({
+      tool: "bash",
+      input: { command: "ls", description },
+    })
+    expect(stepSimilarity([ls("List files (step 1)")], [ls("List files (step 2)")])).toBe(1)
+    expect(
+      loopGuard([[ls("List files (step 1)")], [ls("List files (step 2)")], [ls("List files (step 3)")]])?.warning,
+    ).toContain("repeating similar actions")
+  })
+
+  test("a 300-step chain of distinct-file reads does not warn", () => {
+    const steps = Array.from({ length: 300 }, (_, i) => [read(`/chain/clue-${i}.txt`)])
+    expect(loopGuard(steps)).toBeUndefined()
+  })
+
   test("a red-green TDD loop does not warn", () => {
     const steps: ToolAction[][] = [
       [edit("/f.ts", "a", "b")],

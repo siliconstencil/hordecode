@@ -1706,17 +1706,33 @@ describe("tool.shell delete confirmation", () => {
 describe("tool.shell harness environment", () => {
   each("exports the harness paths of the session and of its child sessions to the command", () =>
     Effect.gen(function* () {
-      const tmp = yield* tmpdirScoped()
-      HarnessEnv.set(SessionID.make("ses_harness_parent"), {
-        HORDECODE_HARNESS_DOCS: "/abs/docs",
-        HORDECODE_HARNESS_EVIDENCE: "/abs/state/evidence",
-      })
-      HarnessEnv.inherit(SessionID.make("ses_harness_parent"), SessionID.make("ses_harness_child"))
-      const command = 'echo "docs=$HORDECODE_HARNESS_DOCS evidence=$HORDECODE_HARNESS_EVIDENCE"'
-      const child = yield* runIn(tmp, run({ command }, { ...ctx, sessionID: SessionID.make("ses_harness_child") }))
-      expect(child.output).toContain("docs=/abs/docs evidence=/abs/state/evidence")
-      const other = yield* runIn(tmp, run({ command }, { ...ctx, sessionID: SessionID.make("ses_not_harness") }))
-      expect(other.output).toContain("docs= evidence=")
+      // The shell tool passes the process environment through. Own the two
+      // harness variables for this test so an ambient value (a harness session
+      // exports them) cannot leak into the "not a harness session" assertion.
+      const ambient = {
+        docs: process.env.HORDECODE_HARNESS_DOCS,
+        evidence: process.env.HORDECODE_HARNESS_EVIDENCE,
+      }
+      delete process.env.HORDECODE_HARNESS_DOCS
+      delete process.env.HORDECODE_HARNESS_EVIDENCE
+      try {
+        const tmp = yield* tmpdirScoped()
+        HarnessEnv.set(SessionID.make("ses_harness_parent"), {
+          HORDECODE_HARNESS_DOCS: "/abs/docs",
+          HORDECODE_HARNESS_EVIDENCE: "/abs/state/evidence",
+        })
+        HarnessEnv.inherit(SessionID.make("ses_harness_parent"), SessionID.make("ses_harness_child"))
+        const command = 'echo "docs=$HORDECODE_HARNESS_DOCS evidence=$HORDECODE_HARNESS_EVIDENCE"'
+        const child = yield* runIn(tmp, run({ command }, { ...ctx, sessionID: SessionID.make("ses_harness_child") }))
+        expect(child.output).toContain("docs=/abs/docs evidence=/abs/state/evidence")
+        const other = yield* runIn(tmp, run({ command }, { ...ctx, sessionID: SessionID.make("ses_not_harness") }))
+        expect(other.output).toContain("docs= evidence=")
+      } finally {
+        if (ambient.docs === undefined) delete process.env.HORDECODE_HARNESS_DOCS
+        else process.env.HORDECODE_HARNESS_DOCS = ambient.docs
+        if (ambient.evidence === undefined) delete process.env.HORDECODE_HARNESS_EVIDENCE
+        else process.env.HORDECODE_HARNESS_EVIDENCE = ambient.evidence
+      }
     }),
   )
 })

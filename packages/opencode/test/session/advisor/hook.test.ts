@@ -245,3 +245,42 @@ describe("maybeAdvise no_progress re-arm (config)", () => {
     expect(on.streams).toBe(2)
   })
 })
+
+describe("maybeAdvise context limit", () => {
+  test("context_percent uses the effective overflow window, not the raw model limit", async () => {
+    const { provider } = fakeProvider()
+    const fake = fakeLLM(reply)
+    const messages = [
+      user("go"),
+      {
+        info: {
+          id: "a",
+          role: "assistant",
+          sessionID: "s",
+          tokens: { input: 50_000, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        },
+        parts: [],
+      } as unknown as Msg,
+    ]
+    const out = await Effect.runPromise(
+      maybeAdvise({
+        cfg: {
+          enabled: true,
+          model: "test/advisor",
+          triggers: { files_touched: 0, tool_failures: 0, same_error: 0, context_percent: 70, no_progress: 0 },
+        },
+        step: 1,
+        messages,
+        provider,
+        llm: fake.llm,
+        model: mainModel,
+        contextLimit: 56_000,
+        user: {} as never,
+        agent: {} as never,
+        sessionID: "t-context-limit",
+      }),
+    )
+    // 50_000 / 56_000 = 89%; the raw model limit would read 50% and stay quiet.
+    expect(out?.reasons).toContain("context_percent 89 >= 70")
+  })
+})

@@ -63,6 +63,15 @@ All notable changes to this project will be documented in this file.
   dir is granted without an external_directory ask, and only the harness agent gets the resolved harness paths.
 - Advisor: the read-only tool id list is real, pending parts do not count, and no_progress counts only
   consecutive read-only calls.
+- Checkpoint rebuilds use an existing checkpoint only when it covers the history it replaces; a stale one is
+  refreshed within the writer wait, and when no fresh checkpoint can bound the context the turn falls back to
+  plain compaction. Repeated overflow no longer grows the context.
+- The loop guard ignores descriptive label fields (`description`, `reason`, `title`, `label`), so steps that
+  differ only in wording warn as the same action.
+- The advisor's `context_percent` uses the same effective window as the overflow check instead of the raw model
+  limit, and a read of a file not read before in the turn counts as progress for `no_progress`.
+- The shell tool test sets its own `HORDECODE_HARNESS_DOCS` and `HORDECODE_HARNESS_EVIDENCE`, so a harness
+  session's environment no longer fails it.
 - Concurrent inbox drains are serialized.
 - Supervisor validation errors show a complete, valid call.
 - Task model arguments accept valid shapes and field names.

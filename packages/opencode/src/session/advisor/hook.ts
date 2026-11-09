@@ -51,6 +51,9 @@ export const maybeAdvise = (input: {
   provider: Provider.Interface
   llm: LLM.Interface
   model: Provider.Model
+  // The same effective window the overflow check uses (core overflow.usable).
+  // Falls back to the raw model limit only for callers that do not pass it.
+  contextLimit?: number
   user: LLM.StreamInput["user"]
   agent: LLM.StreamInput["agent"]
   sessionID: string
@@ -71,7 +74,7 @@ export const maybeAdvise = (input: {
       state.trigger.lastFiredStep = undefined
       state.trigger.lastReasons = []
     }
-    const facts = collectFacts(input.messages, input.model.limit?.context)
+    const facts = collectFacts(input.messages, input.contextLimit ?? input.model.limit?.context)
     const preset = PRESETS[cfg.sensitivity ?? "default"] ?? PRESETS.default
     const decision = evaluate(
       facts,

@@ -79,6 +79,8 @@ import { LLMEvent } from "@opencode-ai/llm"
 import { Goal } from "@opencode-ai/core/session/goal"
 import { SessionCheckpoint } from "@opencode-ai/core/session/checkpoint"
 import { SessionPrune } from "@opencode-ai/core/session/prune"
+import { contextTokens as overflowContextTokens, usable as overflowUsable } from "@opencode-ai/core/session/overflow"
+import { RebuildFreshness } from "./rebuild-freshness"
 import { computeLastMessageInfo } from "@opencode-ai/core/session/last-message-info"
 import { Service as CoreSessionService } from "@opencode-ai/core/session/session"
 import type { Interface as CoreSessionInterface } from "@opencode-ai/core/session/session"
@@ -1346,7 +1348,15 @@ const layer = Layer.effect(
     // Named for what the attempt DID, not what it means to the caller:
     // "insert-failed" means the checkpoint exists but the insert was refused,
     // which must NOT fall back to compaction (the rebuild will land next turn).
-    type RebuildAttempt = "rebuilt" | "writer-failed" | "insert-failed" | "memory-write-off"
+    // "rebuild-insufficient" means no checkpoint available now can bring the
+    // context under the overflow window; the caller uses the existing plain
+    // compaction fallback, exactly like "writer-failed", with no new notice.
+    type RebuildAttempt =
+      | "rebuilt"
+      | "writer-failed"
+      | "insert-failed"
+      | "memory-write-off"
+      | "rebuild-insufficient"
 
     const rebuildFromCheckpoint = Effect.fn("SessionPrompt.rebuildFromCheckpoint")(function* (input: {
       sessionID: SessionID
@@ -1382,34 +1392,62 @@ const layer = Layer.effect(
       agent: string
       model: { providerID: string; id: string }
       writerWaitMs: number
+      contextTokens: number
+      usableLimit: number
       onWaitingForWriter?: Effect.Effect<void>
     }) {
       // Step 0: writing is off -> no checkpoint can ever land; caller falls back.
       if (!isMemoryWriteEnabled(yield* config.get())) return "memory-write-off" as const
-      // Step 1: a checkpoint already exists -- rebuild from it directly.
-      if (yield* rebuildFromCheckpoint(input).pipe(Effect.catch(() => Effect.succeed(false)))) return "rebuilt" as const
-      // Step 2: a checkpoint exists but the rebuild was refused. Do NOT compact.
+
+      // Fork-only freshness check. A rebuild at `boundary` discards every message
+      // before it (the synthetic boundary is back-dated to the boundary's
+      // timestamp), so it bounds the turn only when that prefix plus the
+      // synthetic checkpoint context fits under the overflow window. MiMo
+      // v0.1.11/0.1.12 reuse any checkpoint without this check
+      // (packages/opencode/src/session/prompt.ts:459).
+      const fits = (boundary: string) =>
+        RebuildFreshness.rebuildCoversContext({
+          contextTokens: input.contextTokens,
+          droppedTokens: SessionCheckpoint.estimateTokensBeforeBoundary(input.msgs, boundary),
+          usableLimit: input.usableLimit,
+        })
+      const rebuild = () => rebuildFromCheckpoint(input).pipe(Effect.catch(() => Effect.succeed(false)))
+
+      // Start a writer if none is running, wait for it inside the existing bound,
+      // then report the freshest boundary it left behind (undefined if none).
+      const ensureFreshBoundary = Effect.fnUntraced(function* () {
+        const running = yield* checkpoint.isWriterRunning(input.sessionID).pipe(
+          Effect.catch(() => Effect.succeed(false)),
+        )
+        if (!running) {
+          yield* checkpoint
+            .tryStartCheckpointWriter({ sessionID: input.sessionID, model: { providerID: input.model.providerID, modelID: input.model.id }, promptOps: {} as never })
+            .pipe(Effect.catch(() => Effect.succeed("skipped")))
+        }
+        if (input.onWaitingForWriter) yield* input.onWaitingForWriter
+        yield* checkpoint
+          .waitForWriter(input.sessionID)
+          .pipe(Effect.timeout(input.writerWaitMs), Effect.catch(() => Effect.succeed("failure")))
+        return yield* checkpoint.lastBoundary(input.sessionID).pipe(Effect.catch(() => Effect.succeed(undefined)))
+      })
+
+      // Step 1: an existing checkpoint that covers the history it replaces.
       const hasCP = yield* checkpoint.hasCheckpoint(input.sessionID).pipe(Effect.catch(() => Effect.succeed(false)))
-      const boundary = hasCP
+      const existing = hasCP
         ? yield* checkpoint.lastBoundary(input.sessionID).pipe(Effect.catch(() => Effect.succeed(undefined)))
         : undefined
-      if (hasCP && boundary) return "insert-failed" as const
-      // Step 3: no checkpoint yet -- ensure the writer runs, wait for it.
-      const writerRunning = yield* checkpoint.isWriterRunning(input.sessionID).pipe(
-        Effect.catch(() => Effect.succeed(false)),
-      )
-      if (!writerRunning) {
-        yield* checkpoint
-          .tryStartCheckpointWriter({ sessionID: input.sessionID, model: { providerID: input.model.providerID, modelID: input.model.id }, promptOps: {} as never })
-          .pipe(Effect.catch(() => Effect.succeed("skipped")))
+      if (existing && fits(existing)) {
+        if (yield* rebuild()) return "rebuilt" as const
+        return "insert-failed" as const
       }
-      if (input.onWaitingForWriter) yield* input.onWaitingForWriter
-      const writerOutcome = yield* checkpoint
-        .waitForWriter(input.sessionID)
-        .pipe(Effect.timeout(input.writerWaitMs), Effect.catch(() => Effect.succeed("failure")))
-      if (writerOutcome !== "success") return "writer-failed" as const
-      // Step 4: writer landed it -- rebuild now.
-      if (yield* rebuildFromCheckpoint(input).pipe(Effect.catch(() => Effect.succeed(false)))) return "rebuilt" as const
+
+      // Step 2: the checkpoint is stale (it would discard too little), or there is
+      // none. Only a fresher one produced within the existing writer wait can
+      // bound the turn; otherwise the caller compacts.
+      const fresh = yield* ensureFreshBoundary()
+      if (!fresh) return "writer-failed" as const
+      if (!fits(fresh)) return "rebuild-insufficient" as const
+      if (yield* rebuild()) return "rebuilt" as const
       return "insert-failed" as const
     })
 
@@ -1972,6 +2010,8 @@ const layer = Layer.effect(
                 agent: lastUser.agent,
                 model: { providerID: model.providerID, id: model.id },
                 writerWaitMs: AUTO_WRITER_WAIT_MS,
+                contextTokens: overflowContextTokens(lastFinished.tokens),
+                usableLimit: overflowUsable({ cfg: (yield* config.get()) as never, model: model as never }),
                 onWaitingForWriter: status
                   .set(sessionID, { type: "busy", message: "Writing checkpoint…" })
                   .pipe(Effect.catch(() => Effect.void)),
@@ -1980,7 +2020,7 @@ const layer = Layer.effect(
               skipOverflowCheck = true
               continue
             }
-            if (attempt === "writer-failed" || attempt === "memory-write-off") {
+            if (attempt === "writer-failed" || attempt === "memory-write-off" || attempt === "rebuild-insufficient") {
               yield* compaction
                 .create({
                   sessionID,
@@ -2034,13 +2074,15 @@ const layer = Layer.effect(
           // Hordecode: optional advisor (experimental.advisor, off by default; session/advisor/hook.ts).
           // When its trigger fires, a second model reviews the turn; admitted notes reach this step as a
           // synthetic reminder (reminders.ts pattern, not persisted) and the call's cost is added to msg.
+          const cfgNow = yield* config.get()
           const advice = yield* Advisor.maybeAdvise({
-            cfg: (yield* config.get()).experimental?.advisor,
+            cfg: cfgNow.experimental?.advisor,
             step,
             messages: msgs,
             provider,
             llm,
             model,
+            contextLimit: overflowUsable({ cfg: cfgNow as never, model: model as never }),
             user: lastUser,
             agent,
             sessionID,
@@ -2353,6 +2395,10 @@ const layer = Layer.effect(
                   agent: lastUser.agent,
                   model: { providerID: model.providerID, id: model.id },
                   writerWaitMs: AUTO_WRITER_WAIT_MS,
+                  contextTokens: lastFinished?.tokens
+                    ? overflowContextTokens(lastFinished.tokens)
+                    : Number.POSITIVE_INFINITY,
+                  usableLimit: overflowUsable({ cfg: (yield* config.get()) as never, model: model as never }),
                   onWaitingForWriter: status
                     .set(sessionID, { type: "busy", message: "Writing checkpoint…" })
                     .pipe(Effect.catch(() => Effect.void)),
@@ -2364,7 +2410,7 @@ const layer = Layer.effect(
 
                 // The writer ran and failed — not "no checkpoint" — or memory
                 // writing is off and nothing was attempted.
-                if (attempt2 === "writer-failed" || attempt2 === "memory-write-off") {
+                if (attempt2 === "writer-failed" || attempt2 === "memory-write-off" || attempt2 === "rebuild-insufficient") {
                   // THE single compaction fallback (see the token-threshold site).
                   yield* compaction
                     .create({
@@ -2546,6 +2592,10 @@ const layer = Layer.effect(
                 agent: lastUser.agent,
                 model: { providerID: model.providerID, id: model.id },
                 writerWaitMs: AUTO_WRITER_WAIT_MS,
+                contextTokens: lastFinished?.tokens
+                  ? overflowContextTokens(lastFinished.tokens)
+                  : Number.POSITIVE_INFINITY,
+                usableLimit: overflowUsable({ cfg: (yield* config.get()) as never, model: model as never }),
                 onWaitingForWriter: status
                   .set(sessionID, { type: "busy", message: "Writing checkpoint…" })
                   .pipe(Effect.catch(() => Effect.void)),
@@ -2557,7 +2607,7 @@ const layer = Layer.effect(
 
               // The writer ran and failed — not "no checkpoint" — or memory
               // writing is off and nothing was attempted.
-              if (attempt2 === "writer-failed" || attempt2 === "memory-write-off") {
+              if (attempt2 === "writer-failed" || attempt2 === "memory-write-off" || attempt2 === "rebuild-insufficient") {
                 // THE single compaction fallback (see the token-threshold site).
                 yield* compaction
                   .create({

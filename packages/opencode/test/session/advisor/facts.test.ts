@@ -173,7 +173,7 @@ describe("readOnlyStreak", () => {
   })
 
   test("counts every call when the turn has only read-only calls", () => {
-    expect(collectFacts([user("go"), read(), read("history"), read("websearch")], undefined).readOnlyStreak).toBe(3)
+    expect(collectFacts([user("go"), read(), read("history"), read("websearch")], undefined).readOnlyStreak).toBe(2)
   })
 
   test("a bash call resets the streak: writes through the shell are progress", () => {
@@ -216,6 +216,16 @@ describe("readOnlyStreak", () => {
         parts: [{ type: "tool", tool: name, callID: `c-${Math.random()}`, state: { status: name === "grep" ? "running" : "pending", input: {}, time: { start: 0 } } }],
       }) as unknown as Msg
     const messages = [user("go"), read(), running("grep"), running("glob")]
-    expect(collectFacts(messages, undefined).readOnlyStreak).toBe(1)
+    expect(collectFacts(messages, undefined).readOnlyStreak).toBe(0)
+  })
+
+  test("a read of a file not read before in the turn is progress", () => {
+    const chain = Array.from({ length: 300 }, (_, i) => tool("read", "completed", { filePath: `/chain/clue-${i}.txt` }))
+    expect(collectFacts([user("go"), ...chain], undefined).readOnlyStreak).toBe(0)
+  })
+
+  test("re-reading the same file still builds a streak", () => {
+    const loop = Array.from({ length: 30 }, () => tool("read", "completed", { filePath: "/a" }))
+    expect(collectFacts([user("go"), ...loop], undefined).readOnlyStreak).toBe(29)
   })
 })

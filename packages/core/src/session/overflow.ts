@@ -71,6 +71,12 @@ export function usable(input: { cfg: Config.Info; model: Provider.Model }) {
   return contextWindow(input).usable
 }
 
+// One definition for "how full is the context", shared by the overflow check,
+// the pressure levels and the checkpoint rebuild freshness decision.
+export function contextTokens(tokens: MessageV2.Assistant["tokens"]) {
+  return tokens.total || tokens.input + tokens.output + tokens.cache.read + tokens.cache.write
+}
+
 export function isOverflow(input: {
   cfg: Config.Info
   tokens: MessageV2.Assistant["tokens"]
@@ -78,9 +84,7 @@ export function isOverflow(input: {
 }) {
   if (input.cfg.compaction?.auto === false) return false
   if (input.model.limit.context === 0) return false
-  const count =
-    input.tokens.total || input.tokens.input + input.tokens.output + input.tokens.cache.read + input.tokens.cache.write
-  return count >= usable(input)
+  return contextTokens(input.tokens) >= usable(input)
 }
 
 export function pressureLevel(input: {
@@ -99,10 +103,7 @@ export function contextPressureLevel(input: {
   additionalTokens?: number
 }): 0 | 1 | 2 | 3 {
   if (input.model.limit.context === 0) return 0
-  const count =
-    (input.tokens.total ||
-      input.tokens.input + input.tokens.output + input.tokens.cache.read + input.tokens.cache.write) +
-    (input.additionalTokens ?? 0)
+  const count = contextTokens(input.tokens) + (input.additionalTokens ?? 0)
   const limit = usable(input)
   if (limit === 0) return 0
   const ratio = count / limit

@@ -271,6 +271,23 @@ function estimateMessageTokens(m: { parts: Array<{ type: string; [k: string]: un
   return sum
 }
 
+// Fork-only (Hordecode). A rebuild inserts its synthetic boundary message
+// back-dated to the coveredUpTo message's timestamp, so filterCompacted keeps
+// the boundary and everything after it: the messages strictly before the
+// boundary are exactly what a rebuild discards. Callers use this to reject a
+// checkpoint whose boundary is too old to bound the context. No MiMo
+// v0.1.11/0.1.12 equivalent (they reuse coveredUpTo without this check).
+export function estimateTokensBeforeBoundary(
+  msgs: ReadonlyArray<{ info: { id: string }; parts: Array<{ type: string; [k: string]: unknown }> }>,
+  boundary: string,
+): number {
+  const index = msgs.findIndex((m) => m.info.id === boundary)
+  if (index <= 0) return 0
+  let sum = 0
+  for (let i = 0; i < index; i++) sum += estimateMessageTokens(msgs[i])
+  return sum
+}
+
 function hasTextBlocks(m: { parts: Array<{ type: string }> }): boolean {
   return m.parts.some((p) => p.type === "text" || p.type === "reasoning")
 }

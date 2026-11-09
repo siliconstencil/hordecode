@@ -24,6 +24,14 @@ const MAX_LEAF_LENGTH = 120
 export type ToolAction = { tool: string; input: unknown }
 export type LoopGuardWarning = { warning: string; tools: string[] }
 
+// Descriptive label leaves: free text the model writes about an action, never
+// part of the action's identity. Three `ls` steps that differ only in
+// `description` are the same action. These are the label-only fields in the tool
+// schemas: shell/bash `description`, supervisor `description`, cron loop `reason`
+// (and the generic `title`/`label` if a tool adds one). `name` is NOT excluded:
+// for `skill` it is the action's identity.
+const LABEL_KEYS = new Set(["description", "reason", "title", "label"])
+
 const normalize = (value: string) => {
   const text = value.trim().replace(/\s+/g, " ")
   return text.length <= MAX_LEAF_LENGTH ? text : `#${Bun.hash(text).toString(36)}`
@@ -44,6 +52,7 @@ function leaves(value: unknown, path: string, out: string[]) {
   }
   if (typeof value === "object") {
     for (const key of Object.keys(value).sort()) {
+      if (LABEL_KEYS.has(key)) continue
       leaves((value as Record<string, unknown>)[key], path ? `${path}.${key}` : key, out)
     }
   }

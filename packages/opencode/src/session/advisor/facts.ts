@@ -9,9 +9,10 @@ export interface AdvisorFacts {
   toolFailures: number
   maxSameError: number
   contextPercent: number | null
-  // Consecutive read-only tool calls at the end of the current turn. Any call that is not read-only
-  // (bash, edit, write, patch, task and every other tool) ends the streak: a shell write or delegated
-  // work is progress.
+  // Consecutive read-only tool calls at the end of the current turn that repeat
+  // material already seen. Any call that is not read-only (bash, edit, write,
+  // patch, task and every other tool) ends the streak, and so does a read of a
+  // file not read before in the turn: new information is progress.
   readOnlyStreak: number
 }
 
@@ -70,6 +71,14 @@ function fileKey(part: ToolPart, index: number): string | undefined {
   return path.isAbsolute(raw) ? path.resolve(raw) : raw
 }
 
+function readPath(part: ToolPart): string | undefined {
+  if (part.tool !== "read") return undefined
+  const input = part.state.input as Record<string, unknown>
+  const raw = text(input.filePath) ?? text(input.path)
+  if (raw === undefined) return undefined
+  return path.isAbsolute(raw) ? path.resolve(raw) : raw
+}
+
 // Error identity: lowercase, digits replaced by "#", whitespace collapsed, first 200 chars.
 export function errorKey(error: string) {
   return error
@@ -118,7 +127,22 @@ export function collectFacts(messages: Message[], contextLimit: number | undefin
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
 
-  const lastProgress = tools.findLastIndex((part) => !READ_ONLY_TOOLS.has(part.tool))
+  // Progress = a call that is not read-only, or a read of a file not read before
+  // in this turn. A 300-distinct-file chain is exploration, not a stall; only
+  // re-reading material already seen builds the streak.
+  const seenReads = new Set<string>()
+  let lastProgress = -1
+  tools.forEach((part, index) => {
+    if (part.state.status !== "completed" && part.state.status !== "error") return
+    if (!READ_ONLY_TOOLS.has(part.tool)) {
+      lastProgress = index
+      return
+    }
+    const key = readPath(part)
+    if (key === undefined || seenReads.has(key)) return
+    seenReads.add(key)
+    lastProgress = index
+  })
   const streak = tools
     .slice(lastProgress + 1)
     .filter((part) => part.state.status === "completed" || part.state.status === "error").length
