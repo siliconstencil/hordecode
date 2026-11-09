@@ -542,6 +542,8 @@ export function filterCompacted(msgs: Iterable<WithParts>) {
   let retain: MessageID | undefined
   for (const msg of msgs) {
     result.push(msg)
+    // FORK_DELTA: checkpoint break matches MiMo v0.1.11 packages/opencode/src/session/message-v2.ts:1056-1064 (v0.1.12:1067).
+    if (msg.info.role === "user" && msg.parts.some((part) => part.type === "checkpoint")) break
     if (retain) {
       if (msg.info.id === retain) break
       continue

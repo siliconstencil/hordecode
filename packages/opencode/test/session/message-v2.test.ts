@@ -1921,3 +1921,65 @@ describe("session.message-v2.latest", () => {
     expect(state.tasks[0]).toMatchObject({ type: "subtask", prompt: "inspect" })
   })
 })
+
+describe("MessageV2.filterCompacted checkpoint boundary", () => {
+  const OLD_USER = MessageID.make("msg_cp_old_user")
+  const OLD_ASSISTANT = MessageID.make("msg_cp_old_assistant")
+  const CHECKPOINT_USER = MessageID.make("msg_cp_boundary")
+  const NEW_USER = MessageID.make("msg_cp_new_user")
+  const NEW_ASSISTANT = MessageID.make("msg_cp_new_assistant")
+
+  const oldUser: SessionV1.WithParts = {
+    info: { ...userInfo(OLD_USER), time: { created: 100 } },
+    parts: [{ ...basePart(OLD_USER, "u1"), type: "text", text: "original prompt" }] as SessionV1.Part[],
+  }
+  const oldAssistant: SessionV1.WithParts = {
+    info: {
+      ...assistantInfo(OLD_ASSISTANT, OLD_USER),
+      time: { created: 200 },
+      finish: "stop",
+    } as SessionV1.Assistant,
+    parts: [],
+  }
+  const checkpointUser: SessionV1.WithParts = {
+    info: { ...userInfo(CHECKPOINT_USER), time: { created: 201 } },
+    parts: [
+      {
+        ...basePart(CHECKPOINT_USER, "cp"),
+        type: "checkpoint",
+        checkpointDir: "",
+        checkpointNumber: 0,
+        coveredUpTo: OLD_USER,
+      },
+      {
+        ...basePart(CHECKPOINT_USER, "cp_text"),
+        type: "text",
+        text: "Summary of previous conversation from checkpoint files:",
+      },
+    ] as SessionV1.Part[],
+  }
+  const newUser: SessionV1.WithParts = {
+    info: { ...userInfo(NEW_USER), time: { created: 300 } },
+    parts: [{ ...basePart(NEW_USER, "u2"), type: "text", text: "next step" }] as SessionV1.Part[],
+  }
+  const newAssistant: SessionV1.WithParts = {
+    info: {
+      ...assistantInfo(NEW_ASSISTANT, NEW_USER),
+      time: { created: 400 },
+      finish: "stop",
+    } as SessionV1.Assistant,
+    parts: [],
+  }
+
+  test("drops history covered by a checkpoint part", () => {
+    const filtered = MessageV2.filterCompacted([
+      newAssistant,
+      newUser,
+      checkpointUser,
+      oldAssistant,
+      oldUser,
+    ])
+
+    expect(filtered.map((item) => item.info.id)).toEqual([CHECKPOINT_USER, NEW_USER, NEW_ASSISTANT])
+  })
+})

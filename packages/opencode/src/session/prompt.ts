@@ -1402,19 +1402,12 @@ const layer = Layer.effect(
 
       // Fork-only freshness check. A rebuild only bounds the turn when it
       // discards a meaningful prefix AND the synthetic checkpoint context fits
-      // under the overflow window. The drop is 0 here because the loop's
-      // MessageV2.filterCompacted (session/message-v2.ts) does not treat a
-      // `checkpoint` part as a context boundary: only compaction parts trim.
-      // A checkpoint rebuild therefore drops nothing from the model view and
-      // only adds its rendered summary, so it cannot bound an overflowing turn.
-      // The core writer's filterCompacted (core/session/message-v2.ts) DOES trim
-      // checkpoints, which is why estimateTokensBeforeBoundary reports a large
-      // prefix; that estimate describes the writer's view, not the loop's.
-      // Until the loop filter honors checkpoints, the fit check must use the
-      // loop's real drop (0) and the turn falls back to plain compaction.
+      // under the overflow window. The loop's MessageV2.filterCompacted
+      // (session/message-v2.ts) trims at a `checkpoint` boundary, matching MiMo,
+      // so estimateTokensBeforeBoundary is the prefix the rebuild actually drops.
       // MiMo v0.1.11/0.1.12 reuse any checkpoint without this check
       // (packages/opencode/src/session/prompt.ts:459).
-      const fits = () =>
+      const fits = (boundary: string, msgs: SessionV1.WithParts[]) =>
         Effect.gen(function* () {
           const synthetic = yield* checkpoint
             .renderRebuildContext(input.sessionID, { agentID: input.agentID, skipWriterWait: true })
@@ -1424,7 +1417,7 @@ const layer = Layer.effect(
             )
           return RebuildFreshness.rebuildCoversContext({
             contextTokens: input.contextTokens,
-            droppedTokens: 0,
+            droppedTokens: SessionCheckpoint.estimateTokensBeforeBoundary(msgs, boundary),
             syntheticTokens: synthetic,
             usableLimit: input.usableLimit,
           })
@@ -1454,31 +1447,27 @@ const layer = Layer.effect(
       const existing = hasCP
         ? yield* checkpoint.lastBoundary(input.sessionID).pipe(Effect.catch(() => Effect.succeed(undefined)))
         : undefined
-      // The loop's filterCompacted does not trim checkpoint boundaries, so a
-      // checkpoint rebuild cannot reduce the model view at all: it only appends
-      // its rendered summary. Gate the rebuild path off until the loop filter
-      // honors `checkpoint` parts (open decision in the r5 report); the writers
-      // still run and checkpoint.md still lands, and the turn uses the existing
-      // plain compaction fallback. `fits` is kept for that follow-up.
-      const CHECKPOINT_REBUILD_TRIMS = false
-      const canBound = CHECKPOINT_REBUILD_TRIMS && (yield* fits())
-      if (existing && canBound) {
+      if (existing && (yield* fits(existing, input.msgs))) {
         if (yield* rebuild()) return "rebuilt" as const
         return "insert-failed" as const
       }
 
-      // Step 2: no checkpoint can bound this turn (today: always, because the
-      // loop filter does not trim checkpoint boundaries). Fall back without
-      // waiting for a writer -- a fresh checkpoint would not trim either.
-      if (!canBound) return "rebuild-insufficient" as const
-
-      // A rebuild can bound the turn only when the loop filter honors checkpoint
-      // boundaries; then a fresher one produced within the existing writer wait
-      // is what makes it possible.
+      // Step 2: the existing checkpoint (if any) cannot bound the turn. Start or
+      // wait for a writer within the existing wait: a fresher boundary may cover
+      // more history and fit. If it still cannot, fall back to plain compaction.
       const fresh = yield* ensureFreshBoundary()
       if (!fresh) return "writer-failed" as const
-      if (yield* rebuild()) return "rebuilt" as const
-      return "insert-failed" as const
+      if (fresh !== existing) {
+        const current = yield* MessageV2.filterCompactedEffect(input.sessionID).pipe(
+          Effect.provideService(Database.Service, database),
+          Effect.catch(() => Effect.succeed(input.msgs)),
+        )
+        if (yield* fits(fresh, current)) {
+          if (yield* rebuild()) return "rebuilt" as const
+          return "insert-failed" as const
+        }
+      }
+      return "rebuild-insufficient" as const
     })
 
     const MEMORY_WRITE_OFF_FALLBACK_NOTICE =
