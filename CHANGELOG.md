@@ -72,7 +72,8 @@ All notable changes to this project will be documented in this file.
 - The loop guard ignores descriptive label fields (`description`, `reason`, `title`, `label`), so steps that
   differ only in wording warn as the same action.
 - The advisor's `context_percent` uses the same effective window as the overflow check instead of the raw model
-  limit, and a read of a file not read before in the turn counts as progress for `no_progress`.
+  limit, and a read of a file not read before in the turn counts as progress for `no_progress`. The advisor
+  call's cost is added to the session cost, so the displayed total matches the sum of the assistant messages.
 - The shell tool test sets its own `HORDECODE_HARNESS_DOCS` and `HORDECODE_HARNESS_EVIDENCE`, so a harness
   session's environment no longer fails it.
 - Concurrent inbox drains are serialized.

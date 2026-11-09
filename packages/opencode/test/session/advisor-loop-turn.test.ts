@@ -233,7 +233,7 @@ const cfg = (url: string, advisor?: Record<string, unknown>): Partial<ConfigV1.I
           tool_call: true,
           release_date: "2025-01-01",
           limit: { context: 100000, output: 10000 },
-          cost: { input: 0, output: 0 },
+          cost: { input: 1, output: 1 },
           options: {},
         },
       },
@@ -295,6 +295,7 @@ it.instance("advisor review fires from the real loop after tool_failures reaches
     yield* llm.textMatch(
       (hit) => isAdvisorCall(hit.body),
       '[{"severity":"concern","note":"stop retrying the same failing command"}]',
+      { usage: { input: 1000, output: 1000 } },
     )
     // Three failing bash calls (tool_failures threshold is 3), then a plain stop.
     yield* llm.tool("bash", { command: "exit 1", description: "fail 1" })
@@ -314,6 +315,17 @@ it.instance("advisor review fires from the real loop after tool_failures reaches
     const inputs = yield* llm.inputs
     const lastMainRequest = [...inputs].reverse().find((body) => !isAdvisorCall(body))
     expect(JSON.stringify(lastMainRequest)).toContain("stop retrying the same failing command")
+
+    // The advisor call has no step-finish part. Its cost must still reach the
+    // session row, which is what the sidebar, telemetry and stats read.
+    const info = yield* sessions.get(chat.id)
+    const messages = yield* MessageV2.filterCompactedEffect(chat.id)
+    const messageCost = messages.reduce(
+      (sum, m) => sum + (m.info.role === "assistant" ? ((m.info as { cost?: number }).cost ?? 0) : 0),
+      0,
+    )
+    expect(messageCost).toBeGreaterThan(0)
+    expect(info.cost).toBeCloseTo(messageCost, 9)
   }),
   20_000,
 )

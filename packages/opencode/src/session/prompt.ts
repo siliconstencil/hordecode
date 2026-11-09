@@ -70,7 +70,7 @@ import { EventV2Bridge } from "@/event-v2-bridge"
 import { Database } from "@opencode-ai/core/database/database"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
@@ -2143,8 +2143,19 @@ const layer = Layer.effect(
               .pipe(Effect.ignore)
           }
           if (advice?.usage && advice.model) {
-            msg.cost += Session.getUsage({ model: advice.model, usage: advice.usage }).cost
+            const advisorCost = Session.getUsage({ model: advice.model, usage: advice.usage }).cost
+            msg.cost += advisorCost
             yield* sessions.updateMessage(msg)
+            // The advisor call has no step-finish part, so the session projector
+            // (core/session/projector.ts applyUsage, step-finish only) never
+            // counts it. Add the same delta to the session row so the cost the
+            // sidebar, telemetry and stats read matches the message sum.
+            yield* db
+              .update(SessionTable)
+              .set({ cost: sql`${SessionTable.cost} + ${advisorCost}` })
+              .where(eq(SessionTable.id, msg.sessionID))
+              .run()
+              .pipe(Effect.orDie)
           }
 
           // FORK_ONLY: loop guard warning (session/loop-guard.ts). Warn only: the warning reaches the
