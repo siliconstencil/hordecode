@@ -81,6 +81,7 @@ import { SessionCheckpoint } from "@opencode-ai/core/session/checkpoint"
 import { SessionPrune } from "@opencode-ai/core/session/prune"
 import { contextTokens as overflowContextTokens, usable as overflowUsable } from "@opencode-ai/core/session/overflow"
 import { RebuildFreshness } from "./rebuild-freshness"
+import { Token } from "@opencode-ai/core/util"
 import { computeLastMessageInfo } from "@opencode-ai/core/session/last-message-info"
 import { Service as CoreSessionService } from "@opencode-ai/core/session/session"
 import type { Interface as CoreSessionInterface } from "@opencode-ai/core/session/session"
@@ -1404,12 +1405,23 @@ const layer = Layer.effect(
       // timestamp), so it bounds the turn only when that prefix plus the
       // synthetic checkpoint context fits under the overflow window. MiMo
       // v0.1.11/0.1.12 reuse any checkpoint without this check
-      // (packages/opencode/src/session/prompt.ts:459).
+      // (packages/opencode/src/session/prompt.ts:459). The synthetic size is the
+      // rendered rebuild context itself, estimated the same way the token
+      // thresholds estimate tokens (chars / 4), not a fixed reserve.
       const fits = (boundary: string) =>
-        RebuildFreshness.rebuildCoversContext({
-          contextTokens: input.contextTokens,
-          droppedTokens: SessionCheckpoint.estimateTokensBeforeBoundary(input.msgs, boundary),
-          usableLimit: input.usableLimit,
+        Effect.gen(function* () {
+          const synthetic = yield* checkpoint
+            .renderRebuildContext(input.sessionID, { agentID: input.agentID, skipWriterWait: true })
+            .pipe(
+              Effect.map((text) => Token.estimate(text)),
+              Effect.catch(() => Effect.succeed(0)),
+            )
+          return RebuildFreshness.rebuildCoversContext({
+            contextTokens: input.contextTokens,
+            droppedTokens: SessionCheckpoint.estimateTokensBeforeBoundary(input.msgs, boundary),
+            syntheticTokens: synthetic,
+            usableLimit: input.usableLimit,
+          })
         })
       const rebuild = () => rebuildFromCheckpoint(input).pipe(Effect.catch(() => Effect.succeed(false)))
 
@@ -1436,7 +1448,7 @@ const layer = Layer.effect(
       const existing = hasCP
         ? yield* checkpoint.lastBoundary(input.sessionID).pipe(Effect.catch(() => Effect.succeed(undefined)))
         : undefined
-      if (existing && fits(existing)) {
+      if (existing && (yield* fits(existing))) {
         if (yield* rebuild()) return "rebuilt" as const
         return "insert-failed" as const
       }
@@ -1446,7 +1458,7 @@ const layer = Layer.effect(
       // bound the turn; otherwise the caller compacts.
       const fresh = yield* ensureFreshBoundary()
       if (!fresh) return "writer-failed" as const
-      if (!fits(fresh)) return "rebuild-insufficient" as const
+      if (!(yield* fits(fresh))) return "rebuild-insufficient" as const
       if (yield* rebuild()) return "rebuilt" as const
       return "insert-failed" as const
     })

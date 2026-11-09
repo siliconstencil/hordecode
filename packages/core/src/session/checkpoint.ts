@@ -571,7 +571,7 @@ export interface Interface {
    */
   readonly renderRebuildContext: (
     sessionID: SessionID,
-    opts?: { lastMessageInfo?: LastMessageInfo; agentID?: string },
+    opts?: { lastMessageInfo?: LastMessageInfo; agentID?: string; skipWriterWait?: boolean },
   ) => Effect.Effect<string>
 
   readonly lastBoundary: (sessionID: SessionID) => Effect.Effect<MessageID | undefined>
@@ -1299,7 +1299,7 @@ export const layer = Layer.effect(
 
     const renderRebuildContext = Effect.fn("SessionCheckpoint.renderRebuildContext")(function* (
       sessionID: SessionID,
-      opts?: { lastMessageInfo?: LastMessageInfo; agentID?: string },
+      opts?: { lastMessageInfo?: LastMessageInfo; agentID?: string; skipWriterWait?: boolean },
     ) {
       // renderRebuildContext is for the user-facing main agent's context rebuild.
       // Subagent-mode supervisors (system-spawned writers, model-spawned subagents)
@@ -1313,7 +1313,7 @@ export const layer = Layer.effect(
       if (opts?.agentID && opts.agentID !== "main") return ""
 
       const inFlight = writers.get(sessionID)
-      if (inFlight) {
+      if (inFlight && !opts?.skipWriterWait) {
         log.info("rebuild waiting for in-flight writer", { sessionID })
         yield* Effect.race(
           Deferred.await(inFlight.writing).pipe(Effect.as("done" as const)),
