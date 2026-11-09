@@ -260,6 +260,7 @@ export const layer = Layer.effect(
             sessionID: input.sessionID,
             model: { providerID: input.model.providerID, modelID: input.model.id },
             promptOps: input.promptOps,
+            level: currentTokens,
           }),
         ).pipe(Effect.catch(() => Effect.succeed<TryStartCheckpointWriterResult>("skipped")))
 

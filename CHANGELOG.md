@@ -67,6 +67,8 @@ All notable changes to this project will be documented in this file.
   part as a context boundary, matching MiMo. A rebuild uses an existing checkpoint only when it covers the
   history it replaces; a stale one is refreshed within the writer wait, and when no fresh checkpoint can
   bound the context the turn falls back to plain compaction. Repeated overflow no longer grows the context.
+  The checkpoint watermark advances only when the writer rewrote `checkpoint.md`, and a request at the same
+  token level as a running writer is dropped instead of queued, so no duplicate startup writer runs.
 - The loop guard ignores descriptive label fields (`description`, `reason`, `title`, `label`), so steps that
   differ only in wording warn as the same action.
 - The advisor's `context_percent` uses the same effective window as the overflow check instead of the raw model

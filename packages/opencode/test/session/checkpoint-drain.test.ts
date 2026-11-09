@@ -23,6 +23,7 @@ import {
   resetCheckpointHarness,
   runWithCheckpoint,
   seedParent,
+  appendAssistantMessage,
   promptOps,
   lastSpawned,
   spawnedAt,
@@ -105,49 +106,77 @@ describe("checkpoint drainWriters", () => {
     )
   })
 
-  it("queued newest-wins: 3 bursty calls, only the last writer is the active one", async () => {
+  it("same token level while a writer runs is skipped, not queued (no duplicate startup writer)", async () => {
     await runWithCheckpoint((svc) =>
       Effect.gen(function* () {
         const { sessionID } = yield* Effect.sync(() => seedParent())
-        // First writer starts normally.
+        // Several thresholds crossed at the same token level call the writer
+        // in one fireCheckpoints pass. Only the first may start; the rest
+        // cannot cover new history and must not queue a second run.
         const first = yield* svc.tryStartCheckpointWriter({
           sessionID,
           model: { providerID: "test", modelID: "test-model" },
           promptOps: promptOps as never,
+          level: 1_000,
         })
         expect(first).toBe("started")
-        // Two more calls in quick succession while the first is in-flight
-        // are queued (1-slot queue, newest-wins).
         const second = yield* svc.tryStartCheckpointWriter({
           sessionID,
           model: { providerID: "test", modelID: "test-model" },
           promptOps: promptOps as never,
+          level: 1_000,
         })
-        expect(second).toBe("queued")
-        const third = yield* svc.tryStartCheckpointWriter({
-          sessionID,
-          model: { providerID: "test", modelID: "test-model" },
-          promptOps: promptOps as never,
-        })
-        expect(third).toBe("queued")
-        // Settle the first writer success. The watcher fires the pending
-        // request as a fresh writer, which immediately supersedes
-        // the second queued request.
+        expect(second).toBe("skipped")
+        // Settle the running writer. No pending request exists, so no second
+        // writer may be spawned.
         const d0 = spawnedAt(0)
         expect(d0).toBeDefined()
         settle(d0!, { status: "success" } as AgentOutcome)
-        // Give the watcher a tick to fire the pending writer.
-        yield* Effect.sleep("300 millis")
-        // Now exactly one writer is in flight (the third one, started by
-        // the pending-promotion from the first settlement).
-        const d1 = spawnedAt(1)
-        if (d1) {
-          // The pending did fire a fresh writer; settle it success.
-          settle(d1, { status: "success" } as AgentOutcome)
-          yield* Effect.sleep("200 millis")
-        }
-        // After the burst settles, no writer should be left in flight.
-        // drainWriters must return drained:0 (no in-flight) at the end.
+        yield* pollWithTimeout(
+          Effect.gen(function* () {
+            const running = yield* svc.isWriterRunning(sessionID)
+            return running ? undefined : (true as const)
+          }),
+          "writer never cleared from writers map after success settle",
+        )
+        expect(spawnedAt(1)).toBeUndefined()
+      }),
+    )
+  })
+
+  it("higher token level while a writer runs is queued and drains after the first settles", async () => {
+    await runWithCheckpoint((svc) =>
+      Effect.gen(function* () {
+        const { sessionID } = yield* Effect.sync(() => seedParent())
+        const first = yield* svc.tryStartCheckpointWriter({
+          sessionID,
+          model: { providerID: "test", modelID: "test-model" },
+          promptOps: promptOps as never,
+          level: 1_000,
+        })
+        expect(first).toBe("started")
+        // A genuinely newer range arrived while the first writer ran.
+        const second = yield* svc.tryStartCheckpointWriter({
+          sessionID,
+          model: { providerID: "test", modelID: "test-model" },
+          promptOps: promptOps as never,
+          level: 2_000,
+        })
+        expect(second).toBe("queued")
+        // New parent work arrived while the first writer ran, so the queued
+        // request has a non-empty delta at drain time.
+        appendAssistantMessage(sessionID)
+        const d0 = spawnedAt(0)
+        expect(d0).toBeDefined()
+        settle(d0!, { status: "success" } as AgentOutcome)
+        const d1 = yield* pollWithTimeout(
+          Effect.gen(function* () {
+            return spawnedAt(1)
+          }),
+          "pending writer never fired after the first settled",
+        )
+        settle(d1, { status: "success" } as AgentOutcome)
+        yield* Effect.sleep("200 millis")
         const result = yield* svc.drainWriters({ timeoutMs: 500 })
         expect(result.timedOut).toBe(0)
       }),

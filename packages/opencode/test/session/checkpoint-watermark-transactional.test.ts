@@ -25,6 +25,7 @@ const { ProjectID } = await import("@opencode-ai/project/schema")
 const { AbsolutePath } = await import("@opencode-ai/core/schema")
 const { Database } = await import("@opencode-ai/core/storage")
 const { Global } = await import("@opencode-ai/core/global")
+const { checkpointPath } = await import("@opencode-ai/core/session/checkpoint-paths")
 const { InstanceRef, WorkspaceRef } = await import("@/effect/instance-ref")
 const { spawnRef } = await import("@opencode-ai/supervisor/spawn-ref")
 const { prefixCaptureRef } = await import("@opencode-ai/core/session/prefix-capture-ref")
@@ -176,7 +177,21 @@ describe("checkpoint watermark is transactional (fork behavioral)", () => {
       .finally(() => rt.dispose())
   }
 
-  it("watermark advances to the last message only when the writer succeeds", async () => {
+  // Simulate the writer's actual file write. The settle watcher advances the
+  // watermark only when checkpoint.md was rewritten, so a success settlement
+  // without this write must leave the watermark put (test below).
+  const writeCheckpoint = (sessionID: SessionID) =>
+    Effect.promise(async () => {
+      // Use the same helper the writer/settle watcher uses; the core and
+      // global-package Path objects are distinct and capture different roots.
+      const file = checkpointPath(sessionID)
+      // The writer runs for seconds; a fixed sleep here only clears mtime
+      // granularity so the rewrite is strictly newer than the template.
+      await Bun.sleep(10)
+      await Bun.write(file, `# checkpoint ${Date.now()}\n`)
+    })
+
+  it("watermark advances to the last message when the writer succeeds and rewrites checkpoint.md", async () => {
     await runWith((svc) =>
       Effect.gen(function* () {
         const { sessionID, seedMsgID } = yield* Effect.sync(() => seedParent())
@@ -191,7 +206,9 @@ describe("checkpoint watermark is transactional (fork behavioral)", () => {
         const before = yield* readWatermark(sessionID)
         expect(before).toBeNull()
 
-        // Writer succeeds -> settle-watcher must advance the parent watermark.
+        // Writer succeeds AND rewrote checkpoint.md -> settle-watcher must
+        // advance the parent watermark.
+        yield* writeCheckpoint(sessionID)
         yield* Deferred.succeed(spawned[0], { status: "success" } as AgentOutcome)
 
         const after = yield* pollWithTimeout(
@@ -202,6 +219,36 @@ describe("checkpoint watermark is transactional (fork behavioral)", () => {
           "watermark never advanced after writer success",
         )
         expect(after).toBe(seedMsgID)
+      }),
+    )
+  })
+
+  it("watermark stays unchanged when the writer succeeds without rewriting checkpoint.md", async () => {
+    await runWith((svc) =>
+      Effect.gen(function* () {
+        const { sessionID } = yield* Effect.sync(() => seedParent())
+        const outcome = yield* svc.tryStartCheckpointWriter({
+          sessionID,
+          model: { providerID: "test", modelID: "test-model" },
+          promptOps: promptOps as never,
+        })
+        expect(outcome).toBe("started")
+        expect(spawned.length).toBe(1)
+
+        // A turn-level "success" is not a file-write guarantee: the writer can
+        // finish its turn without calling the write tool. The watermark must
+        // not advance, or every later rebuild would drop history the on-disk
+        // checkpoint never captured.
+        yield* Deferred.succeed(spawned[0], { status: "success" } as AgentOutcome)
+        yield* pollWithTimeout(
+          Effect.gen(function* () {
+            const running = yield* svc.isWriterRunning(sessionID)
+            return running ? undefined : (true as const)
+          }),
+          "writer never cleared from writers map after success settle",
+        )
+        const after = yield* readWatermark(sessionID)
+        expect(after).toBeNull()
       }),
     )
   })

@@ -1432,7 +1432,12 @@ const layer = Layer.effect(
         )
         if (!running) {
           yield* checkpoint
-            .tryStartCheckpointWriter({ sessionID: input.sessionID, model: { providerID: input.model.providerID, modelID: input.model.id }, promptOps: {} as never })
+            .tryStartCheckpointWriter({
+              sessionID: input.sessionID,
+              model: { providerID: input.model.providerID, modelID: input.model.id },
+              promptOps: {} as never,
+              level: input.contextTokens,
+            })
             .pipe(Effect.catch(() => Effect.succeed("skipped")))
         }
         if (input.onWaitingForWriter) yield* input.onWaitingForWriter

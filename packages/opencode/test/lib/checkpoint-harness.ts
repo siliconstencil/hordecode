@@ -183,6 +183,40 @@ export const seedSessionOnly = (): SessionID => {
   return sessionID
 }
 
+// Append one assistant text message so a queued writer sees a strictly newer
+// delta than the writer that was running when it was queued.
+export const appendAssistantMessage = (sessionID: SessionID): MessageID => {
+  const messageID = MessageID.make(`${sessionID}-msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+  Database.use((db) => {
+    db.insert(MessageTable)
+      .values({
+        id: messageID,
+        session_id: sessionID,
+        agent_id: "main",
+        time_created: Date.now(),
+        time_updated: Date.now(),
+        data: {
+          role: "assistant",
+          time: { created: Date.now() },
+          agent: "build",
+          model: { providerID: "test", modelID: "test-model" },
+        } as never,
+      })
+      .run()
+    db.insert(PartTable)
+      .values({
+        id: PartID.make(`${messageID}-p1`),
+        message_id: messageID,
+        session_id: sessionID,
+        time_created: Date.now(),
+        time_updated: Date.now(),
+        data: { type: "text", text: "new work" } as never,
+      })
+      .run()
+  })
+  return messageID
+}
+
 // Trivial stub for the prompt-operations triple. tryStartCheckpointWriter
 // only passes these to the supervisor's spawn input; the writer never
 // actually invokes them in the harness.

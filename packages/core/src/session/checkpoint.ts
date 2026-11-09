@@ -481,6 +481,10 @@ export type TryStartCheckpointWriterInput = {
   sessionID: SessionID
   model: { providerID: string; modelID: string }
   promptOps: SupervisorPromptOps
+  // Token count at which the request was raised. A request raised at the same
+  // or an older level than the running writer cannot cover new history and is
+  // skipped instead of queued (duplicate startup writer pair).
+  level?: number
 }
 
 /**
@@ -634,6 +638,9 @@ interface WriterState {
   // await writer settlement (waitForWriter / drainWriters). The public
   // WriterOutcome translation happens in waitForWriter.
   writing: Deferred.Deferred<AgentOutcome>
+  // Token count at which the running writer was started. Used to drop a
+  // request that cannot cover new history (same-level duplicate).
+  level?: number
   // F40: 1-slot pending queue. When set, holds the input for a writer that
   // should fire as soon as `writing` settles. Newer requests evict older
   // pending values -- the newest range is always a strict superset of the
@@ -699,6 +706,18 @@ export const layer = Layer.effect(
       // duplicate the work.
       const existing = writers.get(input.sessionID)
       if (existing) {
+        // Several thresholds crossed at the same token level call this in one
+        // fireCheckpoints pass. A request raised at the same (or older) level
+        // than the running writer cannot cover new history; queueing it would
+        // spawn a duplicate writer as soon as the current one settles.
+        if (input.level !== undefined && existing.level !== undefined && input.level <= existing.level) {
+          log.info("writer already covers this token level, skipping duplicate request", {
+            sessionID: input.sessionID,
+            level: input.level,
+            runningLevel: existing.level,
+          })
+          return "skipped" as const
+        }
         if (existing.pending) {
           log.info("writer pending evicted (newer range arrived)", { sessionID: input.sessionID })
         } else {
@@ -788,6 +807,16 @@ export const layer = Layer.effect(
       yield* Effect.promise(() => ensureCheckpointTemplate(checkpointFile))
       yield* Effect.promise(() => ensureMemoryTemplate(memoryFile))
       yield* Effect.promise(() => ensureNotesTemplate(notesFile))
+
+      // Snapshot the checkpoint file before the writer runs. A writer turn can
+      // report success without ever rewriting this file (the turn completed,
+      // but the delta was not captured), so the settle watcher below advances
+      // the watermark only when the file actually changed.
+      const checkpointMtimeBefore = yield* Effect.promise(async () => {
+        const file = Bun.file(checkpointFile)
+        if (!(await file.exists())) return undefined
+        return (await file.stat()).mtimeMs
+      })
 
       // v5: single-file checkpoint, check if prior content exists
       const checkpointExists = yield* Effect.promise(() => Bun.file(checkpointFile).exists())
@@ -1044,7 +1073,7 @@ export const layer = Layer.effect(
         expectedRevisions: [],
       })
 
-      writers.set(input.sessionID, { writing: result.outcome })
+      writers.set(input.sessionID, { writing: result.outcome, level: input.level })
 
       // Bookkeeping: the parent's last_checkpoint_message_id (the delta
       // watermark -- the point future rebuilds compute the message tail from)
@@ -1089,14 +1118,32 @@ export const layer = Layer.effect(
         )
         yield* Effect.sync(() => clearTimeout(nativeTimer))
         if (outcome.status === "success") {
-          yield* Effect.sync(() =>
-            Database.use((d) =>
-              d.update(SessionTable)
-                .set({ last_checkpoint_message_id: endMessageID as MessageID })
-                .where(eq(SessionTable.id, input.sessionID))
-                .run(),
-            ),
-          )
+          // The supervisor outcome is a turn result, not a file-write
+          // guarantee. Advancing the watermark without a fresh checkpoint.md
+          // would make every later rebuild drop history the on-disk file never
+          // captured. mtime is the cheapest proof the writer rewrote it; a
+          // rewrite always advances mtime even when the content is unchanged.
+          const written = yield* Effect.promise(async () => {
+            const file = Bun.file(checkpointFile)
+            if (!(await file.exists())) return false
+            const mtime = (await file.stat()).mtimeMs
+            return checkpointMtimeBefore === undefined || mtime > checkpointMtimeBefore
+          })
+          if (written) {
+            yield* Effect.sync(() =>
+              Database.use((d) =>
+                d.update(SessionTable)
+                  .set({ last_checkpoint_message_id: endMessageID as MessageID })
+                  .where(eq(SessionTable.id, input.sessionID))
+                  .run(),
+              ),
+            )
+          } else {
+            log.warn(
+              "checkpoint writer succeeded without rewriting checkpoint.md — leaving watermark unchanged so the delta is re-covered",
+              { sessionID: input.sessionID, endMessageID },
+            )
+          }
         } else {
           const failure = outcome.status === "failure" ? outcome.failure : undefined
           const classified = failure ? { kind: failure.kind, cause: failure.name } : {}
