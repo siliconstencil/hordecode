@@ -21,6 +21,7 @@ import { Effect } from "effect"
 import { UI } from "../ui"
 import { effectCmd } from "../effect-cmd"
 import { armShutdownWatchdog } from "../run-shutdown"
+import { drainCheckpointWriters } from "../checkpoint-drain"
 import { EOL } from "os"
 import { Filesystem } from "@/util/filesystem"
 import { createOpencodeClient, type OpencodeClient, type ToolPart } from "@opencode-ai/sdk/v2"
@@ -963,6 +964,8 @@ export const RunCommand = effectCmd({
       })
       await execute(sdk)
     })
+    // Fork: exit drain of in-flight checkpoint writers from MiMo v0.1.11 packages/opencode/src/cli/bootstrap.ts:27.
+    yield* drainCheckpointWriters()
   // Bound the unbounded dispose in effect-cmd.ts; upstream v1.19.5 cli/cmd/tui.ts:265 uses withTimeout(..., 5000) for the worker.
   }, Effect.ensuring(Effect.sync(() => void armShutdownWatchdog()))),
 })

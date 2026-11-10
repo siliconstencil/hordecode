@@ -8,6 +8,7 @@ import { ServerAuth } from "@/server/auth"
 import { writeHeapSnapshot } from "node:v8"
 import { Heap } from "@/cli/heap"
 import { AppRuntime } from "@/effect/app-runtime"
+import { drainCheckpointWriters } from "../checkpoint-drain"
 import { Effect } from "effect"
 import { disposeAllInstancesAndEmitGlobalDisposed } from "@/server/global-lifecycle"
 import { Log } from "@opencode-ai/core/util"
@@ -89,6 +90,10 @@ export const rpc = {
     )
   },
   async shutdown() {
+    // Fork: exit drain of in-flight checkpoint writers from MiMo v0.1.11 packages/opencode/src/cli/cmd/tui/worker.ts:106.
+    // The TUI parent gives this call 5 s in total, so the drain takes 2 s and
+    // leaves the rest of the shutdown its budget.
+    await AppRuntime.runPromise(drainCheckpointWriters({ timeoutMs: 2_000 }).pipe(Effect.catchCause(() => Effect.void)))
     await InstanceRuntime.disposeAllInstances()
     if (server) await server.stop(true)
     process.off("unhandledRejection", onUnhandledRejection)

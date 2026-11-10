@@ -1263,7 +1263,7 @@ export const layer = Layer.effect(
 
     const drainWriters = Effect.fn("SessionCheckpoint.drainWriters")(function* (input?: { timeoutMs?: number }) {
       const timeoutMs = input?.timeoutMs ?? 120_000
-      const pending = [...writers.values()]
+      const pending = [...writers.entries()]
       if (pending.length === 0) return { drained: 0, timedOut: 0 }
       log.info("draining checkpoint writers before shutdown", {
         count: pending.length,
@@ -1273,17 +1273,26 @@ export const layer = Layer.effect(
       // Deferred.await ignores fiber interruption during shutdown because
       // it resolves via Deferred.succeed in the detached writer. We only
       // need a collective upper bound so a stuck writer doesn't block exit.
-      yield* Effect.all(
-        pending.map((state) => Deferred.await(state.writing)),
-        { concurrency: "unbounded" },
-      ).pipe(
+      yield* Effect.gen(function* () {
+        yield* Effect.all(
+          pending.map(([, state]) => Deferred.await(state.writing)),
+          { concurrency: "unbounded" },
+        )
+        // The outcome resolves before the writer's watcher has advanced the
+        // watermark and removed the entry from the map. Returning here would
+        // let the process exit with the watermark unmoved, and the next writer
+        // would cover the same delta again. Wait for the entries to clear.
+        while (pending.some(([sessionID]) => writers.has(sessionID))) {
+          yield* Effect.sleep("20 millis")
+        }
+      }).pipe(
         Effect.timeout(timeoutMs),
         Effect.catch(() => Effect.succeed(undefined)),
       )
 
       // Writers delete themselves from the map on success/failure, so anything
       // still present after the timeout is a writer that didn't settle in time.
-      const timedOut = writers.size
+      const timedOut = pending.filter(([sessionID]) => writers.has(sessionID)).length
       const drained = pending.length - timedOut
       if (timedOut > 0) log.warn("drain timed out, writers still pending", { drained, timedOut })
       else log.info("drain complete", { drained })
