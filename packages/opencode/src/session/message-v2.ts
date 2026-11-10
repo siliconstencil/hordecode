@@ -595,17 +595,32 @@ export const filterCompactedEffect = Effect.fnUntraced(function* (sessionID: Ses
   return filterCompacted(yield* stream(sessionID))
 })
 
+// FORK_DELTA: ported from mimocode v0.1.11 packages/opencode/src/session/prompt.ts:4749-4757 (hasSubstantiveContent).
+// True when at least one user part survives the send-side filter in toModelMessages.
+export function hasSubstantiveContent(parts: readonly Part[]): boolean {
+  return parts.some((p) => {
+    if (p.type === "text" && !p.ignored && p.text.trim().length > 0) return true
+    if (p.type === "file" && p.mime !== "text/plain" && p.mime !== "application/x-directory") return true
+    if (p.type === "checkpoint" || p.type === "compaction" || p.type === "subtask") return true
+    return false
+  })
+}
+
 // filterCompacted reorders messages for model consumption
 // ([compaction-user, summary, ...retained tail..., continue-user]), so array
 // position is not chronological. IDs are only a deterministic tie-breaker
 // because imported messages do not necessarily have monotonic IDs.
 export function latest(msgs: WithParts[]) {
   let user: User | undefined
+  let fallbackUser: User | undefined
   let assistant: Assistant | undefined
   let finished: Assistant | undefined
   for (const msg of msgs) {
     const info = msg.info
-    if (info.role === "user" && isAfter(info, user)) user = info
+    if (info.role === "user" && isAfter(info, fallbackUser)) fallbackUser = info
+    // FORK_DELTA: skip user rows the model cannot see (ignored-only plugin notices);
+    // turn selection must match the send-side filter in toModelMessages.
+    if (info.role === "user" && hasSubstantiveContent(msg.parts) && isAfter(info, user)) user = info
     if (info.role === "assistant" && isAfter(info, assistant)) assistant = info
     if (info.role === "assistant" && info.finish && isAfter(info, finished)) finished = info
   }
@@ -614,7 +629,9 @@ export function latest(msgs: WithParts[]) {
       ? []
       : m.parts.filter((p): p is CompactionPart | SubtaskPart => p.type === "compaction" || p.type === "subtask"),
   )
-  return { user, assistant, finished, tasks }
+  // FORK_DELTA: a session with no substantive user yet (for example /rebuild's empty
+  // anchor) still needs a turn anchor; fall back to the newest user row.
+  return { user: user ?? fallbackUser, assistant, finished, tasks }
 }
 
 function isAfter(info: Info, other?: Info) {

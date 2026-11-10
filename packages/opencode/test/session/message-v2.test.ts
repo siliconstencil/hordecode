@@ -1821,9 +1821,15 @@ describe("session.message-v2.latest", () => {
 
     const state = MessageV2.latest([
       { info: newAssistant, parts: [] },
-      { info: oldUser, parts: [] },
+      {
+        info: oldUser,
+        parts: [{ ...basePart(oldUser.id, "p1"), type: "text", text: "old" }] as SessionV1.Part[],
+      },
       { info: oldAssistant, parts: [] },
-      { info: newUser, parts: [] },
+      {
+        info: newUser,
+        parts: [{ ...basePart(newUser.id, "p1"), type: "text", text: "new" }] as SessionV1.Part[],
+      },
     ])
 
     expect(state.user?.id).toBe(newUser.id)
@@ -1836,11 +1842,32 @@ describe("session.message-v2.latest", () => {
     const higher = { ...userInfo("msg_z_user"), time: { created: 100 } }
 
     const state = MessageV2.latest([
-      { info: higher, parts: [] },
-      { info: lower, parts: [] },
+      {
+        info: higher,
+        parts: [{ ...basePart(higher.id, "p1"), type: "text", text: "higher" }] as SessionV1.Part[],
+      },
+      {
+        info: lower,
+        parts: [{ ...basePart(lower.id, "p1"), type: "text", text: "lower" }] as SessionV1.Part[],
+      },
     ])
 
     expect(state.user?.id).toBe(higher.id)
+  })
+
+  // /rebuild's empty anchor has no substantive text (the send side drops it), but
+  // the loop still needs a turn anchor when no substantive user exists yet.
+  test("falls back to the newest user when no user has substantive content", () => {
+    const anchor = { ...userInfo("msg_anchor"), time: { created: 100 } }
+
+    const state = MessageV2.latest([
+      {
+        info: anchor,
+        parts: [{ ...basePart(anchor.id, "p1"), type: "text", text: "" }] as SessionV1.Part[],
+      },
+    ])
+
+    expect(state.user?.id).toBe(anchor.id)
   })
 
   // Regression for double auto-compaction. The reorder in filterCompacted
@@ -1991,9 +2018,7 @@ describe("session.message-v2.ignored-user-notice", () => {
   // parts:[{type:"text", ignored:true}]). MessageV2.latest must not pick that
   // invisible message as the loop's last user, or the next assistant step is
   // parented to a user turn the model never saw.
-  // Kept as todo, not skip: it is red on dev/0.1.6 (latest returns the notice)
-  // until the fix in reports/0.1.6/r8-ignored-user-turn.md is chosen and landed.
-  test.todo("ignored-only user notice does not become the loop's last user", async () => {
+  test("ignored-only user notice does not become the loop's last user", async () => {
     const promptID = MessageID.make("msg_r8_prompt")
     const toolStepID = MessageID.make("msg_r8_tool_step")
     const noticeID = MessageID.make("msg_r8_notice")
@@ -2057,5 +2082,77 @@ describe("session.message-v2.ignored-user-notice", () => {
     // turn, so a continued step sees the same task, not an invented one.
     const lastUser = [...modelMessages].reverse().find((message) => message.role === "user")
     expect(JSON.stringify(lastUser)).toContain(instruction)
+  })
+
+  // Synthetic re-entry reminders (loop guard, DSML retry, goal) carry non-ignored
+  // text; the loop must still treat them as the newest user turn.
+  test("synthetic-text user still becomes the loop's last user", async () => {
+    const promptID = MessageID.make("msg_r8s_prompt")
+    const toolStepID = MessageID.make("msg_r8s_tool_step")
+    const syntheticID = MessageID.make("msg_r8s_synthetic")
+    const syntheticText = "<system-reminder>loop guard warning</system-reminder>"
+
+    const messages: SessionV1.WithParts[] = [
+      {
+        info: { ...userInfo(promptID), time: { created: 100 } },
+        parts: [{ ...basePart(promptID, "p1"), type: "text", text: "original prompt" }] as SessionV1.Part[],
+      },
+      {
+        info: {
+          ...assistantInfo(toolStepID, promptID),
+          time: { created: 200 },
+          finish: "tool-calls",
+        } as SessionV1.Assistant,
+        parts: [] as SessionV1.Part[],
+      },
+      {
+        info: { ...userInfo(syntheticID), time: { created: 300 } },
+        parts: [
+          { ...basePart(syntheticID, "p1"), type: "text", text: syntheticText, synthetic: true },
+        ] as SessionV1.Part[],
+      },
+    ]
+
+    expect(MessageV2.latest(messages).user?.id).toBe(syntheticID)
+    const modelMessages = await MessageV2.toModelMessages(messages, model)
+    const lastUser = [...modelMessages].reverse().find((message) => message.role === "user")
+    expect(JSON.stringify(lastUser)).toContain("loop guard warning")
+  })
+
+  // A notice attached to a real turn (ignored part plus text) is a real turn:
+  // the text survives the send-side filter and must win.
+  test("user with ignored part plus real text still counts", async () => {
+    const promptID = MessageID.make("msg_r8m_prompt")
+    const toolStepID = MessageID.make("msg_r8m_tool_step")
+    const mixedID = MessageID.make("msg_r8m_mixed")
+    const realText = "continue with the real instruction"
+
+    const messages: SessionV1.WithParts[] = [
+      {
+        info: { ...userInfo(promptID), time: { created: 100 } },
+        parts: [{ ...basePart(promptID, "p1"), type: "text", text: "original prompt" }] as SessionV1.Part[],
+      },
+      {
+        info: {
+          ...assistantInfo(toolStepID, promptID),
+          time: { created: 200 },
+          finish: "tool-calls",
+        } as SessionV1.Assistant,
+        parts: [] as SessionV1.Part[],
+      },
+      {
+        info: { ...userInfo(mixedID), time: { created: 300 } },
+        parts: [
+          { ...basePart(mixedID, "p1"), type: "text", text: "DCP | compressed", ignored: true },
+          { ...basePart(mixedID, "p2"), type: "text", text: realText },
+        ] as SessionV1.Part[],
+      },
+    ]
+
+    expect(MessageV2.latest(messages).user?.id).toBe(mixedID)
+    const modelMessages = await MessageV2.toModelMessages(messages, model)
+    expect(JSON.stringify(modelMessages)).not.toContain("DCP | compressed")
+    const lastUser = [...modelMessages].reverse().find((message) => message.role === "user")
+    expect(JSON.stringify(lastUser)).toContain(realText)
   })
 })

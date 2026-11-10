@@ -531,6 +531,13 @@ noLLMServer.instance(
         model: ref,
         time: { created: 100 },
       })
+      yield* sessions.updatePart({
+        id: PartID.ascending(),
+        messageID: userID,
+        sessionID: chat.id,
+        type: "text",
+        text: "hello",
+      })
       yield* sessions.updateMessage({
         id: assistantID,
         role: "assistant",
@@ -2628,4 +2635,44 @@ noLLMServer.instance(
       }
     }),
   30_000,
+)
+
+it.instance(
+  "idle ignored notice is not a turn and the next loop parents to the real prompt",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(providerCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({
+        title: "Pinned",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
+      const real = yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        model: ref,
+        noReply: true,
+        parts: [{ type: "text", text: "real prompt" }],
+      })
+      const notice = yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        model: ref,
+        noReply: true,
+        parts: [{ type: "text", text: "DCP | compressed", ignored: true }],
+      })
+
+      expect(real.info.id).not.toBe(notice.info.id)
+      // noReply persists the notice row but must not start a loop.
+      expect(yield* llm.hits).toHaveLength(0)
+
+      yield* llm.text("done")
+      const result = yield* prompt.loop({ sessionID: chat.id })
+
+      expect(yield* llm.hits).toHaveLength(1)
+      expect(result.info.role).toBe("assistant")
+      if (result.info.role === "assistant") expect(result.info.parentID).toBe(real.info.id)
+    }),
+  15_000,
 )
