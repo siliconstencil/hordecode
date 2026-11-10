@@ -1719,6 +1719,7 @@ FORK_ONLY	packages/core/test/session/goal-persist.test.ts
 FORK_ONLY	packages/core/test/session/goal-write-failure.test.ts
 FORK_ONLY	packages/core/test/session/harness-injection.test.ts
 FORK_ONLY	packages/core/test/session/harness-triage.test.ts
+FORK_ONLY	packages/core/test/session/message-v2.test.ts
 FORK_ONLY	packages/core/test/session/processor-try-best.test.ts
 FORK_ONLY	packages/core/test/session/retry-cap.test.ts
 FORK_ONLY	packages/core/test/session/setup-shared-db.ts
