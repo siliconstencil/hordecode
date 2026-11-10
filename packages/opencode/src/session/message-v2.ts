@@ -595,11 +595,11 @@ export const filterCompactedEffect = Effect.fnUntraced(function* (sessionID: Ses
   return filterCompacted(yield* stream(sessionID))
 })
 
-// FORK_DELTA: ported from mimocode v0.1.11 packages/opencode/src/session/prompt.ts:4749-4757 (hasSubstantiveContent).
-// True when at least one user part survives the send-side filter in toModelMessages.
+// FORK_DELTA: ported from mimocode v0.1.11 packages/opencode/src/session/prompt.ts:4749-4757 (hasSubstantiveContent);
+// the text rule is opencode 1.19.5 message-v2.ts:216 (length, not trim), not mimocode's trim.
 export function hasSubstantiveContent(parts: readonly Part[]): boolean {
   return parts.some((p) => {
-    if (p.type === "text" && !p.ignored && p.text.trim().length > 0) return true
+    if (p.type === "text" && !p.ignored && p.text.length > 0) return true
     if (p.type === "file" && p.mime !== "text/plain" && p.mime !== "application/x-directory") return true
     if (p.type === "checkpoint" || p.type === "compaction" || p.type === "subtask") return true
     return false

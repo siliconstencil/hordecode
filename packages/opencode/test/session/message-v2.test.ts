@@ -1555,6 +1555,68 @@ describe("session.message-v2.toModelMessage", () => {
     const texts = (result[0].content as any[]).filter((p) => p.type === "text")
     expect(texts.map((t) => t.text)).toStrictEqual(["", "hello"])
   })
+
+  test("agrees with the send-side filter on which user parts carry content", async () => {
+    const shapes: { name: string; part: SessionV1.Part; expected: boolean }[] = [
+      {
+        name: "text hello",
+        part: { ...basePart("m-user", "p1"), type: "text", text: "hello" },
+        expected: true,
+      },
+      {
+        name: "text whitespace only",
+        part: { ...basePart("m-user", "p1"), type: "text", text: "   " },
+        expected: true,
+      },
+      {
+        name: "text empty",
+        part: { ...basePart("m-user", "p1"), type: "text", text: "" },
+        expected: false,
+      },
+      {
+        name: "text ignored",
+        part: { ...basePart("m-user", "p1"), type: "text", text: "ignored", ignored: true },
+        expected: false,
+      },
+      {
+        name: "file image/png",
+        part: {
+          ...basePart("m-user", "p1"),
+          type: "file",
+          mime: "image/png",
+          filename: "img.png",
+          url: "https://example.com/img.png",
+        },
+        expected: true,
+      },
+      {
+        name: "file text/plain",
+        part: {
+          ...basePart("m-user", "p1"),
+          type: "file",
+          mime: "text/plain",
+          filename: "note.txt",
+          url: "https://example.com/note.txt",
+        },
+        expected: false,
+      },
+    ]
+
+    for (const shape of shapes) {
+      const messageID = "m-user"
+      const parts: SessionV1.Part[] = [shape.part]
+      const input: SessionV1.WithParts[] = [{ info: userInfo(messageID), parts }]
+
+      const substantive = MessageV2.hasSubstantiveContent(parts)
+      const sent = (await MessageV2.toModelMessages(input, model)).length > 0
+
+      expect({ shape: shape.name, substantive, sent }).toStrictEqual({
+        shape: shape.name,
+        substantive: shape.expected,
+        sent: shape.expected,
+      })
+    }
+  })
 })
 
 describe("session.message-v2.fromError", () => {
