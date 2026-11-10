@@ -265,8 +265,12 @@ export namespace FSUtil {
 
   // Hordecode: MiMo 8e1df4ab (core/src/fs-util.ts:270) -- a Windows
   // cross-drive/cross-share relative() result is absolute; treat it as outside.
+  // Hordecode: r7b -- only an exact leading ".." segment is outside; "..foo" is a name.
   export function isContainedRelative(rel: string): boolean {
-    return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel) && !win32.isAbsolute(rel))
+    if (rel === "") return true
+    if (isAbsolute(rel) || win32.isAbsolute(rel)) return false
+    if (rel === "..") return false
+    return !rel.startsWith("../") && !rel.startsWith("..\\")
   }
 
   export function overlaps(a: string, b: string) {

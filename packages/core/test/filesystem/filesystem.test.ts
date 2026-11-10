@@ -393,5 +393,17 @@ describe("FSUtil", () => {
       expect(FSUtil.isContainedRelative(path.relative("/a/b", "/a/b/c"))).toBe(true)
       expect(FSUtil.isContainedRelative(path.relative("/a/b", "/a/x"))).toBe(false)
     })
+
+    // Hordecode: r7b -- only an exact ".." path segment is outside; "..foo" is a name.
+    test("isContainedRelative keeps a leading .. name inside", () => {
+      expect(FSUtil.isContainedRelative("..foo")).toBe(true)
+      expect(FSUtil.isContainedRelative("..foo/bar")).toBe(true)
+    })
+
+    test("isContainedRelative rejects an exact .. segment", () => {
+      expect(FSUtil.isContainedRelative("..")).toBe(false)
+      expect(FSUtil.isContainedRelative("../x")).toBe(false)
+      expect(FSUtil.isContainedRelative("..\\x")).toBe(false)
+    })
   })
 })

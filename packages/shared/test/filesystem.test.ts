@@ -39,6 +39,18 @@ describe("AppFileSystem pure helpers", () => {
     expect(AppFileSystem.isContainedRelative(path.relative("/a/b", "/a/x"))).toBe(false)
   })
 
+  // Hordecode: r7b -- only an exact ".." path segment is outside; "..foo" is a name.
+  test("isContainedRelative keeps a leading .. name inside", () => {
+    expect(AppFileSystem.isContainedRelative("..foo")).toBe(true)
+    expect(AppFileSystem.isContainedRelative("..foo/bar")).toBe(true)
+  })
+
+  test("isContainedRelative rejects an exact .. segment", () => {
+    expect(AppFileSystem.isContainedRelative("..")).toBe(false)
+    expect(AppFileSystem.isContainedRelative("../x")).toBe(false)
+    expect(AppFileSystem.isContainedRelative("..\\x")).toBe(false)
+  })
+
   test("resolve returns an absolute path for a missing file and the real path for a symlinked one", () => {
     expect(AppFileSystem.resolve(path.join(root, "missing", "file"))).toBe(path.join(root, "missing", "file"))
     expect(AppFileSystem.resolve(path.join(root, "a", "..", "a"))).toBe(path.join(root, "a"))
