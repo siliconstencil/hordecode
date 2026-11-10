@@ -99,6 +99,8 @@ All notable changes to this project will be documented in this file.
   creation order.
 - Builds honour the explicit version override.
 - The harness merge gate no longer exits silently when the eval JSON path is missing.
+- Plugin display notices sent as ignored messages (for example context-pruning plugins) no longer start a
+  new turn.
 
 ### Removed
 

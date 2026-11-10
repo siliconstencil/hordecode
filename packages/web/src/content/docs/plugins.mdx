@@ -64,6 +64,15 @@ Duplicate npm packages with the same name and version are loaded once. However, 
 
 ---
 
+## Plugin compatibility
+
+Plugins can post display-only notices to the transcript with a user message whose text part is marked
+`ignored: true`. The notice stays visible in the session, but it does not start a new turn or become the
+parent of the next assistant step; the loop keeps working on the real user request. Context-pruning plugins
+use this for compression notices.
+
+---
+
 ## Create a plugin
 
 A plugin is a **JavaScript/TypeScript module** that exports one or more plugin
