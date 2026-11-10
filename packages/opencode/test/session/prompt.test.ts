@@ -590,29 +590,34 @@ it.instance("loop exits without an LLM request for interrupted orphan tool calls
   }),
 )
 
-it.instance("loop calls LLM and returns assistant message", () =>
-  Effect.gen(function* () {
-    const { llm } = yield* useServerConfig(providerCfg)
-    const prompt = yield* SessionPrompt.Service
-    const sessions = yield* Session.Service
-    const chat = yield* sessions.create({
-      title: "Pinned",
-      permission: [{ permission: "*", pattern: "*", action: "allow" }],
-    })
-    yield* prompt.prompt({
-      sessionID: chat.id,
-      agent: "build",
-      noReply: true,
-      parts: [{ type: "text", text: "hello" }],
-    })
-    yield* llm.text("world")
+// FORK_DELTA: the instance setup plus the mock-LLM round trip measures 5.6-7.9 s here, over the
+// 5 s default; the sibling LLM test in this file uses 15_000 (prompt.test.ts:646).
+it.instance(
+  "loop calls LLM and returns assistant message",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(providerCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({
+        title: "Pinned",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "hello" }],
+      })
+      yield* llm.text("world")
 
-    const result = yield* prompt.loop({ sessionID: chat.id })
-    expect(result.info.role).toBe("assistant")
-    const parts = result.parts.filter((p) => p.type === "text")
-    expect(parts.some((p) => p.type === "text" && p.text === "world")).toBe(true)
-    expect(yield* llm.hits).toHaveLength(1)
-  }),
+      const result = yield* prompt.loop({ sessionID: chat.id })
+      expect(result.info.role).toBe("assistant")
+      const parts = result.parts.filter((p) => p.type === "text")
+      expect(parts.some((p) => p.type === "text" && p.text === "world")).toBe(true)
+      expect(yield* llm.hits).toHaveLength(1)
+    }),
+  15_000,
 )
 
 withMcpInstructions.instance(
