@@ -590,8 +590,8 @@ it.instance("loop exits without an LLM request for interrupted orphan tool calls
   }),
 )
 
-// FORK_DELTA: the instance setup plus the mock-LLM round trip measures 5.6-7.9 s here, over the
-// 5 s default; the sibling LLM test in this file uses 15_000 (prompt.test.ts:646).
+// FORK_DELTA: upstream v1.19.5 packages/opencode/test/session/prompt.test.ts:532 has this test without a timeout.
+// The first prompt.prompt pays a one-time lazy init of 4.1-4.2 s (db open, migration, skills, registry), the mock-LLM round trip ~0.5 s, 4.2-4.7 s in-body; 15_000 like the sibling LLM test (prompt.test.ts:646).
 it.instance(
   "loop calls LLM and returns assistant message",
   () =>
