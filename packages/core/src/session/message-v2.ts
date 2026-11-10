@@ -684,9 +684,8 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
         role: "user",
         parts: [],
       }
-      result.push(userMessage)
       for (const msgPart of msg.parts) {
-        if (msgPart.type === "text" && !msgPart.ignored)
+        if (msgPart.type === "text" && !msgPart.ignored && msgPart.text !== "")
           userMessage.parts.push({
             type: "text",
             text: msgPart.text,
@@ -726,6 +725,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
           })
         }
       }
+      if (userMessage.parts.length > 0) result.push(userMessage)
     }
 
     if (msg.info.role === "assistant") {
@@ -997,6 +997,16 @@ export const filterCompactedEffect = Effect.fnUntraced(function* (
 
   return [...parentFiltered, ...ownMessages]
 })
+
+// Same rule as packages/opencode/src/session/message-v2.ts (hasSubstantiveContent).
+export function hasSubstantiveContent(parts: readonly Part[]): boolean {
+  return parts.some((p) => {
+    if (p.type === "text" && !p.ignored && p.text.length > 0) return true
+    if (p.type === "file" && p.mime !== "text/plain" && p.mime !== "application/x-directory") return true
+    if (p.type === "checkpoint" || p.type === "compaction" || p.type === "subtask") return true
+    return false
+  })
+}
 
 export function fromError(
   e: unknown,

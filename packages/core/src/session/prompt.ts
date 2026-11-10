@@ -2155,19 +2155,23 @@ const runLoop: (sessionID: SessionID, agentID?: string, task_id?: string, steps?
         })
 
         let lastUser: MessageV2.User | undefined
+        let fallbackUser: MessageV2.User | undefined
         let lastAssistant: MessageV2.Assistant | undefined
         let lastFinished: MessageV2.Assistant | undefined
         let tasks: MessageV2.SubtaskPart[] = []
         for (let i = msgs.length - 1; i >= 0; i--) {
           const msg = msgs[i]
-          if (!lastUser && msg.info.role === "user") lastUser = msg.info
+          if (!fallbackUser && msg.info.role === "user") fallbackUser = msg.info
+          // FORK_DELTA: same turn rule as packages/opencode/src/session/message-v2.ts (hasSubstantiveContent).
+          if (!lastUser && msg.info.role === "user" && MessageV2.hasSubstantiveContent(msg.parts)) lastUser = msg.info
           if (!lastAssistant && msg.info.role === "assistant") lastAssistant = msg.info
           if (!lastFinished && msg.info.role === "assistant" && msg.info.finish) lastFinished = msg.info
-          if (lastUser && lastFinished) break
+          if (fallbackUser && lastFinished) break
           const task = msg.parts.filter((part: MessageV2.Part): part is MessageV2.SubtaskPart => part.type === "subtask")
           if (task && !lastFinished) tasks.push(...task)
         }
 
+        lastUser = lastUser ?? fallbackUser
         if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
 
         // Active recall reminder injection (lines 2557-2591)
