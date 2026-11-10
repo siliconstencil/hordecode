@@ -22,6 +22,8 @@ import { UI } from "../ui"
 import { effectCmd } from "../effect-cmd"
 import { armShutdownWatchdog } from "../run-shutdown"
 import { drainCheckpointWriters } from "../checkpoint-drain"
+import { CHECKPOINT_DRAIN_SIGNAL_TIMEOUT_MS, installCheckpointDrainSignalHandlers } from "../checkpoint-signal"
+import { AppRuntime } from "@/effect/app-runtime"
 import { EOL } from "os"
 import { Filesystem } from "@/util/filesystem"
 import { createOpencodeClient, type OpencodeClient, type ToolPart } from "@opencode-ai/sdk/v2"
@@ -962,7 +964,20 @@ export const RunCommand = effectCmd({
         fetch: fetchFn,
         directory,
       })
-      await execute(sdk)
+      // Fork: exit drain of in-flight checkpoint writers on SIGINT/SIGTERM from MiMo v0.1.11 packages/opencode/src/cli/bootstrap.ts:27.
+      const removeSignalHandlers = installCheckpointDrainSignalHandlers({
+        drain: () =>
+          AppRuntime.runPromise(
+            drainCheckpointWriters({ timeoutMs: CHECKPOINT_DRAIN_SIGNAL_TIMEOUT_MS }).pipe(
+              Effect.catchCause(() => Effect.void),
+            ),
+          ),
+      })
+      try {
+        await execute(sdk)
+      } finally {
+        removeSignalHandlers()
+      }
     })
     // Fork: exit drain of in-flight checkpoint writers from MiMo v0.1.11 packages/opencode/src/cli/bootstrap.ts:27.
     yield* drainCheckpointWriters()

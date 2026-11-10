@@ -2516,6 +2516,7 @@ PARITY	packages/opencode/src/background/job.ts
 FORK_DELTA	packages/opencode/src/bus/global.ts
 PARITY	packages/opencode/src/cli/bootstrap.ts
 FORK_ONLY	packages/opencode/src/cli/checkpoint-drain.ts
+FORK_ONLY	packages/opencode/src/cli/checkpoint-signal.ts
 PARITY	packages/opencode/src/cli/cmd/account.ts
 FORK_DELTA	packages/opencode/src/cli/cmd/acp.ts
 FORK_DELTA	packages/opencode/src/cli/cmd/agent.ts
