@@ -32,7 +32,12 @@ function spyTimers() {
   return { timeouts, intervals }
 }
 
-function api(input: { supervisor?: unknown[]; messages?: unknown[]; providers?: unknown[] }): TuiPluginApi {
+function api(input: {
+  supervisor?: unknown[]
+  messages?: unknown[]
+  providers?: unknown[]
+  parts?: Record<string, unknown[]>
+}): TuiPluginApi {
   return {
     theme: { current: RGBA.fromInts(200, 200, 200) as never },
     state: {
@@ -51,7 +56,7 @@ function api(input: { supervisor?: unknown[]; messages?: unknown[]; providers?: 
         task: () => [],
         instructions: () => undefined,
       },
-      part: () => [],
+      part: (messageID: string) => input.parts?.[messageID] ?? [],
       provider: input.providers ?? [],
       config: {},
       instructions: () => [],
@@ -120,6 +125,9 @@ const assistant = (created: number, id = "a1") => ({
   time: { created, completed: created + 1000 },
 })
 
+// The tools row only reads the type and the status of a tool part.
+const toolPart = { type: "tool", state: { status: "completed" } }
+
 async function renderFrame(component: () => JSX.Element, options: { width: number; height: number }) {
   setup = await testRender(component, options)
   await setup.renderOnce()
@@ -173,7 +181,10 @@ describe("telemetry step label", () => {
     const frame = await renderFrame(
       () => (
         <TelemetryView
-          api={api({ messages: [assistant(now - 60_000, "a1"), assistant(now - 30_000, "a2")] })}
+          api={api({
+            messages: [assistant(now - 60_000, "a1"), assistant(now - 30_000, "a2")],
+            parts: { a2: [toolPart] },
+          })}
           session_id="s1"
         /> as never
       ),
@@ -181,6 +192,8 @@ describe("telemetry step label", () => {
     )
     expect(frame).toContain("2 steps")
     expect(frame).not.toContain("replies")
+    // One tool on one of the two steps: the tools row divides the tools by the steps.
+    expect(frame).toContain("0.5/step")
     expect(frame).not.toContain("/turn")
   })
 })
