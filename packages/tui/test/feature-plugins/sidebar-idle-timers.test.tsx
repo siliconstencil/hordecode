@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test"
-import { testRender } from "@opentui/solid"
+import { testRender, type JSX } from "@opentui/solid"
 import { RGBA } from "@opentui/core"
 import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
 import { FINISHED_ROW_TTL_MS, View as SupervisorView, nextPruneDelay } from "../../src/feature-plugins/sidebar/supervisor"
@@ -108,9 +108,31 @@ describe("supervisor sidebar timer", () => {
   })
 })
 
-describe("telemetry cache ticker", () => {
-  const tokens = { input: 10, output: 5, reasoning: 0, cache: { read: 100, write: 0 } }
+const tokens = { input: 10, output: 5, reasoning: 0, cache: { read: 100, write: 0 } }
 
+const assistant = (created: number, id = "a1") => ({
+  role: "assistant",
+  id,
+  agent: "default",
+  providerID: "anthropic",
+  modelID: "claude",
+  tokens,
+  time: { created, completed: created + 1000 },
+})
+
+async function renderFrame(component: () => JSX.Element, options: { width: number; height: number }) {
+  setup = await testRender(component, options)
+  await setup.renderOnce()
+  await setup.renderOnce()
+  return setup
+    .captureCharFrame()
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .trimEnd()
+}
+
+describe("telemetry cache ticker", () => {
   test("cacheTickDelay runs only while the entry is warm", () => {
     const now = 10_000_000
     const warm = { providerID: "anthropic", tokens, now }
@@ -120,16 +142,6 @@ describe("telemetry cache ticker", () => {
     expect(cacheTickDelay({ ...warm, start: now - 60 * 60_000 })).toBeUndefined()
     expect(cacheTickDelay({ ...warm, providerID: "openai", start: now - 1000 })).toBeUndefined()
     expect(cacheTickDelay({ ...warm, tokens: { input: 1, cache: { read: 0, write: 0 } }, start: now - 1000 })).toBeUndefined()
-  })
-
-  const assistant = (created: number) => ({
-    role: "assistant",
-    id: "a1",
-    agent: "default",
-    providerID: "anthropic",
-    modelID: "claude",
-    tokens,
-    time: { created, completed: created + 1000 },
   })
 
   test("a cold cache arms no timer; a warm one arms a single timeout", async () => {
@@ -152,6 +164,24 @@ describe("telemetry cache ticker", () => {
     )
     expect(warm.intervals).not.toContain(1000)
     expect(warm.timeouts.filter((ms) => ms > 100 && ms <= 800)).toHaveLength(1)
+  })
+})
+
+describe("telemetry step label", () => {
+  test("the header counts model steps, not replies", async () => {
+    const now = Date.now()
+    const frame = await renderFrame(
+      () => (
+        <TelemetryView
+          api={api({ messages: [assistant(now - 60_000, "a1"), assistant(now - 30_000, "a2")] })}
+          session_id="s1"
+        /> as never
+      ),
+      { width: 60, height: 20 },
+    )
+    expect(frame).toContain("2 steps")
+    expect(frame).not.toContain("replies")
+    expect(frame).not.toContain("/turn")
   })
 })
 
