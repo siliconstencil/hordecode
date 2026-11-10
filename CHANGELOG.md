@@ -52,6 +52,13 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Path containment fails closed on Windows cross-drive and cross-share paths, so a child on another
+  drive or share is never treated as inside the parent.
+- An OpenAI-compatible stream buffers a tool call until its id and name arrive, so a late id stays
+  authoritative and a missing id gets one generated id shared by every tool event.
+- A bare `context_window_exceeded` code or type is classified as context overflow.
+- The displayed session cost drops as soon as a priced message or part is removed (undo, revert or
+  delete), without waiting for another prompt.
 - The displayed session cost updates after every step and after the advisor part, so the footer and
   sidebar show the current total without waiting for the next prompt.
 - The sidebar and Activity "Spent" include the checkpoint writer's child-session spend as part of the
