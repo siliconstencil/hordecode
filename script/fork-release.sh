@@ -74,8 +74,8 @@ phase_preflight() {
   check() { if eval "$2"; then echo "  ok   $1"; ok=$((ok + 1)); else echo "  FAIL $1"; bad=$((bad + 1)); fi; }
   check "working tree clean" '[ -z "$(git -C "$REPO" status --porcelain)" ]'
   check "HEAD of $BRANCH is $SHORT" '[ "$(git -C "$REPO" rev-parse "$BRANCH")" = "$SHA" ]'
-  check "packages/opencode/package.json version is $VER" 'grep -q "\"version\": \"$VER\"" "$PKG_DIR/package.json"'
-  check "CHANGELOG.md has a [$VER] section" 'grep -q "^## \[$VER\]" "$REPO/CHANGELOG.md"'
+  check "packages/opencode/package.json version is $VER" 'git -C "$REPO" show "$SHA:packages/opencode/package.json" | grep -q "\"version\": \"$VER\""'
+  check "CHANGELOG.md has a [$VER] section" 'git -C "$REPO" show "$SHA:CHANGELOG.md" | grep -q "^## \[$VER\]"'
   check "origin is https://github.com/$GH_REPO.git" '[ "$(git -C "$REPO" remote get-url origin)" = "https://github.com/$GH_REPO.git" ]'
   if git -C "$REPO" rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
     local at; at="$(git -C "$REPO" rev-parse "$TAG^{commit}")"
@@ -127,8 +127,9 @@ phase_build() {
     git -C "$REPO" bundle create "$OUT/source/hordecode-branch-$SHORT.bundle" "$BRANCH"
   git -C "$REPO" archive --format=tar.gz --prefix="hordecode-$VER/" -o "$OUT/source/hordecode-$VER-src-$SHORT.tar.gz" "$SHA"
   (cd "$OUT/source" && sha256sum -- * > SHA256SUMS)
-  cp "$REPO/CHANGELOG.md" "$OUT/CHANGELOG.md"
-  awk -v v="$VER" '/^## \[/{p=($0 ~ "^## \\[" v "\\]")} p' "$REPO/CHANGELOG.md" > "$OUT/release-notes-$VER.md"
+  # The archive describes $SHA, not the checkout this script runs from (often main).
+  git -C "$REPO" show "$SHA:CHANGELOG.md" > "$OUT/CHANGELOG.md"
+  awk -v v="$VER" '/^## \[/{p=($0 ~ "^## \\[" v "\\]")} p' "$OUT/CHANGELOG.md" > "$OUT/release-notes-$VER.md"
   cat > "$OUT/MANIFEST.md" <<EOF
 # Hordecode $VER release archive
 
