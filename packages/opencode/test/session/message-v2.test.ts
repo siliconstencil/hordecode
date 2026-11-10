@@ -1983,3 +1983,79 @@ describe("MessageV2.filterCompacted checkpoint boundary", () => {
     expect(filtered.map((item) => item.info.id)).toEqual([CHECKPOINT_USER, NEW_USER, NEW_ASSISTANT])
   })
 })
+
+describe("session.message-v2.ignored-user-notice", () => {
+  // F1 regression (reports/0.1.6/usertest-20261109/RESULTS-e85.md): a plugin may
+  // insert an out-of-band user message whose only part is ignored text (the DCP
+  // compress notice does this via client.session.prompt with noReply and
+  // parts:[{type:"text", ignored:true}]). MessageV2.latest must not pick that
+  // invisible message as the loop's last user, or the next assistant step is
+  // parented to a user turn the model never saw.
+  // Kept as todo, not skip: it is red on dev/0.1.6 (latest returns the notice)
+  // until the fix in reports/0.1.6/r8-ignored-user-turn.md is chosen and landed.
+  test.todo("ignored-only user notice does not become the loop's last user", async () => {
+    const promptID = MessageID.make("msg_r8_prompt")
+    const toolStepID = MessageID.make("msg_r8_tool_step")
+    const noticeID = MessageID.make("msg_r8_notice")
+    const instruction = "User test T6. Read the chain one file at a time."
+
+    const prompt = { ...userInfo(promptID), time: { created: 100 } }
+    const toolStep = {
+      ...assistantInfo(toolStepID, promptID),
+      time: { created: 200 },
+      finish: "tool-calls",
+    } as SessionV1.Assistant
+    const notice = { ...userInfo(noticeID), time: { created: 300 } }
+
+    const messages: SessionV1.WithParts[] = [
+      {
+        info: prompt,
+        parts: [{ ...basePart(promptID, "p1"), type: "text", text: instruction }] as SessionV1.Part[],
+      },
+      {
+        info: toolStep,
+        parts: [
+          {
+            ...basePart(toolStepID, "p1"),
+            type: "tool",
+            callID: "call-compress",
+            tool: "compress",
+            state: {
+              status: "completed",
+              input: {},
+              output: "compressed",
+              title: "compress",
+              metadata: {},
+              time: { start: 0, end: 1 },
+            },
+          },
+        ] as SessionV1.Part[],
+      },
+      {
+        info: notice,
+        parts: [
+          {
+            ...basePart(noticeID, "p1"),
+            type: "text",
+            text: "DCP | -6.7K removed, +468 summary",
+            ignored: true,
+          },
+        ] as SessionV1.Part[],
+      },
+    ]
+
+    const { user } = MessageV2.latest(messages)
+    // The next assistant step is parented to latest().user (prompt.ts runLoop),
+    // so this is the "next step keeps the original prompt as parent" assertion.
+    expect(user?.id).toBe(promptID)
+
+    const modelMessages = await MessageV2.toModelMessages(messages, model)
+    // The ignored notice is not sent: no empty user turn and no notice text.
+    expect(JSON.stringify(modelMessages)).not.toContain("DCP | -6.7K")
+    expect(modelMessages.filter((message) => message.role === "user")).toHaveLength(1)
+    // The model view still carries the original instruction as the newest user
+    // turn, so a continued step sees the same task, not an invented one.
+    const lastUser = [...modelMessages].reverse().find((message) => message.role === "user")
+    expect(JSON.stringify(lastUser)).toContain(instruction)
+  })
+})
