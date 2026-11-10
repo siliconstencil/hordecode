@@ -2166,7 +2166,7 @@ const runLoop: (sessionID: SessionID, agentID?: string, task_id?: string, steps?
           if (!lastUser && msg.info.role === "user" && MessageV2.hasSubstantiveContent(msg.parts)) lastUser = msg.info
           if (!lastAssistant && msg.info.role === "assistant") lastAssistant = msg.info
           if (!lastFinished && msg.info.role === "assistant" && msg.info.finish) lastFinished = msg.info
-          if (fallbackUser && lastFinished) break
+          if (lastUser && lastFinished) break
           const task = msg.parts.filter((part: MessageV2.Part): part is MessageV2.SubtaskPart => part.type === "subtask")
           if (task && !lastFinished) tasks.push(...task)
         }
