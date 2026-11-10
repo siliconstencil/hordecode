@@ -143,7 +143,7 @@ All notable changes to this project will be documented in this file.
 - The permission audit log keeps a head record (`<log>.head`, first and last line hash). `horde debug audit-verify`
   reports a cut tail, a missing oldest file or a missing head. An audit log written before 0.1.5 reports
   "head record missing" until the next logged decision writes the head. Probes answered by a deny rule are logged.
-- The sidebar Telemetry header counts `replies` and the Activity panel counts `Prompts`.
+- The sidebar Telemetry header counts `steps` and the Activity panel counts `Prompts`.
 - Harness and research skills are listed and loadable only in the Harness and Research agents, as MiMo Code does
   for its compose skills. Build, Plan and subagents no longer carry the 31 pipeline skill descriptions in every
   request (about 3k tokens each).

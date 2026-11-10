@@ -170,7 +170,7 @@ export function View(props: { api: TuiPluginApi; session_id: string }) {
     }
     const denom = totalInput + totalCacheRead
     return {
-      turns: asts.length,
+      steps: asts.length,
       hitRate: denom > 0 ? totalCacheRead / denom : null,
       avgLatency: latencyCount > 0 ? totalLatency / latencyCount : null,
       totalCacheRead,
@@ -198,8 +198,8 @@ export function View(props: { api: TuiPluginApi; session_id: string }) {
         if (p.state.status === "error") errors++
       }
     }
-    const turns = assistants().length || 1
-    return { total, errors, ok: total - errors, perTurn: total > 0 ? (total / turns).toFixed(1) : null }
+    const steps = assistants().length || 1
+    return { total, errors, ok: total - errors, perStep: total > 0 ? (total / steps).toFixed(1) : null }
   })
 
   const contextPercentColor = createMemo(() => {
@@ -218,7 +218,7 @@ export function View(props: { api: TuiPluginApi; session_id: string }) {
             {open() ? "▼ " : "▶ "}Telemetry
           </b>
         </text>
-        <text fg={theme().textMuted}> {stats()?.turns ?? 0} replies</text>
+        <text fg={theme().textMuted}> {stats()?.steps ?? 0} steps</text>
       </box>
 
       {/* Collapsible key-value grid -- title left, value right */}
@@ -291,7 +291,7 @@ export function View(props: { api: TuiPluginApi; session_id: string }) {
                   <Show when={toolStats().errors > 0}>
                     <span style={{ fg: theme().error }}> · {toolStats().errors} err</span>
                   </Show>{" "}
-                  · {toolStats().perTurn}/turn
+                  · {toolStats().perStep}/step
                 </>
               )}
             </text>

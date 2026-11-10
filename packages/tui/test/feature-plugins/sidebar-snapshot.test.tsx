@@ -125,7 +125,7 @@ function todoRow(t: { status: string; content: string }) {
 // -- Panel views (structurally identical to real sidebar plugins) ------
 
 function TelemetryPanel() {
-  const turns = ASSISTANTS.length
+  const steps = ASSISTANTS.length
   const totalInput = ASSISTANTS.reduce((s, a) => s + a.tokens.input, 0)
   const totalOutput = ASSISTANTS.reduce((s, a) => s + a.tokens.output, 0)
   const totalReasoning = ASSISTANTS.reduce((s, a) => s + a.tokens.reasoning, 0)
@@ -143,7 +143,7 @@ function TelemetryPanel() {
         <text>
           <b>Telemetry</b>
         </text>
-        <text> {turns} replies</text>
+        <text> {steps} steps</text>
       </box>
       <box flexDirection="row" justifyContent="space-between">
         <text>{"Context ".padEnd(8)}</text>
@@ -159,7 +159,7 @@ function TelemetryPanel() {
       </box>
       <box flexDirection="row" justifyContent="space-between">
         <text>{"Tools   ".padEnd(8)}</text>
-        <text>13 · 12 ok · 1 err · 1.4/turn</text>
+        <text>13 · 12 ok · 1 err · 1.4/step</text>
       </box>
       <box flexDirection="row" justifyContent="space-between">
         <text>{"Speed   ".padEnd(8)}</text>
@@ -496,10 +496,10 @@ describe("TUI sidebar golden snapshot", () => {
     expect(frame).toContain("Tools   ")
     expect(frame).toContain("Speed   ")
     expect(frame).toContain("Usage   ")
-    // Tools row: total - ok - err - perTurn (real: toolStats, no hybrid)
+    // Tools row: total - ok - err - perStep (real: toolStats, no hybrid)
     expect(frame).toContain("13 · 12 ok")
     expect(frame).toContain("1 err")
-    expect(frame).toContain("1.4/turn")
+    expect(frame).toContain("1.4/step")
     // Speed row: streaming TPS + latency (real: formatTPS + formatLatency)
     expect(frame).toContain("42.3 t/s")
     expect(frame).toContain("2.7s")

@@ -1,11 +1,11 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
 exports[`TUI sidebar golden snapshot full sidebar with tasks visible, todo hidden 1`] = `
-"Telemetry                      2 replies
+"Telemetry                        2 steps
 Context                   54.5K/128K 42%
 Tokens         35.0K in 5.5K out 800 rsn
 Cache                27.1% (13.0K/48.0K)
-Tools      13 · 12 ok · 1 err · 1.4/turn
+Tools      13 · 12 ok · 1 err · 1.4/step
 Speed                    42.3 t/s · 2.7s
 Usage            $0.04 spent · 54.5K tkn
 
@@ -44,11 +44,11 @@ sidebar/telemetry.tsx                +45
 `;
 
 exports[`TUI sidebar golden snapshot sidebar with done tasks and RECENT_DONE_LIMIT=3 1`] = `
-"Telemetry                      2 replies █
+"Telemetry                        2 steps █
 Context                   54.5K/128K 42% █
 Tokens         35.0K in 5.5K out 800 rsn █
 Cache                27.1% (13.0K/48.0K) █
-Tools      13 · 12 ok · 1 err · 1.4/turn █
+Tools      13 · 12 ok · 1 err · 1.4/step █
 Speed                    42.3 t/s · 2.7s █
 Usage            $0.04 spent · 54.5K tkn █
                                          █
@@ -87,11 +87,11 @@ Modified Files                   2 files
 `;
 
 exports[`TUI sidebar golden snapshot todo appears only when tasks are empty (deliberate Hordecode behavior) 1`] = `
-"Telemetry                      2 replies █
+"Telemetry                        2 steps █
 Context                   54.5K/128K 42% █
 Tokens         35.0K in 5.5K out 800 rsn █
 Cache                27.1% (13.0K/48.0K) █
-Tools      13 · 12 ok · 1 err · 1.4/turn █
+Tools      13 · 12 ok · 1 err · 1.4/step █
 Speed                    42.3 t/s · 2.7s █
 Usage            $0.04 spent · 54.5K tkn █
                                          █
