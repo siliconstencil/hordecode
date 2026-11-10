@@ -131,7 +131,9 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
   if (body.type !== "error") return
 
   switch (body?.error?.code) {
+    // Hordecode: MiMo 2ee08a10 (provider/error.ts:328) -- bare context_window_exceeded is overflow.
     case "context_length_exceeded":
+    case "context_window_exceeded":
       return {
         type: "context_overflow",
         message: "Input exceeds context window of this model",
@@ -180,7 +182,15 @@ export type ParsedAPICallError =
 export function parseAPICallError(input: { providerID: ProviderID; error: APICallError }): ParsedAPICallError {
   const m = message(input.error)
   const body = json(input.error.responseBody)
-  if (isOverflow(m) || input.error.statusCode === 413 || body?.error?.code === "context_length_exceeded") {
+  // Hordecode: MiMo 2ee08a10 (provider/error.ts:377) -- code and type of both overflow names.
+  if (
+    isOverflow(m) ||
+    input.error.statusCode === 413 ||
+    body?.error?.code === "context_length_exceeded" ||
+    body?.error?.code === "context_window_exceeded" ||
+    body?.error?.type === "context_length_exceeded" ||
+    body?.error?.type === "context_window_exceeded"
+  ) {
     return {
       type: "context_overflow",
       message: m,
