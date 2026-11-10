@@ -383,5 +383,15 @@ describe("FSUtil", () => {
       expect(FSUtil.overlaps("/a/b", "/a/bad")).toBe(false)
       if (process.platform === "win32") expect(FSUtil.overlaps("C:\\a", "D:\\b")).toBe(false)
     })
+
+    // Hordecode: MiMo 8e1df4ab -- path.win32.relative returns an absolute `to`
+    // across drives/shares; the predicate must fail closed (r7 B-4).
+    test("isContainedRelative fails closed on win32 cross-drive and cross-share results", () => {
+      expect(FSUtil.isContainedRelative(path.win32.relative("C:\\a", "D:\\b"))).toBe(false)
+      expect(FSUtil.isContainedRelative(path.win32.relative("\\\\server\\share\\root", "\\\\other\\share\\file"))).toBe(false)
+      expect(FSUtil.isContainedRelative(path.win32.relative("C:\\a", "C:\\a\\b"))).toBe(true)
+      expect(FSUtil.isContainedRelative(path.relative("/a/b", "/a/b/c"))).toBe(true)
+      expect(FSUtil.isContainedRelative(path.relative("/a/b", "/a/x"))).toBe(false)
+    })
   })
 })

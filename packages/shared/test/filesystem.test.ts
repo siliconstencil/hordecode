@@ -29,6 +29,16 @@ describe("AppFileSystem pure helpers", () => {
     expect(AppFileSystem.overlaps("/a/b", "/x/y")).toBe(false)
   })
 
+  // Hordecode: MiMo 8e1df4ab -- path.win32.relative returns an absolute `to`
+  // across drives/shares; the predicate must fail closed (r7 B-4).
+  test("isContainedRelative fails closed on win32 cross-drive and cross-share results", () => {
+    expect(AppFileSystem.isContainedRelative(path.win32.relative("C:\\a", "D:\\b"))).toBe(false)
+    expect(AppFileSystem.isContainedRelative(path.win32.relative("\\\\server\\share\\root", "\\\\other\\share\\file"))).toBe(false)
+    expect(AppFileSystem.isContainedRelative(path.win32.relative("C:\\a", "C:\\a\\b"))).toBe(true)
+    expect(AppFileSystem.isContainedRelative(path.relative("/a/b", "/a/b/c"))).toBe(true)
+    expect(AppFileSystem.isContainedRelative(path.relative("/a/b", "/a/x"))).toBe(false)
+  })
+
   test("resolve returns an absolute path for a missing file and the real path for a symlinked one", () => {
     expect(AppFileSystem.resolve(path.join(root, "missing", "file"))).toBe(path.join(root, "missing", "file"))
     expect(AppFileSystem.resolve(path.join(root, "a", "..", "a"))).toBe(path.join(root, "a"))

@@ -1,5 +1,5 @@
 import { NodeFileSystem } from "@effect/platform-node"
-import { dirname, isAbsolute, join, relative, resolve as pathResolve, sep } from "path"
+import { dirname, isAbsolute, join, relative, resolve as pathResolve, win32 } from "path"
 import { realpathSync } from "fs"
 import * as NFS from "fs/promises"
 import { lookup } from "mime-types"
@@ -263,12 +263,17 @@ export namespace FSUtil {
       .replace(/^\/mnt\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
   }
 
+  // Hordecode: MiMo 8e1df4ab (core/src/fs-util.ts:270) -- a Windows
+  // cross-drive/cross-share relative() result is absolute; treat it as outside.
+  export function isContainedRelative(rel: string): boolean {
+    return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel) && !win32.isAbsolute(rel))
+  }
+
   export function overlaps(a: string, b: string) {
     return contains(a, b) || contains(b, a)
   }
 
   export function contains(parent: string, child: string) {
-    const result = relative(parent, child)
-    return result === "" || (!isAbsolute(result) && result !== ".." && !result.startsWith(`..${sep}`))
+    return isContainedRelative(relative(parent, child))
   }
 }
