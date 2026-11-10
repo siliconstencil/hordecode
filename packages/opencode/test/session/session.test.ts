@@ -317,6 +317,113 @@ describe("session cost display sync", () => {
       }),
     { timeout: 30000 },
   )
+
+  // Hordecode: r7 A2b -- removals (undo/delete) subtract usage too, so the
+  // displayed total must drop without waiting for another prompt.
+  it.instance(
+    "publishes session.updated after a priced message is removed",
+    () =>
+      Effect.gen(function* () {
+        const session = yield* SessionNs.Service
+        const events = yield* EventV2Bridge.Service
+        const info = yield* session.create({})
+        const messageID = MessageID.ascending()
+        yield* session.updateMessage({
+          id: messageID,
+          sessionID: info.id,
+          role: "user",
+          time: { created: Date.now() },
+          agent: "user",
+          model: { providerID: "test", modelID: "test" },
+          tools: {},
+          mode: "",
+        } as unknown as SessionV1.Info)
+        yield* session.updatePart({
+          id: PartID.ascending(),
+          messageID,
+          sessionID: info.id,
+          type: "step-finish",
+          reason: "stop",
+          cost: 0.03,
+          tokens,
+        })
+        expect((yield* session.get(info.id)).cost).toBeCloseTo(0.03, 6)
+
+        const received = yield* Deferred.make<number>()
+        const unsub = yield* events.listen((event) => {
+          if (event.type === SessionNs.Event.Updated.type)
+            Deferred.doneUnsafe(
+              received,
+              Effect.succeed((event.data as typeof SessionNs.Event.Updated.data.Type).info.cost as number),
+            )
+          return Effect.void
+        })
+        yield* Effect.addFinalizer(() => unsub)
+
+        yield* session.removeMessage({ sessionID: info.id, messageID })
+
+        const shown = yield* awaitDeferred(received, "timed out waiting for session.updated after removeMessage")
+        const stored = yield* session.get(info.id)
+        expect(stored.cost ?? 0).toBeCloseTo(0, 6)
+        expect(shown).toBeCloseTo(stored.cost ?? 0, 6)
+
+        yield* session.remove(info.id)
+      }),
+    { timeout: 30000 },
+  )
+
+  it.instance(
+    "publishes session.updated after a priced part is removed",
+    () =>
+      Effect.gen(function* () {
+        const session = yield* SessionNs.Service
+        const events = yield* EventV2Bridge.Service
+        const info = yield* session.create({})
+        const messageID = MessageID.ascending()
+        yield* session.updateMessage({
+          id: messageID,
+          sessionID: info.id,
+          role: "user",
+          time: { created: Date.now() },
+          agent: "user",
+          model: { providerID: "test", modelID: "test" },
+          tools: {},
+          mode: "",
+        } as unknown as SessionV1.Info)
+        const partID = PartID.ascending()
+        yield* session.updatePart({
+          id: partID,
+          messageID,
+          sessionID: info.id,
+          type: "text",
+          text: "advisor note",
+          time: { start: Date.now() },
+          metadata: { advisor: { usage: { cost: 0.02, tokens } } },
+        } as unknown as SessionV1.Part)
+        expect((yield* session.get(info.id)).cost).toBeCloseTo(0.02, 6)
+
+        const received = yield* Deferred.make<number>()
+        const unsub = yield* events.listen((event) => {
+          if (event.type === SessionNs.Event.Updated.type)
+            Deferred.doneUnsafe(
+              received,
+              Effect.succeed((event.data as typeof SessionNs.Event.Updated.data.Type).info.cost as number),
+            )
+          return Effect.void
+        })
+        yield* Effect.addFinalizer(() => unsub)
+
+        yield* session.removePart({ sessionID: info.id, messageID, partID })
+
+        const shown = yield* awaitDeferred(received, "timed out waiting for session.updated after removePart")
+        const stored = yield* session.get(info.id)
+        expect(stored.cost ?? 0).toBeCloseTo(0, 6)
+        expect(shown).toBeCloseTo(stored.cost ?? 0, 6)
+
+        yield* session.remove(info.id)
+      }),
+    { timeout: 30000 },
+  )
 })
 
 describe("Session", () => {

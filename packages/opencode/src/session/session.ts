@@ -1122,6 +1122,9 @@ const layer = Layer.effect(
         sessionID: input.sessionID,
         messageID: input.messageID,
       })
+      // Hordecode: r7 A2b -- the projector subtracted this message's usage, so
+      // publish the refreshed session or the displayed total stays high.
+      yield* touch(input.sessionID)
       return input.messageID
     })
 
@@ -1135,6 +1138,9 @@ const layer = Layer.effect(
         messageID: input.messageID,
         partID: input.partID,
       })
+      // Hordecode: r7 A2b -- the projector subtracted this part's usage, so
+      // publish the refreshed session or the displayed total stays high.
+      yield* touch(input.sessionID)
       return input.partID
     })
 
