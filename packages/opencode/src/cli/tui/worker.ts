@@ -8,6 +8,7 @@ import { ServerAuth } from "@/server/auth"
 import { writeHeapSnapshot } from "node:v8"
 import { Heap } from "@/cli/heap"
 import { AppRuntime } from "@/effect/app-runtime"
+// Fork: exit drain of in-flight checkpoint writers from MiMo v0.1.11 packages/opencode/src/cli/cmd/tui/worker.ts:106.
 import { drainCheckpointWriters } from "../checkpoint-drain"
 import { Effect } from "effect"
 import { disposeAllInstancesAndEmitGlobalDisposed } from "@/server/global-lifecycle"

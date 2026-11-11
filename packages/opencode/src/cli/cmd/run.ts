@@ -21,8 +21,11 @@ import { Effect } from "effect"
 import { UI } from "../ui"
 import { effectCmd } from "../effect-cmd"
 import { armShutdownWatchdog } from "../run-shutdown"
+// Fork: exit drain of in-flight checkpoint writers from MiMo v0.1.11 packages/opencode/src/cli/bootstrap.ts:27.
 import { drainCheckpointWriters } from "../checkpoint-drain"
 import { CHECKPOINT_DRAIN_SIGNAL_TIMEOUT_MS, installCheckpointDrainSignalHandlers } from "../checkpoint-signal"
+// Fork: the signal exit flushes the last OTLP span batch like packages/opencode/src/index.ts:162.
+import { Otlp } from "@opencode-ai/core/observability/otlp"
 import { AppRuntime } from "@/effect/app-runtime"
 import { EOL } from "os"
 import { Filesystem } from "@/util/filesystem"
@@ -964,23 +967,28 @@ export const RunCommand = effectCmd({
         fetch: fetchFn,
         directory,
       })
-      // Fork: exit drain of in-flight checkpoint writers on SIGINT/SIGTERM from MiMo v0.1.11 packages/opencode/src/cli/bootstrap.ts:27.
-      const removeSignalHandlers = installCheckpointDrainSignalHandlers({
-        drain: () =>
-          AppRuntime.runPromise(
-            drainCheckpointWriters({ timeoutMs: CHECKPOINT_DRAIN_SIGNAL_TIMEOUT_MS }).pipe(
-              Effect.catchCause(() => Effect.void),
-            ),
-          ),
-      })
-      try {
-        await execute(sdk)
-      } finally {
-        removeSignalHandlers()
-      }
+      await execute(sdk)
     })
     // Fork: exit drain of in-flight checkpoint writers from MiMo v0.1.11 packages/opencode/src/cli/bootstrap.ts:27.
-    yield* drainCheckpointWriters()
+    // The signal handlers cover the drain window only. During the run a Ctrl+C
+    // keeps the default disposition (the process dies at once), because the
+    // session cancel would take the writer child down with it.
+    const removeSignalHandlers = installCheckpointDrainSignalHandlers({
+      drain: () =>
+        AppRuntime.runPromise(
+          drainCheckpointWriters({ timeoutMs: CHECKPOINT_DRAIN_SIGNAL_TIMEOUT_MS }).pipe(
+            Effect.catchCause(() => Effect.void),
+          ),
+        ),
+      exit: (code) => {
+        void Otlp.flush().finally(() => process.exit(code))
+      },
+    })
+    try {
+      yield* drainCheckpointWriters()
+    } finally {
+      removeSignalHandlers()
+    }
   // Bound the unbounded dispose in effect-cmd.ts; upstream v1.19.5 cli/cmd/tui.ts:265 uses withTimeout(..., 5000) for the worker.
   }, Effect.ensuring(Effect.sync(() => void armShutdownWatchdog()))),
 })

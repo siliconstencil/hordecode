@@ -10,8 +10,8 @@ import { SessionCheckpoint } from "@opencode-ai/core/session/checkpoint"
 // 60 s covers the longest writer run measured in the 0.1.6 lab (55.2 s over 36
 // runs). The writer's own timeout is 600 s, so a stuck writer is abandoned ten
 // times earlier than it would be on its own. The wait is bounded, never
-// unbounded, and it is interruptible: no signal handler is installed while the
-// drain runs, so a second interrupt exits at once.
+// unbounded, and it is interruptible: the exit path installs a signal handler
+// while the drain runs, so a second interrupt exits at once.
 export const CHECKPOINT_DRAIN_TIMEOUT_MS = 60_000
 
 export const drainCheckpointWriters = Effect.fn("Cli.drainCheckpointWriters")(function* (input?: {

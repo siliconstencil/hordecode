@@ -3012,6 +3012,7 @@ PARITY	packages/opencode/test/AGENTS.md
 PARITY	packages/opencode/test/auth/auth.test.ts
 PARITY	packages/opencode/test/background/job.test.ts
 PARITY	packages/opencode/test/cli/account.test.ts
+FORK_ONLY	packages/opencode/test/cli/checkpoint-exit-drain.test.ts
 FORK_ONLY	packages/opencode/test/cli/acp/acp-stdio-handshake.test.ts
 PARITY	packages/opencode/test/cli/acp/acp-test-client.ts
 PARITY	packages/opencode/test/cli/acp/config-options.test.ts

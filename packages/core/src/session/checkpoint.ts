@@ -526,8 +526,11 @@ export interface Interface {
    * Await all in-flight writers across sessions up to `timeoutMs`. Used by
    * the CLI shutdown path so headless `hordecode run` invocations don't exit
    * while a forked checkpoint writer is still waiting on its LLM round-trip.
-   * Returns the count of writers that completed vs. still pending when the
-   * timeout fired.
+   * A writer counts as drained only when it left the writers map, which
+   * happens after its watcher advanced the delta watermark. A failed writer is
+   * removed from the map too, so `drained` counts every settled writer, not
+   * only the successful ones. `timedOut` counts the writers that were still
+   * in the map when the bound expired.
    */
   readonly drainWriters: (input?: { timeoutMs?: number }) => Effect.Effect<{
     drained: number
@@ -1199,6 +1202,17 @@ export const layer = Layer.effect(
       }).pipe(
         Effect.ensuring(
           Effect.sync(() => CheckpointContext.remove(input.sessionID, supervisorID)),
+        ),
+        // The map entry must go even when the watcher body fails: a leaked
+        // entry keeps isWriterRunning true forever and makes every later
+        // drain wait for the whole bound. Compare the outcome, like the
+        // native timeout above, so a queued writer that already replaced the
+        // entry is not deleted.
+        Effect.ensuring(
+          Effect.sync(() => {
+            const state = writers.get(input.sessionID)
+            if (state?.writing === result.outcome) writers.delete(input.sessionID)
+          }),
         ),
         Effect.forkIn(scope),
       ).pipe(

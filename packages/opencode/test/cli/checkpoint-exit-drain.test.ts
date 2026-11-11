@@ -18,7 +18,7 @@
 
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Deferred } from "effect"
 import {
   useCheckpointHarness,
   resetCheckpointHarness,
@@ -102,23 +102,66 @@ describe("checkpoint exit drain", () => {
 
   it("the one-shot run path drains the writers before the instance is disposed", () => {
     const source = readFileSync(new URL("../../src/cli/cmd/run.ts", import.meta.url).pathname, "utf8")
-    expect(source.includes("drainCheckpointWriters")).toBe(true)
+    // Match the CALL, not the import: "drainCheckpointWriters()" only appears at
+    // the call site, the import line ends with "drainCheckpointWriters } from".
+    expect(source.includes("drainCheckpointWriters()")).toBe(true)
   })
 
   it("the TUI worker drains the writers before it disposes the instances", () => {
     const source = readFileSync(new URL("../../src/cli/tui/worker.ts", import.meta.url).pathname, "utf8")
-    const drain = source.indexOf("drainCheckpointWriters")
-    const dispose = source.indexOf("disposeAllInstances")
+    // Both patterns must be CALLS. Matching the bare symbol would resolve to
+    // the import lines and make the order assertion vacuous.
+    const drain = source.indexOf("drainCheckpointWriters({")
+    const dispose = source.indexOf("InstanceRuntime.disposeAllInstances()")
     expect(drain > -1 && drain < dispose).toBe(true)
   })
 
-  it("the one-shot run path installs the signal handlers before the prompt runs", () => {
+  it("the one-shot run path installs the signal handlers around the exit drain", () => {
     const source = readFileSync(new URL("../../src/cli/cmd/run.ts", import.meta.url).pathname, "utf8")
-    const install = source.indexOf("installCheckpointDrainSignalHandlers")
-    // The last call is the non-interactive path; the first one is the attach
-    // branch, which talks to a remote server and owns no writer.
-    const execute = source.lastIndexOf("await execute(sdk)")
-    expect(install > -1 && install < execute).toBe(true)
+    const install = source.indexOf("installCheckpointDrainSignalHandlers({")
+    const drain = source.indexOf("drainCheckpointWriters()")
+    expect(install > -1 && install < drain).toBe(true)
+  })
+
+  it("reports a drain as complete while a writer that started after the snapshot is still running", async () => {
+    await runWithCheckpoint((svc) =>
+      Effect.gen(function* () {
+        const first = yield* Effect.sync(() => seedParent())
+        const second = yield* Effect.sync(() => seedParent())
+        yield* svc.tryStartCheckpointWriter({
+          sessionID: first.sessionID,
+          model: { providerID: "test", modelID: "test-model" },
+          promptOps: promptOps as never,
+        })
+        const firstOutcome = lastSpawned()
+        expect(firstOutcome).toBeDefined()
+
+        // The drain takes its snapshot when it starts. The second writer starts
+        // only after the first one settles, so it is never in the snapshot:
+        // the drain does not wait for it and does not count it.
+        const timer = setTimeout(() => settle(firstOutcome!, { status: "success" } as AgentOutcome), 50)
+        const result = yield* Effect.all(
+          [
+            drainCheckpointWriters({ timeoutMs: 5_000 }).pipe(
+              Effect.provideService(SessionCheckpoint.Service, svc),
+            ),
+            Effect.flatMap(
+              Deferred.await(firstOutcome!),
+              () =>
+                svc.tryStartCheckpointWriter({
+                  sessionID: second.sessionID,
+                  model: { providerID: "test", modelID: "test-model" },
+                  promptOps: promptOps as never,
+                }),
+            ),
+          ],
+          { concurrency: "unbounded" },
+        ).pipe(Effect.ensuring(Effect.sync(() => clearTimeout(timer))))
+
+        expect(result[0]).toEqual({ drained: 1, timedOut: 0 })
+        expect(yield* svc.isWriterRunning(second.sessionID)).toBe(true)
+      }),
+    )
   })
 
   it("bounds the signal drain at 15 seconds", () => {
