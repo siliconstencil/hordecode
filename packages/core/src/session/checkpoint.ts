@@ -1063,6 +1063,18 @@ export const layer = Layer.effect(
       // ModelMessage[]; an exact count requires the tokenizer, but a rough
       // length heuristic is sufficient for the log line.
       const deltaApproxBytes = JSON.stringify(forkCtx?.inheritedMessages ?? []).length
+      // G2c D1: the entry check above races a drain that begins while this
+      // writer is between it and the spawn -- the child session and the delta
+      // are already built by then. Re-check now, right before the billed
+      // spawn, and release the child session this path created; nothing is in
+      // the writers map yet (writers.set runs after spawn). No await sits
+      // between this check and spawn, so the refusal is atomic. Provenance:
+      // report section 10 D1, coordinator audit 2026-11-15.
+      if (drainInProgress) {
+        log.info("drain in progress, refusing to start a checkpoint writer", { sessionID: input.sessionID })
+        yield* session.remove(writerChildSession.id)
+        return "skipped" as const
+      }
       log.info("tryStartCheckpointWriter spawning", {
         sessionID: input.sessionID,
         childSessionID: writerChildSession.id,

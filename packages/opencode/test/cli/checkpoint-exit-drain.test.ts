@@ -13,8 +13,9 @@
 //   4. The one-shot run path calls the drain before the instance is disposed.
 //   5. The TUI worker calls the drain before it disposes the instances.
 //   6. The drain closes the writer slot: a request that arrives after the
-//      drain starts no writer, and a queued request is dropped instead of
-//      fired.
+//      drain starts no writer, a queued request is dropped instead of fired,
+//      and a request that passed the entry check before the drain started
+//      re-checks the slot before the spawn.
 //
 //  The wiring checks are source-level guards: the exit paths are Effect
 //  programs that cannot be exercised from a unit test without standing up a
@@ -23,7 +24,8 @@
 
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "bun:test"
-import { Effect, Fiber } from "effect"
+import { Deferred, Effect, Fiber } from "effect"
+import { prefixCaptureRef } from "@opencode-ai/core/session/prefix-capture-ref"
 import {
   useCheckpointHarness,
   resetCheckpointHarness,
@@ -138,9 +140,26 @@ describe("checkpoint exit drain", () => {
 
   it("the one-shot run path drains the writers before the instance is disposed", () => {
     const source = readFileSync(new URL("../../src/cli/cmd/run.ts", import.meta.url).pathname, "utf8")
-    // Match the CALL, not the import: "drainCheckpointWriters()" only appears at
-    // the call site, the import line ends with "drainCheckpointWriters } from".
-    expect(source.includes("drainCheckpointWriters()")).toBe(true)
+    const cmdSource = readFileSync(new URL("../../src/cli/effect-cmd.ts", import.meta.url).pathname, "utf8")
+    // run.ts has no dispose call of its own: effect-cmd.ts disposes the instance
+    // in a finally AFTER the handler settles, and the drain runs inside that
+    // handler. Assert both halves of the order, and match CALLS, not imports.
+    const ordering = (text: string, before: string, after: string) => {
+      const a = text.indexOf(before)
+      const b = text.indexOf(after)
+      return a > -1 && b > -1 && a < b
+    }
+    expect(ordering(source, "drainCheckpointWriters()", "Effect.ensuring(Effect.sync(() => void armShutdownWatchdog()))")).toBe(
+      true,
+    )
+    // "store.dispose(ctx)" also appears in a doc comment above the handler,
+    // which would satisfy the predicate backwards. Anchor on the call itself:
+    // the runPromise-wrapped form inside the finally.
+    expect(ordering(cmdSource, "runPromise(opts.handler(args).pipe", "runPromise(store.dispose(ctx))")).toBe(true)
+    // Not vacuous: the same predicate rejects the reversed order.
+    expect(ordering("armShutdownWatchdog())) drainCheckpointWriters()", "drainCheckpointWriters()", "armShutdownWatchdog()))")).toBe(
+      false,
+    )
   })
 
   it("the TUI worker drains the writers before it disposes the instances", () => {
@@ -248,6 +267,71 @@ describe("checkpoint exit drain", () => {
         yield* Effect.sleep("200 millis")
         expect(spawnedAt(1)).toBeUndefined()
         expect(yield* svc.isWriterRunning(sessionID)).toBe(false)
+      }),
+    )
+  })
+
+  it("refuses a writer that passes the entry check before a drain begins", async () => {
+    await runWithCheckpoint((svc) =>
+      Effect.gen(function* () {
+        // The in-flight writer that keeps the drain's writers map non-empty
+        // runs in a DIFFERENT session: a second request for the same session
+        // hits the writers map and is queued, never reaching the
+        // entry-check-to-spawn window this test pins.
+        const { sessionID: holderSessionID } = yield* Effect.sync(() => seedParent())
+        const { sessionID } = yield* Effect.sync(() => seedParent())
+        // Gate the fork-context build: it runs after the entry check and before
+        // session.create/supervisor.spawn in both fork modes, so a writer held
+        // here has already passed the entry check.
+        const gate = yield* Deferred.make<void>()
+        let calls = 0
+        prefixCaptureRef.current = (() => {
+          const mine = ++calls
+          return Effect.gen(function* () {
+            if (mine >= 2) yield* Deferred.await(gate)
+            return { system: [], tools: {}, inheritedMessages: [], parentPermission: [] }
+          })
+        }) as never
+        // Writer 1 starts in the holder session and stays in flight.
+        expect(
+          yield* svc.tryStartCheckpointWriter({
+            sessionID: holderSessionID,
+            model: { providerID: "test", modelID: "test-model" },
+            promptOps: promptOps as never,
+            level: 1_000,
+          }),
+        ).toBe("started")
+        // Writer 2 passes the entry check, then stalls in the gated prefix build.
+        const second = yield* svc
+          .tryStartCheckpointWriter({
+            sessionID,
+            model: { providerID: "test", modelID: "test-model" },
+            promptOps: promptOps as never,
+            level: 2_000,
+          })
+          .pipe(Effect.forkChild)
+        yield* pollWithTimeout(
+          Effect.sync(() => (calls >= 2 ? (true as const) : undefined)),
+          "the second writer never reached the fork-context build",
+        )
+        expect(spawnedAt(1)).toBeUndefined()
+        // The drain begins while writer 2 is between the entry check and spawn.
+        // The holder writer keeps the writers map non-empty, so the slot stays
+        // closed while the gate is released.
+        const drain = yield* drainCheckpointWriters({ timeoutMs: 5_000 }).pipe(
+          Effect.provideService(SessionCheckpoint.Service, svc),
+          Effect.forkDetach({ startImmediately: true }),
+        )
+        yield* Deferred.succeed(gate, undefined)
+        expect(yield* Fiber.join(second)).toBe("skipped")
+        // No second writer was spawned and none is registered.
+        expect(spawnedAt(1)).toBeUndefined()
+        expect(yield* svc.isWriterRunning(sessionID)).toBe(false)
+        // The holder writer is still in flight and registered.
+        expect(yield* svc.isWriterRunning(holderSessionID)).toBe(true)
+        settle(spawnedAt(0)!, { status: "success" } as AgentOutcome)
+        expect(yield* Fiber.join(drain)).toEqual({ drained: 1, timedOut: 0 })
+        expect(yield* svc.isWriterRunning(holderSessionID)).toBe(false)
       }),
     )
   })
