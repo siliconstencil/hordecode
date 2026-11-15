@@ -9,7 +9,12 @@
 //  The drain itself is injected so this module stays free of the app runtime:
 //  the caller owns the runtime that hosts the writers.
 
-export const CHECKPOINT_DRAIN_SIGNAL_TIMEOUT_MS = 15_000
+import { CHECKPOINT_WRITER_TIMEOUT_MS } from "@opencode-ai/core/session/checkpoint"
+
+// The first signal waits out the writer's own timeout: a Ctrl+C inside the
+// drain window is exactly when a paid writer would be thrown away. The
+// two-tier contract is unchanged -- the second signal still leaves at once.
+export const CHECKPOINT_DRAIN_SIGNAL_TIMEOUT_MS = CHECKPOINT_WRITER_TIMEOUT_MS
 
 const EXIT_CODE: Record<string, number> = {
   SIGINT: 130,

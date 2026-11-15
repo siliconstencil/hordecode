@@ -5,9 +5,11 @@
 //      process exits (the one-shot `horde run` path disposes the instance
 //      right after the run, which used to interrupt the writer and leave the
 //      watermark unmoved, so the next writer re-covered the same delta).
-//   2. The drain is bounded: a writer that never settles is reported as
-//      timed out instead of blocking the exit forever.
-//   3. The default bound is a fixed, documented value.
+//   2. The drain is bounded: a writer that has not settled when the bound
+//      expires is reported as timed out instead of blocking the exit forever.
+//   3. The bound is the writer's own timeout: a shorter bound throws away
+//      writers that were about to settle, a longer one cannot observe a
+//      settlement the writer itself would not have produced.
 //   4. The one-shot run path calls the drain before the instance is disposed.
 //   5. The TUI worker calls the drain before it disposes the instances.
 //   6. The drain closes the writer slot: a request that arrives after the
@@ -40,7 +42,7 @@ import {
   installCheckpointDrainSignalHandlers,
   CHECKPOINT_DRAIN_SIGNAL_TIMEOUT_MS,
 } from "../../src/cli/checkpoint-signal"
-import { SessionCheckpoint } from "@opencode-ai/core/session/checkpoint"
+import { SessionCheckpoint, CHECKPOINT_WRITER_TIMEOUT_MS } from "@opencode-ai/core/session/checkpoint"
 import type { AgentOutcome } from "@opencode-ai/supervisor/spawn"
 
 describe("checkpoint exit drain", () => {
@@ -101,8 +103,37 @@ describe("checkpoint exit drain", () => {
     )
   })
 
-  it("bounds the default wait at 60 seconds", () => {
-    expect(CHECKPOINT_DRAIN_TIMEOUT_MS).toBe(60_000)
+  it("bounds the exit drain by the writer's own timeout", () => {
+    // The drain must outlast the writer it waits for: the writer's own
+    // timeout is the only bound that cannot kill a writer that was about to
+    // settle. Provenance: the 0.1.6 lab measured 10/10 discarded paid writer
+    // runs dying exactly at the old 60 s bound
+    // (build-worktrees/tmp/g2b-step1-findings.md).
+    expect(CHECKPOINT_WRITER_TIMEOUT_MS).toBe(600_000)
+    expect(CHECKPOINT_DRAIN_TIMEOUT_MS).toBe(CHECKPOINT_WRITER_TIMEOUT_MS)
+  })
+
+  it("the drain bounds have a single source of truth in the core", () => {
+    const drainSource = readFileSync(new URL("../../src/cli/checkpoint-drain.ts", import.meta.url).pathname, "utf8")
+    const signalSource = readFileSync(new URL("../../src/cli/checkpoint-signal.ts", import.meta.url).pathname, "utf8")
+    const runSource = readFileSync(new URL("../../src/cli/cmd/run.ts", import.meta.url).pathname, "utf8")
+    const coreSource = readFileSync(
+      new URL("../../../core/src/session/checkpoint.ts", import.meta.url).pathname,
+      "utf8",
+    )
+    // The CLI modules derive their bound from the core constant: no literal
+    // milliseconds value may reappear at a bound.
+    expect(drainSource).toMatch(/CHECKPOINT_DRAIN_TIMEOUT_MS = CHECKPOINT_WRITER_TIMEOUT_MS/)
+    expect(drainSource).not.toMatch(/CHECKPOINT_DRAIN_TIMEOUT_MS = \d/)
+    expect(signalSource).toMatch(/CHECKPOINT_DRAIN_SIGNAL_TIMEOUT_MS = CHECKPOINT_WRITER_TIMEOUT_MS/)
+    expect(signalSource).not.toMatch(/CHECKPOINT_DRAIN_SIGNAL_TIMEOUT_MS = \d/)
+    // The first-signal call site passes the constant, the normal-exit call
+    // site takes the default: neither restates the number.
+    expect(runSource).toContain("timeoutMs: CHECKPOINT_DRAIN_SIGNAL_TIMEOUT_MS")
+    expect(runSource).not.toMatch(/timeoutMs:\s*\d/)
+    // The core's own default bound is the writer's timeout too: the core must
+    // not impose a bound shorter than the writer it waits for.
+    expect(coreSource).toMatch(/input\?\.timeoutMs \?\? CHECKPOINT_WRITER_TIMEOUT_MS/)
   })
 
   it("the one-shot run path drains the writers before the instance is disposed", () => {
@@ -221,8 +252,68 @@ describe("checkpoint exit drain", () => {
     )
   })
 
-  it("bounds the signal drain at 15 seconds", () => {
-    expect(CHECKPOINT_DRAIN_SIGNAL_TIMEOUT_MS).toBe(15_000)
+  it("bounds the first-signal drain by the writer's own timeout", () => {
+    // A Ctrl+C during the drain window is exactly when a paid writer would be
+    // thrown away, so the first signal waits out the writer's own timeout.
+    // The second signal still leaves at once.
+    expect(CHECKPOINT_DRAIN_SIGNAL_TIMEOUT_MS).toBe(CHECKPOINT_WRITER_TIMEOUT_MS)
+  })
+
+  it("keeps the drain a bound: a writer that settles after it times out, one before it drains", async () => {
+    // The bound is longer now, but it is still a bound: a writer that has not
+    // settled when the bound expires is reported as timed out, and a writer
+    // that settles before the bound is reported as drained.
+    await runWithCheckpoint((svc) =>
+      Effect.gen(function* () {
+        const { sessionID } = yield* Effect.sync(() => seedParent())
+        yield* svc.tryStartCheckpointWriter({
+          sessionID,
+          model: { providerID: "test", modelID: "test-model" },
+          promptOps: promptOps as never,
+        })
+        const d = lastSpawned()
+        expect(d).toBeDefined()
+        // The writer settles AFTER the drain's bound expired.
+        const timer = setTimeout(() => settle(d!, { status: "success" } as AgentOutcome), 500)
+        try {
+          const result = yield* drainCheckpointWriters({ timeoutMs: 200 }).pipe(
+            Effect.provideService(SessionCheckpoint.Service, svc),
+          )
+          expect(result).toEqual({ drained: 0, timedOut: 1 })
+          // The writer settles afterwards and leaves the writers map: the
+          // bound cut the drain off, it did not cancel the writer.
+          yield* pollWithTimeout(
+            Effect.gen(function* () {
+              const running = yield* svc.isWriterRunning(sessionID)
+              return running ? undefined : (true as const)
+            }),
+            "the writer never left the writers map",
+          )
+        } finally {
+          clearTimeout(timer)
+        }
+      }),
+    )
+
+    await runWithCheckpoint((svc) =>
+      Effect.gen(function* () {
+        const { sessionID } = yield* Effect.sync(() => seedParent())
+        yield* svc.tryStartCheckpointWriter({
+          sessionID,
+          model: { providerID: "test", modelID: "test-model" },
+          promptOps: promptOps as never,
+        })
+        const d = lastSpawned()
+        expect(d).toBeDefined()
+        const timer = setTimeout(() => settle(d!, { status: "success" } as AgentOutcome), 100)
+        const result = yield* drainCheckpointWriters({ timeoutMs: 5_000 }).pipe(
+          Effect.provideService(SessionCheckpoint.Service, svc),
+          Effect.ensuring(Effect.sync(() => clearTimeout(timer))),
+        )
+        expect(result).toEqual({ drained: 1, timedOut: 0 })
+        expect(yield* svc.isWriterRunning(sessionID)).toBe(false)
+      }),
+    )
   })
 
   it("drains the writers before it exits on the first signal", async () => {

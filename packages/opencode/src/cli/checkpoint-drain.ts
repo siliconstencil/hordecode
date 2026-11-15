@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { SessionCheckpoint } from "@opencode-ai/core/session/checkpoint"
+import { SessionCheckpoint, CHECKPOINT_WRITER_TIMEOUT_MS } from "@opencode-ai/core/session/checkpoint"
 
 // A checkpoint writer is a forked LLM round-trip billed to the session's child
 // session. When the process exits, the instance scope closes and the writer is
@@ -7,12 +7,16 @@ import { SessionCheckpoint } from "@opencode-ai/core/session/checkpoint"
 // and the watermark does not advance, so the next writer covers the same delta
 // again.
 //
-// 60 s covers the longest writer run measured in the 0.1.6 lab (55.2 s over 36
-// runs). The writer's own timeout is 600 s, so a stuck writer is abandoned ten
-// times earlier than it would be on its own. The wait is bounded, never
-// unbounded, and it is interruptible: the exit path installs a signal handler
+// The bound is the writer's own timeout: an in-flight writer is awaited until
+// it settles, because a shorter bound throws away a paid writer that was
+// about to finish. The 0.1.6 lab measured 10/10 discarded paid writer runs
+// dying exactly at the drain's old 60 s bound
+// (build-worktrees/tmp/g2b-step1-findings.md), with 0.0725 of the 0.0811 USD
+// discarded cost billed inside the drain window; the longest measured writer
+// run was 55.2 s over 36 runs. The wait is still bounded -- by the writer's own
+// timeout -- and it is interruptible: the exit path installs a signal handler
 // while the drain runs, so a second interrupt exits at once.
-export const CHECKPOINT_DRAIN_TIMEOUT_MS = 60_000
+export const CHECKPOINT_DRAIN_TIMEOUT_MS = CHECKPOINT_WRITER_TIMEOUT_MS
 
 export const drainCheckpointWriters = Effect.fn("Cli.drainCheckpointWriters")(function* (input?: {
   timeoutMs?: number

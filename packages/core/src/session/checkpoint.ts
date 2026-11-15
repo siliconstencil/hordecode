@@ -50,6 +50,19 @@ import { buildProgressDiff } from "./checkpoint-progress-reconcile"
 
 const log = Log.create({ service: "session.checkpoint" })
 
+// The checkpoint writer's own timeout: the writer's Deferred.await gives up
+// after this many milliseconds. No caller may wait for a writer for less than
+// this -- a shorter wait cannot observe a settlement the writer itself would
+// still have produced, it only abandons a writer that was about to finish.
+//
+// The exit drain bounds are this value on purpose. The 0.1.6 lab measured
+// 10/10 discarded paid writer runs dying exactly at the drain's old 60 s
+// bound (build-worktrees/tmp/g2b-step1-findings.md): 0.0725 of the 0.0811 USD
+// discarded cost was billed inside the drain window. The longest measured
+// writer run was 55.2 s over 36 runs, so any bound below the writer's own
+// timeout throws away writers that were already in flight.
+export const CHECKPOINT_WRITER_TIMEOUT_MS = 600_000
+
 function truncate(s: string, max: number): string {
   return s.length <= max ? s : s.slice(0, max - 60) + "\n... (truncated, full body at file)"
 }
@@ -1117,16 +1130,15 @@ export const layer = Layer.effect(
       //
       // Defensive: writers.set + spawn watcher is wrapped so a throw between
       // set and successful forkIn cleans the map (otherwise isWriterRunning
-      // leaks "running" forever). Fork is multi-process: WRITER_TIMEOUT_MS
-      // bounds the writer Deferred.await at 10 min so a hung cross-process writer
-      // cannot starve checkpointing or title generation forever. The single-process
-      // version has no such timeout (Effect.forkIn(scope) lets the scope
-      // interrupt the writer fiber); without this timeout in fork mode, a dead
-      // cross-process writer would otherwise hang isWriterRunning forever and
-      // block prune/fireCheckpoints. Native setTimeout fallback handles writer
-      // Deferred leak; Effect.timeout alone never fired because the Effect
-      // scheduler itself starved.
-      const WRITER_TIMEOUT_MS = 600_000
+      // leaks "running" forever). Fork is multi-process:
+      // CHECKPOINT_WRITER_TIMEOUT_MS bounds the writer Deferred.await at 10 min
+      // so a hung cross-process writer cannot starve checkpointing or title
+      // generation forever. The single-process version has no such timeout
+      // (Effect.forkIn(scope) lets the scope interrupt the writer fiber);
+      // without this timeout in fork mode, a dead cross-process writer would
+      // otherwise hang isWriterRunning forever and block prune/fireCheckpoints.
+      // Native setTimeout fallback handles writer Deferred leak; Effect.timeout
+      // alone never fired because the Effect scheduler itself starved.
       const nativeTimer = setTimeout(() => {
         try {
           const state = writers.get(input.sessionID)
@@ -1135,11 +1147,11 @@ export const layer = Layer.effect(
             Effect.runSync(Deferred.done(result.outcome, Exit.succeed({ status: "timeout" as const })))
           }
         } catch {}
-      }, WRITER_TIMEOUT_MS + 10_000)
+      }, CHECKPOINT_WRITER_TIMEOUT_MS + 10_000)
       if (nativeTimer.unref) nativeTimer.unref()
       yield* Effect.gen(function* () {
         const outcome = yield* Deferred.await(result.outcome).pipe(
-          Effect.timeout(WRITER_TIMEOUT_MS),
+          Effect.timeout(CHECKPOINT_WRITER_TIMEOUT_MS),
           // Timeout outcome when waiting for checkpoint writer to complete
           Effect.orElseSucceed(() => ({ status: "timeout" as const })),
         )
@@ -1307,7 +1319,7 @@ export const layer = Layer.effect(
     })
 
     const drainWriters = Effect.fn("SessionCheckpoint.drainWriters")(function* (input?: { timeoutMs?: number }) {
-      const timeoutMs = input?.timeoutMs ?? 120_000
+      const timeoutMs = input?.timeoutMs ?? CHECKPOINT_WRITER_TIMEOUT_MS
       // Close the writer slot for the whole drain: from here on no writer may
       // be spawned, registered or queued. The queued "draining pending
       // writer" path would otherwise register a fresh writer in the window
@@ -1345,8 +1357,10 @@ export const layer = Layer.effect(
       // too. Provenance: G2b lab runs
       // (build-worktrees/tmp/g2b-step1-findings.md section 3) measured 10/10
       // discarded writer runs dying exactly at the drain's 60 s bound and none
-      // of them starting late, so the snapshot gap is the remaining defect in
-      // the drain's semantics, not the measured cause of those discards.
+      // of them starting late: the bound, not the snapshot, was the measured
+      // cause of those discards. The bound is now the writer's own timeout
+      // (CHECKPOINT_WRITER_TIMEOUT_MS), so an in-flight writer is awaited until
+      // it settles.
       const POLL = "20 millis"
       const QUIET_POLLS = 5
       yield* Effect.gen(function* () {
@@ -1766,8 +1780,9 @@ export const layer = Layer.effect(
       return writers.has(sessionID)
     })
 
-    // idle-trigger -- additive second path, reuses same writer & WRITER_TIMEOUT_MS
-    // handling (3a3a110e50) without modifying it. Fires only when session has
+    // idle-trigger -- additive second path, reuses same writer &
+    // CHECKPOINT_WRITER_TIMEOUT_MS handling (3a3a110e50) without modifying it.
+    // Fires only when session has
     // meaningful content (>=3 user turns OR >=2 tool calls). Debounced, guarded
     // against system-spawned / writer-running / memory-disabled, and against
     // empty delta (fork:false already bails on empty delta inside tryStart).
@@ -2030,7 +2045,7 @@ export const layer = Layer.effect(
     }) as (input: { sessionID: SessionID; boundary: MessageID; lastMessageInfo?: LastMessageInfo; agentID?: string; agent: string; model: { providerID: string; modelID: string }; boundaryCreatedAt?: number }) => Effect.Effect<boolean>
 
     // subscribe to SessionStatus.Idle -- fire additive checkpoint on idle.
-    // Uses the same writer path and therefore the same WRITER_TIMEOUT_MS
+    // Uses the same writer path and therefore the same CHECKPOINT_WRITER_TIMEOUT_MS
     // native-timer fallback from 3a3a110e50 (more invocations = more live-fire
     // observation of that fix). The callback re-enters Effect via Effect.runFork
     // so it never blocks the status publish. Bus `on()` preserves ALS via
