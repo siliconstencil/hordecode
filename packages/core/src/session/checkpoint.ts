@@ -532,9 +532,11 @@ export interface Interface {
    * only the successful ones. `timedOut` counts the writers that were still
    * in the map when the bound expired.
    *
-   * The writers map is watched, not snapshotted: a writer that starts while
-   * the drain is waiting is awaited too, and the drain ends once the map has
-   * stayed empty for a short quiescence window.
+   * The writers map is watched, not snapshotted: the drain ends once the map
+   * has stayed empty for a short quiescence window. The drain also CLOSES the
+   * writer slot while it runs: no new writer is spawned, registered or
+   * queued, because a writer that starts while the process is exiting is
+   * billed and killed without writing its checkpoint.
    */
   readonly drainWriters: (input?: { timeoutMs?: number }) => Effect.Effect<{
     drained: number
@@ -688,12 +690,30 @@ export const layer = Layer.effect(
 
     // Plain Map in the layer closure -- same approach as compaction.ts
     const writers = new Map<SessionID, WriterState>()
+    // The writer slot. A checkpoint writer is a billed LLM round-trip: one
+    // that registers while the process is on its way out is killed when the
+    // process exits, so its checkpoint is never written and the delta
+    // watermark does not advance -- the next writer covers the same delta
+    // again. While a drain runs the slot is closed: no writer may be
+    // spawned, registered or queued.
+    let drainInProgress = false
     // debounce per-session idle triggers to avoid flaps
     const idleLastTrigger = new Map<SessionID, number>()
 
     const tryStartCheckpointWriter = Effect.fn("SessionCheckpoint.tryStartCheckpointWriter")(function* (
       input: TryStartCheckpointWriterInput,
     ) {
+      // The drain closed the writer slot: while a drain is in progress no
+      // writer may be spawned, registered or queued. A writer that starts
+      // here is billed and killed when the process exits: its checkpoint is
+      // not written and the delta watermark does not advance, so the next
+      // writer covers the same delta again. The request is dropped -- the
+      // delta is re-covered by the next writer.
+      if (drainInProgress) {
+        log.info("drain in progress, refusing to start a checkpoint writer", { sessionID: input.sessionID })
+        return "skipped" as const
+      }
+
       // Memory writing disabled -- stop producing NEW memory. This is the single
       // gate for the whole write side of checkpointing: template bootstrap
       // (ensureCheckpointTemplate/ensureMemoryTemplate/ensureNotesTemplate),
@@ -1200,8 +1220,15 @@ export const layer = Layer.effect(
         // for it. Errors are swallowed -- the queued writer's failure should
         // not interrupt the original writer's settlement watcher.
         if (pending) {
-          log.info("draining pending writer", { sessionID: input.sessionID })
-          yield* tryStartCheckpointWriter(pending).pipe(Effect.ignore)
+          if (drainInProgress) {
+            // The drain closed the writer slot: a fresh writer here would be
+            // billed and killed when the process exits. The queued request is
+            // dropped -- its delta is re-covered by the next writer.
+            log.info("dropping pending writer, drain in progress", { sessionID: input.sessionID })
+          } else {
+            log.info("draining pending writer", { sessionID: input.sessionID })
+            yield* tryStartCheckpointWriter(pending).pipe(Effect.ignore)
+          }
         }
       }).pipe(
         Effect.ensuring(
@@ -1281,8 +1308,23 @@ export const layer = Layer.effect(
 
     const drainWriters = Effect.fn("SessionCheckpoint.drainWriters")(function* (input?: { timeoutMs?: number }) {
       const timeoutMs = input?.timeoutMs ?? 120_000
+      // Close the writer slot for the whole drain: from here on no writer may
+      // be spawned, registered or queued. The queued "draining pending
+      // writer" path would otherwise register a fresh writer in the window
+      // between the settle watcher's map delete and its re-insert -- the
+      // drain would see an empty map, return, and the new writer would be
+      // billed and killed without writing its checkpoint.
+      drainInProgress = true
       const pending = [...writers.entries()]
-      if (pending.length === 0) return { drained: 0, timedOut: 0 }
+      if (pending.length === 0) {
+        // Nothing to await: the slot opens again at once. The empty drain
+        // stays instant on purpose -- a slower one keeps the process alive
+        // past a failed prompt and the CLI then emits the error record
+        // twice (packages/opencode/test/cli/run/run-process.test.ts, "--format
+        // json emits a pure error record for a rejected prompt request").
+        drainInProgress = false
+        return { drained: 0, timedOut: 0 }
+      }
       log.info("draining checkpoint writers before shutdown", {
         count: pending.length,
         timeoutMs,
@@ -1334,6 +1376,13 @@ export const layer = Layer.effect(
       }).pipe(
         Effect.timeout(timeoutMs),
         Effect.catch(() => Effect.succeed(undefined)),
+        // The slot opens again when the drain is over, whatever ended it: the
+        // map emptied, the bound expired, the effect failed or was interrupted.
+        Effect.ensuring(
+          Effect.sync(() => {
+            drainInProgress = false
+          }),
+        ),
       )
 
       // Writers delete themselves from the map on success/failure, so anything

@@ -10,6 +10,9 @@
 //   3. The default bound is a fixed, documented value.
 //   4. The one-shot run path calls the drain before the instance is disposed.
 //   5. The TUI worker calls the drain before it disposes the instances.
+//   6. The drain closes the writer slot: a request that arrives after the
+//      drain starts no writer, and a queued request is dropped instead of
+//      fired.
 //
 //  The wiring checks are source-level guards: the exit paths are Effect
 //  programs that cannot be exercised from a unit test without standing up a
@@ -18,7 +21,7 @@
 
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "bun:test"
-import { Effect, Deferred } from "effect"
+import { Effect, Fiber } from "effect"
 import {
   useCheckpointHarness,
   resetCheckpointHarness,
@@ -26,7 +29,9 @@ import {
   seedParent,
   promptOps,
   lastSpawned,
+  spawnedAt,
   settle,
+  pollWithTimeout,
   afterEach,
   beforeAll,
 } from "../lib/checkpoint-harness"
@@ -123,59 +128,95 @@ describe("checkpoint exit drain", () => {
     expect(install > -1 && install < drain).toBe(true)
   })
 
-  it("awaits a writer that started after the drain began", async () => {
+  it("refuses to start a writer while a drain is in progress", async () => {
     await runWithCheckpoint((svc) =>
       Effect.gen(function* () {
-        const first = yield* Effect.sync(() => seedParent())
-        const second = yield* Effect.sync(() => seedParent())
+        const { sessionID } = yield* Effect.sync(() => seedParent())
         expect(
           yield* svc.tryStartCheckpointWriter({
-            sessionID: first.sessionID,
+            sessionID,
             model: { providerID: "test", modelID: "test-model" },
             promptOps: promptOps as never,
           }),
         ).toBe("started")
-        const firstOutcome = lastSpawned()
-        expect(firstOutcome).toBeDefined()
+        const first = lastSpawned()
+        expect(first).toBeDefined()
+        // The drain closes the writer slot and awaits the in-flight writer.
+        // startImmediately runs the drain's first step inside the fork, so
+        // the slot is already closed when the fork returns -- the request
+        // below cannot race the drain.
+        const drain = yield* drainCheckpointWriters({ timeoutMs: 5_000 }).pipe(
+          Effect.provideService(SessionCheckpoint.Service, svc),
+          Effect.forkDetach({ startImmediately: true }),
+        )
+        // The writer settles while the drain is running: its watcher advances
+        // the watermark and removes the entry from the writers map. The drain
+        // is still in its quiescence window, so the slot is still closed.
+        settle(first!, { status: "success" } as AgentOutcome)
+        yield* pollWithTimeout(
+          Effect.gen(function* () {
+            const running = yield* svc.isWriterRunning(sessionID)
+            return running ? undefined : (true as const)
+          }),
+          "the writer never left the writers map",
+        )
+        const spawnedBefore = lastSpawned()
+        // The request is refused: no writer is spawned and nothing is
+        // registered in the writers map.
+        const refused = yield* svc.tryStartCheckpointWriter({
+          sessionID,
+          model: { providerID: "test", modelID: "test-model" },
+          promptOps: promptOps as never,
+        })
+        expect(refused).toBe("skipped")
+        expect(lastSpawned()).toBe(spawnedBefore)
+        expect(yield* svc.isWriterRunning(sessionID)).toBe(false)
+        // The drain awaited the in-flight writer and ended: it waits for no
+        // writer that will never come.
+        expect(yield* Fiber.join(drain)).toEqual({ drained: 1, timedOut: 0 })
+      }),
+    )
+  })
 
-        // The second writer starts while the drain is running: the drain
-        // snapshotted the first writer, so it must keep waiting until the
-        // writers map is empty again -- otherwise the process exits with the
-        // second writer still in flight, its LLM round-trip paid for and its
-        // checkpoint never written.
-        let drainReturned = false
-        const timer = setTimeout(() => settle(firstOutcome!, { status: "success" } as AgentOutcome), 50)
-        const result = yield* Effect.all(
-          [
-            drainCheckpointWriters({ timeoutMs: 5_000 }).pipe(
-              Effect.provideService(SessionCheckpoint.Service, svc),
-              Effect.tap(() =>
-                Effect.sync(() => {
-                  drainReturned = true
-                }),
-              ),
-            ),
-            Effect.gen(function* () {
-              yield* Deferred.await(firstOutcome!)
-              yield* svc.tryStartCheckpointWriter({
-                sessionID: second.sessionID,
-                model: { providerID: "test", modelID: "test-model" },
-                promptOps: promptOps as never,
-              })
-              const secondOutcome = lastSpawned()
-              expect(secondOutcome).toBeDefined()
-              // Give the drain every chance to return while the second writer
-              // is still running. It must not.
-              yield* Effect.sleep("200 millis")
-              expect(drainReturned).toBe(false)
-              settle(secondOutcome!, { status: "success" } as AgentOutcome)
-            }),
-          ],
-          { concurrency: "unbounded" },
-        ).pipe(Effect.ensuring(Effect.sync(() => clearTimeout(timer))))
-
-        expect(result[0]).toEqual({ drained: 1, timedOut: 0 })
-        expect(yield* svc.isWriterRunning(second.sessionID)).toBe(false)
+  it("drops a queued writer instead of firing it while a drain is in progress", async () => {
+    await runWithCheckpoint((svc) =>
+      Effect.gen(function* () {
+        const { sessionID } = yield* Effect.sync(() => seedParent())
+        expect(
+          yield* svc.tryStartCheckpointWriter({
+            sessionID,
+            model: { providerID: "test", modelID: "test-model" },
+            promptOps: promptOps as never,
+            level: 1_000,
+          }),
+        ).toBe("started")
+        // A newer range arrives while the first writer runs: the request is
+        // queued on the running writer's slot.
+        expect(
+          yield* svc.tryStartCheckpointWriter({
+            sessionID,
+            model: { providerID: "test", modelID: "test-model" },
+            promptOps: promptOps as never,
+            level: 2_000,
+          }),
+        ).toBe("queued")
+        const first = spawnedAt(0)
+        expect(first).toBeDefined()
+        // The drain closes the writer slot for as long as it runs.
+        const drain = yield* drainCheckpointWriters({ timeoutMs: 1_000 }).pipe(
+          Effect.provideService(SessionCheckpoint.Service, svc),
+          Effect.forkDetach({ startImmediately: true }),
+        )
+        // The first writer settles: its settle watcher would fire the queued
+        // request as a fresh writer, but the drain closed the slot.
+        settle(first!, { status: "success" } as AgentOutcome)
+        // The drain awaits the in-flight writer and then ends.
+        expect(yield* Fiber.join(drain)).toEqual({ drained: 1, timedOut: 0 })
+        // Give the settle watcher the time it would need to fire the queued
+        // request, then prove that it did not.
+        yield* Effect.sleep("200 millis")
+        expect(spawnedAt(1)).toBeUndefined()
+        expect(yield* svc.isWriterRunning(sessionID)).toBe(false)
       }),
     )
   })
