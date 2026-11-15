@@ -531,6 +531,10 @@ export interface Interface {
    * removed from the map too, so `drained` counts every settled writer, not
    * only the successful ones. `timedOut` counts the writers that were still
    * in the map when the bound expired.
+   *
+   * The writers map is watched, not snapshotted: a writer that starts while
+   * the drain is waiting is awaited too, and the drain ends once the map has
+   * stayed empty for a short quiescence window.
    */
   readonly drainWriters: (input?: { timeoutMs?: number }) => Effect.Effect<{
     drained: number
@@ -1284,20 +1288,48 @@ export const layer = Layer.effect(
         timeoutMs,
       })
 
-      // Deferred.await ignores fiber interruption during shutdown because
-      // it resolves via Deferred.succeed in the detached writer. We only
-      // need a collective upper bound so a stuck writer doesn't block exit.
+      // The drain ends when the writers map is empty, not when the writers
+      // that were in the map when it started have settled. A writer that
+      // starts after the drain began -- the queued "draining pending writer"
+      // path fires a fresh writer the moment the running one leaves the map --
+      // would otherwise still be running when the process exits: its LLM
+      // round-trip is billed, the checkpoint file is not written and the delta
+      // watermark does not advance, so the next writer covers the same delta
+      // again.
+      //
+      // The map is polled instead of snapshotted, and the drain only ends once
+      // the map has stayed empty for a short quiescence window, so a writer
+      // that registers right after the awaited one left the map is awaited
+      // too. Provenance: G2b lab runs
+      // (build-worktrees/tmp/g2b-step1-findings.md section 3) measured 10/10
+      // discarded writer runs dying exactly at the drain's 60 s bound and none
+      // of them starting late, so the snapshot gap is the remaining defect in
+      // the drain's semantics, not the measured cause of those discards.
+      const POLL = "20 millis"
+      const QUIET_POLLS = 5
       yield* Effect.gen(function* () {
-        yield* Effect.all(
-          pending.map(([, state]) => Deferred.await(state.writing)),
-          { concurrency: "unbounded" },
-        )
-        // The outcome resolves before the writer's watcher has advanced the
-        // watermark and removed the entry from the map. Returning here would
-        // let the process exit with the watermark unmoved, and the next writer
-        // would cover the same delta again. Wait for the entries to clear.
-        while (pending.some(([sessionID]) => writers.has(sessionID))) {
-          yield* Effect.sleep("20 millis")
+        let quiet = 0
+        while (true) {
+          const entries = [...writers.entries()]
+          if (entries.length === 0) {
+            quiet += 1
+            if (quiet >= QUIET_POLLS) break
+            yield* Effect.sleep(POLL)
+            continue
+          }
+          quiet = 0
+          // Deferred.await ignores fiber interruption during shutdown because
+          // it resolves via Deferred.succeed in the detached writer. We only
+          // need a collective upper bound so a stuck writer doesn't block exit.
+          yield* Effect.all(
+            entries.map(([, state]) => Deferred.await(state.writing)),
+            { concurrency: "unbounded" },
+          )
+          // The outcome resolves before the writer's watcher has advanced the
+          // watermark and removed the entry from the map. Returning here would
+          // let the process exit with the watermark unmoved, and the next writer
+          // would cover the same delta again. Wait for the entries to clear.
+          yield* Effect.sleep(POLL)
         }
       }).pipe(
         Effect.timeout(timeoutMs),

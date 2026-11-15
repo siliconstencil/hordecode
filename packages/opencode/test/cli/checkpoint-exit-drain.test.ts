@@ -123,43 +123,59 @@ describe("checkpoint exit drain", () => {
     expect(install > -1 && install < drain).toBe(true)
   })
 
-  it("reports a drain as complete while a writer that started after the snapshot is still running", async () => {
+  it("awaits a writer that started after the drain began", async () => {
     await runWithCheckpoint((svc) =>
       Effect.gen(function* () {
         const first = yield* Effect.sync(() => seedParent())
         const second = yield* Effect.sync(() => seedParent())
-        yield* svc.tryStartCheckpointWriter({
-          sessionID: first.sessionID,
-          model: { providerID: "test", modelID: "test-model" },
-          promptOps: promptOps as never,
-        })
+        expect(
+          yield* svc.tryStartCheckpointWriter({
+            sessionID: first.sessionID,
+            model: { providerID: "test", modelID: "test-model" },
+            promptOps: promptOps as never,
+          }),
+        ).toBe("started")
         const firstOutcome = lastSpawned()
         expect(firstOutcome).toBeDefined()
 
-        // The drain takes its snapshot when it starts. The second writer starts
-        // only after the first one settles, so it is never in the snapshot:
-        // the drain does not wait for it and does not count it.
+        // The second writer starts while the drain is running: the drain
+        // snapshotted the first writer, so it must keep waiting until the
+        // writers map is empty again -- otherwise the process exits with the
+        // second writer still in flight, its LLM round-trip paid for and its
+        // checkpoint never written.
+        let drainReturned = false
         const timer = setTimeout(() => settle(firstOutcome!, { status: "success" } as AgentOutcome), 50)
         const result = yield* Effect.all(
           [
             drainCheckpointWriters({ timeoutMs: 5_000 }).pipe(
               Effect.provideService(SessionCheckpoint.Service, svc),
-            ),
-            Effect.flatMap(
-              Deferred.await(firstOutcome!),
-              () =>
-                svc.tryStartCheckpointWriter({
-                  sessionID: second.sessionID,
-                  model: { providerID: "test", modelID: "test-model" },
-                  promptOps: promptOps as never,
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  drainReturned = true
                 }),
+              ),
             ),
+            Effect.gen(function* () {
+              yield* Deferred.await(firstOutcome!)
+              yield* svc.tryStartCheckpointWriter({
+                sessionID: second.sessionID,
+                model: { providerID: "test", modelID: "test-model" },
+                promptOps: promptOps as never,
+              })
+              const secondOutcome = lastSpawned()
+              expect(secondOutcome).toBeDefined()
+              // Give the drain every chance to return while the second writer
+              // is still running. It must not.
+              yield* Effect.sleep("200 millis")
+              expect(drainReturned).toBe(false)
+              settle(secondOutcome!, { status: "success" } as AgentOutcome)
+            }),
           ],
           { concurrency: "unbounded" },
         ).pipe(Effect.ensuring(Effect.sync(() => clearTimeout(timer))))
 
         expect(result[0]).toEqual({ drained: 1, timedOut: 0 })
-        expect(yield* svc.isWriterRunning(second.sessionID)).toBe(true)
+        expect(yield* svc.isWriterRunning(second.sessionID)).toBe(false)
       }),
     )
   })
