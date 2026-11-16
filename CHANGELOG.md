@@ -56,6 +56,10 @@ All notable changes to this project will be documented in this file.
   timeout, so a paid writer run is finished and its checkpoint written instead of being discarded. The
   first SIGINT or SIGTERM in that window keeps draining; a second one exits at once (130/143). No new
   writer starts once the drain has begun.
+- A checkpoint writer is tracked from the moment it starts, not only once it is running, so a second
+  start of the same session cannot build a duplicate paid writer, and the exit drain also waits for a
+  writer that is still being prepared. A wait or context rebuild that reports success now always sees
+  the checkpoint boundary that writer just wrote.
 - Path containment fails closed on Windows cross-drive and cross-share paths, so a child on another
   drive or share is never treated as inside the parent.
 - An OpenAI-compatible stream buffers a tool call until its id and name arrive, so a late id stays
