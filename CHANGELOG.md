@@ -52,6 +52,10 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- A one-shot CLI run waits for in-flight checkpoint writers before it exits, bounded by the writer's own
+  timeout, so a paid writer run is finished and its checkpoint written instead of being discarded. The
+  first SIGINT or SIGTERM in that window keeps draining; a second one exits at once (130/143). No new
+  writer starts once the drain has begun.
 - Path containment fails closed on Windows cross-drive and cross-share paths, so a child on another
   drive or share is never treated as inside the parent.
 - An OpenAI-compatible stream buffers a tool call until its id and name arrive, so a late id stays
