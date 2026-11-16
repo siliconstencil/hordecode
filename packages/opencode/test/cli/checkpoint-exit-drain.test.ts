@@ -330,7 +330,10 @@ describe("checkpoint exit drain", () => {
         // The holder writer is still in flight and registered.
         expect(yield* svc.isWriterRunning(holderSessionID)).toBe(true)
         settle(spawnedAt(0)!, { status: "success" } as AgentOutcome)
-        expect(yield* Fiber.join(drain)).toEqual({ drained: 1, timedOut: 0 })
+        // Writer 2 created its record at entry, before the fork-context build
+        // it is held in, so the drain sees both entries: the holder it awaits
+        // and the refused writer whose record the refusal finalizer removes.
+        expect(yield* Fiber.join(drain)).toEqual({ drained: 2, timedOut: 0 })
         expect(yield* svc.isWriterRunning(holderSessionID)).toBe(false)
       }),
     )

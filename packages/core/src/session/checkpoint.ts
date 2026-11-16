@@ -656,10 +656,23 @@ export type WriterSettlement = {
 }
 
 interface WriterState {
-  // Holds the AgentOutcome Deferred returned by Supervisor.spawn so callers can
-  // await writer settlement (waitForWriter / drainWriters). The public
-  // WriterOutcome translation happens in waitForWriter.
+  // Holds the AgentOutcome Deferred for the writer. Created at ENTRY, before
+  // the fork-context build and the spawn, so a writer between entry and spawn
+  // is visible to drainWriters/isWriterRunning. Completed from the turn
+  // outcome once the writer hands off to its settle watcher.
   writing: Deferred.Deferred<AgentOutcome>
+  // Completes with THIS writer's public outcome only after the settle watcher
+  // has passed the mtime gate and advanced the watermark, and before the map
+  // entry is deleted. A waiter takes the entry once and awaits this Deferred,
+  // so a later writer that replaces the map entry cannot change its answer.
+  // FORK_DELTA: MiMo writers.set after spawn
+  // (repos/mimocode-v0.1.11/packages/opencode/src/session/checkpoint.ts:956)
+  // and writes the watermark later inside the watcher (:976); here the record
+  // exists from entry and the waiter settles against the watermark update.
+  settled: Deferred.Deferred<WriterOutcome>
+  // The outcome's FailureInfo, stored before `settled` completes so prune
+  // keeps its classification after the entry is gone.
+  failure?: FailureInfo
   // Token count at which the running writer was started. Used to drop a
   // request that cannot cover new history (same-level duplicate).
   level?: number
@@ -740,6 +753,23 @@ export const layer = Layer.effect(
         return "skipped" as const
       }
 
+      // Defensive: skip if this session IS a checkpoint-writer child. The writer
+      // child's parent loop would otherwise re-trigger this function and cascade.
+      // Replaces the dead `isSystemSpawned(sessionID, "main")` guard.
+      if (yield* isCheckpointWriterSession(input.sessionID)) {
+        log.info("tryStartCheckpointWriter skipping checkpoint-writer session")
+        return "skipped" as const
+      }
+
+      // The record is created at entry, before the fork-context build and the
+      // spawn, so a writer that has passed the gates is visible to the drain
+      // and to waiters even while it is still building. The Deferreds are made
+      // before the dedupe read; the read and the set below are adjacent with
+      // no yield between them, so two concurrent starts cannot both register.
+      const writingDeferred = yield* Deferred.make<AgentOutcome>()
+      const settledDeferred = yield* Deferred.make<WriterOutcome>()
+      const state: WriterState = { writing: writingDeferred, settled: settledDeferred, level: input.level }
+
       // F40: writer1 still running. Evict any prior pending and queue this
       // request -- newest wins because its range is a strict superset of the
       // older pending range, so older pending checkpoints would only
@@ -766,15 +796,21 @@ export const layer = Layer.effect(
         existing.pending = input
         return "queued" as const
       }
+      writers.set(input.sessionID, state)
 
-      // Defensive: skip if this session IS a checkpoint-writer child. The writer
-      // child's parent loop would otherwise re-trigger this function and cascade.
-      // Replaces the dead `isSystemSpawned(sessionID, "main")` guard.
-      if (yield* isCheckpointWriterSession(input.sessionID)) {
-        log.info("tryStartCheckpointWriter skipping checkpoint-writer session")
-        return "skipped" as const
-      }
+      // A writer whose record exists but which never hands off to the settle
+      // watcher must still leave the map. One finalizer owns every refusal or
+      // failure between entry and spawn: the pre-spawn drain re-check, a
+      // child-session or spawn failure, and an interruption. FORK_DELTA: MiMo
+      // writes the entry after the spawn
+      // (repos/mimocode-v0.1.11/packages/opencode/src/session/checkpoint.ts:956)
+      // and writes the watermark later inside the watcher (:976), so a refusal
+      // between entry and spawn has no record to update there; here it does,
+      // and this finalizer is what releases it.
+      let writerChildSessionID: SessionID | undefined
+      let handedOff = false
 
+      const runWriter = Effect.fn("SessionCheckpoint.runWriter")(function* () {
       // Mirror parent runLoop's view (prompt.ts:2036-2040) so the writer's
       // ForkContext is byte-equal at the watermark moment. Reading the
       // unfiltered session stream would let computeBoundary land on a
@@ -1058,6 +1094,7 @@ export const layer = Layer.effect(
         parentID: input.sessionID,
         title: `checkpoint-writer: ${rangeDesc}`,
       })
+      writerChildSessionID = writerChildSession.id
 
       // Estimate delta tokens for observability. forkCtx.inheritedMessages is
       // ModelMessage[]; an exact count requires the tokenizer, but a rough
@@ -1065,14 +1102,13 @@ export const layer = Layer.effect(
       const deltaApproxBytes = JSON.stringify(forkCtx?.inheritedMessages ?? []).length
       // G2c D1: the entry check above races a drain that begins while this
       // writer is between it and the spawn -- the child session and the delta
-      // are already built by then. Re-check now, right before the billed
-      // spawn, and release the child session this path created; nothing is in
-      // the writers map yet (writers.set runs after spawn). No await sits
-      // between this check and spawn, so the refusal is atomic. Provenance:
-      // report section 10 D1, coordinator audit 2026-11-15.
+      // are already built by then. Re-check now, right before the billed spawn;
+      // this refusal releases the entry (created at entry, before the build)
+      // and the child session through the single refusal finalizer. No await
+      // sits between this check and spawn, so the refusal is atomic.
+      // Provenance: report section 10 D1, coordinator audit 2026-11-15.
       if (drainInProgress) {
         log.info("drain in progress, refusing to start a checkpoint writer", { sessionID: input.sessionID })
-        yield* session.remove(writerChildSession.id)
         return "skipped" as const
       }
       log.info("tryStartCheckpointWriter spawning", {
@@ -1125,8 +1161,6 @@ export const layer = Layer.effect(
         expectedRevisions: [],
       })
 
-      writers.set(input.sessionID, { writing: result.outcome, level: input.level })
-
       // Bookkeeping: the parent's last_checkpoint_message_id (the delta
       // watermark -- the point future rebuilds compute the message tail from)
       // advances ONLY when the writer SUCCEEDS. This is a transactional
@@ -1153,20 +1187,24 @@ export const layer = Layer.effect(
       // alone never fired because the Effect scheduler itself starved.
       const nativeTimer = setTimeout(() => {
         try {
-          const state = writers.get(input.sessionID)
-          if (state?.writing === result.outcome) {
+          if (writers.get(input.sessionID) === state) {
             // Timeout outcome when checkpoint writer exceeds deadline
             Effect.runSync(Deferred.done(result.outcome, Exit.succeed({ status: "timeout" as const })))
           }
         } catch {}
       }, CHECKPOINT_WRITER_TIMEOUT_MS + 10_000)
       if (nativeTimer.unref) nativeTimer.unref()
+      handedOff = true
+      let settledOutcome: WriterOutcome = "failure"
       yield* Effect.gen(function* () {
         const outcome = yield* Deferred.await(result.outcome).pipe(
           Effect.timeout(CHECKPOINT_WRITER_TIMEOUT_MS),
           // Timeout outcome when waiting for checkpoint writer to complete
           Effect.orElseSucceed(() => ({ status: "timeout" as const })),
         )
+        // The turn outcome is forwarded to the entry's `writing` Deferred. The
+        // map entry is NOT replaced: waiters and the drain hold THIS state.
+        yield* Deferred.done(state.writing, Exit.succeed(outcome)).pipe(Effect.ignore)
         yield* Effect.sync(() => clearTimeout(nativeTimer))
         if (outcome.status === "success") {
           // The supervisor outcome is a turn result, not a file-write
@@ -1189,13 +1227,19 @@ export const layer = Layer.effect(
                   .run(),
               ),
             )
+            settledOutcome = "success"
           } else {
             log.warn(
               "checkpoint writer succeeded without rewriting checkpoint.md — leaving watermark unchanged so the delta is re-covered",
               { sessionID: input.sessionID, endMessageID },
             )
+            // The writer's turn succeeded; settlement stays success even when
+            // the watermark did not move.
+            settledOutcome = "success"
           }
         } else {
+          settledOutcome = outcome.status === "timeout" ? "timeout" : "failure"
+          if (outcome.status === "failure" && outcome.failure) state.failure = outcome.failure
           const failure = outcome.status === "failure" ? outcome.failure : undefined
           const classified = failure ? { kind: failure.kind, cause: failure.name } : {}
           if (failure && !failure.retryable) {
@@ -1212,10 +1256,15 @@ export const layer = Layer.effect(
           }
         }
 
+        // Complete the public settlement ONLY after the mtime gate and the
+        // watermark update, and before the map entry is deleted: a waiter that
+        // observes it must be able to read the advanced boundary.
+        yield* Deferred.succeed(state.settled, settledOutcome).pipe(Effect.ignore)
+
         // F40: capture pending before deleting the slot so a queued writer
         // (held while writer1 was running) can fire as a fresh writer.
-        const pending = writers.get(input.sessionID)?.pending
-        writers.delete(input.sessionID)
+        const pending = state.pending
+        if (writers.get(input.sessionID) === state) writers.delete(input.sessionID)
 
         // F44: aggregate writer slice tokens and emit cache-perf metric so
         // prefix-cache reuse is empirically observable. Degrades to zeros if
@@ -1260,26 +1309,52 @@ export const layer = Layer.effect(
         ),
         // The map entry must go even when the watcher body fails: a leaked
         // entry keeps isWriterRunning true forever and makes every later
-        // drain wait for the whole bound. Compare the outcome, like the
+        // drain wait for the whole bound. Compare the state identity, like the
         // native timeout above, so a queued writer that already replaced the
         // entry is not deleted.
         Effect.ensuring(
           Effect.sync(() => {
-            const state = writers.get(input.sessionID)
-            if (state?.writing === result.outcome) writers.delete(input.sessionID)
+            if (writers.get(input.sessionID) === state) writers.delete(input.sessionID)
+          }),
+        ),
+        // Registered last so it runs FIRST on the way out: an interruption
+        // must still complete `settled` with the known outcome, and always
+        // before the entry is deleted.
+        Effect.ensuring(
+          Effect.sync(() => {
+            Deferred.doneUnsafe(state.settled, Effect.succeed(settledOutcome))
           }),
         ),
         Effect.forkIn(scope),
       ).pipe(
         Effect.catchCause((cause) =>
           Effect.sync(() => {
-            if (writers.has(input.sessionID)) writers.delete(input.sessionID)
+            if (writers.get(input.sessionID) === state) writers.delete(input.sessionID)
             CheckpointContext.remove(input.sessionID, supervisorID)
           }).pipe(Effect.flatMap(() => Effect.failCause(cause))),
         ),
       )
 
       return "started" as const
+      })
+
+      const releaseOnRefusal = Effect.suspend(() => {
+        if (handedOff) return Effect.void
+        return Effect.gen(function* () {
+          yield* Deferred.done(state.writing, Exit.succeed({ status: "cancelled" } as AgentOutcome)).pipe(Effect.ignore)
+          const pending = state.pending
+          if (writers.get(input.sessionID) === state) writers.delete(input.sessionID)
+          if (writerChildSessionID !== undefined) {
+            yield* session.remove(writerChildSessionID).pipe(Effect.ignore)
+          }
+          yield* Deferred.succeed(state.settled, "failure" as const).pipe(Effect.ignore)
+          if (pending && !drainInProgress) {
+            log.info("draining pending writer after a refusal", { sessionID: input.sessionID })
+            yield* tryStartCheckpointWriter(pending).pipe(Effect.ignore)
+          }
+        })
+      })
+      return yield* runWriter().pipe(Effect.ensuring(releaseOnRefusal))
     // Effect.fn infers a generic signature; the Interface declares the concrete one.
     }) as (input: TryStartCheckpointWriterInput) => Effect.Effect<TryStartCheckpointWriterResult>
 
@@ -1290,8 +1365,8 @@ export const layer = Layer.effect(
       if (!state) return { outcome: "no-writer" as const }
 
       // v2 writers manage 3 file types and frequently take 60-180s, so the
-      // wait is bounded at 5min rather than left unbounded. AgentOutcome ->
-      // WriterOutcome translation: success -> "success", failure / cancelled ->
+      // wait is bounded at 5min rather than left unbounded. WriterOutcome ->
+      // Writer settlement: success -> "success", failure / cancelled ->
       // "failure", bound expired with the writer still unsettled -> "timeout".
       //
       // The bound expiring is NOT a writer failure -- the padding is not what
@@ -1305,7 +1380,14 @@ export const layer = Layer.effect(
       // to tell "still in flight" from "settled unsuccessfully": prune arms its
       // recovery gate on a settled TRANSIENT failure only, and "timeout" must
       // never reach that gate -- the writer may still be about to succeed.
-      const outcome = yield* Deferred.await(state.writing).pipe(
+      //
+      // The entry is taken ONCE and awaited through its own `settled`, so a
+      // later writer that replaces the map entry cannot change this answer.
+      // FORK_DELTA: MiMo writes the entry after spawn
+      // (repos/mimocode-v0.1.11/packages/opencode/src/session/checkpoint.ts:956)
+      // and writes the watermark later inside the watcher (:976); here the
+      // waiter settles only after that watermark update.
+      const outcome = yield* Deferred.await(state.settled).pipe(
         Effect.timeout(300_000),
         Effect.catch(() => Effect.succeed("timeout" as const)),
       )
@@ -1316,9 +1398,8 @@ export const layer = Layer.effect(
         })
         return { outcome: "timeout" as const }
       }
-      if (outcome.status === "success") return { outcome: "success" as const }
-      const failure = outcome.status === "failure" ? outcome.failure : undefined
-      return failure ? { outcome: "failure" as const, failure } : { outcome: "failure" as const }
+      if (outcome === "success") return { outcome: "success" as const }
+      return state.failure ? { outcome: "failure" as const, failure: state.failure } : { outcome: "failure" as const }
     })
 
     // #1938's contract, unchanged: three flat values, "timeout" distinct from
@@ -1492,8 +1573,14 @@ export const layer = Layer.effect(
       const inFlight = writers.get(sessionID)
       if (inFlight && !opts?.skipWriterWait) {
         log.info("rebuild waiting for in-flight writer", { sessionID })
+        // Await the settled record, not the bare turn outcome: the rebuild must
+        // read the checkpoint state only after the watermark advanced.
+        // FORK_DELTA: MiMo writes the entry after spawn
+        // (repos/mimocode-v0.1.11/packages/opencode/src/session/checkpoint.ts:956)
+        // and updates the watermark inside the watcher (:976); here the entry's
+        // `settled` completes after that update.
         yield* Effect.race(
-          Deferred.await(inFlight.writing).pipe(Effect.as("done" as const)),
+          Deferred.await(inFlight.settled).pipe(Effect.as("done" as const)),
           Effect.sleep("60 seconds").pipe(
             Effect.tap(() => Effect.sync(() => log.warn("writer wait timeout — using on-disk checkpoint", { sessionID }))),
             Effect.as("timeout" as const),

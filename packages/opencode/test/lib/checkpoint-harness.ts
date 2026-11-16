@@ -17,11 +17,14 @@
 // Tests must call `useCheckpointHarness()` in beforeEach (or first line of
 // the test) and `resetCheckpointHarness()` in afterEach.
 
+import fs from "node:fs/promises"
 import path from "node:path"
 import { afterEach, beforeAll, describe, expect } from "bun:test"
 import { eq } from "drizzle-orm"
 import { Effect, Deferred, ManagedRuntime } from "effect"
 import { SessionID, MessageID, PartID } from "@opencode-ai/core/session/schema"
+import { checkpointPath } from "@opencode-ai/core/session/checkpoint-paths"
+import * as TestClock from "effect/testing/TestClock"
 import { ProjectID } from "@opencode-ai/project/schema"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Database } from "@opencode-ai/core/storage"
@@ -43,9 +46,30 @@ const { mkdtempTmp } = await import("../fixture/fixture")
 // Per-test mutable state for the controllable supervisor stub. Pushed to
 // from spawn, drained in afterEach.
 const spawned: Deferred.Deferred<AgentOutcome>[] = []
+let freshCheckpointWrite = false
+export const useFreshCheckpointWrite = (enabled: boolean) => {
+  freshCheckpointWrite = enabled
+}
+
+// Rewrite the parent's checkpoint.md so its mtime advances past the snapshot
+// tryStartCheckpointWriter took before the spawn. The product's settle watcher
+// advances the watermark only on a fresh write; tests that exercise the
+// success settlement opt in through useFreshCheckpointWrite(true).
+const writeFreshCheckpoint = async (sessionID: SessionID) => {
+  const file = checkpointPath(sessionID)
+  const before = (await fs.stat(file).catch(() => undefined))?.mtimeMs
+  await Bun.file(file).text().catch(() => "")
+  await Bun.write(file, "# Checkpoint\n\n## Snapshot\nwritten by the stub spawn\n")
+  const stamp = (before ?? Date.now()) / 1000 + 0.002
+  await fs.utimes(file, stamp, stamp)
+}
+
 const stubSupervisor: SupervisorInterface = {
-  spawn: () =>
+  spawn: (input: { sessionID: SessionID; parentSessionID?: SessionID }) =>
     Effect.gen(function* () {
+      if (freshCheckpointWrite) {
+        yield* Effect.promise(() => writeFreshCheckpoint(input.parentSessionID ?? input.sessionID))
+      }
       const outcome = yield* Deferred.make<AgentOutcome>()
       spawned.push(outcome)
       return { supervisorID: `sup-${spawned.length}`, outcome }
@@ -256,6 +280,38 @@ export const runWithCheckpoint = <A, E>(
         prefixCaptureRef.current = stubPrefixCapture
         const svc = yield* SessionCheckpoint.Service
         return yield* body(svc)
+      }).pipe(
+        Effect.provideService(InstanceRef, {
+          directory: proofDir,
+          worktree: proofDir,
+          project: {
+            id: ProjectID.global,
+            worktree: proofDir,
+            time: { created: Date.now(), updated: Date.now() },
+            sandboxes: [],
+          },
+        }),
+        Effect.provideService(WorkspaceRef, undefined),
+      ),
+    )
+    .finally(() => rt.dispose())
+}
+
+// Same as runWithCheckpoint, but the body runs with an Effect TestClock in
+// scope, so timeouts and sleeps advance deterministically with
+// TestClock.adjust. The AppLayer still builds on the live runtime; only the
+// body fiber (and the writer fibers it forks) see the test clock.
+export const runWithCheckpointAtTestClock = <A, E>(
+  body: (svc: SessionCheckpointInterface) => Effect.Effect<A, E, never>,
+): Promise<A> => {
+  const rt = ManagedRuntime.make(AppLayer, { memoMap })
+  return rt
+    .runPromise(
+      Effect.gen(function* () {
+        spawnRef.current = stubSupervisor
+        prefixCaptureRef.current = stubPrefixCapture
+        const svc = yield* SessionCheckpoint.Service
+        return yield* body(svc).pipe(Effect.provide(TestClock.layer()))
       }).pipe(
         Effect.provideService(InstanceRef, {
           directory: proofDir,
