@@ -25,6 +25,9 @@ All notable changes to this project will be documented in this file.
 - Inbox rows carry queued and delivered state.
 - Bundled skills are extracted once per data root (a content-hash marker), so startup no longer rewrites the
   skill tree on every run.
+- `horde stats --html [path]` writes the same statistics as a self-contained HTML page
+  (inline CSS, no network, no script); the path defaults to `horde-stats.html` in the
+  current directory and is printed.
 
 ### Changed
 

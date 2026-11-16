@@ -3024,6 +3024,7 @@ PARITY	packages/opencode/test/cli/acp/skills.test.ts
 FORK_ONLY	packages/opencode/test/cli/cmd/export-resolver.test.ts
 FORK_ONLY	packages/opencode/test/cli/cmd/github.handler.test.ts
 FORK_ONLY	packages/opencode/test/cli/cmd/stats-days-guard.test.ts
+FORK_ONLY	packages/opencode/test/cli/cmd/stats-html.test.ts
 FORK_ONLY	packages/opencode/test/cli/cmd/stats-project-name.test.ts
 FORK_DELTA	packages/opencode/test/cli/cmd/tui/attention.test.ts
 PARITY	packages/opencode/test/cli/debug-config.test.ts

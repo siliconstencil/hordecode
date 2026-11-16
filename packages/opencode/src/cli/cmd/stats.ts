@@ -10,7 +10,7 @@ import { Project } from "@/project/project"
 import type { ID as ProjectID } from "@opencode-ai/core/project/schema"
 import { InstanceRef } from "@/effect/instance-ref"
 
-interface SessionStats {
+export interface SessionStats {
   totalSessions: number
   totalMessages: number
   totalCost: number
@@ -68,6 +68,10 @@ export const StatsCommand = effectCmd({
       .option("project", {
         describe: "filter by project (default: all projects, empty string: current project)",
         type: "string",
+      })
+      .option("html", {
+        describe: "write a self-contained HTML page (optionally to PATH)",
+        type: "string",
       }),
   handler: Effect.fn("Cli.stats")(function* (args) {
     const ctx = yield* InstanceRef
@@ -78,6 +82,12 @@ export const StatsCommand = effectCmd({
       modelLimit = Infinity
     } else if (typeof args.models === "number") {
       modelLimit = args.models
+    }
+    if (args.html !== undefined) {
+      const target = typeof args.html === "string" ? args.html : ""
+      const written = yield* Effect.promise(() => writeStatsHtml(stats, { path: target, toolLimit: args.tools, modelLimit }))
+      console.log(`Stats written to ${written}`)
+      return
     }
     displayStats(stats, args.tools, modelLimit)
   }),
@@ -418,4 +428,118 @@ function formatNumber(num: number): string {
     return (num / 1000).toFixed(1) + "K"
   }
   return num.toString()
+}
+
+// FORK_DELTA: `--html` and the renderer below are a fork addition. Neither
+// opencode 1.19.3 (packages/opencode/src/cli/cmd/stats.ts:292 displayStats) nor
+// MiMo 0.1.11 (same path, :312) has any HTML output; the fork's text renderer
+// stays the source of every number the page shows.
+
+const HTML_ESCAPES: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+}
+
+/** Escape a session-derived string for HTML text and attribute contexts. */
+export function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch])
+}
+
+const DEFAULT_STATS_HTML = "horde-stats.html"
+
+/** Render the stats as one self-contained page: inline CSS, no script, no network. */
+export function renderStatsHtml(stats: SessionStats, opts?: { toolLimit?: number; modelLimit?: number }): string {
+  const cost = isNaN(stats.totalCost) ? 0 : stats.totalCost
+  const costPerDay = isNaN(stats.costPerDay) ? 0 : stats.costPerDay
+  const tokensPerSession = isNaN(stats.tokensPerSession) ? 0 : stats.tokensPerSession
+  const median = isNaN(stats.medianTokensPerSession) ? 0 : stats.medianTokensPerSession
+  const totalTokens =
+    stats.totalTokens.input +
+    stats.totalTokens.output +
+    stats.totalTokens.reasoning +
+    stats.totalTokens.cache.read +
+    stats.totalTokens.cache.write
+
+  const row = (label: string, value: string) =>
+    `<tr><th scope="row">${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`
+
+  const models = Object.entries(stats.modelUsage).sort(([, a], [, b]) => b.messages - a.messages)
+  const modelRows =
+    opts?.modelLimit === undefined
+      ? ""
+      : models
+          .slice(0, opts.modelLimit === Infinity ? models.length : opts.modelLimit)
+          .map(
+            ([model, usage]) =>
+              `<tr><th scope="row">${escapeHtml(model)}</th><td>${usage.messages.toLocaleString()}</td><td>${formatNumber(usage.tokens.input)}</td><td>${formatNumber(usage.tokens.output)}</td><td>${formatNumber(usage.tokens.cache.read)}</td><td>${formatNumber(usage.tokens.cache.write)}</td><td>${"$" + usage.cost.toFixed(4)}</td></tr>`,
+          )
+          .join("")
+
+  const tools = Object.entries(stats.toolUsage).sort(([, a], [, b]) => b - a)
+  const totalToolUsage = Object.values(stats.toolUsage).reduce((a, b) => a + b, 0)
+  const toolRows = tools
+    .slice(0, opts?.toolLimit ?? tools.length)
+    .map(
+      ([tool, count]) =>
+        `<tr><th scope="row">${escapeHtml(tool)}</th><td>${count}</td><td>${totalToolUsage > 0 ? ((count / totalToolUsage) * 100).toFixed(1) : "0.0"}%</td></tr>`,
+    )
+    .join("")
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hordecode stats</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 2rem auto; max-width: 56rem; padding: 0 1rem; }
+  h1 { font-size: 1.4rem; margin: 0 0 1.5rem; }
+  h2 { font-size: 1.1rem; margin: 1.5rem 0 .5rem; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: .35rem .6rem; border-bottom: 1px solid #8884; }
+  td { text-align: right; font-variant-numeric: tabular-nums; }
+  th[scope="row"] { font-weight: 500; text-align: left; }
+</style>
+</head>
+<body>
+<h1>Hordecode statistics</h1>
+<h2>Overview</h2>
+<table>
+${row("Sessions", stats.totalSessions.toLocaleString())}
+${row("Messages", stats.totalMessages.toLocaleString())}
+${row("Days", stats.days.toString())}
+</table>
+<h2>Cost &amp; tokens</h2>
+<table>
+${row("Total Cost", "$" + cost.toFixed(2))}
+${row("Avg Cost/Day", "$" + costPerDay.toFixed(2))}
+${row("Avg Tokens/Session", formatNumber(Math.round(tokensPerSession)))}
+${row("Median Tokens/Session", formatNumber(Math.round(median)))}
+${row("Input", formatNumber(stats.totalTokens.input))}
+${row("Output", formatNumber(stats.totalTokens.output))}
+${row("Cache Read", formatNumber(stats.totalTokens.cache.read))}
+${row("Cache Write", formatNumber(stats.totalTokens.cache.write))}
+${row("Total Tokens", formatNumber(totalTokens))}
+</table>
+${modelRows ? `<h2>Model usage</h2>\n<table>\n<tr><th>Model</th><th>Messages</th><th>Input</th><th>Output</th><th>Cache Read</th><th>Cache Write</th><th>Cost</th></tr>\n${modelRows}\n</table>` : ""}
+${toolRows ? `<h2>Tool usage</h2>\n<table>\n<tr><th>Tool</th><th>Calls</th><th>Share</th></tr>\n${toolRows}\n</table>` : ""}
+<p>Generated ${new Date().toISOString()} by <code>horde stats --html</code>.</p>
+</body>
+</html>
+`
+}
+
+/** Write the stats page and return the absolute path written. */
+export async function writeStatsHtml(
+  stats: SessionStats,
+  opts?: { path?: string; toolLimit?: number; modelLimit?: number },
+): Promise<string> {
+  const target = opts?.path && opts.path.length > 0 ? opts.path : DEFAULT_STATS_HTML
+  const resolved = target.startsWith("/") ? target : `${process.cwd()}/${target}`
+  await Bun.write(resolved, renderStatsHtml(stats, opts))
+  return resolved
 }

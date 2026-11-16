@@ -285,7 +285,8 @@ Options:
       --tools       number of tools to show (default: all)                                  [number]
       --models      show model statistics (default: hidden). Pass a number to show top N, otherwise
                     shows all
-      --project     filter by project (default: all projects, empty string: current project)[string]"
+      --project     filter by project (default: all projects, empty string: current project)[string]
+      --html        write a self-contained HTML page (optionally to PATH)                   [string]"
 `;
 
 exports[`horde CLI help-text snapshots every documented command emits stable help text: horde export --help 1`] = `
