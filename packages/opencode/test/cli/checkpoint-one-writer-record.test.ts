@@ -15,11 +15,13 @@
 //
 // Base-green guards (pass on both the base and the fix):
 //   5. the wait bound on TestClock: pending at bound-1, timeout at bound
-//   7. a waiter for A gets A's outcome when B registers after A
+//   7. a successor registers after A's entry is gone; the waiter must still
+//      answer with A's outcome
 //
 // Test 5 is the guard that the wait's own outcome (not the writer's turn) is
-// what the 300 s bound applies to; test 7 guards the take-the-entry-once rule
-// against a later writer replacing the map entry.
+// what the 300 s bound applies to; test 7 guards the take-the-entry-once rule:
+// B registers only after A's entry is gone, and A's waiter must still answer
+// with A's outcome.
 
 delete process.env["OPENCODE_DB"]
 
@@ -41,6 +43,7 @@ import {
   settle,
   useFreshCheckpointWrite,
   pollWithTimeout,
+  childSessionIDs,
   afterEach,
   beforeAll,
   expect,
@@ -192,6 +195,9 @@ describe("checkpoint one writer record", () => {
         expect((yield* Fiber.join(drain)).drained).toBe(1)
         expect(yield* svc.isWriterRunning(sessionID)).toBe(false)
         expect(spawnedAt(0)).toBeUndefined()
+        // The child session was created before the drain re-check refused the
+        // spawn; the refusal finalizer must have removed it again.
+        expect(childSessionIDs(sessionID)).toEqual([])
       }),
     )
   })

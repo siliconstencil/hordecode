@@ -262,6 +262,17 @@ export const readWatermark = (sessionID: SessionID) =>
     )?.last_checkpoint_message_id,
   )
 
+// Child sessions created under a parent. A checkpoint writer creates one as
+// its host; a refused pre-spawn writer must remove it again.
+export const childSessionIDs = (parentID: SessionID): SessionID[] =>
+  Database.use((d) =>
+    d
+      .select({ id: SessionTable.id })
+      .from(SessionTable)
+      .where(eq(SessionTable.parent_id, parentID))
+      .all(),
+  ).map((row) => row.id as SessionID)
+
 // Build a ManagedRuntime with AppLayer + the harness InstanceRef/WorkspaceRef
 // and run a body that yields SessionCheckpoint.Service. Disposes the runtime
 // after the body settles (success, failure, or defect).

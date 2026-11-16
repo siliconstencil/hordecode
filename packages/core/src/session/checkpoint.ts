@@ -661,14 +661,16 @@ interface WriterState {
   // is visible to drainWriters/isWriterRunning. Completed from the turn
   // outcome once the writer hands off to its settle watcher.
   writing: Deferred.Deferred<AgentOutcome>
-  // Completes with THIS writer's public outcome only after the settle watcher
-  // has passed the mtime gate and advanced the watermark, and before the map
-  // entry is deleted. A waiter takes the entry once and awaits this Deferred,
-  // so a later writer that replaces the map entry cannot change its answer.
+  // Completes with THIS writer's public outcome after the settle step: the
+  // mtime gate plus the watermark update when the writer rewrote
+  // checkpoint.md, and before the map entry is deleted. A success without a
+  // rewrite deliberately keeps the watermark put. A waiter takes the entry
+  // once and awaits this Deferred, so a later writer that replaces the map
+  // entry cannot change its answer.
   // FORK_DELTA: MiMo writers.set after spawn
   // (repos/mimocode-v0.1.11/packages/opencode/src/session/checkpoint.ts:956)
   // and writes the watermark later inside the watcher (:976); here the record
-  // exists from entry and the waiter settles against the watermark update.
+  // exists from entry and the waiter settles after that settle step.
   settled: Deferred.Deferred<WriterOutcome>
   // The outcome's FailureInfo, stored before `settled` completes so prune
   // keeps its classification after the entry is gone.
@@ -808,6 +810,7 @@ export const layer = Layer.effect(
       // between entry and spawn has no record to update there; here it does,
       // and this finalizer is what releases it.
       let writerChildSessionID: SessionID | undefined
+      let spawned = false
       let handedOff = false
 
       const runWriter = Effect.fn("SessionCheckpoint.runWriter")(function* () {
@@ -1149,6 +1152,9 @@ export const layer = Layer.effect(
       })
 
       const supervisorID = result.supervisorID
+      // Set immediately after the billed spawn: from here the writer owns its
+      // child session, and the refusal finalizer must never remove it.
+      spawned = true
 
       // Capture priorTitles (from checkpoint.md as it stood at the watermark)
       // and register the per-supervisor context entry BEFORE the writer's first
@@ -1318,10 +1324,12 @@ export const layer = Layer.effect(
           }),
         ),
         // Registered last so it runs FIRST on the way out: an interruption
-        // must still complete `settled` with the known outcome, and always
+        // must still complete `writing` (a drain awaits it for the whole
+        // writer bound) and `settled` with the known outcome, and always
         // before the entry is deleted.
         Effect.ensuring(
           Effect.sync(() => {
+            Deferred.doneUnsafe(state.writing, Effect.succeed({ status: "cancelled" } as AgentOutcome))
             Deferred.doneUnsafe(state.settled, Effect.succeed(settledOutcome))
           }),
         ),
@@ -1329,6 +1337,11 @@ export const layer = Layer.effect(
       ).pipe(
         Effect.catchCause((cause) =>
           Effect.sync(() => {
+            // A fork failure or an interrupted watcher never reached the
+            // ensures above; complete both Deferreds so the drain and waiters
+            // are not stranded on their bounds.
+            Deferred.doneUnsafe(state.writing, Effect.succeed({ status: "cancelled" } as AgentOutcome))
+            Deferred.doneUnsafe(state.settled, Effect.succeed(settledOutcome))
             if (writers.get(input.sessionID) === state) writers.delete(input.sessionID)
             CheckpointContext.remove(input.sessionID, supervisorID)
           }).pipe(Effect.flatMap(() => Effect.failCause(cause))),
@@ -1343,11 +1356,17 @@ export const layer = Layer.effect(
         return Effect.gen(function* () {
           yield* Deferred.done(state.writing, Exit.succeed({ status: "cancelled" } as AgentOutcome)).pipe(Effect.ignore)
           const pending = state.pending
+          // Complete the public settlement before the delete and before any
+          // session cleanup: a defect there must not strand waiters on the
+          // 300 s bound. `Effect.ignore` does not cover defects.
+          yield* Deferred.succeed(state.settled, "failure" as const).pipe(Effect.ignore)
           if (writers.get(input.sessionID) === state) writers.delete(input.sessionID)
-          if (writerChildSessionID !== undefined) {
+          // A spawned writer's session belongs to the supervisor; only the
+          // pre-spawn child is ours to release. Removing a handed-off session
+          // would kill the session of a live, billed writer.
+          if (!spawned && writerChildSessionID !== undefined) {
             yield* session.remove(writerChildSessionID).pipe(Effect.ignore)
           }
-          yield* Deferred.succeed(state.settled, "failure" as const).pipe(Effect.ignore)
           if (pending && !drainInProgress) {
             log.info("draining pending writer after a refusal", { sessionID: input.sessionID })
             yield* tryStartCheckpointWriter(pending).pipe(Effect.ignore)
@@ -1386,7 +1405,9 @@ export const layer = Layer.effect(
       // FORK_DELTA: MiMo writes the entry after spawn
       // (repos/mimocode-v0.1.11/packages/opencode/src/session/checkpoint.ts:956)
       // and writes the watermark later inside the watcher (:976); here the
-      // waiter settles only after that watermark update.
+      // waiter settles after the settle step (mtime gate plus the watermark
+      // update when the file was rewritten), and a success without a rewrite
+      // deliberately keeps the watermark put.
       const outcome = yield* Deferred.await(state.settled).pipe(
         Effect.timeout(300_000),
         Effect.catch(() => Effect.succeed("timeout" as const)),
@@ -1574,11 +1595,13 @@ export const layer = Layer.effect(
       if (inFlight && !opts?.skipWriterWait) {
         log.info("rebuild waiting for in-flight writer", { sessionID })
         // Await the settled record, not the bare turn outcome: the rebuild must
-        // read the checkpoint state only after the watermark advanced.
+        // read the checkpoint state only after the settle step (mtime gate plus
+        // the watermark update when the file was rewritten). A success without
+        // a rewrite deliberately keeps the watermark put.
         // FORK_DELTA: MiMo writes the entry after spawn
         // (repos/mimocode-v0.1.11/packages/opencode/src/session/checkpoint.ts:956)
         // and updates the watermark inside the watcher (:976); here the entry's
-        // `settled` completes after that update.
+        // `settled` completes after that settle step.
         yield* Effect.race(
           Deferred.await(inFlight.settled).pipe(Effect.as("done" as const)),
           Effect.sleep("60 seconds").pipe(
