@@ -44,6 +44,7 @@ import {
   useFreshCheckpointWrite,
   pollWithTimeout,
   childSessionIDs,
+  holdInsideSpawn,
   afterEach,
   beforeAll,
   expect,
@@ -224,6 +225,33 @@ describe("checkpoint one writer record", () => {
 
         settle(spawnedAt(1)!, { status: "failure", error: "boom" } as AgentOutcome)
         yield* Effect.sleep("50 millis")
+      }),
+    )
+  })
+
+  it("8. an interrupt at the spawn resumption keeps the live writer's session", async () => {
+    await runWithCheckpoint((svc) =>
+      Effect.gen(function* () {
+        const { sessionID } = yield* Effect.sync(() => seedParent())
+        const hold = yield* holdInsideSpawn
+        const build = yield* svc
+          .tryStartCheckpointWriter({ sessionID, model, promptOps: promptOps as never })
+          .pipe(Effect.forkChild)
+        // The stub has registered the writer outcome: the spawn is billed and
+        // the writer is live, but the caller has not resumed from the spawn.
+        yield* Deferred.await(hold.entered)
+        expect(spawnedAt(0)).toBeDefined()
+
+        // Interrupt while the fiber is suspended inside the spawn, then let it
+        // return. Without the uninterruptible region the spawn resumes as an
+        // interruption, so `spawned = true` never runs and the refusal finalizer
+        // treats the live writer's child session as its own pre-spawn session.
+        const interrupt = yield* Fiber.interrupt(build).pipe(Effect.forkChild({ startImmediately: true }))
+        yield* Deferred.succeed(hold.release, undefined)
+        yield* Fiber.join(interrupt)
+
+        // A handed-off writer's session belongs to the supervisor.
+        expect(childSessionIDs(sessionID)).toHaveLength(1)
       }),
     )
   })

@@ -1149,12 +1149,17 @@ export const layer = Layer.effect(
         },
         background: true,
         forkContext: forkCtx,
-      })
+      }).pipe(
+        // Set immediately after the billed spawn: from here the writer owns its
+        // child session, and the refusal finalizer must never remove it.
+        Effect.tap(() => Effect.sync(() => (spawned = true))),
+        // The mark must not be skippable on an interrupt at the spawn
+        // resumption, so one masked region covers the spawn and the mark.
+        // G3-D1, reports/0.1.6/g3-one-writer-record.md:197
+        Effect.uninterruptible,
+      )
 
       const supervisorID = result.supervisorID
-      // Set immediately after the billed spawn: from here the writer owns its
-      // child session, and the refusal finalizer must never remove it.
-      spawned = true
 
       // Capture priorTitles (from checkpoint.md as it stood at the watermark)
       // and register the per-supervisor context entry BEFORE the writer's first

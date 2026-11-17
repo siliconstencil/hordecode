@@ -51,6 +51,19 @@ export const useFreshCheckpointWrite = (enabled: boolean) => {
   freshCheckpointWrite = enabled
 }
 
+// The spawn-resumption seam: the stub holds inside supervisor.spawn AFTER the
+// writer outcome is registered but BEFORE spawn returns to its caller. An
+// interrupt delivered here lands on the spawn resumption, so the fix's
+// uninterruptible region around `supervisor.spawn` and `spawned = true` is what
+// keeps the live writer's session from being released.
+let spawnHold: { entered: Deferred.Deferred<void>; release: Deferred.Deferred<void> } | undefined
+export const holdInsideSpawn = Effect.gen(function* () {
+  const entered = yield* Deferred.make<void>()
+  const release = yield* Deferred.make<void>()
+  spawnHold = { entered, release }
+  return { entered, release }
+})
+
 // Rewrite the parent's checkpoint.md so its mtime advances past the snapshot
 // tryStartCheckpointWriter took before the spawn. The product's settle watcher
 // advances the watermark only on a fresh write; tests that exercise the
@@ -72,7 +85,14 @@ const stubSupervisor: SupervisorInterface = {
       }
       const outcome = yield* Deferred.make<AgentOutcome>()
       spawned.push(outcome)
-      return { supervisorID: `sup-${spawned.length}`, outcome }
+      const result = { supervisorID: `sup-${spawned.length}`, outcome }
+      if (spawnHold) {
+        const hold = spawnHold
+        spawnHold = undefined
+        yield* Deferred.succeed(hold.entered, undefined)
+        yield* Deferred.await(hold.release)
+      }
+      return result
     }),
   cancel: () => Effect.void,
   getForkContext: () => Effect.succeed(undefined),
@@ -121,6 +141,7 @@ export const resetCheckpointHarness = () => {
   if (originalMemory !== undefined) Object.assign(Global.Path, { memory: originalMemory })
   spawnRef.current = undefined
   prefixCaptureRef.current = undefined
+  spawnHold = undefined
   for (const d of spawned) {
     Effect.runPromise(Deferred.succeed(d, { status: "cancelled" } as AgentOutcome)).catch(() => {})
   }
