@@ -1,5 +1,7 @@
 import { Effect } from "effect"
 import { eq } from "drizzle-orm"
+import path from "node:path"
+import { homedir } from "node:os"
 import { effectCmd } from "../effect-cmd"
 import { Session } from "@/session/session"
 import { NotFoundError } from "@/storage/storage"
@@ -49,6 +51,36 @@ export interface SessionStats {
   medianTokensPerSession: number
 }
 
+/** FORK_ONLY: the handler body is exported so a test can run it directly.
+ *  No reference renders a page: opencode 1.19.3 prints text in displayStats
+ *  (:292) and MiMo 0.1.11 at :312. The page keeps the text output's rows and
+ *  numbers; --html is a fork addition.
+ */
+export const statsHandler = Effect.fn("Cli.stats")(function* (args: {
+  days?: number
+  tools?: number
+  models?: boolean | number
+  project?: string
+  html?: string | boolean
+}) {
+  const ctx = yield* InstanceRef
+  if (!ctx) return
+  const stats = yield* aggregateSessionStats(args.days, args.project, ctx.project)
+  let modelLimit: number | undefined
+  if (args.models === true) {
+    modelLimit = Infinity
+  } else if (typeof args.models === "number") {
+    modelLimit = args.models
+  }
+  if (args.html !== undefined) {
+    const target = typeof args.html === "string" ? args.html : ""
+    const written = yield* Effect.promise(() => writeStatsHtml(stats, { path: target, toolLimit: args.tools, modelLimit }))
+    console.log(`Stats written to ${written}`)
+    return
+  }
+  displayStats(stats, args.tools, modelLimit)
+})
+
 export const StatsCommand = effectCmd({
   command: "stats",
   describe: "show token usage and cost statistics",
@@ -69,28 +101,15 @@ export const StatsCommand = effectCmd({
         describe: "filter by project (default: all projects, empty string: current project)",
         type: "string",
       })
+      // FORK_ONLY: neither reference has a page renderer (opencode 1.19.3
+      // displayStats :292, MiMo 0.1.11 :312); this option and the handler
+      // branch below are the fork's addition and must keep the text output's rows.
       .option("html", {
         describe: "write a self-contained HTML page (optionally to PATH)",
         type: "string",
       }),
-  handler: Effect.fn("Cli.stats")(function* (args) {
-    const ctx = yield* InstanceRef
-    if (!ctx) return
-    const stats = yield* aggregateSessionStats(args.days, args.project, ctx.project)
-    let modelLimit: number | undefined
-    if (args.models === true) {
-      modelLimit = Infinity
-    } else if (typeof args.models === "number") {
-      modelLimit = args.models
-    }
-    if (args.html !== undefined) {
-      const target = typeof args.html === "string" ? args.html : ""
-      const written = yield* Effect.promise(() => writeStatsHtml(stats, { path: target, toolLimit: args.tools, modelLimit }))
-      console.log(`Stats written to ${written}`)
-      return
-    }
-    displayStats(stats, args.tools, modelLimit)
-  }),
+  // yargs infers `models` as unknown from the untyped option; the handler owns the narrowing.
+  handler: statsHandler as never,
 })
 
 const getAllSessions = Effect.fnUntraced(function* () {
@@ -421,7 +440,7 @@ export function displayStats(stats: SessionStats, toolLimit?: number, modelLimit
   console.log()
 }
 
-function formatNumber(num: number): string {
+export function formatNumber(num: number): string {
   if (num >= 1000000) {
     return (num / 1000000).toFixed(1) + "M"
   } else if (num >= 1000) {
@@ -456,12 +475,6 @@ export function renderStatsHtml(stats: SessionStats, opts?: { toolLimit?: number
   const costPerDay = isNaN(stats.costPerDay) ? 0 : stats.costPerDay
   const tokensPerSession = isNaN(stats.tokensPerSession) ? 0 : stats.tokensPerSession
   const median = isNaN(stats.medianTokensPerSession) ? 0 : stats.medianTokensPerSession
-  const totalTokens =
-    stats.totalTokens.input +
-    stats.totalTokens.output +
-    stats.totalTokens.reasoning +
-    stats.totalTokens.cache.read +
-    stats.totalTokens.cache.write
 
   const row = (label: string, value: string) =>
     `<tr><th scope="row">${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`
@@ -480,8 +493,9 @@ export function renderStatsHtml(stats: SessionStats, opts?: { toolLimit?: number
 
   const tools = Object.entries(stats.toolUsage).sort(([, a], [, b]) => b - a)
   const totalToolUsage = Object.values(stats.toolUsage).reduce((a, b) => a + b, 0)
+  const toolLimit = opts?.toolLimit ? opts.toolLimit : tools.length
   const toolRows = tools
-    .slice(0, opts?.toolLimit ?? tools.length)
+    .slice(0, toolLimit)
     .map(
       ([tool, count]) =>
         `<tr><th scope="row">${escapeHtml(tool)}</th><td>${count}</td><td>${totalToolUsage > 0 ? ((count / totalToolUsage) * 100).toFixed(1) : "0.0"}%</td></tr>`,
@@ -523,7 +537,6 @@ ${row("Input", formatNumber(stats.totalTokens.input))}
 ${row("Output", formatNumber(stats.totalTokens.output))}
 ${row("Cache Read", formatNumber(stats.totalTokens.cache.read))}
 ${row("Cache Write", formatNumber(stats.totalTokens.cache.write))}
-${row("Total Tokens", formatNumber(totalTokens))}
 </table>
 ${modelRows ? `<h2>Model usage</h2>\n<table>\n<tr><th>Model</th><th>Messages</th><th>Input</th><th>Output</th><th>Cache Read</th><th>Cache Write</th><th>Cost</th></tr>\n${modelRows}\n</table>` : ""}
 ${toolRows ? `<h2>Tool usage</h2>\n<table>\n<tr><th>Tool</th><th>Calls</th><th>Share</th></tr>\n${toolRows}\n</table>` : ""}
@@ -533,13 +546,16 @@ ${toolRows ? `<h2>Tool usage</h2>\n<table>\n<tr><th>Tool</th><th>Calls</th><th>S
 `
 }
 
-/** Write the stats page and return the absolute path written. */
+/** Write the stats page and return the absolute, normalised path written. */
 export async function writeStatsHtml(
   stats: SessionStats,
   opts?: { path?: string; toolLimit?: number; modelLimit?: number },
 ): Promise<string> {
-  const target = opts?.path && opts.path.length > 0 ? opts.path : DEFAULT_STATS_HTML
-  const resolved = target.startsWith("/") ? target : `${process.cwd()}/${target}`
+  const chosen = opts?.path && opts.path.length > 0 ? opts.path : DEFAULT_STATS_HTML
+  const home = process.env.HOME || homedir()
+  const expanded =
+    chosen === "~" ? path.join(home, DEFAULT_STATS_HTML) : chosen.startsWith("~/") ? path.join(home, chosen.slice(2)) : chosen
+  const resolved = path.resolve(expanded)
   await Bun.write(resolved, renderStatsHtml(stats, opts))
   return resolved
 }
