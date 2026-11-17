@@ -119,7 +119,8 @@ describe("SessionCheckpoint.insertRebuildBoundary", () => {
       Effect.gen(function* () {
         const { sessionID } = yield* Effect.sync(() => seedParent())
         seedUser(sessionID, "turn two", Date.now() + 10)
-        const m3 = seedUser(sessionID, "turn three", Date.now() + 20)
+        const boundaryAt = Date.now() + 20
+        const m3 = seedUser(sessionID, "turn three", boundaryAt)
         const cpPath = checkpointPath(sessionID)
         yield* Effect.promise(() => fs.mkdir(path.dirname(cpPath), { recursive: true }))
         yield* Effect.promise(() =>
@@ -134,6 +135,7 @@ describe("SessionCheckpoint.insertRebuildBoundary", () => {
           boundary: m3,
           agent: "build",
           model: { providerID: "test", modelID: "test-model" },
+          boundaryCreatedAt: boundaryAt,
         })
         return {
           inserted,

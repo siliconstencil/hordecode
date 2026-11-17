@@ -619,7 +619,7 @@ export interface Interface {
    * Insert a synthetic checkpoint-boundary user message (boundary marker +
    * index overview + rebuild context + active-supervisors text) just after the
    * given boundary. Inserts nothing and returns false when rebuild context is
-   * empty. Never deletes DB messages.
+   * empty or the boundary time is unknown. Never deletes DB messages.
    */
   readonly insertRebuildBoundary: (input: {
     sessionID: SessionID
@@ -2080,7 +2080,12 @@ export const layer = Layer.effect(
 
       const indexText = yield* renderIndex(input.sessionID).pipe(Effect.catch(() => Effect.succeed("")))
 
-      const syntheticTime = (input.boundaryCreatedAt ?? Date.now()) + 1
+      // Fail closed when the boundary message is not resolvable: the old
+      // Date.now() fallback placed the boundary after the tail (upstream's
+      // broken placement) and swallowed the messages the rebuild must keep.
+      // I2-D2, reports/0.1.6/i2-b1-rebuild-boundary.md:209
+      if (input.boundaryCreatedAt === undefined) return false
+      const syntheticTime = input.boundaryCreatedAt + 1
       const msg = yield* session.updateMessage({
         id: MessageID.ascending(),
         role: "user" as const,
