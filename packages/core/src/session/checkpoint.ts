@@ -718,6 +718,16 @@ export const layer = Layer.effect(
 
     // Plain Map in the layer closure -- same approach as compaction.ts
     const writers = new Map<SessionID, WriterState>()
+    // G3-D7, reports/0.1.6/g3-one-writer-record.md:214
+    // The settlement must outlive the map entry: a caller (prune) waits only
+    // after tryStartCheckpointWriter returned "started", and a fast writer can
+    // finish inside that window. One record per session, replaced by the next
+    // settlement.
+    const lastSettlements = new Map<SessionID, WriterSettlement>()
+    const releaseWriter = (sessionID: SessionID, state: WriterState, outcome: WriterOutcome) => {
+      lastSettlements.set(sessionID, state.failure ? { outcome, failure: state.failure } : { outcome })
+      if (writers.get(sessionID) === state) writers.delete(sessionID)
+    }
     // The writer slot. A checkpoint writer is a billed LLM round-trip: one
     // that registers while the process is on its way out is killed when the
     // process exits, so its checkpoint is never written and the delta
@@ -1275,7 +1285,7 @@ export const layer = Layer.effect(
         // F40: capture pending before deleting the slot so a queued writer
         // (held while writer1 was running) can fire as a fresh writer.
         const pending = state.pending
-        if (writers.get(input.sessionID) === state) writers.delete(input.sessionID)
+        releaseWriter(input.sessionID, state, settledOutcome)
 
         // F44: aggregate writer slice tokens and emit cache-perf metric so
         // prefix-cache reuse is empirically observable. Degrades to zeros if
@@ -1324,9 +1334,7 @@ export const layer = Layer.effect(
         // native timeout above, so a queued writer that already replaced the
         // entry is not deleted.
         Effect.ensuring(
-          Effect.sync(() => {
-            if (writers.get(input.sessionID) === state) writers.delete(input.sessionID)
-          }),
+          Effect.sync(() => releaseWriter(input.sessionID, state, settledOutcome)),
         ),
         // Registered last so it runs FIRST on the way out: an interruption
         // must still complete `writing` (a drain awaits it for the whole
@@ -1347,7 +1355,7 @@ export const layer = Layer.effect(
             // are not stranded on their bounds.
             Deferred.doneUnsafe(state.writing, Effect.succeed({ status: "cancelled" } as AgentOutcome))
             Deferred.doneUnsafe(state.settled, Effect.succeed(settledOutcome))
-            if (writers.get(input.sessionID) === state) writers.delete(input.sessionID)
+            releaseWriter(input.sessionID, state, settledOutcome)
             CheckpointContext.remove(input.sessionID, supervisorID)
           }).pipe(Effect.flatMap(() => Effect.failCause(cause))),
         ),
@@ -1365,7 +1373,7 @@ export const layer = Layer.effect(
           // session cleanup: a defect there must not strand waiters on the
           // 300 s bound. `Effect.ignore` does not cover defects.
           yield* Deferred.succeed(state.settled, "failure" as const).pipe(Effect.ignore)
-          if (writers.get(input.sessionID) === state) writers.delete(input.sessionID)
+          releaseWriter(input.sessionID, state, "failure")
           // A spawned writer's session belongs to the supervisor; only the
           // pre-spawn child is ours to release. Removing a handed-off session
           // would kill the session of a live, billed writer.
@@ -1386,7 +1394,11 @@ export const layer = Layer.effect(
       sessionID: SessionID,
     ) {
       const state = writers.get(sessionID)
-      if (!state) return { outcome: "no-writer" as const }
+      // G3-D7, reports/0.1.6/g3-one-writer-record.md:214 -- a writer that
+      // settled and left the map between its start and this lookup still
+      // answers with what it settled to. Reading the record only when no live
+      // entry exists keeps an in-flight writer authoritative.
+      if (!state) return lastSettlements.get(sessionID) ?? { outcome: "no-writer" as const }
 
       // v2 writers manage 3 file types and frequently take 60-180s, so the
       // wait is bounded at 5min rather than left unbounded. WriterOutcome ->

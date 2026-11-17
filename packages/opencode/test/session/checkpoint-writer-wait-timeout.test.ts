@@ -24,6 +24,8 @@
 //      absent for cancelled, per fork's WriterSettlement contract).
 //   6. waitForWriterSettlement surfaces the same classification as waitForWriter
 //      and adds a "no-writer" path with no failure field.
+//   7. A writer that settled and left the map (G3-D7) still answers with its
+//      outcome and classification instead of "no-writer".
 
 delete process.env["OPENCODE_DB"]
 
@@ -37,6 +39,7 @@ import {
   promptOps,
   lastSpawned,
   settle,
+  pollWithTimeout,
   afterEach,
   beforeAll,
   expect,
@@ -152,6 +155,38 @@ describe("checkpoint waitForWriter + waitForWriterSettlement", () => {
         // cancelled writers (failure is only set when status === "failure"
         // AND the error reached classifyAssistantError).
         expect(settled.failure).toBeUndefined()
+      }),
+    )
+  })
+
+  // G3-D7: prune calls tryStartCheckpointWriter and only then
+  // waitForWriterSettlement. A fast writer can settle and leave the writers
+  // map in that window; the settlement must still be its real outcome (with
+  // its failure classification), not "no-writer".
+  it("writer that settled and left the map still yields its outcome and classification", async () => {
+    await runWithCheckpoint((svc) =>
+      Effect.gen(function* () {
+        const { sessionID } = yield* Effect.sync(() => seedParent())
+        const started = yield* svc.tryStartCheckpointWriter({
+          sessionID,
+          model: { providerID: "test", modelID: "test-model" },
+          promptOps: promptOps as never,
+        })
+        expect(started).toBe("started")
+        const d = lastSpawned()
+        expect(d).toBeDefined()
+        const failure = makeFailure({ retryable: true, kind: "transient", name: "RateLimited" })
+        settle(d!, { status: "failure", error: "rate limited", failure } as AgentOutcome)
+        // Wait for the settle watcher to complete and delete the map entry --
+        // exactly the interleaving prune races against.
+        yield* pollWithTimeout(
+          svc.isWriterRunning(sessionID).pipe(Effect.map((running) => (running ? undefined : true))),
+          "writer entry never left the map",
+        )
+        const settled = yield* svc.waitForWriterSettlement(sessionID)
+        expect(settled.outcome).toBe("failure")
+        expect(settled.failure?.kind).toBe("transient")
+        expect(settled.failure?.retryable).toBe(true)
       }),
     )
   })
