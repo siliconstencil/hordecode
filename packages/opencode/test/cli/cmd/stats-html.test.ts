@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { Effect } from "effect"
 import { mkdtempSync } from "node:fs"
 import { join } from "node:path"
+import os from "node:os"
 import { SessionID } from "@opencode-ai/core/session/schema"
 import { SessionTable, MessageTable, PartTable } from "@opencode-ai/core/session/sql"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
@@ -32,7 +33,7 @@ import {
   statsHandler,
 } from "@/cli/cmd/stats"
 
-const TMP = process.env.TMPDIR ?? "/home/hank/Desktop/developer/build-worktrees/tmp"
+const TMP = os.tmpdir()
 
 type Stats = Effect.Success<ReturnType<typeof aggregateSessionStats>>
 

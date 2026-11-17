@@ -1169,7 +1169,7 @@ describe("session.compaction.process", () => {
         url: "https://example.com/cat.png",
         source: {
           type: "file",
-          path: "/home/hank/Desktop/developer/build-worktrees/tmp/cat.png",
+          path: "/fixtures/cat.png",
           text: { value: "cat.png", start: 0, end: 7 },
         },
       })
@@ -1199,7 +1199,7 @@ describe("session.compaction.process", () => {
       expect(replayed && replayed.type === "file" ? replayed.url : undefined).toBe("https://example.com/cat.png")
       expect(replayed && replayed.type === "file" ? replayed.source : undefined).toEqual({
         type: "file",
-        path: "/home/hank/Desktop/developer/build-worktrees/tmp/cat.png",
+        path: "/fixtures/cat.png",
         text: { value: "cat.png", start: 0, end: 7 },
       })
       expect(last.parts.some((part) => part.type === "text" && part.text === "[Attached image/png: cat.png]")).toBe(
