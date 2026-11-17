@@ -6,6 +6,7 @@ import type * as Provider from "./provider"
 import type * as ModelsDev from "./models"
 import { iife } from "@opencode-ai/core/util/iife"
 import { Flag } from "@opencode-ai/core/flag/flag"
+import { limitImages } from "./limit-images"
 
 type Modality = NonNullable<ModelsDev.Model["modalities"]>["input"][number]
 
@@ -469,51 +470,6 @@ function unsupportedParts(msgs: ModelMessage[], model: Provider.Model): ModelMes
   })
 }
 
-// Returns the decoded byte size of a base64 data URL, or undefined for inputs
-// that aren't data URLs (remote URLs, raw binary) and therefore can't be sized.
-function imageByteSize(image: string): number | undefined {
-  if (!image.startsWith("data:")) return undefined
-  const base64 = image.slice(image.indexOf(",") + 1)
-  if (!base64) return 0
-  const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0
-  return Math.floor((base64.length * 3) / 4) - padding
-}
-
-function limitImages(msgs: ModelMessage[]): ModelMessage[] {
-  const maxImages = Flag.HORDECODE_MAX_PROMPT_IMAGES
-  const maxSize = Flag.HORDECODE_MAX_PROMPT_IMAGE_SIZE
-  if (maxImages === undefined && maxSize === undefined) return msgs
-
-  const total = msgs.reduce(
-    (sum, msg) =>
-      msg.role === "user" && Array.isArray(msg.content)
-        ? sum + msg.content.filter((part) => part.type === "image").length
-        : sum,
-    0,
-  )
-  // Drop the oldest excess images so the most recent ones reach the model.
-  let toDrop = maxImages === undefined ? 0 : Math.max(0, total - maxImages)
-
-  return msgs.map((msg) => {
-    if (msg.role !== "user" || !Array.isArray(msg.content)) return msg
-    const content = msg.content.map((part) => {
-      if (part.type !== "image") return part
-      if (toDrop > 0) {
-        toDrop--
-        return { type: "text" as const, text: `[Image omitted: exceeds the configured limit of ${maxImages} prompt image(s).]` }
-      }
-      if (maxSize !== undefined) {
-        const size = imageByteSize(String(part.image))
-        if (size !== undefined && size > maxSize) {
-          return { type: "text" as const, text: `[Image omitted: exceeds the configured ${maxSize}-byte prompt image size limit.]` }
-        }
-      }
-      return part
-    })
-    return { ...msg, content }
-  })
-}
-
 function mapProviderOptions(
   msgs: ModelMessage[],
   transform: (options: Record<string, any> | undefined) => Record<string, any> | undefined,
@@ -623,6 +579,8 @@ function normalizeContentArray(msgs: ModelMessage[]): ModelMessage[] {
 export function message(msgs: ModelMessage[], model: Provider.Model, options: Record<string, unknown>) {
   msgs = normalizeContentArray(msgs)
   msgs = unsupportedParts(msgs, model)
+  // FORK_ONLY: the cap lives in provider/limit-images.ts so the live opencode transform and
+  // this twin share one implementation (map :1264).
   msgs = limitImages(msgs)
   msgs = normalizeMessages(msgs, model, options)
   msgs = ensureNonEmptyContent(msgs)

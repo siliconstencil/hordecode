@@ -6385,3 +6385,87 @@ describe("ProviderTransform.options - kimi family adaptive thinking", () => {
     expect(result.thinking).toBeUndefined()
   })
 })
+
+describe("ProviderTransform.message - prompt image cap on image attachments", () => {
+  const mockModel = {
+    id: "anthropic/claude-3-5-sonnet",
+    providerID: "anthropic",
+    api: {
+      id: "claude-3-5-sonnet-20241022",
+      url: "https://api.anthropic.com",
+      npm: "@ai-sdk/anthropic",
+    },
+    name: "Claude 3.5 Sonnet",
+    capabilities: {
+      temperature: true,
+      reasoning: false,
+      attachment: true,
+      toolcall: true,
+      input: { text: true, audio: false, image: true, video: false, pdf: true },
+      output: { text: true, audio: false, image: false, video: false, pdf: false },
+      interleaved: false,
+    },
+    cost: {
+      input: 0.003,
+      output: 0.015,
+      cache: { read: 0.0003, write: 0.00375 },
+    },
+    limit: {
+      context: 200000,
+      output: 8192,
+    },
+    status: "active",
+    options: {},
+    headers: {},
+  } as any
+
+  test("counts image attachments sent as file parts and drops the oldest past the limit", () => {
+    process.env.HORDECODE_MAX_PROMPT_IMAGES = "1"
+    try {
+      const out = ProviderTransform.message(
+        [
+          {
+            role: "user",
+            content: [
+              { type: "file", data: "data:image/png;base64,AAAA", mediaType: "image/png", filename: "a.png" },
+              { type: "file", data: "data:image/png;base64,BBBB", mediaType: "image/png", filename: "b.png" },
+            ],
+          },
+        ] as ModelMessage[],
+        mockModel,
+        {},
+      )
+      const parts = out[0].content as Array<{ type: string; text?: string; filename?: string }>
+      expect(parts[0].type).toBe("text")
+      expect(parts[0].text).toContain("exceeds the configured limit of 1 prompt image")
+      expect(parts[1].type).toBe("file")
+      expect(parts[1].filename).toBe("b.png")
+    } finally {
+      delete process.env.HORDECODE_MAX_PROMPT_IMAGES
+    }
+  })
+
+  test("applies the size limit to image attachments sent as file parts", () => {
+    process.env.HORDECODE_MAX_PROMPT_IMAGE_SIZE = "1"
+    try {
+      const big = "A".repeat(200)
+      const out = ProviderTransform.message(
+        [
+          {
+            role: "user",
+            content: [
+              { type: "file", data: `data:image/png;base64,${big}`, mediaType: "image/png", filename: "big.png" },
+            ],
+          },
+        ] as ModelMessage[],
+        mockModel,
+        {},
+      )
+      const parts = out[0].content as Array<{ type: string; text?: string }>
+      expect(parts[0].type).toBe("text")
+      expect(parts[0].text).toContain("prompt image size limit")
+    } finally {
+      delete process.env.HORDECODE_MAX_PROMPT_IMAGE_SIZE
+    }
+  })
+})

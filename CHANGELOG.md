@@ -6,7 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- Checkpoint compaction no longer drops the user's attachments when replaying the last user turn.
+- Overflow compaction no longer drops the user's attachments when replaying the last user turn.
+- The prompt image cap now counts image attachments sent as file parts, and the live CLI request path applies it
 
 ## [0.1.6] - 2026-11-07
 

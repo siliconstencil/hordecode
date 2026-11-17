@@ -1233,6 +1233,7 @@ FORK_ONLY	packages/core/src/provider/auth.ts
 FORK_ONLY	packages/core/src/provider/bridge.ts
 FORK_ONLY	packages/core/src/provider/error.ts
 FORK_ONLY	packages/core/src/provider/index.ts
+FORK_ONLY	packages/core/src/provider/limit-images.ts
 FORK_ONLY	packages/core/src/provider/models.ts
 FORK_ONLY	packages/core/src/provider/provider.ts
 FORK_ONLY	packages/core/src/provider/schema.ts

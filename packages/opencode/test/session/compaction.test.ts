@@ -1167,6 +1167,11 @@ describe("session.compaction.process", () => {
         mime: "image/png",
         filename: "cat.png",
         url: "https://example.com/cat.png",
+        source: {
+          type: "file",
+          path: "/home/hank/Desktop/developer/build-worktrees/tmp/cat.png",
+          text: { value: "cat.png", start: 0, end: 7 },
+        },
       })
       const msg = yield* createUserMessage(session.id, "current")
       const msgs = yield* ssn.messages({ sessionID: session.id })
@@ -1192,6 +1197,11 @@ describe("session.compaction.process", () => {
       expect(replayed && replayed.type === "file" ? replayed.mime : undefined).toBe("image/png")
       expect(replayed && replayed.type === "file" ? replayed.filename : undefined).toBe("cat.png")
       expect(replayed && replayed.type === "file" ? replayed.url : undefined).toBe("https://example.com/cat.png")
+      expect(replayed && replayed.type === "file" ? replayed.source : undefined).toEqual({
+        type: "file",
+        path: "/home/hank/Desktop/developer/build-worktrees/tmp/cat.png",
+        text: { value: "cat.png", start: 0, end: 7 },
+      })
       expect(last.parts.some((part) => part.type === "text" && part.text === "[Attached image/png: cat.png]")).toBe(
         false,
       )
@@ -1199,7 +1209,7 @@ describe("session.compaction.process", () => {
   )
 
   it.instance(
-    "replayed media reaches the model request for a vision model and degrades for a text-only model",
+    "converts a user image attachment into a file model part for a vision model and degrades it for a text-only model",
     Effect.gen(function* () {
       const ssn = yield* SessionNs.Service
       const session = yield* ssn.create({})

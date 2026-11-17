@@ -51,3 +51,60 @@ describe("the interleaved reasoning field of an assistant turn", () => {
     expect(wire.providerOptions?.openaiCompatible?.reasoning_content).toBe("")
   })
 })
+
+describe("the prompt image cap on image attachments", () => {
+  const visionModel = {
+    ...deepseekModel,
+    capabilities: { ...deepseekModel.capabilities, input: { ...deepseekModel.capabilities.input, image: true } },
+  } as ModelType
+
+  test("counts image attachments sent as file parts and drops the oldest past the limit", () => {
+    process.env.HORDECODE_MAX_PROMPT_IMAGES = "1"
+    try {
+      const out = message(
+        [
+          {
+            role: "user",
+            content: [
+              { type: "file", data: "data:image/png;base64,AAAA", mediaType: "image/png", filename: "a.png" },
+              { type: "file", data: "data:image/png;base64,BBBB", mediaType: "image/png", filename: "b.png" },
+            ],
+          },
+        ] as ModelMessage[],
+        visionModel,
+        {},
+      )
+      const parts = out[0].content as Array<{ type: string; text?: string; filename?: string }>
+      expect(parts[0].type).toBe("text")
+      expect(parts[0].text).toContain("exceeds the configured limit of 1 prompt image")
+      expect(parts[1].type).toBe("file")
+      expect(parts[1].filename).toBe("b.png")
+    } finally {
+      delete process.env.HORDECODE_MAX_PROMPT_IMAGES
+    }
+  })
+
+  test("applies the size limit to image attachments sent as file parts", () => {
+    process.env.HORDECODE_MAX_PROMPT_IMAGE_SIZE = "1"
+    try {
+      const big = "A".repeat(200)
+      const out = message(
+        [
+          {
+            role: "user",
+            content: [
+              { type: "file", data: `data:image/png;base64,${big}`, mediaType: "image/png", filename: "big.png" },
+            ],
+          },
+        ] as ModelMessage[],
+        visionModel,
+        {},
+      )
+      const parts = out[0].content as Array<{ type: string; text?: string }>
+      expect(parts[0].type).toBe("text")
+      expect(parts[0].text).toContain("prompt image size limit")
+    } finally {
+      delete process.env.HORDECODE_MAX_PROMPT_IMAGE_SIZE
+    }
+  })
+})

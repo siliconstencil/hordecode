@@ -4,6 +4,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
 import type * as Provider from "./provider"
 import type * as ModelsDev from "@opencode-ai/core/models-dev"
 import { iife } from "@opencode-ai/core/util/iife"
+import { limitImages } from "@opencode-ai/core/provider/limit-images"
 
 type Modality = NonNullable<ModelsDev.Model["modalities"]>["input"][number]
 
@@ -629,6 +630,9 @@ function normalizeContentArray(msgs: ModelMessage[]): ModelMessage[] {
 export function message(msgs: ModelMessage[], model: Provider.Model, options: Record<string, unknown>) {
   msgs = normalizeContentArray(msgs)
   msgs = unsupportedParts(msgs, model)
+  // FORK_DELTA: the live CLI transform had no prompt image cap; it now applies the shared
+  // one right after unsupportedParts, matching core (map :2720).
+  msgs = limitImages(msgs)
   msgs = normalizeMessages(msgs, model, options)
   msgs = ensureNonEmptyContent(msgs)
   msgs = ensureTrailingUserMessage(msgs)
