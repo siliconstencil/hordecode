@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- Checkpoint compaction no longer drops the user's attachments when replaying the last user turn.
+
 ## [0.1.6] - 2026-11-07
 
 ### Added

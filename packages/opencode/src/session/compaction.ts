@@ -550,12 +550,18 @@ const layer = Layer.effect(
           })
           for (const part of replay.parts) {
             if (part.type === "compaction") continue
-            const replayPart =
-              part.type === "file" && MessageV2.isMedia(part.mime)
-                ? { type: "text" as const, text: `[Attached ${part.mime}: ${part.filename ?? "file"}]` }
-                : part
+            // I1: the replayed user turn keeps its own parts, media included.
+            // A file part must reach the continuation request as a file part:
+            // the provider transform is the single place that degrades media
+            // when the model cannot read it (unsupportedParts), and it runs on
+            // every request path, so substituting here would silently lose the
+            // attachment without consulting the model. FORK_DELTA provenance:
+            // MiMo bf0563dd keeps media parts in this replay loop; the fork's
+            // references still substitute (opencode 1.19.3
+            // packages/opencode/src/session/compaction.ts:486, MiMo 0.1.11/0.1.12
+            // packages/opencode/src/session/compaction.ts:425).
             yield* session.updatePart({
-              ...replayPart,
+              ...part,
               id: PartID.ascending(),
               messageID: replayMsg.id,
               sessionID: input.sessionID,

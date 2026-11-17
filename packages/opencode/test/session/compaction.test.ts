@@ -22,6 +22,7 @@ import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 
 import { Provider } from "@/provider/provider"
+import { ProviderTransform } from "@/provider/transform"
 import * as SessionProcessorModule from "../../src/session/processor"
 import { ProviderTest } from "../fake/provider"
 import { testEffect } from "../lib/effect"
@@ -1182,10 +1183,58 @@ describe("session.compaction.process", () => {
 
       expect(result).toBe("continue")
       expect(last?.info.role).toBe("user")
-      expect(last?.parts.some((part) => part.type === "file")).toBe(false)
-      expect(
-        last?.parts.some((part) => part.type === "text" && part.text.includes("Attached image/png: cat.png")),
-      ).toBe(true)
+      if (!last) throw new Error("expected a replayed user message")
+      // The replayed user turn must carry the media part itself: compaction replays
+      // history for the continuation request, so substituting the attachment with a
+      // text marker sends the next turn without the image the user just attached.
+      const replayed = last.parts.find((part) => part.type === "file")
+      expect(replayed).toBeDefined()
+      expect(replayed && replayed.type === "file" ? replayed.mime : undefined).toBe("image/png")
+      expect(replayed && replayed.type === "file" ? replayed.filename : undefined).toBe("cat.png")
+      expect(replayed && replayed.type === "file" ? replayed.url : undefined).toBe("https://example.com/cat.png")
+      expect(last.parts.some((part) => part.type === "text" && part.text === "[Attached image/png: cat.png]")).toBe(
+        false,
+      )
+    }),
+  )
+
+  it.instance(
+    "replayed media reaches the model request for a vision model and degrades for a text-only model",
+    Effect.gen(function* () {
+      const ssn = yield* SessionNs.Service
+      const session = yield* ssn.create({})
+      const replay = yield* createUserMessage(session.id, "look at this")
+      yield* ssn.updatePart({
+        id: PartID.ascending(),
+        messageID: replay.id,
+        sessionID: session.id,
+        type: "file",
+        mime: "image/png",
+        filename: "cat.png",
+        url: "https://example.com/cat.png",
+      })
+      const messages = yield* ssn.messages({ sessionID: session.id })
+
+      // createModel() in this file carries no api.id/api.url, which
+      // ProviderTransform.message reads, so use the package's complete test model.
+      const vision = ProviderTest.model()
+      vision.capabilities.input.image = true
+      const visionMessages = yield* MessageV2.toModelMessagesEffect(messages, vision)
+      const converted = ProviderTransform.message(visionMessages, vision, {})
+      const parts = converted.flatMap((m) =>
+        Array.isArray(m.content) ? (m.content as Array<{ type: string; mediaType?: string }>) : [],
+      )
+      expect(parts.some((p) => p.type === "file" && p.mediaType === "image/png")).toBe(true)
+
+      const textOnly = ProviderTest.model()
+      expect(textOnly.capabilities.input.image).toBe(false)
+      const textOnlyMessages = yield* MessageV2.toModelMessagesEffect(messages, textOnly)
+      const degraded = ProviderTransform.message(textOnlyMessages, textOnly, {})
+      const degradedParts = degraded.flatMap((m) =>
+        Array.isArray(m.content) ? (m.content as Array<{ type: string; mediaType?: string }>) : [],
+      )
+      expect(degradedParts.some((p) => p.type === "file")).toBe(false)
+      expect(JSON.stringify(degraded)).toContain("does not support image input")
     }),
   )
 
