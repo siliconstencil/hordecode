@@ -565,7 +565,9 @@ export const layer = Layer.effect(
       // (e.g. isolated spawns, which provide their own Instance context).
       // Captured in the closure so the file hooks read it synchronously and
       // never touch ALS from inside the forked work fiber.
-      const workspaceRoot = input.workspace ?? (yield* InstanceRef)?.worktree ?? Instance.worktree
+      // A non-git project carries worktree "/"; anchor to the instance directory (tool/shell.ts:772).
+      const instance = (yield* InstanceRef) ?? Instance
+      const workspaceRoot = input.workspace ?? (instance.worktree === "/" ? instance.directory : instance.worktree)
       const fileHooks = makeFileHooks(workspaceRoot)
       const deferred = yield* Deferred.make<RunOutcome>()
       const entry: RunEntry = {
