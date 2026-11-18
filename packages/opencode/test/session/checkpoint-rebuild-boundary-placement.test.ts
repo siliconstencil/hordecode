@@ -385,4 +385,89 @@ describe("rebuild boundary placement (B-1)", () => {
     expect(result.rebuildCalls).toBe(0)
     expect(result.boundariesAfter).toBe(result.boundariesBefore)
   })
+
+  // J ruling [4] = I2-D6, reports/0.1.6/i2-b1-rebuild-boundary.md:219.
+  it("step 2 fits and inserts from the same fresh window (I2-D6)", async () => {
+    const { runWithCheckpointAndDatabase } = await import("../lib/checkpoint-harness")
+    type Result = {
+      attempt: string
+      rebuildCalls: number
+      seenAll: string[]
+      windowAll: string[]
+      sawFreshBoundary: boolean
+    }
+    const result = (await runWithCheckpointAndDatabase((svc, database) =>
+      Effect.gen(function* () {
+        const { sessionID } = yield* Effect.sync(() => seedParent())
+        const base = Date.now() - 10_000
+        // The prefix the fresh boundary would drop. It has to be large enough
+        // for the fits check to accept the fresh boundary over the usable
+        // window (else Step 2 never reaches the rebuild).
+        yield* Effect.sync(() => seedMessage(sessionID, "user", "x".repeat(40_000), base))
+        const fresh = yield* Effect.sync(() => seedMessage(sessionID, "assistant", "fresh boundary", base + 1000))
+        yield* Effect.sync(() => seedMessage(sessionID, "user", "tail after the fresh boundary", base + 2000))
+        yield* Effect.promise(() => writeCheckpoint(sessionID))
+
+        const window = (yield* MessageV2.filterCompactedEffect(sessionID)) as MessageV2.WithParts[]
+        // The caller's slice predates the fresh boundary message: it exists
+        // only in the window the guard re-reads for the fits decision.
+        const stale = window.filter((m) => m.info.id !== fresh) as SessionV1.WithParts[]
+        expect(stale).toHaveLength(window.length - 1)
+
+        // Step 1 sees no boundary at all; Step 2 sees the fresh one.
+        let lastBoundaryCalls = 0
+        const checkpoint: typeof svc = new Proxy(svc, {
+          get(target, prop) {
+            if (prop === "lastBoundary")
+              return () => Effect.sync(() => (lastBoundaryCalls++ === 0 ? undefined : fresh))
+            if (prop === "isWriterRunning") return () => Effect.succeed(false)
+            if (prop === "tryStartCheckpointWriter") return () => Effect.succeed("skipped")
+            if (prop === "waitForWriter") return () => Effect.succeed("success")
+            return Reflect.get(target, prop)
+          },
+        })
+
+        let rebuildCalls = 0
+        let seen: SessionV1.WithParts[] = []
+        const attempt = yield* rebuildEnsuringCheckpoint(
+          {
+            sessionID,
+            msgs: stale,
+            agent: "build",
+            model: { providerID: "test", id: "test-model" },
+            writerWaitMs: 0,
+            contextTokens: 60_000,
+            usableLimit: 56_000,
+          },
+          {
+            memoryWriteEnabled: true,
+            checkpoint,
+            database,
+            // Mirrors the insert step of rebuildFromCheckpoint: the boundary is
+            // resolved from the window the rebuild is handed, so a window that
+            // lost it reports the insert as failed. Also records that window.
+            rebuild: (input) =>
+              Effect.sync(() => {
+                rebuildCalls += 1
+                seen = input.msgs
+                return input.msgs.some((m) => m.info.id === fresh)
+              }),
+          },
+        )
+        return {
+          attempt,
+          rebuildCalls,
+          seenAll: seen.map((m) => m.info.id),
+          windowAll: window.map((m) => m.info.id),
+          sawFreshBoundary: seen.some((m) => m.info.id === fresh),
+        } satisfies Result
+      }),
+    )) as Result
+
+    // The fits decision used the fresh window, so the insert must use it too.
+    expect(result.rebuildCalls).toBe(1)
+    expect(result.seenAll).toEqual(result.windowAll)
+    expect(result.sawFreshBoundary).toBe(true)
+    expect(result.attempt).toBe("rebuilt")
+  })
 })

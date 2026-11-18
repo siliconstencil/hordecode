@@ -249,7 +249,8 @@ export const rebuildEnsuringCheckpoint = Effect.fn("SessionPrompt.rebuildEnsurin
         usableLimit: input.usableLimit,
       })
     })
-  const rebuild = () => deps.rebuild(input).pipe(Effect.catch(() => Effect.succeed(false)))
+  const rebuild = (msgs: SessionV1.WithParts[] = input.msgs) =>
+    deps.rebuild({ ...input, msgs }).pipe(Effect.catch(() => Effect.succeed(false)))
 
   // Start a writer if none is running, wait for it inside the existing bound,
   // then report the freshest boundary it left behind (undefined if none).
@@ -295,7 +296,10 @@ export const rebuildEnsuringCheckpoint = Effect.fn("SessionPrompt.rebuildEnsurin
       Effect.catch(() => Effect.succeed(input.msgs)),
     )
     if (yield* fits(fresh, current)) {
-      if (yield* rebuild()) return "rebuilt" as const
+      // J ruling [4] = I2-D6, reports/0.1.6/i2-b1-rebuild-boundary.md:219:
+      // fit and insert from the same window; the caller's slice may predate
+      // the fresh boundary, so rebuildFromCheckpoint would miss its time.
+      if (yield* rebuild(current)) return "rebuilt" as const
       return "insert-failed" as const
     }
   }
