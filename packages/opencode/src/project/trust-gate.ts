@@ -1,6 +1,7 @@
 import path from "path"
 import { Global } from "@opencode-ai/core/global"
 import { checkTrust, markTrusted } from "@opencode-ai/project/workspace-trust"
+import { Filesystem } from "@/util/filesystem"
 
 // K2: upstream opencode 1.19.5 has no project trust gate
 // (packages/opencode/src/project/bootstrap.ts:62-63 loads project code before any
@@ -19,11 +20,25 @@ export type ProjectRef = {
 // Trusting "/" would trust every directory on the machine, so the opened directory
 // stands in as that project's root. Ruling 1 (trust per worktree root) still holds:
 // a git project uses its worktree root, a non-git project is its own root.
+// K4: the real path, falling back to the resolved path when the filesystem cannot
+// answer (the store also answers for directories that do not exist yet).
+function realPath(target: string): string {
+  const resolved = path.resolve(target)
+  try {
+    return Filesystem.resolve(resolved)
+  } catch {
+    return resolved
+  }
+}
+
+// K4: the trust key is the filesystem-real worktree path (ruling 6). The project
+// package store realpaths too, so the memo and the store agree for a symlinked
+// project; a repointed symlink resolves to a different key and stays untrusted.
 export function trustKey(project: ProjectRef): string {
   if (project.worktree === "/" || project.worktree === "" || project.worktree === project.directory) {
-    return path.resolve(project.directory)
+    return realPath(project.directory)
   }
-  return path.resolve(project.worktree)
+  return realPath(project.worktree)
 }
 
 // Ruling 3: these directories are user-owned. Everything else that the config
@@ -105,7 +120,8 @@ export type TrustOutcome =
   | { readonly status: "refused"; readonly worktree: string; readonly reason: string }
 
 export async function trust(worktree: string): Promise<TrustOutcome> {
-  const resolved = path.resolve(worktree)
+  // K4: record and report the real path, the same key markTrusted writes (ruling 6).
+  const resolved = realPath(worktree)
   const result = await markTrusted(resolved)
   if (result.status === "refused") return { status: "refused", worktree: resolved, reason: result.reason }
   decisions.delete(resolved)
@@ -125,8 +141,10 @@ export function warnOnce(project: ProjectRef): void {
 
 // Resolve the project root the way the product does for a git checkout, without
 // booting an instance (the CLI flag must record trust before store.load).
+// K4: the result is filesystem-real so it matches the trust key and store entry
+// (ruling 6); git reports the literal path for a symlinked checkout.
 export function resolveWorktree(directory: string): string {
-  const resolved = path.resolve(directory)
+  const resolved = realPath(directory)
   const result = Bun.spawnSync(["git", "-C", resolved, "rev-parse", "--show-toplevel"], {
     stdout: "pipe",
     stderr: "ignore",
@@ -134,7 +152,7 @@ export function resolveWorktree(directory: string): string {
   })
   if (result.exitCode !== 0) return resolved
   const top = result.stdout.toString().trim()
-  return top ? path.resolve(top) : resolved
+  return top ? realPath(top) : resolved
 }
 
 // The one non-interactive opt-in (ruling 4). run/serve/attach call this before the

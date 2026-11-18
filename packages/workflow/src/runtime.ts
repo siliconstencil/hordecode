@@ -1678,11 +1678,7 @@ export const layer = (options: LayerOptions = {}) => Layer.effect(
   }),
 )
 
-export const defaultLayer = layer().pipe(
-  Layer.provide(Bus.defaultLayer),
-  Layer.provide(Inbox.defaultLayer),
-  Layer.provide(Provider.defaultLayer),
-  Layer.provide(Config.defaultLayer),
-)
-
+// K4 (ruling 7 Minor 6): no ungated defaultLayer export. The runtime takes its
+// project-script gate at construction; production wires layer({ projectScriptGate })
+// in effect/supervisor-node.ts, so a gate-free factory has no legitimate consumer.
 export * as WorkflowRuntime from "./runtime"

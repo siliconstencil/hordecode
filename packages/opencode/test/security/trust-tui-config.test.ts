@@ -24,7 +24,9 @@ let cwd = ""
 const trusted: string[] = []
 
 beforeEach(async () => {
-  base = await fs.mkdtemp(path.join(process.env.HORDECODE_TEST_TMP || "/tmp", "k3-tui-"))
+  // K4: trust keys and the scope boundary are real paths, so the fixture root must be
+  // real too; otherwise a symlinked TMPDIR would compare two spellings of one path.
+  base = await fs.realpath(await fs.mkdtemp(path.join(process.env.HORDECODE_TEST_TMP || "/tmp", "k3-tui-")))
   cwd = process.cwd()
 })
 
@@ -187,5 +189,70 @@ describe("tui.json plugin origins and the trust gate", () => {
     } finally {
       wait.mockRestore()
     }
+  }, 30000)
+
+  // K4: the exact named case for ruling 1. A project tui.json never loads without a
+  // record, even though the runtime now reads the resolved worktree instead of cwd.
+  it("an untrusted project tui.json is not loaded", async () => {
+    const dir = path.join(base, "ruling1-untrusted")
+    const scenario = projectConfig(dir, "ruling1-untrusted-plugin", { git: true })
+    const config = await scenario.init()
+    expect(await checkTrust(dir)).toBe("untrusted")
+    const wait = spyOn(TuiConfig, "waitForDependencies").mockResolvedValue()
+    try {
+      await TuiPluginRuntime.init({ api: createTuiPluginApi(), config })
+      expect(await scenario.exists()).toBe(false)
+    } finally {
+      wait.mockRestore()
+    }
+  }, 30000)
+
+  // K4: ruling 1 is label-first. A tui.json above the worktree that the config walk
+  // still reads is project-adjacent content, not a global config, unless the user owns
+  // the directory it lives in (K2 ruling 8). Assert the loader-assigned origin scope.
+  it("a tui.json above the worktree is not labelled global unless the directory is user-owned", async () => {
+    const parent = path.join(base, "scope-parent")
+    const project = path.join(parent, "scope-project")
+    await fs.mkdir(project, { recursive: true })
+    const init = Bun.spawnSync(["git", "init", "-q", project])
+    if (init.exitCode !== 0) throw new Error("git init failed")
+    const file = path.join(parent, "tui.json")
+    // A plugin spec is required for the loader to record an origin at all; the file
+    // does not exist because this test asserts the assigned scope, not a plugin load.
+    await Bun.write(
+      file,
+      JSON.stringify({ plugin: [pathToFileURL(path.join(parent, "scope-plugin.ts")).href] }),
+    )
+    process.chdir(project)
+
+    const unowned = (await loadOrigins(project)).filter((origin) => origin.source === file)
+    expect(unowned.map((origin) => origin.scope)).toEqual(["local"])
+
+    const previous = process.env.HORDECODE_CONFIG_DIR
+    process.env.HORDECODE_CONFIG_DIR = parent
+    try {
+      const owned = (await loadOrigins(project)).filter((origin) => origin.source === file)
+      expect(owned.map((origin) => origin.scope)).toEqual(["global"])
+    } finally {
+      if (previous === undefined) delete process.env.HORDECODE_CONFIG_DIR
+      else process.env.HORDECODE_CONFIG_DIR = previous
+    }
+  }, 30000)
+})
+
+// K4: ruling 6 at the resolver boundary. The store holds the real worktree path, and
+// the opencode helpers report and check that same path.
+describe("realpath trust keys", () => {
+  it("a symlinked project dir is trusted through its real target", async () => {
+    const real = path.join(base, "real-target")
+    const link = path.join(base, "linked-project")
+    await fs.mkdir(real, { recursive: true })
+    await fs.symlink(real, link, "dir")
+    const wrote = await TrustGate.trust(link)
+    trusted.push(real)
+    const target = await fs.realpath(link)
+    expect(wrote).toMatchObject({ status: "written", worktree: target })
+    expect(await checkTrust(target)).toBe("trusted")
+    expect(await TrustGate.level({ directory: link, worktree: link })).toBe("trusted")
   }, 30000)
 })

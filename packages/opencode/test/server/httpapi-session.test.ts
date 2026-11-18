@@ -399,7 +399,7 @@ describe("session HttpApi", () => {
       const sessionDirectory = yield* tmpdirScoped({ git: true, config })
       const requestDirectory = yield* tmpdirScoped({ git: true, config })
       const session = yield* createSession({ title: "directory regression" }).pipe(
-        provideInstanceEffect(sessionDirectory),
+        provideInstanceEffect(sessionDirectory, { trust: true }),
       )
 
       const response = yield* request(
@@ -420,7 +420,7 @@ describe("session HttpApi", () => {
 
       const messages = yield* Session.use
         .messages({ sessionID: session.id })
-        .pipe(provideInstanceEffect(sessionDirectory), Effect.orDie)
+        .pipe(provideInstanceEffect(sessionDirectory, { trust: true }), Effect.orDie)
       const assistant = messages.find((message) => message.info.role === "assistant")
       expect(assistant?.info.role === "assistant" ? assistant.info.path : undefined).toEqual({
         cwd: sessionDirectory,

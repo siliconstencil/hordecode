@@ -1091,7 +1091,10 @@ async function load(input: {
     // K3: the TUI plugin host runs in its own thread and never boots an instance, so the
     // process-local trust memo has no decision here. Read the shared store instead; it
     // answers for a trusted worktree and its subdirectories. User-owned origins keep loading.
-    const projectAllowed = TrustGate.isUserOwned(cwd) || (await TrustGate.checkTrust(cwd)) === "trusted"
+    // K4 (ruling 1): scope labels were assigned first; this decision reads the store for
+    // the resolved worktree root, not cwd, and a missing record denies.
+    const worktree = Filesystem.resolve(TrustGate.resolveWorktree(cwd))
+    const projectAllowed = TrustGate.isUserOwned(cwd) || (await TrustGate.checkTrust(worktree)) === "trusted"
     const allowedOrigins = projectAllowed
       ? pluginOrigins
       : pluginOrigins.filter((origin) => origin.scope !== "local" || TrustGate.isUserOwned(origin.source))

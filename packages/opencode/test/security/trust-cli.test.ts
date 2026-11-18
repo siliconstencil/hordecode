@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, spyOn } from "bun:test"
+import { afterEach, beforeEach, describe, expect, mock, spyOn } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
 import { Effect } from "effect"
 import { Global } from "@opencode-ai/core/global"
-import { checkTrust, listTrusted, markTrusted } from "@opencode-ai/project/workspace-trust"
+import { checkTrust, listTrusted, markTrusted, revokeTrust } from "@opencode-ai/project/workspace-trust"
 import { TrustGate } from "../../src/project/trust-gate"
 import { provideInstance, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
@@ -165,6 +165,119 @@ describe("non-interactive project trust", () => {
         expect(refused).toHaveLength(1)
         expect(refused[0]).toContain(home)
         expect(stdout).not.toContain("trusted project")
+      }),
+    30000,
+  )
+
+  // K4 (ruling 7 Minor 3): --trust is a flag on the tui command. The mini branch
+  // builds its own input object; before this test the flag never reached miniGate,
+  // so `tui --mini --trust` printed nothing and recorded nothing.
+  it.live(
+    "tui --mini --trust records trust",
+    () =>
+      Effect.gen(function* () {
+        const dir = yield* tmpdirScoped({ git: true })
+        const seen: { directory?: string; trust?: boolean }[] = []
+        const spec = "../../src/cli/cmd/run"
+        const real = yield* Effect.promise(() => import(spec))
+        // The handoff is what the command owns; the mocked runMini performs the
+        // same recording call miniGate makes and stops before booting the mini app.
+        mock.module(spec, () => ({
+          ...real,
+          runMini: async (input: { directory?: string; trust?: boolean }) => {
+            seen.push(input)
+            const { recordTrust } = await import("../../src/cli/effect-cmd")
+            await recordTrust(input.directory!, input.trust === true)
+          },
+        }))
+        try {
+          const { TuiThreadCommand } = yield* Effect.promise(() => import("../../src/cli/cmd/tui"))
+          yield* Effect.promise(() =>
+            Promise.resolve(
+              (TuiThreadCommand.handler as (args: unknown) => unknown)({
+                $0: "hordecode",
+                _: [],
+                mini: true,
+                trust: true,
+                project: dir,
+              }),
+            ),
+          )
+        } finally {
+          mock.module(spec, () => real)
+        }
+
+        expect(seen).toHaveLength(1)
+        expect(seen[0]!.trust).toBe(true)
+        expect(yield* Effect.promise(() => checkTrust(dir))).toBe("trusted")
+      }),
+    20000,
+  )
+
+  // K4 (ruling 7 Minor 4): attach resolves --dir after the trust step in the old
+  // code, so `attach --dir X --trust` recorded the launch directory instead of X.
+  it.live(
+    "attach --trust trusts the directory flag",
+    () =>
+      Effect.gen(function* () {
+        const target = yield* tmpdirScoped()
+        const start = yield* tmpdirScoped()
+        yield* Effect.addFinalizer(() => Effect.promise(() => revokeTrust(target).catch(() => undefined)))
+        yield* Effect.addFinalizer(() => Effect.promise(() => revokeTrust(start).catch(() => undefined)))
+
+        const proc = Bun.spawn(
+          [process.execPath, path.resolve(import.meta.dir, "../../src/index.ts"), "attach", "--dir", target, "--trust", "http://127.0.0.1:1"],
+          { cwd: start, env: process.env, stdout: "pipe", stderr: "pipe" },
+        )
+        // The attach itself fails to reach the URL; only the trust write matters.
+        yield* Effect.promise(() => Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]))
+
+        expect(yield* Effect.promise(() => checkTrust(target))).toBe("trusted")
+        expect(yield* Effect.promise(() => checkTrust(start))).not.toBe("trusted")
+      }),
+    30000,
+  )
+
+  // K4 (ruling 7 Minor 5): markTrusted refuses "/", $HOME and home ancestors. An
+  // accepted prompt on such a path must not proceed as trusted without a record.
+  it.live(
+    "a refused prompt does not proceed as trusted",
+    () =>
+      Effect.gen(function* () {
+        const base = yield* Effect.promise(() =>
+          fs.mkdtemp(path.join(process.env.HORDECODE_TEST_TMP || "/tmp", "k4-refused-prompt-")),
+        )
+        yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(base, { recursive: true, force: true })))
+        const home = path.join(base, "home")
+        yield* Effect.promise(() => fs.mkdir(home, { recursive: true }))
+        const previousHome = process.env.HOME
+        const previousProfile = process.env.USERPROFILE
+        process.env.HOME = home
+        process.env.USERPROFILE = home
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            if (previousHome === undefined) delete process.env.HOME
+            else process.env.HOME = previousHome
+            if (previousProfile === undefined) delete process.env.USERPROFILE
+            else process.env.USERPROFILE = previousProfile
+          }),
+        )
+
+        // base is an ancestor of $HOME: checkTrust says untrusted, markTrusted refuses.
+        expect(yield* Effect.promise(() => checkTrust(base))).toBe("untrusted")
+        const errors = spyOn(console, "error").mockImplementation(() => {})
+        try {
+          const mod = (yield* Effect.promise(() => import("../../src/cli/cmd/tui"))) as {
+            acceptWorkspaceTrust?: (directory: string) => Promise<boolean>
+          }
+          expect(typeof mod.acceptWorkspaceTrust).toBe("function")
+          expect(yield* Effect.promise(() => mod.acceptWorkspaceTrust!(base))).toBe(false)
+          const lines = errors.mock.calls.map((call: unknown[]) => String(call[0]))
+          expect(lines.filter((line: string) => line.includes("refused to trust"))).toHaveLength(1)
+        } finally {
+          errors.mockRestore()
+        }
+        expect(yield* Effect.promise(() => checkTrust(base))).toBe("untrusted")
       }),
     30000,
   )

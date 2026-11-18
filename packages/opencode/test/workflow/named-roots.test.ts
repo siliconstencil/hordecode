@@ -14,7 +14,7 @@ async function save(dir: string, name: string) {
 }
 
 test("non-git: lookup starts and stops at the instance directory", async () => {
-  await using tmp = await tmpdir()
+  await using tmp = await tmpdir({ trust: true })
   await save(tmp.path, "root-wf")
   const roots = namedWorkflowRoots(undefined, { worktree: "/", directory: tmp.path })
   expect(roots).toEqual({ start: tmp.path, stop: tmp.path })
@@ -22,7 +22,7 @@ test("non-git: lookup starts and stops at the instance directory", async () => {
 })
 
 test("git: an explicit workspace still finds a workflow saved at the worktree root", async () => {
-  await using tmp = await tmpdir()
+  await using tmp = await tmpdir({ trust: true })
   await save(tmp.path, "root-wf")
   const sub = path.join(tmp.path, "sub")
   await fs.mkdir(sub, { recursive: true })

@@ -66,7 +66,9 @@ function load(dir: string, flags?: Parameters<typeof RuntimeFlags.layer>[0]) {
           [RuntimeFlags.node, RuntimeFlags.layer({ disableDefaultPlugins: true, ...flags })],
         ]),
       ),
-      provideInstance(dir),
+      // K4: the plain fixture records a deny by default; this suite drives project code
+      // and withTmp records the store trust, so opt in to the matching trusted decision.
+      provideInstance(dir, { trust: true }),
     )
   })
 }

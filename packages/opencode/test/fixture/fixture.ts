@@ -34,6 +34,15 @@ async function trustFixture(directory: string) {
   TrustGate.remember({ directory, worktree: directory }, "trusted")
 }
 
+// K4: the plain instance fixtures stand in for an instance that never opted in. Record the
+// deny explicitly instead of leaving the gate without a decision, so a suite that drives
+// project code fails on the gate rather than silently skipping project plugins/tools/
+// workflows. trust: true records the same store + memo decision the boot path writes.
+async function recordFixtureDecision(directory: string, trust: boolean | undefined) {
+  if (trust) return trustFixture(directory)
+  TrustGate.remember({ directory, worktree: directory }, "untrusted")
+}
+
 export async function provideTestInstance<R>(input: {
   directory: string
   init?: Effect.Effect<void>
@@ -236,17 +245,24 @@ export function tmpdirScoped<E = never, R = never>(options?: {
 }
 
 export const provideInstance =
-  (directory: string) =>
-  <A, E, R>(self: Effect.Effect<A, E, R>): Effect.Effect<A, E, R | InstanceStore.Service> =>
-    InstanceStore.Service.use((store) => store.provide({ directory }, self))
-
-// K3: provideInstanceEffect is the fixture path for tests that drive the no-op
-// bootstrap; record the trusted fixture decision before the instance boots.
-export const provideInstanceEffect =
-  (directory: string) =>
+  (directory: string, options?: { trust?: boolean }) =>
   <A, E, R>(self: Effect.Effect<A, E, R>): Effect.Effect<A, E, R | InstanceStore.Service> =>
     InstanceStore.Service.use((store) =>
-      Effect.promise(() => trustFixture(directory)).pipe(Effect.andThen(store.provide({ directory }, self))),
+      Effect.promise(() => recordFixtureDecision(directory, options?.trust)).pipe(
+        Effect.andThen(store.provide({ directory }, self)),
+      ),
+    )
+
+// K3: provideInstanceEffect is the fixture path for tests that drive the no-op
+// bootstrap; record the fixture decision before the instance boots (K4: deny unless the
+// caller opts in, see recordFixtureDecision).
+export const provideInstanceEffect =
+  (directory: string, options?: { trust?: boolean }) =>
+  <A, E, R>(self: Effect.Effect<A, E, R>): Effect.Effect<A, E, R | InstanceStore.Service> =>
+    InstanceStore.Service.use((store) =>
+      Effect.promise(() => recordFixtureDecision(directory, options?.trust)).pipe(
+        Effect.andThen(store.provide({ directory }, self)),
+      ),
     )
 
 export const reloadInstance = (input: InstanceStore.LoadInput) =>
@@ -256,12 +272,13 @@ export const disposeAllInstancesEffect = InstanceStore.Service.use((store) => st
 
 export function provideTmpdirInstance<A, E, R>(
   self: (path: string) => Effect.Effect<A, E, R>,
-  options?: { git?: boolean; config?: Partial<ConfigV1.Info> | (() => Partial<ConfigV1.Info>) },
+  options?: { git?: boolean; config?: Partial<ConfigV1.Info> | (() => Partial<ConfigV1.Info>); trust?: boolean },
 ) {
   return Effect.gen(function* () {
     const path = yield* tmpdirScoped(options)
-    yield* Effect.sync(() => trustFixture(path))
-    return yield* self(path).pipe(provideInstance(path))
+    // K4: this convenience helper stands in for a booted instance, so it stays trusted by
+    // default; trust: false opts out and records the deny.
+    return yield* self(path).pipe(provideInstance(path, { trust: options?.trust ?? true }))
   }).pipe(Effect.provide(testInstanceStoreLayer))
 }
 
@@ -277,17 +294,22 @@ export const withTmpdirInstance =
   <E2 = never, R2 = never>(options?: {
     git?: boolean
     config?: Partial<ConfigV1.Info> | (() => Partial<ConfigV1.Info>)
+    trust?: boolean
     init?: (directory: string) => Effect.Effect<void, E2, R2>
   }) =>
   <A, E, R>(self: Effect.Effect<A, E, R>) =>
     Effect.gen(function* () {
       const directory = yield* tmpdirScoped(options)
-      return yield* self.pipe(Effect.provideService(TestInstance, { directory }), provideInstanceEffect(directory))
+      return yield* self.pipe(
+        Effect.provideService(TestInstance, { directory }),
+        // K4: see provideTmpdirInstance; trusted by default, trust: false records the deny.
+        provideInstanceEffect(directory, { trust: options?.trust ?? true }),
+      )
     }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(AppNodeBuilder.build(CrossSpawnSpawner.node)))
 
 export function provideTmpdirServer<A, E, R>(
   self: (input: { dir: string; llm: TestLLMServer["Service"] }) => Effect.Effect<A, E, R>,
-  options?: { git?: boolean; config?: (url: string) => Partial<ConfigV1.Info> },
+  options?: { git?: boolean; config?: (url: string) => Partial<ConfigV1.Info>; trust?: boolean },
 ): Effect.Effect<
   A,
   E | PlatformError.PlatformError,
@@ -298,6 +320,7 @@ export function provideTmpdirServer<A, E, R>(
     return yield* provideTmpdirInstance((dir) => self({ dir, llm }), {
       git: options?.git,
       config: options?.config?.(llm.url),
+      trust: options?.trust,
     })
   })
 }

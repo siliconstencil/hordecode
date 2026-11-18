@@ -831,7 +831,12 @@ const layer = Layer.effect(
     })
 
     const update = Effect.fn("Config.update")(function* (config: Info) {
-      const dir = yield* InstanceState.directory
+      const ctx = yield* InstanceState.context
+      const dir = ctx.directory
+      // K4 (rulings 3/4): the same rule as mayWriteSource above. An untrusted project
+      // gets no write at all, including the $schema insert that loadFile performs;
+      // a trusted project and a user-owned directory are unchanged.
+      if (!(yield* Effect.promise(() => TrustGate.allowed(ctx))) && !TrustGate.isUserOwned(dir)) return
       const file = path.join(dir, "config.json")
       const existing = yield* loadFile(file)
       const text = yield* readConfigFile(file)

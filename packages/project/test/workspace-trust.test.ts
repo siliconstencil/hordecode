@@ -111,4 +111,75 @@ describe("workspace trust", () => {
     expect(stored.version).toBe(1)
     expect(stored.trustedPaths).toContain("/stored/path")
   })
+
+  // K4: trust keys are real paths (ruling 6). The store must hold the symlink target,
+  // not the link, so every reader that resolves either spelling agrees.
+  test("a symlinked project dir resolves to its real target for trust", async () => {
+    const real = path.join(home, "symlink-real")
+    const link = path.join(home, "symlink-link")
+    fs.mkdirSync(real, { recursive: true })
+    fs.symlinkSync(real, link, "dir")
+    const out = await run(`
+      const wrote = await trust.markTrusted(${JSON.stringify(link)})
+      return {
+        wrote,
+        target: await trust.checkTrust(${JSON.stringify(real)}),
+        link: await trust.checkTrust(${JSON.stringify(link)}),
+        listed: await trust.listTrusted(),
+      }
+    `)
+    expect(out.wrote).toEqual({ status: "written" })
+    expect(out.target).toBe("trusted")
+    expect(out.link).toBe("trusted")
+    expect(out.listed).toContain(fs.realpathSync(real))
+    expect(out.listed).not.toContain(link)
+  })
+
+  // K4: trust follows the target at write time, not the link. Repointing the link at a
+  // second directory must not carry the old trust over to that directory.
+  test("repointing a trusted symlink does not trust the new target", async () => {
+    const first = path.join(home, "repoint-first")
+    const second = path.join(home, "repoint-second")
+    const link = path.join(home, "repoint-link")
+    fs.mkdirSync(first, { recursive: true })
+    fs.mkdirSync(second, { recursive: true })
+    fs.symlinkSync(first, link, "dir")
+    const before = await run(`
+      await trust.markTrusted(${JSON.stringify(link)})
+      return {
+        link: await trust.checkTrust(${JSON.stringify(link)}),
+        second: await trust.checkTrust(${JSON.stringify(second)}),
+      }
+    `)
+    expect(before).toEqual({ link: "trusted", second: "untrusted" })
+
+    fs.unlinkSync(link)
+    fs.symlinkSync(second, link, "dir")
+    const after = await run(`
+      return {
+        link: await trust.checkTrust(${JSON.stringify(link)}),
+        first: await trust.checkTrust(${JSON.stringify(first)}),
+      }
+    `)
+    expect(after).toEqual({ link: "untrusted", first: "trusted" })
+  })
+
+  // K4: the home-ancestor refusal compares real paths, so reaching an ancestor of $HOME
+  // through a symlink is refused exactly like the literal path.
+  test("markTrusted refuses a home ancestor reached through a symlink", async () => {
+    const ancestor = path.join(home, "ancestor-real")
+    const link = path.join(home, "ancestor-link")
+    fs.mkdirSync(ancestor, { recursive: true })
+    fs.symlinkSync(ancestor, link, "dir")
+    const out = await run(
+      `
+      const result = await trust.markTrusted(${JSON.stringify(link)})
+      return { result, listed: await trust.listTrusted(), level: await trust.checkTrust(${JSON.stringify(link)}) }
+    `,
+      { HOME: path.join(ancestor, "projects", "app") },
+    )
+    expect(out.result).toEqual({ status: "refused", reason: "home-ancestor" })
+    expect(out.listed).not.toContain(fs.realpathSync(ancestor))
+    expect(out.level).toBe("untrusted")
+  })
 })

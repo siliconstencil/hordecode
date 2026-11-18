@@ -161,7 +161,7 @@ const writeConfigEffect = (dir: string, config: object, name = "opencode.json") 
 const withInstanceDir = <A, E, R>(dir: string, effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
     Effect.provideService(TestInstance, { directory: dir }),
-    provideInstanceEffect(dir),
+    provideInstanceEffect(dir, { trust: true }),
     Effect.provide(testInstanceStoreLayer),
     Effect.provide(LayerNode.compile(CrossSpawnSpawner.node)),
   )
@@ -313,7 +313,7 @@ it.instance("falls back to generic username when system user info is unavailable
 it.effect("creates global jsonc config with schema when no global configs exist", () =>
   withGlobalConfig({}, ({ dir }) =>
     Effect.gen(function* () {
-      yield* Config.use.get().pipe(provideInstanceEffect(dir))
+      yield* Config.use.get().pipe(provideInstanceEffect(dir, { trust: true }))
 
       const content = yield* FSUtil.use.readFileString(path.join(dir, "hordecode.jsonc"))
       expect(content).toContain('"$schema": "https://hordecode.com/config.json"')
@@ -329,7 +329,7 @@ it.effect("does not create global config when OPENCODE_CONFIG_DIR is set", () =>
         "OPENCODE_CONFIG_DIR",
         custom,
         Effect.gen(function* () {
-          yield* Config.use.get().pipe(provideInstanceEffect(dir))
+          yield* Config.use.get().pipe(provideInstanceEffect(dir, { trust: true }))
 
           expect(yield* FSUtil.use.existsSafe(path.join(dir, "opencode.jsonc"))).toBe(false)
         }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(LayerNode.compile(CrossSpawnSpawner.node))),
@@ -354,7 +354,7 @@ it.effect("reads hordecode.json from HORDECODE_CONFIG_DIR", () =>
         "HORDECODE_CONFIG_DIR",
         custom,
         Effect.gen(function* () {
-          const config = yield* Config.use.get().pipe(provideInstanceEffect(dir))
+          const config = yield* Config.use.get().pipe(provideInstanceEffect(dir, { trust: true }))
           expect(config.username).toBe("from_config_dir_hordecode")
         }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(LayerNode.compile(CrossSpawnSpawner.node))),
       ),
@@ -370,7 +370,7 @@ it.effect("does not create global config when HORDECODE_CONFIG_DIR is set", () =
         "HORDECODE_CONFIG_DIR",
         custom,
         Effect.gen(function* () {
-          yield* Config.use.get().pipe(provideInstanceEffect(dir))
+          yield* Config.use.get().pipe(provideInstanceEffect(dir, { trust: true }))
 
           expect(yield* FSUtil.use.existsSafe(path.join(dir, "opencode.jsonc"))).toBe(false)
         }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(LayerNode.compile(CrossSpawnSpawner.node))),
@@ -1147,7 +1147,7 @@ it.effect("does not try to install dependencies in read-only OPENCODE_CONFIG_DIR
     yield* FSUtil.use.chmod(readonly, 0o555)
     yield* Effect.addFinalizer(() => FSUtil.use.chmod(readonly, 0o755).pipe(Effect.ignore))
 
-    yield* withProcessEnv("OPENCODE_CONFIG_DIR", readonly, Config.use.get().pipe(provideInstanceEffect(dir)))
+    yield* withProcessEnv("OPENCODE_CONFIG_DIR", readonly, Config.use.get().pipe(provideInstanceEffect(dir, { trust: true })))
   }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(LayerNode.compile(CrossSpawnSpawner.node))),
 )
 
@@ -1161,7 +1161,7 @@ it.effect("ignores an inaccessible OPENCODE_CONFIG_DIR", () =>
     yield* FSUtil.use.chmod(configDir, 0o000)
     yield* Effect.addFinalizer(() => FSUtil.use.chmod(configDir, 0o755).pipe(Effect.ignore))
 
-    yield* withProcessEnv("OPENCODE_CONFIG_DIR", configDir, Config.use.get().pipe(provideInstanceEffect(dir)))
+    yield* withProcessEnv("OPENCODE_CONFIG_DIR", configDir, Config.use.get().pipe(provideInstanceEffect(dir, { trust: true })))
   }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(LayerNode.compile(CrossSpawnSpawner.node))),
 )
 
@@ -1170,7 +1170,7 @@ it.effect("creates a missing OPENCODE_CONFIG_DIR", () =>
     const dir = yield* tmpdirScoped()
     const configDir = path.join(dir, "configdir")
 
-    yield* withProcessEnv("OPENCODE_CONFIG_DIR", configDir, Config.use.get().pipe(provideInstanceEffect(dir)))
+    yield* withProcessEnv("OPENCODE_CONFIG_DIR", configDir, Config.use.get().pipe(provideInstanceEffect(dir, { trust: true })))
 
     expect(yield* FSUtil.use.readFileString(path.join(configDir, ".gitignore"))).toContain("node_modules")
   }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(LayerNode.compile(CrossSpawnSpawner.node))),
@@ -1186,7 +1186,7 @@ it.effect("installs dependencies in writable OPENCODE_CONFIG_DIR", () =>
       "OPENCODE_CONFIG_DIR",
       configDir,
       Config.Service.use((svc) => svc.get().pipe(Effect.andThen(svc.waitForDependencies()))).pipe(
-        provideInstanceEffect(dir),
+        provideInstanceEffect(dir, { trust: true }),
       ),
     )
 
