@@ -51,11 +51,14 @@ export const applyHarnessInjection = Effect.fn("SessionPrompt.applyHarnessInject
       synthetic: true,
     })
 
+  // Non-git projects carry worktree "/"; anchor to the instance directory (tool/shell.ts:772).
+  const root = ctx.worktree === "/" ? ctx.directory : ctx.worktree
+
   // Subagents and peers of a harness session (agent without a pipeline): the same mapping, paths only.
   if (!pipeline) {
     const inherited = HarnessEnv.get(userMsg.info.sessionID as never)
     if (!inherited) return
-    prepend(`<system-reminder>\n${pathsBlock(harnessPaths(ctx.worktree, cfg.harness))}\n</system-reminder>`)
+    prepend(`<system-reminder>\n${pathsBlock(harnessPaths(root, cfg.harness))}\n</system-reminder>`)
     return
   }
 
@@ -67,14 +70,14 @@ export const applyHarnessInjection = Effect.fn("SessionPrompt.applyHarnessInject
   let docsText: string
   if (pipeline === "harness") {
     // Only the harness agent gets the stage, eval and evidence paths and the session mapping.
-    const paths = harnessPaths(ctx.worktree, harnessCfg)
+    const paths = harnessPaths(root, harnessCfg)
     HarnessEnv.set(userMsg.info.sessionID as never, {
       HORDECODE_HARNESS_DOCS: paths.docs,
       HORDECODE_HARNESS_EVIDENCE: paths.evidence,
     })
     docsText = pathsBlock(paths)
   } else {
-    const docsDir = resolveDocsDir(ctx.worktree, harnessCfg)
+    const docsDir = resolveDocsDir(root, harnessCfg)
     docsText = `Save ${pipeline} skill outputs: specs in \`${path.join(docsDir, "specs")}\`, plans in \`${path.join(docsDir, "plans")}\`, reports in \`${path.join(docsDir, "reports")}\`.`
   }
   const text = promptText.replace("{{harness_skills}}", skillsBlock).replace("{{harness_docs_dir}}", docsText)

@@ -124,7 +124,9 @@ export const WorkflowTool = Tool.define<typeof Parameters, Metadata, Config.Serv
         const ctx = yield* InstanceState.context
         const cfg = yield* config.get()
         const harnessCfg = (cfg as unknown as { harness?: unknown }).harness
-        const docs = ConfigHarness.resolveDocsDir(ctx.worktree, harnessCfg as never)
+        // Non-git projects carry worktree "/"; anchor to the instance directory (tool/shell.ts:772).
+        const root = ctx.worktree === "/" ? ctx.directory : ctx.worktree
+        const docs = ConfigHarness.resolveDocsDir(root, harnessCfg as never)
         const base =
           typeof raw === "object" && raw !== null
             ? (raw as Record<string, unknown>)
@@ -139,7 +141,7 @@ export const WorkflowTool = Tool.define<typeof Parameters, Metadata, Config.Serv
     const enrichDeepResearchArgs = (raw: unknown, workspace?: string) =>
       Effect.gen(function* () {
         const ctx = yield* InstanceState.context
-        const resolvedWorkspace = workspace ?? ctx.worktree
+        const resolvedWorkspace = workspace ?? (ctx.worktree === "/" ? ctx.directory : ctx.worktree)
         const base =
           typeof raw === "object" && raw !== null
             ? { ...(raw as Record<string, unknown>) }
@@ -162,9 +164,11 @@ export const WorkflowTool = Tool.define<typeof Parameters, Metadata, Config.Serv
             )
           }
           const instance = yield* InstanceState.context
+          // Non-git projects carry worktree "/"; run scripts in the instance directory (tool/shell.ts:772).
+          const workspaceRoot = input.workspace ?? (instance.worktree === "/" ? instance.directory : instance.worktree)
           const script = input.name
             ? yield* Effect.tryPromise({
-                try: () => lookupNamedWorkflow(input.name!, input.workspace ?? instance.worktree, instance.worktree),
+                try: () => lookupNamedWorkflow(input.name!, workspaceRoot, workspaceRoot),
                 catch: (e) => (e instanceof Error ? e : new Error(String(e))),
               })
             : input.script
@@ -196,7 +200,7 @@ export const WorkflowTool = Tool.define<typeof Parameters, Metadata, Config.Serv
                 : input.name === "deep-research"
                   ? yield* enrichDeepResearchArgs(input.args, input.workspace)
                   : input.args,
-            workspace: input.workspace,
+            workspace: workspaceRoot,
             maxConcurrentAgents: cfg.workflow?.maxConcurrentAgents,
             scriptDeadlineMs: cfg.workflow?.scriptDeadlineMs,
             notifyOnTerminal: input.async === true,

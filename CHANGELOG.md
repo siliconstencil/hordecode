@@ -18,6 +18,8 @@ All notable changes to this project will be documented in this file.
 - Path containment treats only a whole `..` segment as outside the working directory, so a file named `..foo`
   stays inside.
 - The HTML statistics page lists the same rows and numbers as the text output.
+- Harness output paths anchor to the project directory when it is not a git repository, instead of the
+  filesystem root.
 
 ## [0.1.6] - 2026-11-07
 

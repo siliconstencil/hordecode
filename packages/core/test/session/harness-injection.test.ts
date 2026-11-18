@@ -4,6 +4,7 @@ import { Effect } from "effect"
 import { applyHarnessInjection } from "../../src/session/harness-injection"
 import { HarnessEnv } from "../../src/session/harness-env"
 import { resolveDocsDir } from "../../src/config/harness"
+import { Global } from "../../src/global"
 import { modeSkillsBlock } from "@opencode-ai/skill/harness/extract"
 import PROMPT_RESEARCH from "../../src/session/prompt/research.txt"
 
@@ -74,6 +75,50 @@ describe("harness injection", () => {
     const m = msgs("ses_b1")
     await run(m, undefined, { docs: "notes/h" })
     expect(texts(m)).toEqual(["hello"])
+  })
+
+  test("non-git project anchors harness paths to the instance directory", async () => {
+    const nonGit = { directory: "/w", worktree: "/", project: {} } as never
+    const m = msgs("ses_ng1")
+    await Effect.runPromise(
+      applyHarnessInjection(m, { skillPipeline: "harness" } as never, { harness: { docs: "notes/h" } } as never, nonGit),
+    )
+    const injected = texts(m)[0]
+    expect(injected).toContain("/w/notes/h/specs")
+    expect(injected).toContain("/w/notes/h/stages/<pipeline-id>/")
+    expect(injected).toContain("/w/notes/h/eval/SUMMARY.md")
+    expect(injected).not.toContain("`/notes/h")
+    const env = HarnessEnv.get("ses_ng1" as never)
+    expect(env?.HORDECODE_HARNESS_DOCS).toBe("/w/notes/h")
+    // A custom docs dir keeps evidence in the state dir, keyed by the anchored root.
+    expect(env?.HORDECODE_HARNESS_EVIDENCE.startsWith(path.join(Global.Path.state, "harness-evidence"))).toBe(true)
+
+    const def = msgs("ses_ng3")
+    await Effect.runPromise(
+      applyHarnessInjection(def, { skillPipeline: "harness" } as never, {} as never, nonGit),
+    )
+    const defaultBlock = texts(def)[0]
+    expect(defaultBlock).toContain("/w/docs/harness/specs")
+    expect(defaultBlock).toContain("/w/.hordecode/harness/evidence")
+    expect(defaultBlock).not.toContain("`/docs/harness")
+
+    const sub = msgs("ses_ng2")
+    HarnessEnv.inherit("ses_ng1" as never, "ses_ng2" as never)
+    await Effect.runPromise(
+      applyHarnessInjection(sub, { skillPipeline: undefined } as never, { harness: { docs: "notes/h" } } as never, nonGit),
+    )
+    expect(texts(sub)[0]).toContain("/w/notes/h/stages")
+    expect(texts(sub)[0]).not.toContain("`/notes/h")
+  })
+
+  test("git project keeps the worktree root", async () => {
+    const gitCtx = { directory: "/w/sub", worktree: "/w", project: {} } as never
+    const m = msgs("ses_g1")
+    await Effect.runPromise(
+      applyHarnessInjection(m, { skillPipeline: "harness" } as never, { harness: { docs: "notes/h" } } as never, gitCtx),
+    )
+    expect(texts(m)[0]).toContain("/w/notes/h/specs")
+    expect(texts(m)[0]).not.toContain("/w/sub/notes/h")
   })
 })
 
