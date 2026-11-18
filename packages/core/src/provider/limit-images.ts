@@ -1,11 +1,12 @@
 import type { ModelMessage } from "ai"
 import { Flag } from "@opencode-ai/core/flag/flag"
 
-// FORK_ONLY: the single prompt image cap for both transforms. The reference
-// systems (opencode 1.19.3, MiMo 0.1.11) have no comparable cap; the fork keeps
-// its existing texts and its drop-oldest-then-size precedence so the output
-// contract does not change. A user image can arrive as an AI SDK ImagePart or
-// as a FilePart with an image media type, so both shapes count.
+// FORK_ONLY (map :1236): the single prompt image cap for both transforms. The
+// reference systems (parity opencode 1.19.5, MiMo 0.1.11) have no comparable
+// cap; the fork keeps its existing texts and its drop-oldest-then-size
+// precedence so the output contract does not change. A user image can arrive as
+// an AI SDK ImagePart or as a FilePart with an image media type, so both shapes
+// count.
 type MediaPart = { type: string; mediaType?: unknown; image?: unknown; data?: unknown }
 
 function isImagePart(part: unknown): part is MediaPart {

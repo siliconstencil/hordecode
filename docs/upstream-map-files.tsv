@@ -1091,7 +1091,7 @@ PARITY	packages/core/src/filesystem/watcher.ts
 FORK_DELTA	packages/core/src/flag/flag.ts
 FORK_ONLY	packages/core/src/format/formatter.ts
 FORK_ONLY	packages/core/src/format/index.ts
-PARITY	packages/core/src/fs-util.ts
+FORK_DELTA	packages/core/src/fs-util.ts
 FORK_DELTA	packages/core/src/git.ts
 FORK_ONLY	packages/core/src/git/index.ts
 PARITY	packages/core/src/github-copilot/chat/convert-to-openai-compatible-chat-messages.ts
@@ -1391,6 +1391,7 @@ FORK_ONLY	packages/core/src/session/session.sql.ts
 FORK_ONLY	packages/core/src/session/session.ts
 FORK_DELTA	packages/core/src/session/sql.ts
 FORK_ONLY	packages/core/src/session/status.ts
+FORK_ONLY	packages/core/src/session/step-budget.ts
 PARITY	packages/core/src/session/store.ts
 FORK_ONLY	packages/core/src/session/summary.ts
 FORK_ONLY	packages/core/src/session/supervisor-prompt-ops.ts
@@ -1579,7 +1580,7 @@ FORK_ONLY	packages/core/test/effect/otlp-signal.test.ts
 PARITY	packages/core/test/event.test.ts
 PARITY	packages/core/test/file-mutation.test.ts
 FORK_ONLY	packages/core/test/filesystem/filesystem-sandbox.test.ts
-PARITY	packages/core/test/filesystem/filesystem.test.ts
+FORK_DELTA	packages/core/test/filesystem/filesystem.test.ts
 PARITY	packages/core/test/filesystem/ignore.test.ts
 PARITY	packages/core/test/filesystem/search.test.ts
 PARITY	packages/core/test/filesystem/watcher.test.ts
@@ -1675,6 +1676,7 @@ PARITY	packages/core/test/provider-groq.test.ts
 PARITY	packages/core/test/provider-mistral.test.ts
 FORK_ONLY	packages/core/test/provider-parse.test.ts
 PARITY	packages/core/test/provider-xai-responses.test.ts
+FORK_ONLY	packages/core/test/provider/error.test.ts
 FORK_ONLY	packages/core/test/provider/provider.test.ts
 FORK_ONLY	packages/core/test/provider/transform.test.ts
 PARITY	packages/core/test/pty/info-schema.test.ts
@@ -1705,6 +1707,7 @@ PARITY	packages/core/test/session-todo.test.ts
 PARITY	packages/core/test/session-tool-progress.test.ts
 FORK_ONLY	packages/core/test/session/auto-dream.test.ts
 FORK_ONLY	packages/core/test/session/checkpoint-align.test.ts
+FORK_ONLY	packages/core/test/session/checkpoint-boundary-estimate.test.ts
 FORK_ONLY	packages/core/test/session/checkpoint-boundary.test.ts
 FORK_ONLY	packages/core/test/session/checkpoint-main-slice.test.ts
 FORK_ONLY	packages/core/test/session/checkpoint-paths.test.ts
@@ -1724,6 +1727,7 @@ FORK_ONLY	packages/core/test/session/message-v2.test.ts
 FORK_ONLY	packages/core/test/session/processor-try-best.test.ts
 FORK_ONLY	packages/core/test/session/retry-cap.test.ts
 FORK_ONLY	packages/core/test/session/setup-shared-db.ts
+FORK_ONLY	packages/core/test/session/step-budget.test.ts
 FORK_DELTA	packages/core/test/shared-schema.test.ts
 PARITY	packages/core/test/shell.test.ts
 PARITY	packages/core/test/skill-discovery.test.ts
@@ -2835,6 +2839,7 @@ PARITY	packages/opencode/src/session/llm/ai-sdk.ts
 FORK_DELTA	packages/opencode/src/session/llm/native-request.ts
 FORK_DELTA	packages/opencode/src/session/llm/native-runtime.ts
 FORK_DELTA	packages/opencode/src/session/llm/request.ts
+FORK_ONLY	packages/opencode/src/session/loop-guard.ts
 FORK_ONLY	packages/opencode/src/session/max-mode.ts
 PARITY	packages/opencode/src/session/message-error.ts
 FORK_DELTA	packages/opencode/src/session/message-v2.ts
@@ -2858,6 +2863,7 @@ PARITY	packages/opencode/src/session/prompt/plan-mode.txt
 FORK_KEPT_UPSTREAM_REMOVED	packages/opencode/src/session/prompt/plan-reminder-anthropic.txt
 PARITY	packages/opencode/src/session/prompt/plan.txt
 PARITY	packages/opencode/src/session/prompt/trinity.txt
+FORK_ONLY	packages/opencode/src/session/rebuild-freshness.ts
 FORK_DELTA	packages/opencode/src/session/reminders.ts
 FORK_DELTA	packages/opencode/src/session/retry.ts
 PARITY	packages/opencode/src/session/revert.ts
@@ -2913,7 +2919,6 @@ PARITY	packages/opencode/src/tool/mcp-websearch.ts
 FORK_ONLY	packages/opencode/src/tool/memory-add.ts
 FORK_ONLY	packages/opencode/src/tool/memory-dump.ts
 FORK_ONLY	packages/opencode/src/tool/memory-gc.ts
-FORK_ONLY	packages/opencode/src/tool/memory-recall.ts
 FORK_ONLY	packages/opencode/src/tool/memory-session.ts
 FORK_ONLY	packages/opencode/src/tool/memory-status.ts
 FORK_ONLY	packages/opencode/src/tool/memory-update.ts
@@ -3013,7 +3018,6 @@ PARITY	packages/opencode/test/AGENTS.md
 PARITY	packages/opencode/test/auth/auth.test.ts
 PARITY	packages/opencode/test/background/job.test.ts
 PARITY	packages/opencode/test/cli/account.test.ts
-FORK_ONLY	packages/opencode/test/cli/checkpoint-exit-drain.test.ts
 FORK_ONLY	packages/opencode/test/cli/acp/acp-stdio-handshake.test.ts
 PARITY	packages/opencode/test/cli/acp/acp-test-client.ts
 PARITY	packages/opencode/test/cli/acp/config-options.test.ts
@@ -3022,6 +3026,8 @@ PARITY	packages/opencode/test/cli/acp/initialize-auth.test.ts
 PARITY	packages/opencode/test/cli/acp/lifecycle.test.ts
 PARITY	packages/opencode/test/cli/acp/prompt-content.test.ts
 PARITY	packages/opencode/test/cli/acp/skills.test.ts
+FORK_ONLY	packages/opencode/test/cli/checkpoint-exit-drain.test.ts
+FORK_ONLY	packages/opencode/test/cli/checkpoint-one-writer-record.test.ts
 FORK_ONLY	packages/opencode/test/cli/cmd/export-resolver.test.ts
 FORK_ONLY	packages/opencode/test/cli/cmd/github.handler.test.ts
 FORK_ONLY	packages/opencode/test/cli/cmd/stats-days-guard.test.ts
@@ -3194,7 +3200,7 @@ PARITY	packages/opencode/test/fake/auth.ts
 PARITY	packages/opencode/test/fake/npm.ts
 FORK_DELTA	packages/opencode/test/fake/provider.ts
 PARITY	packages/opencode/test/fake/skill.ts
-PARITY	packages/opencode/test/filesystem/filesystem.test.ts
+FORK_DELTA	packages/opencode/test/filesystem/filesystem.test.ts
 PARITY	packages/opencode/test/fixture/agent-plugin.constants.ts
 PARITY	packages/opencode/test/fixture/agent-plugin.ts
 PARITY	packages/opencode/test/fixture/config.ts
@@ -3308,10 +3314,11 @@ FORK_DELTA	packages/opencode/test/provider/amazon-bedrock.test.ts
 PARITY	packages/opencode/test/provider/cf-ai-gateway-e2e.test.ts
 FORK_ONLY	packages/opencode/test/provider/default-model-empty-provider.test.ts
 FORK_DELTA	packages/opencode/test/provider/digitalocean.test.ts
-PARITY	packages/opencode/test/provider/error.test.ts
+FORK_DELTA	packages/opencode/test/provider/error.test.ts
 PARITY	packages/opencode/test/provider/gitlab-duo.test.ts
 FORK_DELTA	packages/opencode/test/provider/header-timeout.test.ts
 PARITY	packages/opencode/test/provider/model-status.test.ts
+FORK_ONLY	packages/opencode/test/provider/openai-compatible-tool-id.test.ts
 PARITY	packages/opencode/test/provider/openai.test.ts
 FORK_DELTA	packages/opencode/test/provider/provider.test.ts
 FORK_DELTA	packages/opencode/test/provider/transform.test.ts
@@ -3380,6 +3387,7 @@ PARITY	packages/opencode/test/server/httpapi-workspace.test.ts
 PARITY	packages/opencode/test/server/negative-tokens-regression.test.ts
 PARITY	packages/opencode/test/server/project-copy.test.ts
 PARITY	packages/opencode/test/server/project-init-git.test.ts
+FORK_ONLY	packages/opencode/test/server/prompt-payload.test.ts
 PARITY	packages/opencode/test/server/proxy-util.test.ts
 FORK_ONLY	packages/opencode/test/server/rate-limit.test.ts
 PARITY	packages/opencode/test/server/sdk-error-shape.test.ts
@@ -3407,6 +3415,7 @@ FORK_ONLY	packages/opencode/test/session/checkpoint-child-session.test.ts
 FORK_ONLY	packages/opencode/test/session/checkpoint-drain.test.ts
 FORK_ONLY	packages/opencode/test/session/checkpoint-overflow.test.ts
 FORK_ONLY	packages/opencode/test/session/checkpoint-part-schema.test.ts
+FORK_ONLY	packages/opencode/test/session/checkpoint-rebuild-boundary-placement.test.ts
 FORK_ONLY	packages/opencode/test/session/checkpoint-rebuild-fallback-decision.test.ts
 FORK_ONLY	packages/opencode/test/session/checkpoint-rebuild-nonblocking.test.ts
 FORK_ONLY	packages/opencode/test/session/checkpoint-rebuild-unify.test.ts
@@ -3436,6 +3445,8 @@ FORK_ONLY	packages/opencode/test/session/interrupt-cancel-scope.test.ts
 PARITY	packages/opencode/test/session/llm-native-recorded.test.ts
 PARITY	packages/opencode/test/session/llm-native.test.ts
 PARITY	packages/opencode/test/session/llm.test.ts
+FORK_ONLY	packages/opencode/test/session/loop-guard-turn.test.ts
+FORK_ONLY	packages/opencode/test/session/loop-guard.test.ts
 FORK_ONLY	packages/opencode/test/session/max-mode-status.test.ts
 FORK_DELTA	packages/opencode/test/session/message-v2.test.ts
 PARITY	packages/opencode/test/session/messages-pagination.test.ts
@@ -3449,6 +3460,7 @@ FORK_ONLY	packages/opencode/test/session/prompt-tag.test.ts
 FORK_DELTA	packages/opencode/test/session/prompt.test.ts
 FORK_ONLY	packages/opencode/test/session/read-ledger-turn.test.ts
 FORK_ONLY	packages/opencode/test/session/rebuild-command.test.ts
+FORK_ONLY	packages/opencode/test/session/rebuild-freshness.test.ts
 FORK_DELTA	packages/opencode/test/session/retry.test.ts
 PARITY	packages/opencode/test/session/revert-compact.test.ts
 FORK_DELTA	packages/opencode/test/session/schema-decoding.test.ts
@@ -3458,6 +3470,8 @@ FORK_ONLY	packages/opencode/test/session/session-cron-mounted.test.ts
 PARITY	packages/opencode/test/session/session-schema.test.ts
 FORK_DELTA	packages/opencode/test/session/session.test.ts
 FORK_DELTA	packages/opencode/test/session/snapshot-tool-race.test.ts
+FORK_ONLY	packages/opencode/test/session/step-limit-fork-twin.test.ts
+FORK_ONLY	packages/opencode/test/session/step-limit.test.ts
 FORK_DELTA	packages/opencode/test/session/structured-output-integration.test.ts
 PARITY	packages/opencode/test/session/structured-output.test.ts
 FORK_DELTA	packages/opencode/test/session/system.test.ts
@@ -3529,6 +3543,7 @@ FORK_ONLY	packages/opencode/test/tool/hashline-core.test.ts
 FORK_ONLY	packages/opencode/test/tool/hashline.test.ts
 FORK_ONLY	packages/opencode/test/tool/input-repair.test.ts
 FORK_DELTA	packages/opencode/test/tool/lsp.test.ts
+FORK_ONLY	packages/opencode/test/tool/memory-tool.test.ts
 FORK_ONLY	packages/opencode/test/tool/notebook-edit.test.ts
 FORK_DELTA	packages/opencode/test/tool/parameters.test.ts
 FORK_DELTA	packages/opencode/test/tool/question.test.ts
@@ -3573,6 +3588,7 @@ PARITY	packages/opencode/test/v2/session-message-updater.test.ts
 FORK_ONLY	packages/opencode/test/workflow/manifest-permission.test.ts
 FORK_ONLY	packages/opencode/test/workflow/named-lookup.test.ts
 FORK_ONLY	packages/opencode/test/workflow/runtime-wired.test.ts
+FORK_ONLY	packages/opencode/test/workflow/runtime-worktree.test.ts
 FORK_ONLY	packages/opencode/test/worktree/integrate.test.ts
 FORK_DELTA	packages/opencode/tsconfig.json
 PARITY	packages/plugin/.gitignore
@@ -4266,7 +4282,9 @@ FORK_ONLY	packages/skill/src/research/extract.ts
 FORK_ONLY	packages/skill/src/research/LICENSE-superpowers
 FORK_ONLY	packages/skill/test/builtin-bundle-scripts.test.ts
 FORK_ONLY	packages/skill/test/builtin-extract.test.ts
+FORK_ONLY	packages/skill/test/builtin-skill-cross-references.test.ts
 FORK_ONLY	packages/skill/test/discovery.test.ts
+FORK_ONLY	packages/skill/test/extract-cache.test.ts
 FORK_ONLY	packages/skill/test/harness-gate-paths.test.ts
 FORK_ONLY	packages/skill/test/reference-config.test.ts
 FORK_ONLY	packages/skill/test/research-gate.test.ts
@@ -4395,6 +4413,7 @@ PARITY	packages/tui/src/component/dialog-session-rename.tsx
 FORK_DELTA	packages/tui/src/component/dialog-skill.tsx
 PARITY	packages/tui/src/component/dialog-stash.tsx
 FORK_DELTA	packages/tui/src/component/dialog-status.tsx
+FORK_ONLY	packages/tui/src/component/dialog-step-limit.tsx
 FORK_ONLY	packages/tui/src/component/dialog-switches.tsx
 PARITY	packages/tui/src/component/dialog-tag.tsx
 PARITY	packages/tui/src/component/dialog-theme-list.tsx
@@ -4520,6 +4539,7 @@ PARITY	packages/tui/src/feature-plugins/system/diff-viewer-ui.tsx
 FORK_DELTA	packages/tui/src/feature-plugins/system/diff-viewer.tsx
 FORK_DELTA	packages/tui/src/feature-plugins/system/notifications.ts
 FORK_DELTA	packages/tui/src/feature-plugins/system/plugins.tsx
+FORK_ONLY	packages/tui/src/feature-plugins/system/step-limit.tsx
 PARITY	packages/tui/src/feature-plugins/system/which-key.tsx
 FORK_ONLY	packages/tui/src/i18n/ar.ts
 FORK_ONLY	packages/tui/src/i18n/br.ts
@@ -4644,6 +4664,7 @@ PARITY	packages/tui/src/util/renderer.ts
 PARITY	packages/tui/src/util/revert-diff.ts
 PARITY	packages/tui/src/util/scroll.ts
 PARITY	packages/tui/src/util/selection.ts
+FORK_ONLY	packages/tui/src/util/session-spend.ts
 PARITY	packages/tui/src/util/session.ts
 FORK_DELTA	packages/tui/src/util/signal.ts
 FORK_ONLY	packages/tui/src/util/sound.ts
@@ -4683,6 +4704,7 @@ FORK_ONLY	packages/tui/test/component/advisor-state.test.ts
 FORK_ONLY	packages/tui/test/component/config-warnings.test.ts
 FORK_ONLY	packages/tui/test/component/dialog-advisor.test.ts
 PARITY	packages/tui/test/component/dialog-session-list.test.ts
+FORK_ONLY	packages/tui/test/component/dialog-step-limit.test.ts
 FORK_ONLY	packages/tui/test/component/dialog-switches.test.ts
 UPSTREAM_ONLY	packages/tui/test/component/dialog-update.test.ts
 FORK_ONLY	packages/tui/test/component/task-item.test.tsx
@@ -4706,7 +4728,7 @@ FORK_ONLY	packages/tui/test/feature-plugins/sidebar/footer.test.tsx
 FORK_ONLY	packages/tui/test/feature-plugins/telemetry-tps.test.ts
 PARITY	packages/tui/test/fixture/fixture.ts
 PARITY	packages/tui/test/fixture/tui-environment.tsx
-PARITY	packages/tui/test/fixture/tui-plugin.ts
+FORK_DELTA	packages/tui/test/fixture/tui-plugin.ts
 PARITY	packages/tui/test/fixture/tui-runtime.ts
 PARITY	packages/tui/test/fixture/tui-sdk.ts
 PARITY	packages/tui/test/index.test.tsx
@@ -4744,6 +4766,7 @@ PARITY	packages/tui/test/util/model.test.ts
 FORK_DELTA	packages/tui/test/util/presentation.test.ts
 PARITY	packages/tui/test/util/renderer.test.ts
 PARITY	packages/tui/test/util/revert-diff.test.ts
+FORK_ONLY	packages/tui/test/util/session-spend.test.ts
 PARITY	packages/tui/test/util/session.test.ts
 PARITY	packages/tui/test/util/tool-display.test.ts
 PARITY	packages/tui/test/util/transcript.test.ts
@@ -6904,7 +6927,7 @@ PARITY	packages/web/src/content/docs/pl/tui.mdx
 FORK_DELTA	packages/web/src/content/docs/pl/web.mdx
 PARITY	packages/web/src/content/docs/pl/windows-wsl.mdx
 PARITY	packages/web/src/content/docs/pl/zen.mdx
-PARITY	packages/web/src/content/docs/plugins.mdx
+FORK_DELTA	packages/web/src/content/docs/plugins.mdx
 PARITY	packages/web/src/content/docs/policies.mdx
 PARITY	packages/web/src/content/docs/providers.mdx
 PARITY	packages/web/src/content/docs/pt-br/acp.mdx
@@ -7173,12 +7196,6 @@ FORK_ONLY	packages/workflow/test/harness-helpers.test.ts
 FORK_ONLY	packages/workflow/test/workspace-symlink.test.ts
 FORK_ONLY	packages/workflow/test/workspace.test.ts
 FORK_ONLY	packages/workflow/tsconfig.json
-FORK_ONLY	packages/worktree/bunfig.toml
-FORK_ONLY	packages/worktree/package.json
-FORK_ONLY	packages/worktree/src/index.ts
-FORK_ONLY	packages/worktree/test/preload.ts
-FORK_ONLY	packages/worktree/test/worktree.test.ts
-FORK_ONLY	packages/worktree/tsconfig.json
 PARITY	patches/@ai-sdk%2Famazon-bedrock@4.0.166.patch
 PARITY	patches/@ai-sdk%2Fanthropic@3.0.111.patch
 PARITY	patches/@ai-sdk%2Fgoogle@3.0.73.patch
@@ -7223,6 +7240,7 @@ PARITY	README.uk.md
 PARITY	README.vi.md
 PARITY	README.zh.md
 PARITY	README.zht.md
+FORK_ONLY	reports/rnd/dev-0.1.6-steps.md
 FORK_ONLY	reports/rnd/fixes-after-0.1.5.md
 FORK_ONLY	reports/rnd/r6-session-tests.md
 FORK_ONLY	reports/rnd/r6-surfaces-evidence.md

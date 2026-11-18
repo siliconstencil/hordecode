@@ -631,7 +631,7 @@ export function message(msgs: ModelMessage[], model: Provider.Model, options: Re
   msgs = normalizeContentArray(msgs)
   msgs = unsupportedParts(msgs, model)
   // FORK_DELTA: the live CLI transform had no prompt image cap; it now applies the shared
-  // one right after unsupportedParts, matching core (map :2720).
+  // one right after unsupportedParts, matching core (map :2725).
   msgs = limitImages(msgs)
   msgs = normalizeMessages(msgs, model, options)
   msgs = ensureNonEmptyContent(msgs)

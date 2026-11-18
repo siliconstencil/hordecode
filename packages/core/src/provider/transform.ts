@@ -580,7 +580,7 @@ export function message(msgs: ModelMessage[], model: Provider.Model, options: Re
   msgs = normalizeContentArray(msgs)
   msgs = unsupportedParts(msgs, model)
   // FORK_ONLY: the cap lives in provider/limit-images.ts so the live opencode transform and
-  // this twin share one implementation (map :1264).
+  // this twin share one implementation (map :1265).
   msgs = limitImages(msgs)
   msgs = normalizeMessages(msgs, model, options)
   msgs = ensureNonEmptyContent(msgs)
