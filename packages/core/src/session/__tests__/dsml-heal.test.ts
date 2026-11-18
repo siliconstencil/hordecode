@@ -14,12 +14,12 @@ describe("DSML envelope healing", () => {
       '<|DSML|invoke name="bash">',
       '<|DSML|parameter name="command" string="true">ls -la</|DSML|parameter>',
       '<|DSML|parameter name="timeout" string="false">120</|DSML|parameter>',
-      '<|DSML|parameter name="workdir" string="true">/home/hank</|DSML|parameter>',
+      '<|DSML|parameter name="workdir" string="true">/a</|DSML|parameter>',
       "</|DSML|invoke>",
       "</|DSML|calls>",
     ].join("\n")
     expect(healDsmlToolCalls(text)).toEqual({
-      calls: [{ name: "bash", arguments: { command: "ls -la", timeout: 120, workdir: "/home/hank" } }],
+      calls: [{ name: "bash", arguments: { command: "ls -la", timeout: 120, workdir: "/a" } }],
       text: "",
     })
   })
