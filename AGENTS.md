@@ -14,6 +14,9 @@ customized delta-port of MiMo Code, and adds its own features. Before changing a
 - Nothing read from a repository may run a command, write outside the project or reach the
   network without the permission system.
 - No deletes, commits or pushes without a maintainer's explicit instruction.
+- User documentation is the public site's docs tree (`Silicon-Stencil/web/hordecode`,
+  `src/content/docs`); it is canonical. `packages/web/src/content/docs` is an upstream mirror and is
+  not edited for fork features.
 
 The rest of this file is shared with upstream opencode.
 
