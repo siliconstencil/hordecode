@@ -20,9 +20,17 @@ How a port is done and recorded: [docs/UPSTREAM-MAP.md](docs/UPSTREAM-MAP.md) an
 - Advisor: a no-progress trigger when a turn keeps making read-only calls.
 - Models: complete DSML tool calls written as text run as real tool calls.
 - Tasks: a task contract keeps delegated work inside its scope.
-- Long sessions: bounded by a checkpoint rebuild that shrinks the model view.
-- Cost: the displayed session cost is current after every step, and the sidebar shows the memory
+- Long sessions: bounded by a checkpoint rebuild that shrinks the model view, with plain compaction as
+  the fallback when no fresh checkpoint can bound it.
+- Cost: the displayed session cost is current after every step, and the sidebar shows the checkpoint
   writer's spend as part of the session cost.
+- Reports: `horde stats --html` writes the same statistics as one self-contained page.
+- Harness: a conservative triage for routine requests, and stage, eval and evidence paths derived from
+  `harness.docs`.
+- Inbox: rows carry queued and delivered state.
+- Images: user attachments survive overflow compaction replay, and the prompt image cap counts image
+  attachments sent as file parts.
+- Cron: the scheduler lock lives in the global state dir, so nothing is left in the project.
 
 ## 0.1.5 (released 2026-11-03)
 
@@ -67,7 +75,4 @@ How a port is done and recorded: [docs/UPSTREAM-MAP.md](docs/UPSTREAM-MAP.md) an
 
 - Review new opencode and MiMo releases and take what measurably helps.
 - Publish the benchmark method and results in the repository.
-- Local usage report: `horde stats --html` writes the statistics `horde stats` shows (cost and
-  tokens per day, models, tools, errors, cache hit rate, Advisor notes) to one self-contained
-  HTML file, read from the local database with no server and no network. Later, if users ask,
-  a live page on the existing Hordecode server.
+- A live usage page on the existing Hordecode server, if users ask for it.

@@ -99,6 +99,13 @@ function renderWorkflowCatalog(): string {
   ].join("\n")
 }
 
+// A non-git project carries worktree "/"; the instance directory is its root (tool/shell.ts:772).
+// start keeps the caller's workspace so nearest-first wins, stop stays the project root.
+export function namedWorkflowRoots(workspace: string | undefined, instance: { worktree: string; directory: string }) {
+  const stop = instance.worktree === "/" ? instance.directory : instance.worktree
+  return { start: workspace ?? stop, stop }
+}
+
 // Built-ins win on a name clash. Saved-name lookup reuses the runtime's child-workflow
 // resolver (workflow/src/resolve.ts), so both paths share search order and name rules.
 export async function lookupNamedWorkflow(name: string, start: string, stop: string): Promise<string | null> {
@@ -130,7 +137,9 @@ export const WorkflowTool = Tool.define<typeof Parameters, Metadata, Config.Serv
         const ctx = yield* InstanceState.context
         const cfg = yield* config.get()
         const harnessCfg = (cfg as unknown as { harness?: unknown }).harness
-        const docs = ConfigHarness.resolveDocsDir(ctx.worktree, harnessCfg as never)
+        // Non-git projects carry worktree "/"; anchor to the instance directory (tool/shell.ts:772).
+        const root = ctx.worktree === "/" ? ctx.directory : ctx.worktree
+        const docs = ConfigHarness.resolveDocsDir(root, harnessCfg as never)
         const base =
           typeof raw === "object" && raw !== null
             ? (raw as Record<string, unknown>)
@@ -145,7 +154,7 @@ export const WorkflowTool = Tool.define<typeof Parameters, Metadata, Config.Serv
     const enrichDeepResearchArgs = (raw: unknown, workspace?: string) =>
       Effect.gen(function* () {
         const ctx = yield* InstanceState.context
-        const resolvedWorkspace = workspace ?? ctx.worktree
+        const resolvedWorkspace = workspace ?? (ctx.worktree === "/" ? ctx.directory : ctx.worktree)
         const base =
           typeof raw === "object" && raw !== null
             ? { ...(raw as Record<string, unknown>) }
@@ -168,9 +177,10 @@ export const WorkflowTool = Tool.define<typeof Parameters, Metadata, Config.Serv
             )
           }
           const instance = yield* InstanceState.context
+          const roots = namedWorkflowRoots(input.workspace, instance)
           const script = input.name
             ? yield* Effect.tryPromise({
-                try: () => lookupNamedWorkflow(input.name!, input.workspace ?? instance.worktree, instance.worktree),
+                try: () => lookupNamedWorkflow(input.name!, roots.start, roots.stop),
                 catch: (e) => (e instanceof Error ? e : new Error(String(e))),
               })
             : input.script

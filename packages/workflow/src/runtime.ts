@@ -573,9 +573,11 @@ export const layer = (options: LayerOptions = {}) => Layer.effect(
       // (e.g. isolated spawns, which provide their own Instance context).
       // Captured in the closure so the file hooks read it synchronously and
       // never touch ALS from inside the forked work fiber.
-      // K3: capture the instance worktree under the same fiber-safe lookup so the
-      // child-workflow resolver below never reads ALS from the forked work fiber.
-      const instanceWorktree = (yield* InstanceRef)?.worktree ?? Instance.worktree
+      // K3: capture the instance under the same fiber-safe lookup so the child-workflow
+      // resolver below never reads ALS from the forked work fiber.
+      const instance = (yield* InstanceRef) ?? Instance
+      // A non-git project carries worktree "/"; anchor to the instance directory (tool/shell.ts:772).
+      const instanceWorktree = instance.worktree === "/" ? instance.directory : instance.worktree
       const workspaceRoot = input.workspace ?? instanceWorktree
       const fileHooks = makeFileHooks(workspaceRoot)
       const deferred = yield* Deferred.make<RunOutcome>()

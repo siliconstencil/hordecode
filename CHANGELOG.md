@@ -15,6 +15,18 @@ All notable changes to this project will be documented in this file.
 
 - Overflow compaction no longer drops the user's attachments when replaying the last user turn.
 - The prompt image cap now counts image attachments sent as file parts, and the live CLI request path applies it
+- Removing a session drops its checkpoint settlement records, runs that cleanup on the removal channel, and
+  keeps a writer that is still in flight.
+- A checkpoint rebuild inserts its boundary from the same window the freshness check measured, and refuses a
+  boundary whose time is unknown.
+- A checkpoint writer that settles before a waiting caller starts waiting keeps its outcome for that caller.
+- The writer spawn and its record complete inside the spawn mask, so an interrupt cannot leave a paid writer
+  running without its record.
+- Path containment treats only a whole `..` segment as outside the working directory, so a file named `..foo`
+  stays inside.
+- The HTML statistics page lists the same rows and numbers as the text output.
+- Harness output paths anchor to the project directory when it is not a git repository, instead of the
+  filesystem root.
 
 ## [0.1.6] - 2026-11-07
 
@@ -62,7 +74,9 @@ All notable changes to this project will be documented in this file.
   spawns enforce the subagent depth limit and `supervisor.max_subagents`.
 - The server no longer exposes the internal prompt source over HTTP.
 - Bash path scanning tracks a chained `cd` and stays conservative around `;` and `||`.
-- The app copy and locales no longer claim free models.
+- The app's home provider tip and sidebar getting-started lines no longer advertise free models; they ask you
+  to connect a provider. The same strings were removed from the locale files, so other languages fall back to
+  the English copy.
 - The TUI shows sub-cent and plan costs, the diff_open and session_move keybinds work again, the max agent is
   hidden until configured, and a missing provider says to connect one.
 - The `session` tool is gated by agent mode.
