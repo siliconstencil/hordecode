@@ -29,7 +29,6 @@ import {
   renderStatsHtml,
   writeStatsHtml,
   displayStats,
-  formatNumber,
   statsHandler,
 } from "@/cli/cmd/stats"
 
@@ -180,13 +179,31 @@ describe("horde stats --html", () => {
       `$${stats.totalCost.toFixed(2)}`,
       `$${stats.costPerDay.toFixed(2)}`,
       `$${model.cost.toFixed(4)}`,
-      formatNumber(model.tokens.input),
-      formatNumber(model.tokens.output),
+      "1.0K",
+      "507",
       "acme/test-model",
       "bash",
     ]) {
       expect(text).toContain(value)
       expect(html).toContain(value)
+    }
+    // Tool count/share and every model cell, not just the names: the seeded
+    // session has one bash call (100% of tool calls) and one assistant message
+    // (1000 input, 500 + 7 reasoning output, 3/4 cache, $0.42).
+    expect(html).toContain('<tr><th scope="row">bash</th><td>1</td><td>100.0%</td></tr>')
+    expect(html).toContain(
+      '<tr><th scope="row">acme/test-model</th><td>1</td><td>1.0K</td><td>507</td><td>3</td><td>4</td><td>$0.4200</td></tr>',
+    )
+    for (const line of [
+      "│  Messages                                            1 │",
+      "│  Input Tokens                                     1.0K │",
+      "│  Output Tokens                                     507 │",
+      "│  Cache Read                                          3 │",
+      "│  Cache Write                                         4 │",
+      "│  Cost                                          $0.4200 │",
+      "│ bash               ████████████████████   1 (100.0%)   │",
+    ]) {
+      expect(text).toContain(line)
     }
     // H-D1: exactly the text rows - no invented Total Tokens row.
     expect(html).not.toContain("Total Tokens")
@@ -296,7 +313,7 @@ describe("horde stats --html", () => {
         Effect.suspend(() =>
           Effect.gen(function* () {
             yield* seed("ses_h_cli", { title: "cli", cost: 0.1, tokens: 10 })
-            yield* statsHandler({ html: "" } as never)
+            yield* statsHandler({ html: "" })
           }),
         ) as Effect.Effect<void, never, never>,
       )
@@ -304,7 +321,10 @@ describe("horde stats --html", () => {
       expect(out).toContain(`Stats written to ${join(work, "horde-stats.html")}`)
       expect(out).not.toContain("OVERVIEW")
       expect(out).not.toContain("COST & TOKENS")
-      expect(await Bun.file(join(work, "horde-stats.html")).exists()).toBe(true)
+      const html = await Bun.file(join(work, "horde-stats.html")).text()
+      expect(html).toContain('<th scope="row">Sessions</th><td>1</td>')
+      expect(html).toContain('<th scope="row">Input</th><td>10</td>')
+      expect(html).toContain('<th scope="row">Output</th><td>20</td>')
     } finally {
       console.log = original
       process.chdir(previousCwd)

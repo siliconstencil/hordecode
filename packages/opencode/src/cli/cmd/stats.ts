@@ -59,9 +59,9 @@ export interface SessionStats {
 export const statsHandler = Effect.fn("Cli.stats")(function* (args: {
   days?: number
   tools?: number
-  models?: boolean | number
+  models?: unknown
   project?: string
-  html?: string | boolean
+  html?: string
 }) {
   const ctx = yield* InstanceRef
   if (!ctx) return
@@ -103,13 +103,15 @@ export const StatsCommand = effectCmd({
       })
       // FORK_ONLY: neither reference has a page renderer (opencode 1.19.3
       // displayStats :292, MiMo 0.1.11 :312); this option and the handler
-      // branch below are the fork's addition and must keep the text output's rows.
+      // branch above are the fork's addition and must keep the text output's rows.
       .option("html", {
         describe: "write a self-contained HTML page (optionally to PATH)",
         type: "string",
       }),
-  // yargs infers `models` as unknown from the untyped option; the handler owns the narrowing.
-  handler: statsHandler as never,
+  // `.option("models")` has no `type`, so yargs infers `models` as `unknown`;
+  // the standalone handler cannot accept that as `boolean | number`. Its arg
+  // type is `unknown` and the body narrows it, so no cast is needed.
+  handler: statsHandler,
 })
 
 const getAllSessions = Effect.fnUntraced(function* () {
@@ -440,7 +442,7 @@ export function displayStats(stats: SessionStats, toolLimit?: number, modelLimit
   console.log()
 }
 
-export function formatNumber(num: number): string {
+function formatNumber(num: number): string {
   if (num >= 1000000) {
     return (num / 1000000).toFixed(1) + "M"
   } else if (num >= 1000) {
