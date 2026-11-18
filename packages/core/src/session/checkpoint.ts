@@ -2080,12 +2080,25 @@ export const layer = Layer.effect(
 
       const indexText = yield* renderIndex(input.sessionID).pipe(Effect.catch(() => Effect.succeed("")))
 
-      // Fail closed when the boundary message is not resolvable: the old
-      // Date.now() fallback placed the boundary after the tail (upstream's
-      // broken placement) and swallowed the messages the rebuild must keep.
+      // Resolve the boundary time before inserting. The caller may pass an
+      // undefined time when the boundary message left its filterCompacted
+      // slice, so the authoritative DB lookup is the live fallback. Fail
+      // closed only when BOTH are unknown: the old Date.now() fallback placed
+      // the boundary after the tail (upstream's broken placement) and swallowed
+      // the messages the rebuild must keep.
       // I2-D2, reports/0.1.6/i2-b1-rebuild-boundary.md:209
-      if (input.boundaryCreatedAt === undefined) return false
-      const syntheticTime = input.boundaryCreatedAt + 1
+      const allMsgs = yield* session.messages({ sessionID: input.sessionID, agentID: "*" })
+      const boundaryTime =
+        input.boundaryCreatedAt ??
+        allMsgs.find((m) => m.info.id === input.boundary)?.info.time.created
+      if (boundaryTime === undefined) {
+        log.warn("rebuild boundary skipped: no boundary timestamp available", {
+          sessionID: input.sessionID,
+          boundary: input.boundary,
+        })
+        return false
+      }
+      const syntheticTime = boundaryTime + 1
       const msg = yield* session.updateMessage({
         id: MessageID.ascending(),
         role: "user" as const,
@@ -2146,26 +2159,10 @@ export const layer = Layer.effect(
       // becomes "[Old tool result content cleared]" via the converter at
       // message-v2.ts (ToolStateCompleted -> output).
       //
-      // boundaryTime resolution (fail-closed):
-      // 1. Prefer explicit input.boundaryCreatedAt (production callers
-      //    compute it but may pass undefined if the boundary message is no
-      //    longer in their filterCompactedEffect slice).
-      // 2. Else look up input.boundary in allMsgs (full DB, includes
-      //    pre-marker history).
-      // 3. Else SKIP -- the previous fallback of 0 would clear EVERY
-      //    completed compactable tool result in the entire session,
-      //    corrupting future checkpoint writer input. Log a warning.
-      const allMsgs = yield* session.messages({ sessionID: input.sessionID, agentID: "*" })
-      const boundaryTime =
-        input.boundaryCreatedAt ??
-        allMsgs.find((m) => m.info.id === input.boundary)?.info.time.created
-      if (boundaryTime === undefined) {
-        log.warn("microcompact skipped: no boundary timestamp available", {
-          sessionID: input.sessionID,
-          boundary: input.boundary,
-        })
-        return true
-      }
+      // boundaryTime was resolved above (explicit time, else the full-DB
+      // lookup) and the insert already failed closed when both were unknown.
+      // Never fall back to 0 here: that would clear EVERY completed
+      // compactable tool result in the entire session.
       let cleared = 0
       let bytes = 0
       for (const m of allMsgs) {

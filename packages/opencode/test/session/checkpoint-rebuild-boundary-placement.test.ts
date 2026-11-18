@@ -18,10 +18,10 @@ import { MessageID, PartID, SessionID } from "@opencode-ai/core/session/schema"
 import { MessageTable, PartTable, SessionTable } from "@opencode-ai/core/session/sql"
 import { Database } from "@opencode-ai/core/storage"
 import { checkpointPath } from "@opencode-ai/core/session/checkpoint-paths"
-import { estimateTokensBeforeBoundary } from "@opencode-ai/core/session/checkpoint"
 import * as MessageV2 from "@opencode-ai/core/session/message-v2"
+import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { eq } from "drizzle-orm"
-import { rebuildCoversContext } from "../../src/session/rebuild-freshness"
+import { rebuildEnsuringCheckpoint } from "../../src/session/prompt"
 import { seedParent, useCheckpointHarness, resetCheckpointHarness } from "../lib/checkpoint-harness"
 
 const seedMessage = (
@@ -98,6 +98,22 @@ const countBoundaryParts = (sessionID: SessionID): number =>
         return p.session_id === sessionID && data?.type === "checkpoint"
       }).length,
   )
+
+const boundaryCreatedAts = (sessionID: SessionID): number[] =>
+  Database.use((db) => {
+    const boundaryMessageIDs = db
+      .select()
+      .from(PartTable)
+      .all()
+      .filter((p: any) => p.session_id === sessionID && (p.data as { type?: string } | undefined)?.type === "checkpoint")
+      .map((p: any) => p.message_id)
+    return db
+      .select()
+      .from(MessageTable)
+      .all()
+      .filter((m: any) => boundaryMessageIDs.includes(m.id))
+      .map((m: any) => (m.data as { time: { created: number } }).time.created)
+  })
 
 describe("rebuild boundary placement (B-1)", () => {
   beforeAll(() => {
@@ -191,25 +207,23 @@ describe("rebuild boundary placement (B-1)", () => {
   })
 
   // I2-D2 / I2-D3, reports/0.1.6/i2-b1-rebuild-boundary.md:209-217.
-  it("refuses to insert a boundary when the boundary time is unknown (I2-D2)", async () => {
+  it("refuses to insert a boundary when the boundary time is unknown everywhere (I2-D2)", async () => {
     const { runWithCheckpoint } = await import("../lib/checkpoint-harness")
     type Result = { inserted: boolean; before: number; after: number; boundaries: number }
     const result = (await runWithCheckpoint((svc) =>
       Effect.gen(function* () {
         const { sessionID } = yield* Effect.sync(() => seedParent())
         const base = Date.now()
-        // The boundary message exists in the DB, but the caller's slice can no
-        // longer resolve it: every live caller passes
-        // `boundaryMsg?.info.time.created`, which is undefined when the
-        // boundary is absent from that slice.
-        const covered = yield* Effect.sync(() => seedMessage(sessionID, "user", "the earlier turn", base))
+        yield* Effect.sync(() => seedMessage(sessionID, "user", "the earlier turn", base))
         yield* Effect.sync(() => seedMessage(sessionID, "assistant", "step that triggered overflow", base + 1000))
         yield* Effect.promise(() => writeCheckpoint(sessionID))
 
         const before = countMessages(sessionID)
+        // No message row carries this id and the caller passes no time, so
+        // neither the argument nor the DB lookup can resolve the boundary.
         const inserted = yield* svc.insertRebuildBoundary({
           sessionID,
-          boundary: covered,
+          boundary: MessageID.ascending(),
           agent: "build",
           model: { providerID: "test", modelID: "test-model" },
         })
@@ -228,16 +242,16 @@ describe("rebuild boundary placement (B-1)", () => {
     expect(result.boundaries).toBe(0)
   })
 
-  it("a second rebuild with an unresolvable boundary falls back instead of inserting at now (I2-D3)", async () => {
+  it("a second rebuild whose window lost the boundary inserts at the DB-resolved time (I2-D3)", async () => {
     const { runWithCheckpoint } = await import("../lib/checkpoint-harness")
     type Result = {
-      dropped: number
-      fits: boolean
-      attempt: string
+      base: number
       secondInserted: boolean
       boundariesBefore: number
       boundariesAfter: number
+      boundaryTimes: number[]
       tail: string[]
+      covered: string
       trigger: string
       newest: string
     }
@@ -268,7 +282,9 @@ describe("rebuild boundary placement (B-1)", () => {
         // A settled writer advances the watermark to the covered id. The live
         // loop resolves lastBoundary() from it, but its msgs slice (the
         // filterCompacted window) no longer contains the covered message: the
-        // first boundary replaced it, so the second boundary is unresolvable.
+        // first boundary replaced it, so the second call passes no boundary
+        // time. The DB still holds the covered row, so the lookup must supply
+        // its time instead of refusing.
         Database.use((db) =>
           db
             .update(SessionTable)
@@ -277,21 +293,7 @@ describe("rebuild boundary placement (B-1)", () => {
             .run(),
         )
 
-        const window = (yield* MessageV2.filterCompactedEffect(sessionID)) as MessageV2.WithParts[]
-        const dropped = estimateTokensBeforeBoundary(window, covered)
-        const fits = rebuildCoversContext({
-          contextTokens: 55_000,
-          droppedTokens: dropped,
-          syntheticTokens: 1_500,
-          usableLimit: 56_000,
-        })
         const boundariesBefore = countBoundaryParts(sessionID)
-        // rebuildEnsuringCheckpoint (packages/opencode/src/session/prompt.ts:1452-1470)
-        // returns "rebuild-insufficient" when fits is false, and its caller
-        // compacts; insert is never reached on the live path. The unconditional
-        // insert below models the V2 call site that passes the boundary time
-        // unguarded: fail-closed refusal is the latent path's second line of
-        // defense, and no boundary may land at Date.now().
         const secondInserted = yield* svc.insertRebuildBoundary({
           sessionID,
           boundary: covered,
@@ -300,29 +302,87 @@ describe("rebuild boundary placement (B-1)", () => {
         })
         const after = (yield* MessageV2.filterCompactedEffect(sessionID)) as MessageV2.WithParts[]
         return {
-          dropped,
-          fits,
-          attempt: fits ? "rebuilt" : "rebuild-insufficient",
+          base,
           secondInserted,
           boundariesBefore,
           boundariesAfter: countBoundaryParts(sessionID),
+          boundaryTimes: boundaryCreatedAts(sessionID),
           tail: after.map((m: MessageV2.WithParts) => m.info.id),
+          covered,
           trigger,
           newest,
         } satisfies Result
       }),
     )) as Result
 
-    // estimateTokensBeforeBoundary returns 0 for an absent boundary, so the
-    // freshness guard refuses the rebuild and the caller takes the compaction
-    // fallback.
-    expect(result.dropped).toBe(0)
-    expect(result.fits).toBe(false)
-    expect(result.attempt).toBe("rebuild-insufficient")
-    // Observable: no boundary part was added and the tail stayed in the window.
-    expect(result.secondInserted).toBe(false)
-    expect(result.boundariesAfter).toBe(result.boundariesBefore)
+    // The DB lookup supplied the covered row's time, so both boundaries carry
+    // base + 1 ms (never Date.now()) and the post-boundary tail stays.
+    expect(result.secondInserted).toBe(true)
+    expect(result.boundariesBefore).toBe(1)
+    expect(result.boundariesAfter).toBe(2)
+    expect(result.boundaryTimes).toEqual([result.base + 1, result.base + 1])
     expect(result.tail).toContain(result.trigger)
     expect(result.tail).toContain(result.newest)
+    expect(result.tail).not.toContain(result.covered)
+  })
+
+  it("the live guard takes the compaction fallback when the boundary left the caller's window", async () => {
+    const { runWithCheckpointAndDatabase } = await import("../lib/checkpoint-harness")
+    type Result = { attempt: string; rebuildCalls: number; boundariesBefore: number; boundariesAfter: number }
+    const result = (await runWithCheckpointAndDatabase((svc, database) =>
+      Effect.gen(function* () {
+        const { sessionID } = yield* Effect.sync(() => seedParent())
+        const base = Date.now() - 10_000
+        const covered = yield* Effect.sync(() => seedMessage(sessionID, "user", "the earlier turn", base))
+        yield* Effect.sync(() => seedMessage(sessionID, "assistant", "step that triggered overflow", base + 1000))
+        yield* Effect.sync(() => seedMessage(sessionID, "user", "the next prompt", base + 2000))
+        yield* Effect.promise(() => writeCheckpoint(sessionID))
+
+        // lastBoundary() resolves the covered id from the watermark, but the
+        // caller's msgs slice is the window that no longer contains it: this
+        // is the case estimateTokensBeforeBoundary reports as 0 dropped tokens.
+        Database.use((db) =>
+          db
+            .update(SessionTable)
+            .set({ last_checkpoint_message_id: covered })
+            .where(eq(SessionTable.id, sessionID))
+            .run(),
+        )
+        const window = (yield* MessageV2.filterCompactedEffect(sessionID)) as MessageV2.WithParts[]
+        const msgs = window.filter((m) => m.info.id !== covered) as SessionV1.WithParts[]
+
+        let rebuildCalls = 0
+        const boundariesBefore = countBoundaryParts(sessionID)
+        const attempt = yield* rebuildEnsuringCheckpoint(
+          {
+            sessionID,
+            msgs,
+            agent: "build",
+            model: { providerID: "test", id: "test-model" },
+            writerWaitMs: 0,
+            contextTokens: 60_000,
+            usableLimit: 56_000,
+          },
+          {
+            memoryWriteEnabled: true,
+            checkpoint: svc,
+            database,
+            rebuild: () =>
+              Effect.sync(() => {
+                rebuildCalls += 1
+                return true
+              }),
+          },
+        )
+        return { attempt, rebuildCalls, boundariesBefore, boundariesAfter: countBoundaryParts(sessionID) } satisfies Result
+      }),
+    )) as Result
+
+    // A window without the boundary drops nothing, so the rebuild cannot bound
+    // the turn: the production decision returns the compaction fallback and
+    // never reaches the insert.
+    expect(result.attempt).toBe("rebuild-insufficient")
+    expect(result.rebuildCalls).toBe(0)
+    expect(result.boundariesAfter).toBe(result.boundariesBefore)
   })
 })

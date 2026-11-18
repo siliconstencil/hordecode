@@ -36,8 +36,10 @@ import { memoMap } from "@opencode-ai/core/effect/memo-map"
 import { pollWithTimeout } from "./effect"
 import type { Interface as SupervisorInterface, AgentOutcome } from "@opencode-ai/supervisor/spawn"
 import type { Interface as SessionCheckpointInterface } from "@opencode-ai/core/session/checkpoint"
+import type { Interface as DatabaseServiceInterface } from "@opencode-ai/core/database/database"
 
 const { SessionCheckpoint } = await import("@opencode-ai/core/session/checkpoint")
+const { Database: DatabaseService } = await import("@opencode-ai/core/database/database")
 const { AppLayer } = await import("@/effect/app-runtime")
 const { SessionTable, MessageTable, PartTable } = await import("@opencode-ai/core/session/sql")
 const { ProjectTable } = await import("@opencode-ai/core/project/sql")
@@ -299,6 +301,12 @@ export const childSessionIDs = (parentID: SessionID): SessionID[] =>
 // after the body settles (success, failure, or defect).
 export const runWithCheckpoint = <A, E>(
   body: (svc: SessionCheckpointInterface) => Effect.Effect<A, E, never>,
+): Promise<A> => runWithCheckpointAndDatabase((svc) => body(svc))
+
+// Same runtime as runWithCheckpoint, and additionally yields the Database
+// service, for callers that exercise production code taking it as a dep.
+export const runWithCheckpointAndDatabase = <A, E>(
+  body: (svc: SessionCheckpointInterface, database: DatabaseServiceInterface) => Effect.Effect<A, E, never>,
 ): Promise<A> => {
   const rt = ManagedRuntime.make(AppLayer, { memoMap })
   return rt
@@ -311,7 +319,8 @@ export const runWithCheckpoint = <A, E>(
         spawnRef.current = stubSupervisor
         prefixCaptureRef.current = stubPrefixCapture
         const svc = yield* SessionCheckpoint.Service
-        return yield* body(svc)
+        const database = yield* DatabaseService.Service
+        return yield* body(svc, database)
       }).pipe(
         Effect.provideService(InstanceRef, {
           directory: proofDir,
