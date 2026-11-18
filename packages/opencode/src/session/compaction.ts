@@ -338,13 +338,17 @@ const layer = Layer.effect(
 
       yield* Effect.logInfo("found", { pruned, total })
       if (pruned > PRUNE_MINIMUM) {
+        let cleared = 0
+        let bytes = 0
         for (const part of toPrune) {
           if (part.state.status === "completed") {
+            bytes += Buffer.byteLength(part.state.output)
             part.state.time.compacted = Date.now()
             yield* session.updatePart(part)
+            cleared += 1
           }
         }
-        yield* Effect.logInfo("pruned", { count: toPrune.length })
+        yield* Effect.logInfo("pruned", { sessionID: input.sessionID, parts: cleared, bytes })
       }
     })
 

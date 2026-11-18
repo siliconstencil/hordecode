@@ -1,17 +1,19 @@
-import { afterEach, describe, expect, mock, test } from "bun:test"
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test"
+import fs from "fs/promises"
+import path from "path"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Database } from "@opencode-ai/core/database/database"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { APICallError } from "ai"
-import { Cause, Deferred, Effect, Exit, Fiber, Layer, Schema } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Layer, Logger, ManagedRuntime, Schema } from "effect"
 import * as Stream from "effect/Stream"
 import { Config } from "@/config/config"
 import { LLM } from "../../src/session/llm"
 import { SessionCompaction } from "../../src/session/compaction"
 import { Token } from "@/util/token"
 import { Plugin } from "../../src/plugin"
-import { provideTmpdirInstance, TestInstance } from "../fixture/fixture"
+import { mkdtempTmp, provideTmpdirInstance, TestInstance } from "../fixture/fixture"
 import { Session as SessionNs } from "@/session/session"
 import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
@@ -827,6 +829,218 @@ describe("session.compaction.prune", () => {
       }),
     ),
   )
+
+  // Both shrinkers emit exactly one clearing-pass line carrying the session id,
+  // the number of cleared parts and the bytes freed. The prune line goes through
+  // the Effect logger; the rebuild microcompact line uses the plain logger, so
+  // the test captures the first with Logger.layer and the second on stderr.
+  test("logs one clearing pass with session id, parts and bytes", async () => {
+    const proofDir = mkdtempTmp("compaction-clearlog-")
+    await fs.writeFile(path.join(proofDir, "opencode.json"), JSON.stringify({ compaction: { prune: true } }))
+
+    // Sequential imports: concurrently loading checkpoint and app-runtime
+    // deadlocks under the bun test runner.
+    const { AppLayer } = await import("@/effect/app-runtime")
+    const { InstanceRef, WorkspaceRef } = await import("@/effect/instance-ref")
+    const { ProjectID } = await import("@opencode-ai/project/schema")
+    const { AbsolutePath } = await import("@opencode-ai/core/schema")
+    const { SessionCheckpoint } = await import("@opencode-ai/core/session/checkpoint")
+    const { checkpointPath } = await import("@opencode-ai/core/session/checkpoint-paths")
+    const { ProjectTable } = await import("@opencode-ai/core/project/sql")
+    const { Database: Storage } = await import("@opencode-ai/core/storage")
+
+    const output = "x".repeat(200_000)
+    const stderr: string[] = []
+    const stderrSpy = spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr.push(String(chunk))
+      return true
+    })
+    const rt = ManagedRuntime.make(AppLayer)
+    type Result = { pruneSessionID: string; rebuildSessionID: string; pruned: unknown[] }
+    let result: Result | undefined
+    try {
+      const program = Effect.gen(function* () {
+        yield* Effect.sync(() => {
+          Storage.use((db) => {
+            db.insert(ProjectTable)
+              .values({ id: ProjectID.global, worktree: AbsolutePath.make(proofDir), sandboxes: [] })
+              .onConflictDoNothing()
+              .run()
+          })
+        })
+        const compact = yield* SessionCompaction.Service
+        const ssn = yield* SessionNs.Service
+        const checkpoint = yield* SessionCheckpoint.Service
+
+        // Prune pass: one completed bash output older than the protected tail.
+        const pruneInfo = yield* ssn.create({ title: "prune clearing log" })
+        const first = yield* ssn.updateMessage({
+          id: MessageID.ascending(),
+          role: "user",
+          sessionID: pruneInfo.id,
+          agent: "build",
+          model: ref,
+          time: { created: Date.now() },
+        })
+        yield* ssn.updatePart({
+          id: PartID.ascending(),
+          messageID: first.id,
+          sessionID: pruneInfo.id,
+          type: "text",
+          text: "first",
+        })
+        const reply: SessionV1.Assistant = {
+          id: MessageID.ascending(),
+          role: "assistant",
+          sessionID: pruneInfo.id,
+          mode: "build",
+          agent: "build",
+          path: { cwd: proofDir, root: proofDir },
+          cost: 0,
+          tokens: { output: 0, input: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID: ref.modelID,
+          providerID: ref.providerID,
+          parentID: first.id,
+          time: { created: Date.now() },
+          finish: "end_turn",
+        }
+        yield* ssn.updateMessage(reply)
+        yield* ssn.updatePart({
+          id: PartID.ascending(),
+          messageID: reply.id,
+          sessionID: pruneInfo.id,
+          type: "tool",
+          callID: crypto.randomUUID(),
+          tool: "bash",
+          state: {
+            status: "completed",
+            input: {},
+            output,
+            title: "done",
+            metadata: {},
+            time: { start: Date.now(), end: Date.now() },
+          },
+        })
+        for (const text of ["second", "third"]) {
+          const msg = yield* ssn.updateMessage({
+            id: MessageID.ascending(),
+            role: "user",
+            sessionID: pruneInfo.id,
+            agent: "build",
+            model: ref,
+            time: { created: Date.now() },
+          })
+          yield* ssn.updatePart({
+            id: PartID.ascending(),
+            messageID: msg.id,
+            sessionID: pruneInfo.id,
+            type: "text",
+            text,
+          })
+        }
+
+        const captured: unknown[] = []
+        yield* compact.prune({ sessionID: pruneInfo.id }).pipe(
+          Effect.provide(
+            Logger.layer([
+              Logger.make<unknown, void>((options) => {
+                captured.push(options.message)
+              }),
+            ]),
+          ),
+        )
+        const pruned = captured.filter((entry) => Array.isArray(entry) && entry[0] === "pruned")
+
+        // Rebuild pass: one compactable tool result newer than the boundary.
+        const rebuildInfo = yield* ssn.create({ title: "rebuild clearing log" })
+        const boundaryTime = Date.now()
+        const boundary = yield* ssn.updateMessage({
+          id: MessageID.ascending(),
+          role: "user",
+          sessionID: rebuildInfo.id,
+          agent: "build",
+          model: ref,
+          time: { created: boundaryTime - 1_000 },
+        })
+        yield* ssn.updatePart({
+          id: PartID.ascending(),
+          messageID: boundary.id,
+          sessionID: rebuildInfo.id,
+          type: "text",
+          text: "rebuild me",
+        })
+        const newer = yield* ssn.updateMessage({
+          id: MessageID.ascending(),
+          role: "assistant",
+          sessionID: rebuildInfo.id,
+          mode: "build",
+          agent: "build",
+          path: { cwd: proofDir, root: proofDir },
+          cost: 0,
+          tokens: { output: 0, input: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID: ref.modelID,
+          providerID: ref.providerID,
+          parentID: boundary.id,
+          time: { created: boundaryTime + 1_000 },
+          finish: "end_turn",
+        })
+        yield* ssn.updatePart({
+          id: PartID.ascending(),
+          messageID: newer.id,
+          sessionID: rebuildInfo.id,
+          type: "tool",
+          callID: crypto.randomUUID(),
+          tool: "bash",
+          state: {
+            status: "completed",
+            input: {},
+            output,
+            title: "done",
+            metadata: {},
+            time: { start: Date.now(), end: Date.now() },
+          },
+        })
+        const cp = checkpointPath(rebuildInfo.id)
+        yield* Effect.promise(() => fs.mkdir(path.dirname(cp), { recursive: true }))
+        yield* Effect.promise(() =>
+          fs.writeFile(cp, "# Session checkpoint\n\n## Active intent\nThe user is verifying the rebuild.\n"),
+        )
+        yield* checkpoint.insertRebuildBoundary({
+          sessionID: rebuildInfo.id,
+          boundary: boundary.id,
+          agent: "build",
+          model: { providerID: "test", modelID: "test-model" },
+          boundaryCreatedAt: boundaryTime,
+        })
+        return { pruneSessionID: pruneInfo.id, rebuildSessionID: rebuildInfo.id, pruned }
+      }).pipe(
+        Effect.provideService(InstanceRef, {
+          directory: proofDir,
+          worktree: proofDir,
+          project: {
+            id: ProjectID.global,
+            worktree: proofDir,
+            time: { created: Date.now(), updated: Date.now() },
+            sandboxes: [],
+          },
+        }),
+        Effect.provideService(WorkspaceRef, undefined),
+      )
+      result = (await rt.runPromise(program as unknown as Effect.Effect<Result>)) as Result
+    } finally {
+      stderrSpy.mockRestore()
+      await rt.dispose()
+    }
+
+    expect(result?.pruned).toEqual([
+      ["pruned", { sessionID: result?.pruneSessionID, parts: 1, bytes: output.length }],
+    ])
+    const microcompact = stderr.filter((line) => line.includes("rebuild microcompact"))
+    expect(microcompact).toHaveLength(1)
+    expect(microcompact[0]).toContain(`sessionID=${result?.rebuildSessionID}`)
+    expect(microcompact[0]).toContain("parts=1")
+    expect(microcompact[0]).toContain(`bytes=${output.length}`)
+  })
 })
 
 describe("session.compaction.process", () => {

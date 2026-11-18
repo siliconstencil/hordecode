@@ -2167,6 +2167,7 @@ export const layer = Layer.effect(
         return true
       }
       let cleared = 0
+      let bytes = 0
       for (const m of allMsgs) {
         if (m.info.id === msg.id) continue
         if (m.info.time.created <= boundaryTime) continue
@@ -2175,13 +2176,14 @@ export const layer = Layer.effect(
           if (!COMPACTABLE_TOOL_NAMES.has(part.tool)) continue
           if (part.state.status !== "completed") continue
           if (part.state.time.compacted) continue
+          bytes += Buffer.byteLength(part.state.output)
           part.state.time.compacted = Date.now()
           yield* session.updatePart(part)
           cleared += 1
         }
       }
       if (cleared > 0) {
-        log.info("rebuild microcompact", { sessionID: input.sessionID, cleared })
+        log.info("rebuild microcompact", { sessionID: input.sessionID, parts: cleared, bytes })
       }
 
       return true
