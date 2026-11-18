@@ -76,6 +76,11 @@ export async function level(project: ProjectRef): Promise<Level> {
   return stored === "trusted" ? "trusted" : "untrusted"
 }
 
+// K3: the TUI plugin host runs in its own thread and never boots an instance, so the
+// process-local memo above has no decision there. Expose the same store reader the
+// memo is derived from so that host can decide without a boot.
+export { checkTrust }
+
 // K3: fail closed. A decision is recorded by InstanceStore.boot for the worktree it
 // booted; a context that only knows an opened subdirectory (the cwd fallback at
 // effect/instance-state.ts:17-38) resolves to that worktree root before the lookup.

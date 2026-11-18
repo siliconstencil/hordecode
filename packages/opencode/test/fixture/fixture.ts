@@ -27,8 +27,10 @@ export const testInstanceStoreLayer = LayerNode.compile(InstanceStore.node, [
 // K3: these helpers boot through the no-op bootstrap above, which records no trust
 // decision; allowed() now denies project code without one. The fixture stands in for a
 // trusted worktree, the same decision TrustGate.trust() writes for suites that boot the
-// real bootstrap.
-function trustFixture(directory: string) {
+// real bootstrap. The TUI plugin host reads the shared store instead of the memo, so
+// record both; trust() first because it clears its key in the memo.
+async function trustFixture(directory: string) {
+  await TrustGate.trust(directory)
   TrustGate.remember({ directory, worktree: directory }, "trusted")
 }
 
@@ -164,7 +166,7 @@ export async function tmpdir<T>(options?: TmpDirOptions<T>) {
   }
   const realpath = sanitizePath(await fs.realpath(dirpath))
   if (realpath !== dirpath) trackTmpdir(realpath)
-  if (options?.trust) trustFixture(realpath)
+  if (options?.trust) await trustFixture(realpath)
   const extra = await options?.init?.(realpath)
   const result = {
     [Symbol.asyncDispose]: async () => {
@@ -196,7 +198,7 @@ export function tmpdirScoped<E = never, R = never>(options?: {
     trackTmpdir(dirpath)
     const dir = sanitizePath(yield* Effect.promise(() => fs.realpath(dirpath)))
     if (dir !== dirpath) trackTmpdir(dir)
-    if (options?.trust) trustFixture(dir)
+    if (options?.trust) yield* Effect.promise(() => trustFixture(dir))
 
     yield* Effect.addFinalizer(() =>
       Effect.promise(async () => {
@@ -244,7 +246,7 @@ export const provideInstanceEffect =
   (directory: string) =>
   <A, E, R>(self: Effect.Effect<A, E, R>): Effect.Effect<A, E, R | InstanceStore.Service> =>
     InstanceStore.Service.use((store) =>
-      Effect.sync(() => trustFixture(directory)).pipe(Effect.andThen(store.provide({ directory }, self))),
+      Effect.promise(() => trustFixture(directory)).pipe(Effect.andThen(store.provide({ directory }, self))),
     )
 
 export const reloadInstance = (input: InstanceStore.LoadInput) =>

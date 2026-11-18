@@ -1088,14 +1088,10 @@ async function load(input: {
     )
     const pluginOrigins = config.plugin_origins ?? (await TuiConfig.pluginOrigins())
     const pureMode = Flag.HORDECODE_PURE || Flag.OPENCODE_PURE
-    // K3: the plugin host is the enforcement point for P9, not the parent prompt. A
-    // local origin (project tui.json or an auto-discovered project plugin dir) is
-    // project code and is dropped while the worktree is untrusted. User-owned origins
-    // keep loading. Upstream 1.19.5 has no trust gate around tui plugin origins.
-    const projectAllowed = await TrustGate.allowed({
-      directory: cwd,
-      worktree: TrustGate.resolveWorktree(cwd),
-    })
+    // K3: the TUI plugin host runs in its own thread and never boots an instance, so the
+    // process-local trust memo has no decision here. Read the shared store instead; it
+    // answers for a trusted worktree and its subdirectories. User-owned origins keep loading.
+    const projectAllowed = TrustGate.isUserOwned(cwd) || (await TrustGate.checkTrust(cwd)) === "trusted"
     const allowedOrigins = projectAllowed
       ? pluginOrigins
       : pluginOrigins.filter((origin) => origin.scope !== "local" || TrustGate.isUserOwned(origin.source))

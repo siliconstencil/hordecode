@@ -15,6 +15,7 @@ import { Global } from "@opencode-ai/core/global"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { CurrentWorkingDirectory } from "./tui-cwd"
 import { ConfigPlugin } from "@/config/plugin"
+import { TrustGate } from "@/project/trust-gate"
 import { TuiKeybind } from "@opencode-ai/tui/config/keybind"
 import { InstallationLocal, InstallationPluginVersion } from "@opencode-ai/core/installation/version"
 import { makeRuntime } from "@opencode-ai/core/effect/runtime"
@@ -46,9 +47,11 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/TuiConfig") {}
 
-function pluginScope(file: string, ctx: { directory: string }): ConfigPlugin.Scope {
-  if (Filesystem.contains(ctx.directory, file)) return "local"
-  // if (ctx.worktree !== "/" && Filesystem.contains(ctx.worktree, file)) return "local"
+function pluginScope(file: string, worktree: string): ConfigPlugin.Scope {
+  // K3: the project boundary is the resolved worktree root, not cwd. The tui config
+  // walk reaches the worktree root while cwd may be a subdirectory; that file is
+  // project content and must not be relabelled global to slip past the trust filter.
+  if (Filesystem.contains(worktree, file)) return "local"
   return "global"
 }
 
@@ -80,7 +83,10 @@ function dropUnknownKeybinds(input: Record<string, unknown>) {
   }
 }
 
-const loadState = Effect.fn("TuiConfig.loadState")(function* (ctx: { directory: string }) {
+const loadState = Effect.fn("TuiConfig.loadState")(function* (ctx: { directory: string; worktree?: string }) {
+  // K3: use the project's worktree root, the same boundary the trust gate resolves,
+  // so a tui.json at that root is scoped local from any subdirectory cwd.
+  const worktree = path.resolve(ctx.worktree ?? TrustGate.resolveWorktree(ctx.directory))
   const afs = yield* FSUtil.Service
   let appliedOrder = 0
 
@@ -156,7 +162,7 @@ const loadState = Effect.fn("TuiConfig.loadState")(function* (ctx: { directory: 
       acc.result = mergeDeep(acc.result, data)
       if (!data.plugin?.length) return
 
-      const scope = pluginScope(file, ctx)
+      const scope = pluginScope(file, worktree)
       const plugins = ConfigPlugin.deduplicatePluginOrigins([
         ...acc.plugin_origins,
         ...data.plugin.map((spec) => ({ spec: spec as ConfigPlugin.Origin["spec"], scope, source: file })),
