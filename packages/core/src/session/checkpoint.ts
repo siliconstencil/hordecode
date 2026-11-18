@@ -2243,6 +2243,17 @@ export const layer = Layer.effect(
       )
       .pipe(Effect.ignore)
 
+    // J open decision [1], reports/0.1.6/j-cleanup-batch.md: session removal drops its settlement records.
+    yield* bus
+      .subscribeCallback(
+        Session.Event.Deleted,
+        InstanceState.bind((event: { properties: { sessionID: SessionID } }) => {
+          writers.delete(event.properties.sessionID)
+          lastSettlements.delete(event.properties.sessionID)
+        }),
+      )
+      .pipe(Effect.ignore)
+
     return Service.of({
       tryStartCheckpointWriter,
       waitForWriter,
