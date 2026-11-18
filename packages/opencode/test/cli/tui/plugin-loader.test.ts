@@ -17,8 +17,12 @@ const { TuiPluginRuntime } = await import("../../../src/plugin/tui/runtime")
 
 type Row = Record<string, unknown>
 
+// K3: these tests drive TuiPluginRuntime.init directly, so no boot path records a trust
+// decision. A trusted tmpdir stands in for the boot decision; without it the host drops
+// project-scope origins and the load-order/dispose tests pass for the wrong reason.
 test("does not retry permanent file plugin load errors", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const file = path.join(dir, "binary-plugin")
       await Bun.write(file, new Uint8Array([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01]))
@@ -54,6 +58,7 @@ test("does not retry permanent file plugin load errors", async () => {
 
 test("does not retry file plugin load errors caused by missing modules", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const file = path.join(dir, "missing-dependency-plugin.ts")
       const dep = path.join(dir, "dep.ts")
@@ -100,6 +105,7 @@ export default { id: "demo.retry.load", tui: async () => {}, value }
 
 test("does not retry top-level plugin errors that look like resolver messages", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const file = path.join(dir, "throwing-plugin.ts")
       await Bun.write(file, `throw new Error("Cannot find package intentional")\n`)
@@ -147,6 +153,7 @@ async function load(): Promise<Data> {
     .catch(() => undefined)
 
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const localPluginPath = path.join(dir, "local-plugin.ts")
       const invalidPluginPath = path.join(dir, "invalid-plugin.ts")
@@ -582,6 +589,7 @@ export default {
 
 test("continues loading when a plugin is missing config metadata", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const bad = path.join(dir, "missing-meta-plugin.ts")
       const good = path.join(dir, "next-plugin.ts")
@@ -665,6 +673,7 @@ test("continues loading when a plugin is missing config metadata", async () => {
 
 test("does not wait on permanent tui plugin startup failures", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const binary = path.join(dir, "binary-plugin")
       const invalidShape = path.join(dir, "invalid-shape-plugin.ts")
@@ -742,6 +751,7 @@ test("initializes external tui plugins in config order", async () => {
   await fs.rm(globalJsonc, { force: true }).catch(() => {})
 
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const a = path.join(dir, "order-a.ts")
       const b = path.join(dir, "order-b.ts")
@@ -819,6 +829,7 @@ export default {
 
 test("does not bootstrap server plugins while initializing tui plugins", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const marker = path.join(dir, "server-plugin-called.txt")
       const plugin = path.join(dir, "server-plugin.ts")
@@ -920,6 +931,7 @@ describe("tui.plugin.loader", () => {
 
 test("auto-disposes plugin keymap layers", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const file = path.join(dir, "keymap-cleanup-plugin.ts")
       const spec = pathToFileURL(file).href
@@ -978,6 +990,7 @@ test("auto-disposes plugin keymap layers", async () => {
 
 test("plugin keymap proxy preserves real keymap receiver", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const file = path.join(dir, "keymap-receiver-plugin.ts")
       const spec = pathToFileURL(file).href
@@ -1026,6 +1039,7 @@ test("plugin keymap proxy preserves real keymap receiver", async () => {
 
 test("auto-disposes plugin attention sound packs and resolves sound paths", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const file = path.join(dir, "attention-soundpack-plugin.ts")
       const spec = pathToFileURL(file).href
@@ -1105,6 +1119,7 @@ test("auto-disposes plugin attention sound packs and resolves sound paths", asyn
 
 test("auto-disposes plugin keymap transformers", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const file = path.join(dir, "keymap-transformer-cleanup-plugin.ts")
       const spec = pathToFileURL(file).href
@@ -1166,6 +1181,7 @@ test("auto-disposes plugin keymap transformers", async () => {
 
 test("manual onDispose for plugin keymap layers stays idempotent", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const file = path.join(dir, "keymap-cleanup-manual-plugin.ts")
       const spec = pathToFileURL(file).href
@@ -1226,6 +1242,7 @@ test("updates installed theme when plugin metadata changes", async () => {
     dest: string
     themeName: string
   }>({
+    trust: true,
     init: async (dir) => {
       const pluginPath = path.join(dir, "theme-update-plugin.ts")
       const spec = pathToFileURL(pluginPath).href

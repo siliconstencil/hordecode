@@ -17,7 +17,8 @@ import type { ProviderID, ModelID } from "@opencode-ai/core/provider/schema"
 import { parseMeta } from "./meta"
 import { evalScript, type HostFn } from "./sandbox"
 import { makeFileHooks, resolveInWorkspace } from "./workspace"
-import { isInlineScript, resolveWorkflowScript } from "./resolve"
+import { isInlineScript, resolveWorkflowScript, type ProjectScriptAllow } from "./resolve"
+import { BuiltinWorkflow } from "./builtin"
 import { WorkflowAgentFailed, WorkflowChildFailed, WorkflowFinished, WorkflowLog, WorkflowPhase, WorkflowStarted } from "./events"
 import { WorkflowPersistence, journalKeyBase } from "./persistence"
 import type { RunSummary } from "./persistence"
@@ -326,7 +327,14 @@ function cpuCount(): number {
   return n > 0 ? n : 4
 }
 
-export const layer = Layer.effect(
+// K3: the host that wires this layer injects the project-code provenance check
+// (opencode passes its trust gate from effect/supervisor-node.ts). Undefined keeps
+// the upstream 1.19.5 behaviour: every resolved saved workflow is allowed.
+export interface LayerOptions {
+  projectScriptGate?: ProjectScriptAllow
+}
+
+export const layer = (options: LayerOptions = {}) => Layer.effect(
   Service,
   Effect.gen(function* () {
     const bus = yield* Bus.Service
@@ -565,7 +573,10 @@ export const layer = Layer.effect(
       // (e.g. isolated spawns, which provide their own Instance context).
       // Captured in the closure so the file hooks read it synchronously and
       // never touch ALS from inside the forked work fiber.
-      const workspaceRoot = input.workspace ?? (yield* InstanceRef)?.worktree ?? Instance.worktree
+      // K3: capture the instance worktree under the same fiber-safe lookup so the
+      // child-workflow resolver below never reads ALS from the forked work fiber.
+      const instanceWorktree = (yield* InstanceRef)?.worktree ?? Instance.worktree
+      const workspaceRoot = input.workspace ?? instanceWorktree
       const fileHooks = makeFileHooks(workspaceRoot)
       const deferred = yield* Deferred.make<RunOutcome>()
       const entry: RunEntry = {
@@ -1273,9 +1284,19 @@ export const layer = Layer.effect(
         const childRunID = "wf_" + createHash("sha256").update(runID + key).digest("hex")
         return bridge.promise(
           Effect.gen(function* () {
+            // K3: a built-in name is package code, not project code, so it bypasses
+            // the host gate. A saved name is a project file unless the host says
+            // otherwise (opencode passes TrustGate in LayerOptions). Upstream 1.19.5
+            // runtime.ts:1278 resolved saved children with no provenance check.
+            const builtin = isInlineScript(spec) ? undefined : BuiltinWorkflow.get(spec)
             const childScript = isInlineScript(spec)
               ? spec
-              : yield* Effect.promise(() => resolveWorkflowScript(spec, workspaceRoot, Instance.worktree))
+              : builtin
+                ? builtin.script
+                : yield* Effect.promise(() =>
+                    resolveWorkflowScript(spec, workspaceRoot, instanceWorktree, options.projectScriptGate),
+                  )
+
             if (childScript === null)
               return yield* Effect.die(new Error(`${WORKFLOW_STRUCTURAL_ERROR}: unknown workflow: ${JSON.stringify(spec)}`))
             // Nesting guards (T12) -- LAUNCH path only (a journal HIT early-returned
@@ -1655,7 +1676,7 @@ export const layer = Layer.effect(
   }),
 )
 
-export const defaultLayer = layer.pipe(
+export const defaultLayer = layer().pipe(
   Layer.provide(Bus.defaultLayer),
   Layer.provide(Inbox.defaultLayer),
   Layer.provide(Provider.defaultLayer),

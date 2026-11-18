@@ -321,7 +321,14 @@ export const TuiThreadCommand = cmd({
 
       // K2: --trust is the non-interactive opt-in; record it before the worker boots
       // so the worker's boot gate reads the same store entry as the prompt path.
-      if (args.trust) await TrustGate.trustDirectory(cwd)
+      // K3: a refused path is an error, and --trust is not treated as an acceptance.
+      if (args.trust) {
+        const outcome = await TrustGate.trustDirectory(cwd)
+        if (outcome.status === "refused") {
+          process.exitCode = 1
+          return
+        }
+      }
       const gateAccepted = await ensureWorkspaceTrusted(cwd, args.trust)
       if (!gateAccepted) return
 

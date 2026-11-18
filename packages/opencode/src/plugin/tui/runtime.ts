@@ -41,6 +41,7 @@ import { ConfigPlugin } from "@/config/plugin"
 import { ConfigPluginV1 } from "@opencode-ai/core/v1/config/plugin"
 import { createCommandShim } from "@opencode-ai/tui/plugin/command-shim"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { TrustGate } from "@/project/trust-gate"
 import { Effect } from "effect"
 import { createPluginRuntime, type PluginRuntime, type TuiPluginHost } from "@opencode-ai/tui/plugin/runtime"
 
@@ -1087,7 +1088,18 @@ async function load(input: {
     )
     const pluginOrigins = config.plugin_origins ?? (await TuiConfig.pluginOrigins())
     const pureMode = Flag.HORDECODE_PURE || Flag.OPENCODE_PURE
-    const records = pureMode ? [] : pluginOrigins
+    // K3: the plugin host is the enforcement point for P9, not the parent prompt. A
+    // local origin (project tui.json or an auto-discovered project plugin dir) is
+    // project code and is dropped while the worktree is untrusted. User-owned origins
+    // keep loading. Upstream 1.19.5 has no trust gate around tui plugin origins.
+    const projectAllowed = await TrustGate.allowed({
+      directory: cwd,
+      worktree: TrustGate.resolveWorktree(cwd),
+    })
+    const allowedOrigins = projectAllowed
+      ? pluginOrigins
+      : pluginOrigins.filter((origin) => origin.scope !== "local" || TrustGate.isUserOwned(origin.source))
+    const records = pureMode ? [] : allowedOrigins
     if (pureMode && pluginOrigins.length) {
     }
 

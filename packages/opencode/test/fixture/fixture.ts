@@ -16,12 +16,21 @@ import { InstanceBootstrap } from "../../src/project/bootstrap-service"
 import type { InstanceContext } from "../../src/project/instance-context"
 import { InstanceRuntime } from "../../src/project/instance-runtime"
 import { InstanceStore } from "../../src/project/instance-store"
+import { TrustGate } from "../../src/project/trust-gate"
 import { TestLLMServer } from "../lib/llm-server"
 
 const noopBootstrap = Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void }))
 export const testInstanceStoreLayer = LayerNode.compile(InstanceStore.node, [
   [InstanceStore.bootstrapNode, noopBootstrap],
 ])
+
+// K3: these helpers boot through the no-op bootstrap above, which records no trust
+// decision; allowed() now denies project code without one. The fixture stands in for a
+// trusted worktree, the same decision TrustGate.trust() writes for suites that boot the
+// real bootstrap.
+function trustFixture(directory: string) {
+  TrustGate.remember({ directory, worktree: directory }, "trusted")
+}
 
 export async function provideTestInstance<R>(input: {
   directory: string
@@ -126,6 +135,9 @@ async function stop(dir: string) {
 type TmpDirOptions<T> = {
   git?: boolean
   config?: Partial<ConfigV1.Info>
+  // K3: a suite that drives project code without the boot path opts in to the trusted
+  // decision the boot path writes. Off by default: the trust suites need an untrusted tmpdir.
+  trust?: boolean
   init?: (dir: string) => Promise<T>
   dispose?: (dir: string) => Promise<T>
 }
@@ -152,6 +164,7 @@ export async function tmpdir<T>(options?: TmpDirOptions<T>) {
   }
   const realpath = sanitizePath(await fs.realpath(dirpath))
   if (realpath !== dirpath) trackTmpdir(realpath)
+  if (options?.trust) trustFixture(realpath)
   const extra = await options?.init?.(realpath)
   const result = {
     [Symbol.asyncDispose]: async () => {
@@ -172,6 +185,8 @@ export async function tmpdir<T>(options?: TmpDirOptions<T>) {
 export function tmpdirScoped<E = never, R = never>(options?: {
   git?: boolean
   config?: Partial<ConfigV1.Info> | (() => Partial<ConfigV1.Info>)
+  // K3: see TmpDirOptions.trust.
+  trust?: boolean
   init?: (directory: string) => Effect.Effect<void, E, R>
 }) {
   return Effect.gen(function* () {
@@ -181,6 +196,7 @@ export function tmpdirScoped<E = never, R = never>(options?: {
     trackTmpdir(dirpath)
     const dir = sanitizePath(yield* Effect.promise(() => fs.realpath(dirpath)))
     if (dir !== dirpath) trackTmpdir(dir)
+    if (options?.trust) trustFixture(dir)
 
     yield* Effect.addFinalizer(() =>
       Effect.promise(async () => {
@@ -222,10 +238,14 @@ export const provideInstance =
   <A, E, R>(self: Effect.Effect<A, E, R>): Effect.Effect<A, E, R | InstanceStore.Service> =>
     InstanceStore.Service.use((store) => store.provide({ directory }, self))
 
+// K3: provideInstanceEffect is the fixture path for tests that drive the no-op
+// bootstrap; record the trusted fixture decision before the instance boots.
 export const provideInstanceEffect =
   (directory: string) =>
   <A, E, R>(self: Effect.Effect<A, E, R>): Effect.Effect<A, E, R | InstanceStore.Service> =>
-    InstanceStore.Service.use((store) => store.provide({ directory }, self))
+    InstanceStore.Service.use((store) =>
+      Effect.sync(() => trustFixture(directory)).pipe(Effect.andThen(store.provide({ directory }, self))),
+    )
 
 export const reloadInstance = (input: InstanceStore.LoadInput) =>
   InstanceStore.Service.use((store) => store.reload(input))
@@ -238,6 +258,7 @@ export function provideTmpdirInstance<A, E, R>(
 ) {
   return Effect.gen(function* () {
     const path = yield* tmpdirScoped(options)
+    yield* Effect.sync(() => trustFixture(path))
     return yield* self(path).pipe(provideInstance(path))
   }).pipe(Effect.provide(testInstanceStoreLayer))
 }

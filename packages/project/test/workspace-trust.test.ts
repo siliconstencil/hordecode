@@ -67,6 +67,43 @@ describe("workspace trust", () => {
     expect(out.revoked).toBe("untrusted")
   })
 
+  // K3: markTrusted refuses any path whose entry would trust more than one project
+  // (root, $HOME, an ancestor of $HOME), even when only checkTrust used to refuse them.
+  test("markTrusted refuses the filesystem root", async () => {
+    const out = await run(`
+      const result = await trust.markTrusted("/")
+      return { result, listed: await trust.listTrusted(), level: await trust.checkTrust("/") }
+    `)
+    expect(out.result).toEqual({ status: "refused", reason: "filesystem-root" })
+    expect(out.listed).not.toContain("/")
+    expect(out.level).toBe("dangerous")
+  })
+
+  test("markTrusted refuses the home directory", async () => {
+    const out = await run(
+      `
+      const result = await trust.markTrusted(process.env.HOME)
+      return { result, listed: await trust.listTrusted() }
+    `,
+      { HOME: "/home/k3-home" },
+    )
+    expect(out.result).toEqual({ status: "refused", reason: "home-directory" })
+    expect(out.listed).not.toContain("/home/k3-home")
+  })
+
+  test("markTrusted refuses an ancestor of home", async () => {
+    const out = await run(
+      `
+      const result = await trust.markTrusted("/home/k3-ancestor")
+      return { result, listed: await trust.listTrusted(), level: await trust.checkTrust("/home/k3-ancestor") }
+    `,
+      { HOME: "/home/k3-ancestor/projects/app" },
+    )
+    expect(out.result).toEqual({ status: "refused", reason: "home-ancestor" })
+    expect(out.listed).not.toContain("/home/k3-ancestor")
+    expect(out.level).toBe("untrusted")
+  })
+
   test("the store is a versioned JSON file under the data directory", async () => {
     await run(`await trust.markTrusted("/stored/path"); return 1`)
     const file = path.join(home, "data", "trusted-workspaces.json")

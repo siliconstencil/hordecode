@@ -1914,7 +1914,15 @@ const layer = Layer.effect(
         // K2: provider npm is gated at first use. A bundled loader is product code;
         // a non-bundled install/import whose provider came from project config is
         // project code and must not run while the project is untrusted.
-        if (!s.allowed && s.codeOrigins?.provider?.[model.providerID] === "local") {
+        // K3: decide from the per-field taint, so a project npm masked by a later user
+        // source cannot run and a project model npm does not block sibling models.
+        // Upstream v1.19.5 provider.ts:1898 installs and imports unconditionally.
+        const taint = s.codeOrigins?.taint?.provider?.[model.providerID] ?? []
+        const projectNpm =
+          taint.length === 0
+            ? s.codeOrigins?.provider?.[model.providerID] === "local"
+            : taint.includes("npm") || taint.includes(`models.${model.id}.provider.npm`)
+        if (!s.allowed && projectNpm) {
           throw new Error(
             `provider ${model.providerID} is configured by an untrusted project; run with --trust to allow it`,
           )

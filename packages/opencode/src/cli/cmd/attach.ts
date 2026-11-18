@@ -73,9 +73,14 @@ export const AttachCommand = cmd({
     const noReplay = args.replay === false || args.noReplay === true
     // K2: the one non-interactive opt-in. attach talks to a remote server, but the
     // local project directory is what a later local run/TUI reads from the store.
+    // K3: a refused trust is an error, not a silent no-op.
     if (args.trust) {
       const { TrustGate } = await import("@/project/trust-gate")
-      await TrustGate.trustDirectory(process.cwd())
+      const outcome = await TrustGate.trustDirectory(process.cwd())
+      if (outcome.status === "refused") {
+        process.exitCode = 1
+        return
+      }
     }
 
     const directory = (() => {

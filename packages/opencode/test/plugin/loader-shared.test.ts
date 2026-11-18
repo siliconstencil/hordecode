@@ -31,7 +31,9 @@ function withTmp<T, A, E, R>(
   body: (tmp: { path: string; extra: T }) => Effect.Effect<A, E, R>,
 ) {
   return Effect.gen(function* () {
-    const dir = yield* tmpdirScoped()
+    // K3: these tests drive the plugin loader with provideInstance, not the boot path,
+    // so record the trusted decision the boot path writes for the temp project.
+    const dir = yield* tmpdirScoped({ trust: true })
     const extra = yield* Effect.promise(() => init(dir))
     return yield* body({ path: dir, extra })
   })

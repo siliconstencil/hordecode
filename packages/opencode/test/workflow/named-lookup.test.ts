@@ -9,7 +9,9 @@ const HELLO = [`export const meta = { name: "hello", description: "saved probe" 
 
 // Lookup order: built-in first, then .hordecode/workflows/<name>.js, else null.
 test("named workflow lookup: built-in wins, then saved file, then not found", async () => {
-  await using tmp = await tmpdir()
+  // K3: a saved workflow under the project is project code; without a trust decision
+  // lookup denies it. Record the decision the boot path writes for this temp project.
+  await using tmp = await tmpdir({ trust: true })
   const root = tmp.path
   await fs.mkdir(path.join(root, ".hordecode", "workflows"), { recursive: true })
   await fs.writeFile(path.join(root, ".hordecode", "workflows", "hello.js"), HELLO)

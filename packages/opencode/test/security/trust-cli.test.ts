@@ -82,7 +82,7 @@ describe("non-interactive project trust", () => {
       // The exact call effectCmd makes for --trust before store.load.
       const worktree = yield* Effect.promise(() => TrustGate.trustDirectory(dir))
 
-      expect(worktree).toBe(dir)
+      expect(worktree).toEqual({ status: "written", worktree: dir })
       expect(yield* Effect.promise(() => checkTrust(dir))).toBe("trusted")
       expect((yield* Effect.promise(() => listTrusted())).filter((entry) => entry === dir).length).toBe(1)
       expect(log.mock.calls.map((call) => String(call[0]))).toContain(`trusted project ${dir}`)
@@ -110,5 +110,62 @@ describe("non-interactive project trust", () => {
       const parsed = JSON.parse(yield* Effect.promise(() => Bun.file(store).text())) as { trustedPaths: string[] }
       expect(parsed.trustedPaths.filter((entry) => entry === dir).length).toBe(1)
     }),
+  )
+
+  // K3: --trust reports and exits on the real write outcome, not on the attempt.
+  it.live("--trust prints trusted only when the record was written", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped({ git: true })
+      const log = spyOn(console, "log").mockImplementation(() => {})
+      try {
+        const first = yield* Effect.promise(() => TrustGate.trustDirectory(dir))
+        const second = yield* Effect.promise(() => TrustGate.trustDirectory(dir))
+
+        expect(first).toEqual({ status: "written", worktree: dir })
+        expect(second).toEqual({ status: "already", worktree: dir })
+        const trustedLines = log.mock.calls
+          .map((call: unknown[]) => String(call[0]))
+          .filter((line: string) => line === `trusted project ${dir}`)
+        expect(trustedLines).toHaveLength(1)
+      } finally {
+        log.mockRestore()
+      }
+    }),
+  )
+
+  it.live(
+    "--trust on a refused path exits non-zero with one line",
+    () =>
+      Effect.gen(function* () {
+        const home = yield* Effect.promise(() =>
+          fs.mkdtemp(path.join(process.env.HORDECODE_TEST_TMP || "/tmp", "k3-cli-refused-")),
+        )
+        yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(home, { recursive: true, force: true })))
+
+        const proc = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../../src/index.ts"), "run", "--trust", "hello"], {
+          cwd: home,
+          env: {
+            ...process.env,
+            HOME: home,
+            HORDECODE_HOME: home,
+            XDG_CONFIG_HOME: path.join(home, "xdg", "config"),
+            XDG_DATA_HOME: path.join(home, "xdg", "data"),
+            XDG_CACHE_HOME: path.join(home, "xdg", "cache"),
+            XDG_STATE_HOME: path.join(home, "xdg", "state"),
+          },
+          stdout: "pipe",
+          stderr: "pipe",
+        })
+        const [stdout, stderr, code] = yield* Effect.promise(() =>
+          Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]),
+        )
+
+        const refused = stderr.split("\n").filter((line) => line.includes("refused to trust"))
+        expect(code).not.toBe(0)
+        expect(refused).toHaveLength(1)
+        expect(refused[0]).toContain(home)
+        expect(stdout).not.toContain("trusted project")
+      }),
+    30000,
   )
 })

@@ -60,22 +60,91 @@ function mergeConfigConcatArrays(target: Info, source: Info): Info {
   return merged
 }
 
-// K2: per-key provenance for the code-bearing maps. Called for every merge step with the
-// scope of the source that supplied `next`, so later merges (project over global) win.
-function recordCodeOrigins(target: Info, source: Info, scope: ConfigPlugin.Scope) {
-  const origins: CodeOrigins = { ...(target.code_origins ?? {}) }
-  const record = (current: Record<string, ConfigPlugin.Scope> | undefined, value: unknown) => {
-    if (!isRecord(value)) return current
-    const map = { ...(current ?? {}) }
-    for (const name of Object.keys(value)) map[name] = scope
-    return map
+// K3: per-key, per-field provenance for the code-bearing maps. The merge is a deep
+// merge (upstream 1.19.5 config.ts:43-50), so a later source that only names a key
+// keeps the earlier source's command in the value. A project source taints each
+// code-bearing field it supplies; only a later user-owned source that supplies the
+// same field clears it. Non-code fields never taint and never clear.
+type CodeMap = "mcp" | "lsp" | "formatter" | "provider"
+const CODE_MAPS: CodeMap[] = ["mcp", "lsp", "formatter", "provider"]
+
+// Code-bearing field paths, confirmed against the schemas: mcp command/environment
+// (packages/core/src/v1/config/mcp.ts:7-13), lsp command/env (lsp.ts:11-17), formatter
+// command/environment (formatter.ts:5-8), provider npm at <id>.npm and
+// <id>.models.<model>.provider.npm (provider.ts:82-84, :105). args/env are accepted
+// where a source uses those names. The top-level shell scalar also selects code and is
+// tracked by recordCodeOrigins below. enabled/disabled/url/timeout/extensions/options/
+// headers cannot select code, so they never taint; mcp cwd changes only where a command
+// runs, not which command runs.
+function codeFieldPaths(map: CodeMap, entry: unknown): string[] {
+  if (!isRecord(entry)) return []
+  if (map === "provider") {
+    const fields: string[] = []
+    if (entry.npm !== undefined) fields.push("npm")
+    if (isRecord(entry.models)) {
+      for (const [model, value] of Object.entries(entry.models)) {
+        if (isRecord(value) && isRecord(value.provider) && value.provider.npm !== undefined)
+          fields.push(`models.${model}.provider.npm`)
+      }
+    }
+    return fields
   }
-  origins.mcp = record(origins.mcp, source.mcp)
-  origins.lsp = record(origins.lsp, source.lsp)
-  origins.formatter = record(origins.formatter, source.formatter)
-  origins.provider = record(origins.provider, source.provider)
-  if (source.shell !== undefined) origins.shell = scope
-  target.code_origins = origins
+  const fields: string[] = []
+  if (entry.command !== undefined) fields.push("command")
+  if (entry.args !== undefined) fields.push("args")
+  for (const field of ["environment", "env"]) {
+    const value = entry[field]
+    if (isRecord(value)) {
+      for (const name of Object.keys(value)) fields.push(`${field}.${name}`)
+    } else if (value !== undefined) fields.push(field)
+  }
+  return fields
+}
+
+// K3: called for every merge step with the scope of the source that supplied `next`.
+// Upstream 1.19.5 config.ts:392 merges without any provenance.
+function recordCodeOrigins(target: Info, source: Info, scope: ConfigPlugin.Scope) {
+  const previous = target.code_origins
+  const taint: Record<CodeMap, Record<string, string[]>> = {
+    mcp: { ...(previous?.taint?.mcp ?? {}) },
+    lsp: { ...(previous?.taint?.lsp ?? {}) },
+    formatter: { ...(previous?.taint?.formatter ?? {}) },
+    provider: { ...(previous?.taint?.provider ?? {}) },
+  }
+  for (const map of CODE_MAPS) {
+    const value = source[map]
+    if (!isRecord(value)) continue
+    for (const [key, entry] of Object.entries(value)) {
+      const fields = codeFieldPaths(map, entry)
+      if (!fields.length) continue
+      const next = new Set(taint[map][key] ?? [])
+      if (scope === "local") for (const field of fields) next.add(field)
+      else for (const field of fields) next.delete(field)
+      if (next.size) taint[map][key] = [...next].sort()
+      else delete taint[map][key]
+    }
+  }
+  // The map value the loaders read is derived: "local" exactly while the key carries
+  // a taint record. A key mentioned by this source without surviving taint is global.
+  const derive = (map: CodeMap, current: Record<string, ConfigPlugin.Scope> | undefined) => {
+    const next = { ...(current ?? {}) }
+    const value = source[map]
+    if (isRecord(value)) for (const key of Object.keys(value)) next[key] = "global"
+    for (const key of Object.keys(taint[map])) next[key] = "local"
+    return next
+  }
+  target.code_origins = {
+    mcp: derive("mcp", previous?.mcp),
+    lsp: derive("lsp", previous?.lsp),
+    formatter: derive("formatter", previous?.formatter),
+    provider: derive("provider", previous?.provider),
+    taint,
+    ...(source.shell !== undefined
+      ? { shell: scope }
+      : previous?.shell !== undefined
+        ? { shell: previous.shell }
+        : {}),
+  }
 }
 
 function normalizeLoadedConfig(data: unknown) {
@@ -136,14 +205,19 @@ async function resolveLoadedPlugins<T extends { plugin?: ConfigPluginV1.Spec[] }
   return config
 }
 
-// K2: derived provenance for the code-bearing config maps. The trust gate reads it per
-// capability so a global entry keeps loading while a project entry is skipped.
+// K3: derived provenance for the code-bearing config maps. The trust gate reads it per
+// capability so a global entry keeps loading while a project entry is skipped. Upstream
+// 1.19.5 has no equivalent field.
 export type CodeOrigins = {
   mcp?: Record<string, ConfigPlugin.Scope>
   lsp?: Record<string, ConfigPlugin.Scope>
   formatter?: Record<string, ConfigPlugin.Scope>
   provider?: Record<string, ConfigPlugin.Scope>
   shell?: ConfigPlugin.Scope
+  // Per key, the code-bearing field paths a project source supplied and no later
+  // user-owned source replaced. Empty/absent means no project field remains, so the
+  // key may load while untrusted.
+  taint?: Partial<Record<CodeMap, Record<string, string[]>>>
 }
 
 type Info = ConfigV1.Info & {
@@ -402,6 +476,12 @@ const layer = Layer.effect(
         // skipped while it is untrusted (ruling 7); user-owned dirs are never gated.
         const projectAllowed = yield* Effect.promise(() => TrustGate.allowed(ctx))
         const mayWrite = (target: string) => projectAllowed || TrustGate.isUserOwned(target)
+        // K3: isUserOwned also covers a user-named HORDECODE_CONFIG(_DIR) path, which is
+        // load-only. A file that lies inside an untrusted project worktree is still
+        // project content for writes: the $schema insert must not touch it (ruling 7).
+        const inProject = (target: string) =>
+          FSUtil.contains(ctx.directory, target) || (ctx.worktree !== "/" && FSUtil.contains(ctx.worktree, target))
+        const mayWriteSource = (target: string) => projectAllowed || (mayWrite(target) && !inProject(target))
 
         let result: Info = {}
         const authEnv: Record<string, string> = {}
@@ -490,17 +570,19 @@ const layer = Layer.effect(
         yield* merge(Global.Path.config, global, "global")
 
         if (Flag.OPENCODE_CONFIG) {
-          yield* merge(Flag.OPENCODE_CONFIG, yield* loadFile(Flag.OPENCODE_CONFIG, authEnv))
+          // K3: the file is user-named, so its code loads, but the schema write is
+          // refused when it sits inside the untrusted worktree.
+          yield* merge(Flag.OPENCODE_CONFIG, yield* loadFile(Flag.OPENCODE_CONFIG, authEnv, mayWriteSource(Flag.OPENCODE_CONFIG)))
           yield* Effect.logDebug("loaded custom config", { path: Flag.OPENCODE_CONFIG })
         }
 
         if (!Flag.HORDECODE_DISABLE_PROJECT_CONFIG && !Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
           for (const file of yield* ConfigPaths.files("opencode", ctx.directory, ctx.worktree).pipe(Effect.orDie)) {
-            yield* merge(file, yield* loadFile(file, authEnv, mayWrite(file)), "local")
+            yield* merge(file, yield* loadFile(file, authEnv, mayWriteSource(file)), "local")
           }
           // hordecode project files are primary; opencode files above are compat, lower priority.
           for (const file of yield* ConfigPaths.files("hordecode", ctx.directory, ctx.worktree).pipe(Effect.orDie)) {
-            yield* merge(file, yield* loadFile(file, authEnv, mayWrite(file)), "local")
+            yield* merge(file, yield* loadFile(file, authEnv, mayWriteSource(file)), "local")
           }
         }
 
@@ -523,7 +605,7 @@ const layer = Layer.effect(
             for (const file of ["opencode.json", "opencode.jsonc"]) {
               const source = path.join(dir, file)
               yield* Effect.logDebug(`loading config from ${source}`)
-              yield* merge(source, yield* loadFile(source, authEnv, mayWrite(source)))
+              yield* merge(source, yield* loadFile(source, authEnv, mayWriteSource(source)))
               result.agent ??= {}
               result.mode ??= {}
               result.plugin ??= []
@@ -537,7 +619,7 @@ const layer = Layer.effect(
             for (const file of ["hordecode.json", "hordecode.jsonc"]) {
               const source = path.join(dir, file)
               yield* Effect.logDebug(`loading config from ${source}`)
-              yield* merge(source, yield* loadFile(source, authEnv, mayWrite(source)))
+              yield* merge(source, yield* loadFile(source, authEnv, mayWriteSource(source)))
               result.agent ??= {}
               result.mode ??= {}
               result.plugin ??= []
@@ -545,8 +627,10 @@ const layer = Layer.effect(
           }
 
           // K2 ruling 7: a plugin dependency install and .gitignore are writes into the
-          // directory. Skip them for project dirs while the project is untrusted.
-          if (!mayWrite(dir)) continue
+          // directory. Skip them for project dirs while the project is untrusted. K3: a
+          // user-named CONFIG_DIR is load-only, so it does not reopen writes into the
+          // untrusted worktree it lies in.
+          if (!mayWrite(dir) || (!projectAllowed && inProject(dir))) continue
 
           yield* ensureGitignore(dir).pipe(Effect.orDie)
 

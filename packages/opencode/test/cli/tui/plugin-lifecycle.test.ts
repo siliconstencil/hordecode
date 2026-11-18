@@ -8,8 +8,12 @@ import { mockTuiRuntime } from "../../fixture/tui-runtime"
 
 const { TuiPluginRuntime } = await import("../../../src/plugin/tui/runtime")
 
+// K3: these tests drive TuiPluginRuntime.init directly, so no boot path records a trust
+// decision. A trusted tmpdir stands in for the boot decision; without it the host drops
+// project-scope origins and the dispose/rollback/slot assertions never run.
 test("runs onDispose callbacks with aborted signal and is idempotent", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const file = path.join(dir, "plugin.ts")
       const spec = pathToFileURL(file).href
@@ -61,6 +65,7 @@ test("runs onDispose callbacks with aborted signal and is idempotent", async () 
 
 test("rolls back failed plugin and continues loading next", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const bad = path.join(dir, "bad-plugin.ts")
       const good = path.join(dir, "good-plugin.ts")
@@ -118,6 +123,7 @@ test("rolls back failed plugin and continues loading next", async () => {
 
 test("assigns sequential slot ids scoped to plugin", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const file = path.join(dir, "slot-plugin.ts")
       const spec = pathToFileURL(file).href
@@ -183,6 +189,7 @@ test(
   "times out hanging plugin cleanup on dispose",
   async () => {
     await using tmp = await tmpdir({
+      trust: true,
       init: async (dir) => {
         const file = path.join(dir, "timeout-plugin.ts")
         const spec = pathToFileURL(file).href
