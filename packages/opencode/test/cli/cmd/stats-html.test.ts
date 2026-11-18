@@ -15,7 +15,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { Effect } from "effect"
-import { mkdtempSync } from "node:fs"
+import { mkdtempSync, realpathSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import os from "node:os"
 import { SessionID } from "@opencode-ai/core/session/schema"
@@ -33,6 +33,25 @@ import {
 } from "@/cli/cmd/stats"
 
 const TMP = os.tmpdir()
+const originalCwd = process.cwd()
+const created: string[] = []
+
+const tmpdir = (prefix: string) => {
+  const dir = mkdtempSync(join(TMP, prefix))
+  created.push(dir)
+  return dir
+}
+
+//  TMPDIR may be a symlink: process.cwd() returns the kernel's canonical path
+//  while a TMP-derived path keeps the symlinked prefix. Resolve both sides of a
+//  path comparison to the same physical path first.
+const real = (p: string) => {
+  try {
+    return realpathSync.native(p)
+  } catch {
+    return p
+  }
+}
 
 type Stats = Effect.Success<ReturnType<typeof aggregateSessionStats>>
 
@@ -140,7 +159,20 @@ describe("horde stats --html", () => {
     useCheckpointHarness()
   })
   afterEach(() => {
-    resetCheckpointHarness()
+    //  Restore cwd before removing the directories a test may be standing in,
+    //  and never let a cleanup failure replace a test failure.
+    try {
+      process.chdir(originalCwd)
+    } catch {}
+    try {
+      resetCheckpointHarness()
+    } finally {
+      for (const dir of created.splice(0)) {
+        try {
+          rmSync(dir, { recursive: true, force: true })
+        } catch {}
+      }
+    }
   })
 
   it("1. carries every number the text output prints, model and tool rows included", async () => {
@@ -270,7 +302,7 @@ describe("horde stats --html", () => {
     const stats = (await runWithCheckpoint(() =>
       Effect.suspend(() => aggregateSessionStats()) as Effect.Effect<Stats, never, never>,
     )) as Stats
-    const dir = mkdtempSync(join(TMP, "h-stats-"))
+    const dir = tmpdir("h-stats-")
     const file = join(dir, "stats.html")
     const written = await writeStatsHtml(stats, { path: file })
     expect(written).toBe(file)
@@ -282,8 +314,8 @@ describe("horde stats --html", () => {
 
   it("5. expands ~ and resolves every path", async () => {
     const stats = emptyStats()
-    const home = mkdtempSync(join(TMP, "h2-home-"))
-    const work = mkdtempSync(join(TMP, "h2-work-"))
+    const home = tmpdir("h2-home-")
+    const work = tmpdir("h2-work-")
     const previousHome = process.env.HOME
     const previousCwd = process.cwd()
     try {
@@ -292,8 +324,8 @@ describe("horde stats --html", () => {
       expect(await writeStatsHtml(stats, { path: "~/page.html" })).toBe(join(home, "page.html"))
       expect((await Bun.file(join(home, "page.html")).text()).startsWith("<!doctype html>")).toBe(true)
       expect(await writeStatsHtml(stats, { path: "~" })).toBe(join(home, "horde-stats.html"))
-      expect(await writeStatsHtml(stats, { path: "sub/../page.html" })).toBe(join(work, "page.html"))
-      expect(await writeStatsHtml(stats, { path: "" })).toBe(join(work, "horde-stats.html"))
+      expect(real(await writeStatsHtml(stats, { path: "sub/../page.html" }))).toBe(real(join(work, "page.html")))
+      expect(real(await writeStatsHtml(stats, { path: "" }))).toBe(real(join(work, "horde-stats.html")))
     } finally {
       if (previousHome === undefined) delete process.env.HOME
       else process.env.HOME = previousHome
@@ -302,7 +334,7 @@ describe("horde stats --html", () => {
   })
 
   it("6. a valueless --html writes the default page, prints its path and suppresses the text", async () => {
-    const work = mkdtempSync(join(TMP, "h2-cli-"))
+    const work = tmpdir("h2-cli-")
     const previousCwd = process.cwd()
     const lines: string[] = []
     const original = console.log
@@ -318,7 +350,8 @@ describe("horde stats --html", () => {
         ) as Effect.Effect<void, never, never>,
       )
       const out = lines.join("\n")
-      expect(out).toContain(`Stats written to ${join(work, "horde-stats.html")}`)
+      const printed = out.match(/Stats written to (.+)/)?.[1] ?? ""
+      expect(real(printed)).toBe(real(join(work, "horde-stats.html")))
       expect(out).not.toContain("OVERVIEW")
       expect(out).not.toContain("COST & TOKENS")
       const html = await Bun.file(join(work, "horde-stats.html")).text()
