@@ -36,6 +36,7 @@ const TMP = os.tmpdir()
 const originalCwd = process.cwd()
 const created: string[] = []
 
+// J open decision [8], reports/0.1.6/j2-cleanup-followups.md: track created dirs so afterEach removes them.
 const tmpdir = (prefix: string) => {
   const dir = mkdtempSync(join(TMP, prefix))
   created.push(dir)
