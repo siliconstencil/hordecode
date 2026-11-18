@@ -20,6 +20,7 @@ import { Provider } from "@/provider/provider"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Filesystem } from "@/util/filesystem"
 import { InstanceBootstrap } from "@/project/bootstrap"
+import { TrustGate } from "@/project/trust-gate"
 import { InstanceStore } from "@/project/instance-store"
 import { testEffect } from "../lib/effect"
 import { ProviderV2 } from "@opencode-ai/core/provider"
@@ -1981,6 +1982,8 @@ const provideMultiInstance = <A, E, R>(eff: Effect.Effect<A, E, R>) =>
 it.effect("plugin config providers persist after instance dispose", () =>
   Effect.gen(function* () {
     const dir = yield* tmpdirScoped()
+    // K2: the project plugin only loads for a trusted worktree.
+    yield* Effect.promise(() => TrustGate.trust(dir))
     const configDir = path.join(dir, ".opencode")
     const root = path.join(configDir, "plugin")
     yield* Effect.promise(() => mkdir(root, { recursive: true }))

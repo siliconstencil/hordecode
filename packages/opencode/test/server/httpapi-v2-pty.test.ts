@@ -10,6 +10,7 @@ import { Location } from "@opencode-ai/core/location"
 import { Pty } from "@opencode-ai/core/pty"
 import { PtyTicket } from "@opencode-ai/core/pty/ticket"
 import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
+import { TrustGate } from "../../src/project/trust-gate"
 import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, tmpdir, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
@@ -179,6 +180,8 @@ describe("v2 pty HttpApi", () => {
     () =>
       Effect.gen(function* () {
         const dir = yield* tmpdirScoped({ git: true, config: { formatter: false, lsp: false } })
+        // K2: project plugin code only loads for a trusted worktree.
+        yield* Effect.promise(() => TrustGate.trust(dir))
         const plugin = path.join(dir, "plugin.ts")
         const cwd = path.join(dir, "child")
         yield* Effect.promise(() => mkdir(cwd))

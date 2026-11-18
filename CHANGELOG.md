@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- Ask before running code from a project directory: project plugins, hooks, tools,
+  MCP/LSP/formatter commands, provider npm packages, the `shell` value and project
+  workflows are skipped until the project is trusted; `--trust` records the same trust
+  as the TUI prompt.
+
 ### Fixed
 
 - Overflow compaction no longer drops the user's attachments when replaying the last user turn.

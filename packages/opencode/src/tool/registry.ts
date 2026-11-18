@@ -24,6 +24,7 @@ import { WorkflowTool } from "./workflow"
 import { SessionTool } from "./session"
 import * as Tool from "./tool"
 import { Config } from "@/config/config"
+import { TrustGate } from "@/project/trust-gate"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
 import type { JSONSchema7, JSONSchema7Definition } from "@ai-sdk/provider"
 import { Schema } from "effect"
@@ -256,7 +257,10 @@ const layer = Layer.effect(
         const custom: Tool.Def[] = []
 
         const dirs = yield* config.directories()
-        const matches = dirs.flatMap((dir) =>
+        // K2: {tool,tools} files in a project directory are project code. User-owned
+        // dirs (Global.Path.config, $HOME/.hordecode, $HOME/.opencode) keep loading.
+        const allowed = yield* Effect.promise(() => TrustGate.allowed(ctx))
+        const matches = (allowed ? dirs : dirs.filter((dir) => TrustGate.isUserOwned(dir))).flatMap((dir) =>
           Glob.scanSync("{tool,tools}/*.{js,ts}", { cwd: dir, absolute: true, dot: true, symlink: true }),
         )
         if (matches.length) yield* config.waitForDependencies()

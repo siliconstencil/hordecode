@@ -7,6 +7,7 @@ import { InstanceState } from "@/effect/instance-state"
 import path from "path"
 import { mergeDeep } from "remeda"
 import { Config } from "@/config/config"
+import { TrustGate } from "@/project/trust-gate"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { errorMessage } from "@/util/error"
 import * as Formatter from "./formatter"
@@ -120,6 +121,9 @@ const layer = Layer.effect(
         }
 
         const cfg = yield* config.get()
+        // K2: a formatter command from project config is project code; user-owned
+        // entries (global config, $HOME dot-dirs) keep running.
+        const allowed = yield* Effect.promise(() => TrustGate.allowed(ctx))
 
         if (!cfg.formatter) {
           yield* Effect.logInfo("all formatters are disabled")
@@ -137,6 +141,7 @@ const layer = Layer.effect(
 
         if (cfg.formatter !== true) {
           for (const [name, item] of Object.entries(cfg.formatter)) {
+            if (!allowed && cfg.code_origins?.formatter?.[name] === "local") continue
             const builtIn = Formatter[name as keyof typeof Formatter]
 
             // Ruff and uv are both the same formatter, so disabling either should disable both.

@@ -122,6 +122,14 @@ This is also safe to be checked into Git and uses the same schema as the global 
 
 ---
 
+### Trusting a project
+
+<!-- Hordecode: upstream 1.19.5 config.mdx has no project trust gate; this section departs here. -->
+
+Code that a project config directory contributes does not run until you trust that project: plugins, hooks, tools, MCP servers, LSP and formatter commands, provider packages, the `shell` value and workflows are skipped. Accept the prompt when the TUI starts in the project, or pass `--trust` to `horde run`, `horde serve` or `horde attach`; both write the same trust record for the project's worktree root. Global config keeps loading, and an untrusted session starts normally with one warning that names the project.
+
+---
+
 ### Custom path
 
 Specify a custom config file path using the `OPENCODE_CONFIG` environment variable.

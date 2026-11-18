@@ -21,7 +21,8 @@ import { InstanceState } from "@/effect/instance-state"
 import { Context, Duration, Effect, Exit, Fiber, Layer, Option, Schema } from "effect"
 import { HttpClient, HttpClientRequest } from "effect/unstable/http"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
-import { containsPath, type InstanceContext } from "../project/instance-context"
+import type { InstanceContext } from "../project/instance-context"
+import { TrustGate } from "../project/trust-gate"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { RemoteAuthError } from "@opencode-ai/core/v1/config/error"
 import { ConfigPermissionV1 } from "@opencode-ai/core/v1/config/permission"
@@ -57,6 +58,24 @@ function mergeConfigConcatArrays(target: Info, source: Info): Info {
     merged.instructions = Array.from(new Set([...target.instructions, ...source.instructions]))
   }
   return merged
+}
+
+// K2: per-key provenance for the code-bearing maps. Called for every merge step with the
+// scope of the source that supplied `next`, so later merges (project over global) win.
+function recordCodeOrigins(target: Info, source: Info, scope: ConfigPlugin.Scope) {
+  const origins: CodeOrigins = { ...(target.code_origins ?? {}) }
+  const record = (current: Record<string, ConfigPlugin.Scope> | undefined, value: unknown) => {
+    if (!isRecord(value)) return current
+    const map = { ...(current ?? {}) }
+    for (const name of Object.keys(value)) map[name] = scope
+    return map
+  }
+  origins.mcp = record(origins.mcp, source.mcp)
+  origins.lsp = record(origins.lsp, source.lsp)
+  origins.formatter = record(origins.formatter, source.formatter)
+  origins.provider = record(origins.provider, source.provider)
+  if (source.shell !== undefined) origins.shell = scope
+  target.code_origins = origins
 }
 
 function normalizeLoadedConfig(data: unknown) {
@@ -117,10 +136,23 @@ async function resolveLoadedPlugins<T extends { plugin?: ConfigPluginV1.Spec[] }
   return config
 }
 
+// K2: derived provenance for the code-bearing config maps. The trust gate reads it per
+// capability so a global entry keeps loading while a project entry is skipped.
+export type CodeOrigins = {
+  mcp?: Record<string, ConfigPlugin.Scope>
+  lsp?: Record<string, ConfigPlugin.Scope>
+  formatter?: Record<string, ConfigPlugin.Scope>
+  provider?: Record<string, ConfigPlugin.Scope>
+  shell?: ConfigPlugin.Scope
+}
+
 type Info = ConfigV1.Info & {
   // plugin_origins is derived state, not a persisted config field. It keeps each winning plugin spec together
   // with the file and scope it came from so later runtime code can make location-sensitive decisions.
   plugin_origins?: ConfigPlugin.Origin[]
+  // code_origins is derived state too: the scope of the source that supplied the winning
+  // value of each code-bearing key. writable() strips it like plugin_origins.
+  code_origins?: CodeOrigins
 }
 
 type State = {
@@ -170,7 +202,7 @@ function patchJsonc(input: string, patch: unknown, path: string[] = []): string 
 }
 
 function writable(info: Info) {
-  const { plugin_origins: _plugin_origins, ...next } = info
+  const { plugin_origins: _plugin_origins, code_origins: _code_origins, ...next } = info
   return next
 }
 
@@ -242,7 +274,7 @@ const layer = Layer.effect(
 
     const loadConfig = Effect.fnUntraced(function* (
       text: string,
-      options: { path: string } | { dir: string; source: string },
+      options: { path: string; write?: boolean } | { dir: string; source: string },
       env?: Record<string, string>,
     ) {
       const source = "path" in options ? options.path : options.source
@@ -261,7 +293,9 @@ const layer = Layer.effect(
       // The schema served at hordecode.com/config.json carries the fork's
       // keys (memory, checkpoint, harness); opencode.ai/config.json would
       // flag them as unknown in editors.
-      if (!data.$schema) {
+      // K2: no write into an untrusted project directory (ruling 7). The caller
+      // passes write=false for project files while the project is untrusted.
+      if (!data.$schema && options.write !== false) {
         data.$schema = "https://hordecode.com/config.json"
         const updated = text.replace(/^\s*\{/, '{\n  "$schema": "https://hordecode.com/config.json",')
         yield* fs.writeFileString(options.path, updated).pipe(Effect.catch(() => Effect.void))
@@ -269,11 +303,11 @@ const layer = Layer.effect(
       return data
     })
 
-    const loadFile = Effect.fnUntraced(function* (filepath: string, env?: Record<string, string>) {
+    const loadFile = Effect.fnUntraced(function* (filepath: string, env?: Record<string, string>, write = true) {
       yield* Effect.logInfo("loading", { path: filepath })
       const text = yield* readConfigFile(filepath)
       if (!text) return {} as Info
-      return yield* loadConfig(text, { path: filepath }, env)
+      return yield* loadConfig(text, { path: filepath, write }, env)
     })
 
     const loadGlobal = Effect.fnUntraced(function* (env?: Record<string, string>) {
@@ -363,18 +397,24 @@ const layer = Layer.effect(
     const loadInstanceState = Effect.fn("Config.loadInstanceState")(
       function* (ctx: InstanceContext) {
         const auth = yield* authSvc.all().pipe(Effect.orDie)
+        // K2: the boot gate records the decision before config.get() runs. Writes into a
+        // project directory (schema insert, plugin dependency install, .gitignore) are
+        // skipped while it is untrusted (ruling 7); user-owned dirs are never gated.
+        const projectAllowed = yield* Effect.promise(() => TrustGate.allowed(ctx))
+        const mayWrite = (target: string) => projectAllowed || TrustGate.isUserOwned(target)
 
         let result: Info = {}
         const authEnv: Record<string, string> = {}
         const consoleManagedProviders = new Set<string>()
         let activeOrgName: string | undefined
 
-        const pluginScopeForSource = Effect.fnUntraced(function* (source: string) {
+        const sourceScope = (source: string): ConfigPlugin.Scope => {
           if (source.startsWith("http://") || source.startsWith("https://")) return "global"
           if (source === "OPENCODE_CONFIG_CONTENT") return "local"
-          if (containsPath(source, ctx)) return "local"
-          return "global"
-        })
+          // K2 ruling 8: a config source the walk reaches is project content unless it is
+          // one of the three user-owned dirs, including ancestors outside the worktree.
+          return TrustGate.isUserOwned(source) ? "global" : "local"
+        }
 
         const mergePluginOrigins = Effect.fnUntraced(function* (
           source: string,
@@ -386,7 +426,7 @@ const layer = Layer.effect(
           kind?: ConfigPlugin.Scope,
         ) {
           if (!list?.length) return
-          const hit = kind ?? (yield* pluginScopeForSource(source))
+          const hit = kind ?? sourceScope(source)
           // Merge newly seen plugin origins with previously collected ones, then dedupe by plugin identity while
           // keeping the winning source/scope metadata for downstream installs, writes, and diagnostics.
           const plugins = ConfigPlugin.deduplicatePluginOrigins([
@@ -397,10 +437,12 @@ const layer = Layer.effect(
           result.plugin_origins = plugins
         })
 
-        const merge = (source: string, next: Info, kind?: ConfigPlugin.Scope) => {
+        const merge = Effect.fnUntraced(function* (source: string, next: Info, kind?: ConfigPlugin.Scope) {
+          const scope = kind ?? sourceScope(source)
           result = mergeConfigConcatArrays(result, next)
-          return mergePluginOrigins(source, next.plugin, kind)
-        }
+          recordCodeOrigins(result, next, scope)
+          yield* mergePluginOrigins(source, next.plugin, scope)
+        })
 
         for (const [key, value] of Object.entries(auth)) {
           if (value.type === "wellknown") {
@@ -454,11 +496,11 @@ const layer = Layer.effect(
 
         if (!Flag.HORDECODE_DISABLE_PROJECT_CONFIG && !Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
           for (const file of yield* ConfigPaths.files("opencode", ctx.directory, ctx.worktree).pipe(Effect.orDie)) {
-            yield* merge(file, yield* loadFile(file, authEnv), "local")
+            yield* merge(file, yield* loadFile(file, authEnv, mayWrite(file)), "local")
           }
           // hordecode project files are primary; opencode files above are compat, lower priority.
           for (const file of yield* ConfigPaths.files("hordecode", ctx.directory, ctx.worktree).pipe(Effect.orDie)) {
-            yield* merge(file, yield* loadFile(file, authEnv), "local")
+            yield* merge(file, yield* loadFile(file, authEnv, mayWrite(file)), "local")
           }
         }
 
@@ -481,7 +523,7 @@ const layer = Layer.effect(
             for (const file of ["opencode.json", "opencode.jsonc"]) {
               const source = path.join(dir, file)
               yield* Effect.logDebug(`loading config from ${source}`)
-              yield* merge(source, yield* loadFile(source, authEnv))
+              yield* merge(source, yield* loadFile(source, authEnv, mayWrite(source)))
               result.agent ??= {}
               result.mode ??= {}
               result.plugin ??= []
@@ -495,12 +537,16 @@ const layer = Layer.effect(
             for (const file of ["hordecode.json", "hordecode.jsonc"]) {
               const source = path.join(dir, file)
               yield* Effect.logDebug(`loading config from ${source}`)
-              yield* merge(source, yield* loadFile(source, authEnv))
+              yield* merge(source, yield* loadFile(source, authEnv, mayWrite(source)))
               result.agent ??= {}
               result.mode ??= {}
               result.plugin ??= []
             }
           }
+
+          // K2 ruling 7: a plugin dependency install and .gitignore are writes into the
+          // directory. Skip them for project dirs while the project is untrusted.
+          if (!mayWrite(dir)) continue
 
           yield* ensureGitignore(dir).pipe(Effect.orDie)
 

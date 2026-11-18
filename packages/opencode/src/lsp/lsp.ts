@@ -6,6 +6,7 @@ import path from "path"
 import { pathToFileURL, fileURLToPath } from "url"
 import * as LSPServer from "./server"
 import { Config } from "@/config/config"
+import { TrustGate } from "@/project/trust-gate"
 import { Process } from "@/util/process"
 import { spawn as lspspawn } from "./launch"
 import { withoutCredentials } from "@opencode-ai/core/util/credential-env"
@@ -146,6 +147,9 @@ const layer = Layer.effect(
     const state = yield* InstanceState.make<State>(
       Effect.fn("LSP.state")(function* (ctx) {
         const cfg = yield* config.get()
+        // K2: an LSP command from project config is project code; user-owned entries
+        // (global config, $HOME dot-dirs) keep spawning.
+        const allowed = yield* Effect.promise(() => TrustGate.allowed(ctx))
 
         const servers: Record<string, LSPServer.Info> = {}
 
@@ -160,6 +164,7 @@ const layer = Layer.effect(
 
           if (cfg.lsp !== true) {
             for (const [name, item] of Object.entries(cfg.lsp)) {
+              if (!allowed && cfg.code_origins?.lsp?.[name] === "local") continue
               const existing = servers[name]
               if (item.disabled) {
                 yield* Effect.logInfo(`LSP server ${name} is disabled`)

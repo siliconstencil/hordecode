@@ -20,10 +20,18 @@ export function isInlineScript(nameOrScript: string): boolean {
 const SAFE_NAME = /^[A-Za-z0-9._-]+$/
 
 export async function resolveWorkflowScript(name: string, start: string, stop: string): Promise<string | null> {
+  const file = await resolveWorkflowFile(name, start, stop)
+  if (!file) return null
+  return Filesystem.readText(file)
+}
+
+// Same lookup, returning the file path so a caller can apply a provenance check
+// (the trust gate) before the project file is read as code.
+export async function resolveWorkflowFile(name: string, start: string, stop: string): Promise<string | null> {
   if (!SAFE_NAME.test(name)) throw new Error(`invalid workflow name: ${JSON.stringify(name)}`)
   const subdirs = [".hordecode/workflows", ".claude/workflows"]
   for (const found of await collectUp(name, subdirs, start, stop)) {
-    return Filesystem.readText(found)
+    return found
   }
   return null
 }

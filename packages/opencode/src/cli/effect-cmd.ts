@@ -76,6 +76,13 @@ export const effectCmd = <Args, A>(opts: EffectCmdOpts<Args, A>) =>
       const { AppRuntime } = await import("@/effect/app-runtime")
       // yargs typing wraps Args in ArgumentsCamelCase<WithDoubleDash<...>>; cast at the boundary.
       const args = rawArgs as unknown as WithDoubleDash<Args>
+      const directory = opts.directory?.(args) ?? process.cwd()
+      // K2: --trust records the same workspace-trust entry the TUI prompt writes,
+      // before store.load() boots the instance and before any project code runs.
+      if ((args as { trust?: boolean }).trust === true) {
+        const { TrustGate } = await import("@/project/trust-gate")
+        await TrustGate.trustDirectory(directory)
+      }
       const useInstance = typeof opts.instance === "function" ? opts.instance(args) : opts.instance !== false
       if (!useInstance) {
         await AppRuntime.runPromise(opts.handler(args))
@@ -83,7 +90,6 @@ export const effectCmd = <Args, A>(opts: EffectCmdOpts<Args, A>) =>
       }
       const { InstanceStore } = await import("@/project/instance-store")
       const { InstanceRef } = await import("@/effect/instance-ref")
-      const directory = opts.directory?.(args) ?? process.cwd()
       const { store, ctx } = await AppRuntime.runPromise(
         InstanceStore.Service.use((store) => store.load({ directory }).pipe(Effect.map((ctx) => ({ store, ctx })))),
       )

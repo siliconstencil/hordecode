@@ -16,6 +16,7 @@ import {
   ToolListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js"
 import { Config } from "@/config/config"
+import { TrustGate } from "@/project/trust-gate"
 import { ConfigMCPV1 } from "@opencode-ai/core/v1/config/mcp"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
@@ -495,6 +496,10 @@ const layer = Layer.effect(
         const cfg = yield* cfgSvc.get()
         const bridge = yield* EffectBridge.make()
         const config = cfg.mcp ?? {}
+        const ctx = yield* InstanceState.context
+        // K2: a local MCP command from project config is project code. User-owned
+        // (global) entries keep connecting in an untrusted project.
+        const allowed = yield* Effect.promise(() => TrustGate.allowed(ctx))
         const s: State = {
           config: {},
           status: {},
@@ -509,6 +514,11 @@ const layer = Layer.effect(
             Effect.gen(function* () {
               if (!isMcpConfigured(mcp)) {
                 yield* Effect.logError("Ignoring MCP config entry without type", { key })
+                return
+              }
+
+              if (!allowed && cfg.code_origins?.mcp?.[key] === "local") {
+                s.status[key] = { status: "disabled" }
                 return
               }
 

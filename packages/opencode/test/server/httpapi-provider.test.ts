@@ -3,6 +3,7 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Effect, Layer } from "effect"
 import path from "path"
+import { TrustGate } from "../../src/project/trust-gate"
 import { resetDatabase } from "../fixture/db"
 import { TestInstance } from "../fixture/fixture"
 import { markPluginDependenciesReady } from "../fixture/plugin"
@@ -105,6 +106,8 @@ function requestCallback(input: { providerID: string; method: number; headers: H
 
 function writeProviderAuthPlugin(dir: string) {
   return Effect.gen(function* () {
+    // K2: project plugin code only loads for a trusted worktree.
+    yield* Effect.promise(() => TrustGate.trust(dir))
     const fs = yield* FSUtil.Service
     yield* Effect.promise(() => markPluginDependenciesReady(path.join(dir, ".opencode")))
 
@@ -140,6 +143,8 @@ function writeProviderAuthPlugin(dir: string) {
 
 function writeProviderAuthValidationPlugin(dir: string) {
   return Effect.gen(function* () {
+    // K2: project plugin code only loads for a trusted worktree.
+    yield* Effect.promise(() => TrustGate.trust(dir))
     const fs = yield* FSUtil.Service
     yield* Effect.promise(() => markPluginDependenciesReady(path.join(dir, ".opencode")))
 
@@ -182,6 +187,8 @@ function writeProviderAuthValidationPlugin(dir: string) {
 
 function writeFunctionOptionsPlugin(dir: string) {
   return Effect.gen(function* () {
+    // K2: project plugin code only loads for a trusted worktree.
+    yield* Effect.promise(() => TrustGate.trust(dir))
     const fs = yield* FSUtil.Service
     yield* Effect.promise(() => markPluginDependenciesReady(path.join(dir, ".opencode")))
 
@@ -214,6 +221,8 @@ function writeFunctionOptionsPlugin(dir: string) {
 
 function writeProviderModelsMutationPlugin(dir: string) {
   return Effect.gen(function* () {
+    // K2: project plugin code only loads for a trusted worktree.
+    yield* Effect.promise(() => TrustGate.trust(dir))
     const fs = yield* FSUtil.Service
     yield* Effect.promise(() => markPluginDependenciesReady(path.join(dir, ".opencode")))
 

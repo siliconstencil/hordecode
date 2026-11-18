@@ -14,7 +14,8 @@ import { writeHeapSnapshot } from "v8"
 import { ServerAuth } from "@/server/auth"
 import { validateSession } from "../tui/validate-session"
 import { win32InstallCtrlCGuard } from "@opencode-ai/tui/terminal-win32"
-import { checkTrust, markTrusted, type TrustLevel } from "@opencode-ai/project/workspace-trust"
+import { checkTrust, type TrustLevel } from "@opencode-ai/project/workspace-trust"
+import { TrustGate } from "@/project/trust-gate"
 
 declare global {
   const OPENCODE_WORKER_PATH: string
@@ -171,7 +172,7 @@ export async function ensureWorkspaceTrusted(
   if (level === "trusted") return true
   const accepted = await promptWorkspaceTrust(directory, level)
   if (!accepted) return false
-  if (level === "untrusted") await markTrusted(directory)
+  if (level === "untrusted") await TrustGate.trust(TrustGate.resolveWorktree(directory))
   return true
 }
 
@@ -318,6 +319,9 @@ export const TuiThreadCommand = cmd({
       }
       const cwd = Filesystem.resolve(process.cwd())
 
+      // K2: --trust is the non-interactive opt-in; record it before the worker boots
+      // so the worker's boot gate reads the same store entry as the prompt path.
+      if (args.trust) await TrustGate.trustDirectory(cwd)
       const gateAccepted = await ensureWorkspaceTrusted(cwd, args.trust)
       if (!gateAccepted) return
 

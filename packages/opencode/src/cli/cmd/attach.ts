@@ -58,6 +58,11 @@ export const AttachCommand = cmd({
       .option("replay-limit", {
         type: "number",
         describe: "cap visible mini replay to the newest N messages",
+      })
+      .option("trust", {
+        type: "boolean",
+        describe: "trust this project and load its project code",
+        default: false,
       }),
   handler: async (args) => {
     if (args.replay === true) {
@@ -66,6 +71,12 @@ export const AttachCommand = cmd({
       return
     }
     const noReplay = args.replay === false || args.noReplay === true
+    // K2: the one non-interactive opt-in. attach talks to a remote server, but the
+    // local project directory is what a later local run/TUI reads from the store.
+    if (args.trust) {
+      const { TrustGate } = await import("@/project/trust-gate")
+      await TrustGate.trustDirectory(process.cwd())
+    }
 
     const directory = (() => {
       if (!args.dir) return undefined

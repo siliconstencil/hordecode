@@ -217,6 +217,11 @@ export const RunCommand = effectCmd({
         type: "number",
         describe: "port for the local server (defaults to random port if no value provided)",
       })
+      .option("trust", {
+        type: "boolean",
+        describe: "trust this project and load its project code (plugins, hooks, tools, MCP, LSP, formatters)",
+        default: false,
+      })
       .option("variant", {
         type: "string",
         describe: "model variant (provider-specific reasoning effort, e.g., high, max, minimal)",
@@ -1042,5 +1047,6 @@ export async function runMini(input: MiniCommandInput) {
     "dangerously-skip-permissions": false,
     dangerouslySkipPermissions: false,
     demo: input.demo ?? false,
+    trust: false,
   })
 }

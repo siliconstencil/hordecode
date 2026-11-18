@@ -5,7 +5,12 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 
 export const ServeCommand = effectCmd({
   command: "serve",
-  builder: (yargs) => withNetworkOptions(yargs),
+  builder: (yargs) =>
+    withNetworkOptions(yargs).option("trust", {
+      type: "boolean",
+      describe: "trust the project in the current directory and load its project code",
+      default: false,
+    }),
   describe: "starts a headless hordecode server",
   // Server loads instances per-request via x-opencode-directory header — no
   // need for an ambient project InstanceContext at startup.

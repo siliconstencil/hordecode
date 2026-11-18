@@ -16,6 +16,7 @@ import { Git } from "@/git"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { fileURLToPath } from "url"
 import { Config } from "@/config/config"
+import { TrustGate } from "@/project/trust-gate"
 import * as SandboxShell from "@/sandbox/shell"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Shell } from "@opencode-ai/core/shell"
@@ -960,7 +961,12 @@ export const ShellTool = Tool.define(
     return () =>
       Effect.gen(function* () {
         const cfg = yield* config.get()
-        const shell = Shell.acceptable(cfg.shell)
+        const ctx = yield* InstanceState.context
+        // K2: `shell` is an executable path. A project-config value is project code;
+        // an untrusted project falls back to the product default shell.
+        const allowed = yield* Effect.promise(() => TrustGate.allowed(ctx))
+        const configured = allowed || cfg.code_origins?.shell !== "local" ? cfg.shell : undefined
+        const shell = Shell.acceptable(configured)
         const name = Shell.name(shell)
         const limits = yield* trunc.limits()
         const prompt = ShellPrompt.render(name, process.platform, limits, defaultTimeoutMs)
