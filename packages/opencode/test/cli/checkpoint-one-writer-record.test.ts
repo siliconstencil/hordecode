@@ -255,4 +255,51 @@ describe("checkpoint one writer record", () => {
       }),
     )
   })
+
+  it("9. an interrupt between the spawn return and the handoff keeps the live writer's record", async () => {
+    // J open decision [7], reports/0.1.6/j-cleanup-batch.md: an interrupt that
+    // lands after `supervisor.spawn` returns but before `handedOff = true`
+    // must not reach the refusal finalizer -- the writer is live and billed,
+    // and its settle watcher has to exist or the record settles as "failure"
+    // with no watermark advance.
+    useFreshCheckpointWrite(true)
+    await runWithCheckpoint((svc) =>
+      Effect.gen(function* () {
+        const { sessionID } = yield* Effect.sync(() => seedParent())
+        const hold = yield* holdInsideSpawn
+        const build = yield* svc
+          .tryStartCheckpointWriter({ sessionID, model, promptOps: promptOps as never })
+          .pipe(Effect.forkChild)
+        // The spawn is billed and the writer is live; the caller has not
+        // resumed from it yet.
+        yield* Deferred.await(hold.entered)
+        expect(spawnedAt(0)).toBeDefined()
+
+        // Interrupt while the fiber is suspended inside the spawn. The
+        // interrupt is observed as the fiber resumes out of the spawn -- the
+        // window between the spawn return and the handoff, where today's
+        // one-region mask ends.
+        const interrupt = yield* Fiber.interrupt(build).pipe(Effect.forkChild({ startImmediately: true }))
+        yield* Deferred.succeed(hold.release, undefined)
+        yield* Fiber.join(interrupt)
+
+        // The refusal finalizer must not have run: the record is still the
+        // live writer's, and the child session belongs to the supervisor.
+        expect(yield* svc.isWriterRunning(sessionID)).toBe(true)
+        expect(childSessionIDs(sessionID)).toHaveLength(1)
+
+        // The settle watcher was forked with the handoff, so the live writer
+        // still settles through it: a success is reported and the entry is
+        // released only by the watcher, never as a refusal "failure".
+        settle(spawnedAt(0)!, { status: "success" } as AgentOutcome)
+        expect((yield* svc.waitForWriterSettlement(sessionID)).outcome).toBe("success")
+        // Settlement completes before the watcher deletes the entry, so poll
+        // for the removal instead of assuming it in the same tick.
+        yield* pollWithTimeout(
+          svc.isWriterRunning(sessionID).pipe(Effect.map((running) => (running ? undefined : (true as const)))),
+          "the released writer never left the writers map",
+        )
+      }),
+    )
+  })
 })

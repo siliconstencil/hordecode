@@ -1132,233 +1132,244 @@ export const layer = Layer.effect(
         rangeDesc,
       })
 
-      const result = yield* supervisor.spawn({
-        mode: "subagent",
-        sessionID: writerChildSession.id,
-        // Axis A: writer runs under child session, but its checkpoint.md /
-        // memory.md / progress paths AND CheckpointContext entries are keyed
-        // on the PARENT. The splitover plugin reads these via supervisor.preStop
-        // and must see parentSessionID to re-derive the right paths -- without
-        // it, checkpointPath(child) returns an empty file and the plugin
-        // emits a false topic-missing reflection that loops the writer up to
-        // MAX_PRE_REACT.
-        parentSessionID: input.sessionID,
-        // The host above IS the writer's session: without this, spawnSubagent
-        // nests a second child under it and the host stays an empty session
-        // carrying only a "main" row, visible to the fleet dashboard and to
-        // visibility.ts.
-        ownsSession: true,
-        agentType: "checkpoint-writer",
-        description: `checkpoint writer for session ${input.sessionID} covering ${rangeDesc}`,
-        task: promptText,
-        context: "full",
-        tools: ["read", "write", "edit", "apply_patch", "glob", "grep", "task"],
-        model: {
-          providerID: input.model.providerID as ProviderID,
-          modelID: input.model.modelID as ModelID,
-        },
-        background: true,
-        forkContext: forkCtx,
-      }).pipe(
-        // Set immediately after the billed spawn: from here the writer owns its
-        // child session, and the refusal finalizer must never remove it.
-        Effect.tap(() => Effect.sync(() => (spawned = true))),
-        // The mark must not be skippable on an interrupt at the spawn
-        // resumption, so one masked region covers the spawn and the mark.
-        // G3-D1, reports/0.1.6/g3-one-writer-record.md:197
-        Effect.uninterruptible,
-      )
+      // J open decision [7], reports/0.1.6/j-cleanup-batch.md: the handoff and
+      // the settle-watcher fork sit in the SAME uninterruptible region as the
+      // billed spawn. An interrupt that lands after `supervisor.spawn` returns
+      // must not reach the refusal finalizer while the writer is live and
+      // watcherless -- it is delivered when this region ends, with
+      // `handedOff = true` and the watcher already forked.
+      yield* Effect.uninterruptible(
+        Effect.gen(function* () {
+          const result = yield* supervisor.spawn({
+            mode: "subagent",
+            sessionID: writerChildSession.id,
+            // Axis A: writer runs under child session, but its checkpoint.md /
+            // memory.md / progress paths AND CheckpointContext entries are keyed
+            // on the PARENT. The splitover plugin reads these via supervisor.preStop
+            // and must see parentSessionID to re-derive the right paths -- without
+            // it, checkpointPath(child) returns an empty file and the plugin
+            // emits a false topic-missing reflection that loops the writer up to
+            // MAX_PRE_REACT.
+            parentSessionID: input.sessionID,
+            // The host above IS the writer's session: without this, spawnSubagent
+            // nests a second child under it and the host stays an empty session
+            // carrying only a "main" row, visible to the fleet dashboard and to
+            // visibility.ts.
+            ownsSession: true,
+            agentType: "checkpoint-writer",
+            description: `checkpoint writer for session ${input.sessionID} covering ${rangeDesc}`,
+            task: promptText,
+            context: "full",
+            tools: ["read", "write", "edit", "apply_patch", "glob", "grep", "task"],
+            model: {
+              providerID: input.model.providerID as ProviderID,
+              modelID: input.model.modelID as ModelID,
+            },
+            background: true,
+            forkContext: forkCtx,
+          }).pipe(
+            // Set immediately after the billed spawn: from here the writer owns its
+            // child session, and the refusal finalizer must never remove it.
+            // G3-D1, reports/0.1.6/g3-one-writer-record.md:197
+            Effect.tap(() => Effect.sync(() => (spawned = true))),
+          )
 
-      const supervisorID = result.supervisorID
+          const supervisorID = result.supervisorID
 
-      // Capture priorTitles (from checkpoint.md as it stood at the watermark)
-      // and register the per-supervisor context entry BEFORE the writer's first
-      // turn so the splitover plugin's preStop hook can read it. The set
-      // runs in microseconds; the writer's first LLM round-trip takes
-      // seconds -- no race in practice.
-      const priorTitles = yield* Effect.promise(() => loadPriorDiscoveredTitles(input.sessionID))
-      CheckpointContext.set(input.sessionID, supervisorID, {
-        priorTitles,
-        expectedRevisions: [],
-      })
-
-      // Bookkeeping: the parent's last_checkpoint_message_id (the delta
-      // watermark -- the point future rebuilds compute the message tail from)
-      // advances ONLY when the writer SUCCEEDS. This is a transactional
-      // invariant: the on-disk checkpoint content and the watermark move
-      // together, or neither moves. If the writer failed/was cancelled (e.g.
-      // `Aborted process` from worker teardown), advancing the watermark would
-      // "consume" messages the failed checkpoint never actually captured --
-      // silently dropping that span of context from every subsequent rebuild.
-      // Leaving the watermark put means the next writer re-covers the same
-      // delta, so nothing is lost. Fork into the layer's scope so the watcher
-      // survives tryStartCheckpointWriter returning (background: true) but stays
-      // tied to the layer's lifetime -- no orphan fiber on shutdown.
-      //
-      // Defensive: writers.set + spawn watcher is wrapped so a throw between
-      // set and successful forkIn cleans the map (otherwise isWriterRunning
-      // leaks "running" forever). Fork is multi-process:
-      // CHECKPOINT_WRITER_TIMEOUT_MS bounds the writer Deferred.await at 10 min
-      // so a hung cross-process writer cannot starve checkpointing or title
-      // generation forever. The single-process version has no such timeout
-      // (Effect.forkIn(scope) lets the scope interrupt the writer fiber);
-      // without this timeout in fork mode, a dead cross-process writer would
-      // otherwise hang isWriterRunning forever and block prune/fireCheckpoints.
-      // Native setTimeout fallback handles writer Deferred leak; Effect.timeout
-      // alone never fired because the Effect scheduler itself starved.
-      const nativeTimer = setTimeout(() => {
-        try {
-          if (writers.get(input.sessionID) === state) {
-            // Timeout outcome when checkpoint writer exceeds deadline
-            Effect.runSync(Deferred.done(result.outcome, Exit.succeed({ status: "timeout" as const })))
-          }
-        } catch {}
-      }, CHECKPOINT_WRITER_TIMEOUT_MS + 10_000)
-      if (nativeTimer.unref) nativeTimer.unref()
-      handedOff = true
-      let settledOutcome: WriterOutcome = "failure"
-      yield* Effect.gen(function* () {
-        const outcome = yield* Deferred.await(result.outcome).pipe(
-          Effect.timeout(CHECKPOINT_WRITER_TIMEOUT_MS),
-          // Timeout outcome when waiting for checkpoint writer to complete
-          Effect.orElseSucceed(() => ({ status: "timeout" as const })),
-        )
-        // The turn outcome is forwarded to the entry's `writing` Deferred. The
-        // map entry is NOT replaced: waiters and the drain hold THIS state.
-        yield* Deferred.done(state.writing, Exit.succeed(outcome)).pipe(Effect.ignore)
-        yield* Effect.sync(() => clearTimeout(nativeTimer))
-        if (outcome.status === "success") {
-          // The supervisor outcome is a turn result, not a file-write
-          // guarantee. Advancing the watermark without a fresh checkpoint.md
-          // would make every later rebuild drop history the on-disk file never
-          // captured. mtime is the cheapest proof the writer rewrote it; a
-          // rewrite always advances mtime even when the content is unchanged.
-          const written = yield* Effect.promise(async () => {
-            const file = Bun.file(checkpointFile)
-            if (!(await file.exists())) return false
-            const mtime = (await file.stat()).mtimeMs
-            return checkpointMtimeBefore === undefined || mtime > checkpointMtimeBefore
+          // Capture priorTitles (from checkpoint.md as it stood at the watermark)
+          // and register the per-supervisor context entry BEFORE the writer's first
+          // turn so the splitover plugin's preStop hook can read it. The set
+          // runs in microseconds; the writer's first LLM round-trip takes
+          // seconds -- no race in practice.
+          const priorTitles = yield* Effect.promise(() => loadPriorDiscoveredTitles(input.sessionID))
+          CheckpointContext.set(input.sessionID, supervisorID, {
+            priorTitles,
+            expectedRevisions: [],
           })
-          if (written) {
-            yield* Effect.sync(() =>
-              Database.use((d) =>
-                d.update(SessionTable)
-                  .set({ last_checkpoint_message_id: endMessageID as MessageID })
-                  .where(eq(SessionTable.id, input.sessionID))
-                  .run(),
+
+          // Bookkeeping: the parent's last_checkpoint_message_id (the delta
+          // watermark -- the point future rebuilds compute the message tail from)
+          // advances ONLY when the writer SUCCEEDS. This is a transactional
+          // invariant: the on-disk checkpoint content and the watermark move
+          // together, or neither moves. If the writer failed/was cancelled (e.g.
+          // `Aborted process` from worker teardown), advancing the watermark would
+          // "consume" messages the failed checkpoint never actually captured --
+          // silently dropping that span of context from every subsequent rebuild.
+          // Leaving the watermark put means the next writer re-covers the same
+          // delta, so nothing is lost. Fork into the layer's scope so the watcher
+          // survives tryStartCheckpointWriter returning (background: true) but stays
+          // tied to the layer's lifetime -- no orphan fiber on shutdown.
+          //
+          // Defensive: writers.set + spawn watcher is wrapped so a throw between
+          // set and successful forkIn cleans the map (otherwise isWriterRunning
+          // leaks "running" forever). Fork is multi-process:
+          // CHECKPOINT_WRITER_TIMEOUT_MS bounds the writer Deferred.await at 10 min
+          // so a hung cross-process writer cannot starve checkpointing or title
+          // generation forever. The single-process version has no such timeout
+          // (Effect.forkIn(scope) lets the scope interrupt the writer fiber);
+          // without this timeout in fork mode, a dead cross-process writer would
+          // otherwise hang isWriterRunning forever and block prune/fireCheckpoints.
+          // Native setTimeout fallback handles writer Deferred leak; Effect.timeout
+          // alone never fired because the Effect scheduler itself starved.
+          const nativeTimer = setTimeout(() => {
+            try {
+              if (writers.get(input.sessionID) === state) {
+                // Timeout outcome when checkpoint writer exceeds deadline
+                Effect.runSync(Deferred.done(result.outcome, Exit.succeed({ status: "timeout" as const })))
+              }
+            } catch {}
+          }, CHECKPOINT_WRITER_TIMEOUT_MS + 10_000)
+          if (nativeTimer.unref) nativeTimer.unref()
+          handedOff = true
+          let settledOutcome: WriterOutcome = "failure"
+          yield* Effect.gen(function* () {
+            const outcome = yield* Deferred.await(result.outcome).pipe(
+              Effect.timeout(CHECKPOINT_WRITER_TIMEOUT_MS),
+              // Timeout outcome when waiting for checkpoint writer to complete
+              Effect.orElseSucceed(() => ({ status: "timeout" as const })),
+            )
+            // The turn outcome is forwarded to the entry's `writing` Deferred. The
+            // map entry is NOT replaced: waiters and the drain hold THIS state.
+            yield* Deferred.done(state.writing, Exit.succeed(outcome)).pipe(Effect.ignore)
+            yield* Effect.sync(() => clearTimeout(nativeTimer))
+            if (outcome.status === "success") {
+              // The supervisor outcome is a turn result, not a file-write
+              // guarantee. Advancing the watermark without a fresh checkpoint.md
+              // would make every later rebuild drop history the on-disk file never
+              // captured. mtime is the cheapest proof the writer rewrote it; a
+              // rewrite always advances mtime even when the content is unchanged.
+              const written = yield* Effect.promise(async () => {
+                const file = Bun.file(checkpointFile)
+                if (!(await file.exists())) return false
+                const mtime = (await file.stat()).mtimeMs
+                return checkpointMtimeBefore === undefined || mtime > checkpointMtimeBefore
+              })
+              if (written) {
+                yield* Effect.sync(() =>
+                  Database.use((d) =>
+                    d.update(SessionTable)
+                      .set({ last_checkpoint_message_id: endMessageID as MessageID })
+                      .where(eq(SessionTable.id, input.sessionID))
+                      .run(),
+                  ),
+                )
+                settledOutcome = "success"
+              } else {
+                log.warn(
+                  "checkpoint writer succeeded without rewriting checkpoint.md — leaving watermark unchanged so the delta is re-covered",
+                  { sessionID: input.sessionID, endMessageID },
+                )
+                // The writer's turn succeeded; settlement stays success even when
+                // the watermark did not move.
+                settledOutcome = "success"
+              }
+            } else {
+              settledOutcome = outcome.status === "timeout" ? "timeout" : "failure"
+              if (outcome.status === "failure" && outcome.failure) state.failure = outcome.failure
+              const failure = outcome.status === "failure" ? outcome.failure : undefined
+              const classified = failure ? { kind: failure.kind, cause: failure.name } : {}
+              if (failure && !failure.retryable) {
+                log.warn(
+                  "checkpoint writer failed deterministically — this will recur at every threshold until the cause is fixed; leaving watermark unchanged so the delta is re-covered",
+                  { sessionID: input.sessionID, status: outcome.status, ...classified },
+                )
+              } else {
+                log.warn("checkpoint writer did not succeed — leaving watermark unchanged so the delta is re-covered", {
+                  sessionID: input.sessionID,
+                  status: outcome.status,
+                  ...classified,
+                })
+              }
+            }
+
+            // Complete the public settlement ONLY after the mtime gate and the
+            // watermark update, and before the map entry is deleted: a waiter that
+            // observes it must be able to read the advanced boundary.
+            yield* Deferred.succeed(state.settled, settledOutcome).pipe(Effect.ignore)
+
+            // F40: capture pending before deleting the slot so a queued writer
+            // (held while writer1 was running) can fire as a fresh writer.
+            const pending = state.pending
+            releaseWriter(input.sessionID, state, settledOutcome)
+
+            // F44: aggregate writer slice tokens and emit cache-perf metric so
+            // prefix-cache reuse is empirically observable. Degrades to zeros if
+            // aggregation fails (e.g. session messages unavailable post-shutdown).
+            const stats = yield* aggregateWriterCacheMetrics(session, input.sessionID, result.supervisorID).pipe(
+              Effect.catch(() =>
+                Effect.succeed({
+                  total_input_tokens: 0,
+                  cache_read_tokens: 0,
+                  cache_write_tokens: 0,
+                  cache_hit_rate: 0,
+                  num_llm_calls: 0,
+                }),
               ),
             )
-            settledOutcome = "success"
-          } else {
-            log.warn(
-              "checkpoint writer succeeded without rewriting checkpoint.md — leaving watermark unchanged so the delta is re-covered",
-              { sessionID: input.sessionID, endMessageID },
-            )
-            // The writer's turn succeeded; settlement stays success even when
-            // the watermark did not move.
-            settledOutcome = "success"
-          }
-        } else {
-          settledOutcome = outcome.status === "timeout" ? "timeout" : "failure"
-          if (outcome.status === "failure" && outcome.failure) state.failure = outcome.failure
-          const failure = outcome.status === "failure" ? outcome.failure : undefined
-          const classified = failure ? { kind: failure.kind, cause: failure.name } : {}
-          if (failure && !failure.retryable) {
-            log.warn(
-              "checkpoint writer failed deterministically — this will recur at every threshold until the cause is fixed; leaving watermark unchanged so the delta is re-covered",
-              { sessionID: input.sessionID, status: outcome.status, ...classified },
-            )
-          } else {
-            log.warn("checkpoint writer did not succeed — leaving watermark unchanged so the delta is re-covered", {
-              sessionID: input.sessionID,
-              status: outcome.status,
-              ...classified,
-            })
-          }
-        }
+            yield* bus
+              .publish(WriterCachePerf, {
+                sessionID: input.sessionID,
+                writerSupervisorID: result.supervisorID,
+                status: outcome.status === "success" ? ("completed" as const) : ("failed" as const),  // timeout and cancelled treated as failed
+                ...stats,
+              })
+              .pipe(Effect.ignore)
 
-        // Complete the public settlement ONLY after the mtime gate and the
-        // watermark update, and before the map entry is deleted: a waiter that
-        // observes it must be able to read the advanced boundary.
-        yield* Deferred.succeed(state.settled, settledOutcome).pipe(Effect.ignore)
-
-        // F40: capture pending before deleting the slot so a queued writer
-        // (held while writer1 was running) can fire as a fresh writer.
-        const pending = state.pending
-        releaseWriter(input.sessionID, state, settledOutcome)
-
-        // F44: aggregate writer slice tokens and emit cache-perf metric so
-        // prefix-cache reuse is empirically observable. Degrades to zeros if
-        // aggregation fails (e.g. session messages unavailable post-shutdown).
-        const stats = yield* aggregateWriterCacheMetrics(session, input.sessionID, result.supervisorID).pipe(
-          Effect.catch(() =>
-            Effect.succeed({
-              total_input_tokens: 0,
-              cache_read_tokens: 0,
-              cache_write_tokens: 0,
-              cache_hit_rate: 0,
-              num_llm_calls: 0,
-            }),
-          ),
-        )
-        yield* bus
-          .publish(WriterCachePerf, {
-            sessionID: input.sessionID,
-            writerSupervisorID: result.supervisorID,
-            status: outcome.status === "success" ? ("completed" as const) : ("failed" as const),  // timeout and cancelled treated as failed
-            ...stats,
-          })
-          .pipe(Effect.ignore)
-
-        // F40: drain pending. If a queued request exists, fire a fresh writer
-        // for it. Errors are swallowed -- the queued writer's failure should
-        // not interrupt the original writer's settlement watcher.
-        if (pending) {
-          if (drainInProgress) {
-            // The drain closed the writer slot: a fresh writer here would be
-            // billed and killed when the process exits. The queued request is
-            // dropped -- its delta is re-covered by the next writer.
-            log.info("dropping pending writer, drain in progress", { sessionID: input.sessionID })
-          } else {
-            log.info("draining pending writer", { sessionID: input.sessionID })
-            yield* tryStartCheckpointWriter(pending).pipe(Effect.ignore)
-          }
-        }
-      }).pipe(
-        Effect.ensuring(
-          Effect.sync(() => CheckpointContext.remove(input.sessionID, supervisorID)),
-        ),
-        // The map entry must go even when the watcher body fails: a leaked
-        // entry keeps isWriterRunning true forever and makes every later
-        // drain wait for the whole bound. Compare the state identity, like the
-        // native timeout above, so a queued writer that already replaced the
-        // entry is not deleted.
-        Effect.ensuring(
-          Effect.sync(() => releaseWriter(input.sessionID, state, settledOutcome)),
-        ),
-        // Registered last so it runs FIRST on the way out: an interruption
-        // must still complete `writing` (a drain awaits it for the whole
-        // writer bound) and `settled` with the known outcome, and always
-        // before the entry is deleted.
-        Effect.ensuring(
-          Effect.sync(() => {
-            Deferred.doneUnsafe(state.writing, Effect.succeed({ status: "cancelled" } as AgentOutcome))
-            Deferred.doneUnsafe(state.settled, Effect.succeed(settledOutcome))
-          }),
-        ),
-        Effect.forkIn(scope),
-      ).pipe(
-        Effect.catchCause((cause) =>
-          Effect.sync(() => {
-            // A fork failure or an interrupted watcher never reached the
-            // ensures above; complete both Deferreds so the drain and waiters
-            // are not stranded on their bounds.
-            Deferred.doneUnsafe(state.writing, Effect.succeed({ status: "cancelled" } as AgentOutcome))
-            Deferred.doneUnsafe(state.settled, Effect.succeed(settledOutcome))
-            releaseWriter(input.sessionID, state, settledOutcome)
-            CheckpointContext.remove(input.sessionID, supervisorID)
-          }).pipe(Effect.flatMap(() => Effect.failCause(cause))),
-        ),
+            // F40: drain pending. If a queued request exists, fire a fresh writer
+            // for it. Errors are swallowed -- the queued writer's failure should
+            // not interrupt the original writer's settlement watcher.
+            if (pending) {
+              if (drainInProgress) {
+                // The drain closed the writer slot: a fresh writer here would be
+                // billed and killed when the process exits. The queued request is
+                // dropped -- its delta is re-covered by the next writer.
+                log.info("dropping pending writer, drain in progress", { sessionID: input.sessionID })
+              } else {
+                log.info("draining pending writer", { sessionID: input.sessionID })
+                yield* tryStartCheckpointWriter(pending).pipe(Effect.ignore)
+              }
+            }
+          }).pipe(
+            Effect.ensuring(
+              Effect.sync(() => CheckpointContext.remove(input.sessionID, supervisorID)),
+            ),
+            // The map entry must go even when the watcher body fails: a leaked
+            // entry keeps isWriterRunning true forever and makes every later
+            // drain wait for the whole bound. Compare the state identity, like the
+            // native timeout above, so a queued writer that already replaced the
+            // entry is not deleted.
+            Effect.ensuring(
+              Effect.sync(() => releaseWriter(input.sessionID, state, settledOutcome)),
+            ),
+            // Registered last so it runs FIRST on the way out: an interruption
+            // must still complete `writing` (a drain awaits it for the whole
+            // writer bound) and `settled` with the known outcome, and always
+            // before the entry is deleted.
+            Effect.ensuring(
+              Effect.sync(() => {
+                Deferred.doneUnsafe(state.writing, Effect.succeed({ status: "cancelled" } as AgentOutcome))
+                Deferred.doneUnsafe(state.settled, Effect.succeed(settledOutcome))
+              }),
+            ),
+            // Forked from an uninterruptible region: mark the watcher itself
+            // interruptible at its start so scope teardown and the exit drain
+            // can still stop it.
+            Effect.interruptible,
+            Effect.forkIn(scope),
+          ).pipe(
+            Effect.catchCause((cause) =>
+              Effect.sync(() => {
+                // A fork failure or an interrupted watcher never reached the
+                // ensures above; complete both Deferreds so the drain and waiters
+                // are not stranded on their bounds.
+                Deferred.doneUnsafe(state.writing, Effect.succeed({ status: "cancelled" } as AgentOutcome))
+                Deferred.doneUnsafe(state.settled, Effect.succeed(settledOutcome))
+                releaseWriter(input.sessionID, state, settledOutcome)
+                CheckpointContext.remove(input.sessionID, supervisorID)
+              }).pipe(Effect.flatMap(() => Effect.failCause(cause))),
+            ),
+          )
+        }),
       )
 
       return "started" as const
