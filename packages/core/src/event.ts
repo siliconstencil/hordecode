@@ -634,5 +634,5 @@ export const layerWith = (options?: LayerOptions) =>
     }),
   )
 
-const layer = layerWith()
+export const layer = layerWith()
 export const node = makeGlobalNode({ service: Service, layer: layer, deps: () => [Database.node] })

@@ -25,7 +25,7 @@ import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
 import { SessionID, MessageID, PartID } from "./schema"
 import { Log, Token } from "../util"
-import { Effect, Layer, Deferred, Context, Scope, Fiber, Exit } from "effect"
+import { Effect, Layer, Deferred, Context, Scope, Fiber, Exit, Stream } from "effect"
 import { makeRuntime } from "@opencode-ai/core/effect/run-service"
 import type { SupervisorPromptOps } from "./supervisor-prompt-ops"
 import type { ProviderID, ModelID } from "../provider/schema"
@@ -47,6 +47,8 @@ import { alignToNonToolResultUser } from "./checkpoint-align"
 import { loadPriorDiscoveredTitles } from "./checkpoint-retry"
 import * as CheckpointContext from "./checkpoint-context"
 import { buildProgressDiff } from "./checkpoint-progress-reconcile"
+import { EventV2 } from "../event"
+import { SessionV1 } from "../v1/session"
 
 const log = Log.create({ service: "session.checkpoint" })
 
@@ -683,6 +685,10 @@ interface WriterState {
   // pending values -- the newest range is always a strict superset of the
   // older one, so older pending checkpoints would only duplicate work.
   pending?: TryStartCheckpointWriterInput
+  // Set by the Session.Deleted handler. The entry stays until the watcher
+  // settles (drainWriters waits on it) but releaseWriter then drops the
+  // settlement instead of publishing it for a session that no longer exists.
+  removed?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -714,6 +720,9 @@ export const layer = Layer.effect(
     })
 
     const bus = yield* Bus.Service
+    // EventV2 is the channel the mounted Session.remove publishes on; the
+    // removed-mark below is written from that subscription.
+    const events = yield* EventV2.Service
     const scope = yield* Scope.Scope
 
     // Plain Map in the layer closure -- same approach as compaction.ts
@@ -725,7 +734,7 @@ export const layer = Layer.effect(
     // settlement.
     const lastSettlements = new Map<SessionID, WriterSettlement>()
     const releaseWriter = (sessionID: SessionID, state: WriterState, outcome: WriterOutcome) => {
-      lastSettlements.set(sessionID, state.failure ? { outcome, failure: state.failure } : { outcome })
+      if (!state.removed) lastSettlements.set(sessionID, state.failure ? { outcome, failure: state.failure } : { outcome })
       if (writers.get(sessionID) === state) writers.delete(sessionID)
     }
     // The writer slot. A checkpoint writer is a billed LLM round-trip: one
@@ -1318,7 +1327,7 @@ export const layer = Layer.effect(
             // F40: drain pending. If a queued request exists, fire a fresh writer
             // for it. Errors are swallowed -- the queued writer's failure should
             // not interrupt the original writer's settlement watcher.
-            if (pending) {
+            if (pending && !state.removed) {
               if (drainInProgress) {
                 // The drain closed the writer slot: a fresh writer here would be
                 // billed and killed when the process exits. The queued request is
@@ -1391,7 +1400,7 @@ export const layer = Layer.effect(
           if (!spawned && writerChildSessionID !== undefined) {
             yield* session.remove(writerChildSessionID).pipe(Effect.ignore)
           }
-          if (pending && !drainInProgress) {
+          if (pending && !drainInProgress && !state.removed) {
             log.info("draining pending writer after a refusal", { sessionID: input.sessionID })
             yield* tryStartCheckpointWriter(pending).pipe(Effect.ignore)
           }
@@ -2244,15 +2253,25 @@ export const layer = Layer.effect(
       .pipe(Effect.ignore)
 
     // J open decision [1], reports/0.1.6/j-cleanup-batch.md: session removal drops its settlement records.
-    yield* bus
-      .subscribeCallback(
-        Session.Event.Deleted,
-        InstanceState.bind((event: { properties: { sessionID: SessionID } }) => {
-          writers.delete(event.properties.sessionID)
-          lastSettlements.delete(event.properties.sessionID)
-        }),
+    // Session.remove publishes SessionV1.Event.Deleted through EventV2Bridge ->
+    // EventV2, never on the typed Bus, so this subscribes to the SAME definition
+    // object the removal publishes (one source of truth, one channel).
+    yield* events
+      .subscribe(SessionV1.Event.Deleted)
+      .pipe(
+        Stream.runForEach((event) =>
+          Effect.sync(() => {
+            const sessionID = event.data.sessionID
+            // Keep an in-flight entry so drainWriters can still await it; the
+            // mark makes releaseWriter drop the settlement instead of re-adding
+            // a record for a session that no longer exists.
+            const state = writers.get(sessionID)
+            if (state) state.removed = true
+            lastSettlements.delete(sessionID)
+          }),
+        ),
+        Effect.forkScoped,
       )
-      .pipe(Effect.ignore)
 
     return Service.of({
       tryStartCheckpointWriter,
@@ -2287,6 +2306,7 @@ export const defaultLayer = Layer.suspend(() =>
   layer.pipe(
     Layer.provide(Session.defaultLayer),
     Layer.provide(Bus.layer),
+    Layer.provide(EventV2.layer),
     Layer.provide(Config.defaultLayer),
     Layer.provide(Memory.layer),
     Layer.provide(TaskRegistry.defaultLayer),

@@ -55,6 +55,7 @@ import { LSP } from "@/lsp/lsp"
 import { Instruction } from "../session/instruction"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventV2 } from "@opencode-ai/core/event"
 import { Agent } from "../agent/agent"
 import { SYSTEM_SPAWNED_AGENT_TYPES } from "../agent/config"
 import { Skill } from "../skill"
@@ -553,7 +554,7 @@ const InboxNode = makeGlobalNode({
 const SessionCheckpointNode = makeGlobalNode({
   service: SessionCheckpoint.Service,
   layer: SessionCheckpoint.layer as Layer.Layer<SessionCheckpoint.Service, never, never>,
-  deps: [Session.node, BusNode, Config.node, MemoryNode, TaskRegistryNode, SupervisorRegistryNode],
+  deps: [Session.node, BusNode, EventV2.node, Config.node, MemoryNode, TaskRegistryNode, SupervisorRegistryNode],
 })
 export const node = LayerNode.make({
   service: Service,

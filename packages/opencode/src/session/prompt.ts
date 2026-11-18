@@ -67,6 +67,7 @@ import { SupervisorTool } from "@/tool/supervisor"
 import { SessionRunState } from "./run-state"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventV2 } from "@opencode-ai/core/event"
 import { Database } from "@opencode-ai/core/database/database"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
@@ -3130,7 +3131,7 @@ const MemoryNode = LayerNode.make({
 const SessionCheckpointNode = LayerNode.make({
   service: SessionCheckpoint.Service,
   layer: SessionCheckpoint.layer as Layer.Layer<SessionCheckpoint.Service>,
-  deps: [Session.node, BusNode, Config.node, MemoryNode, TaskRegistryNode, SupervisorRegistryNode],
+  deps: [Session.node, BusNode, EventV2.node, Config.node, MemoryNode, TaskRegistryNode, SupervisorRegistryNode],
 })
 const SessionPruneNode = LayerNode.make({
   service: SessionPrune.Service,

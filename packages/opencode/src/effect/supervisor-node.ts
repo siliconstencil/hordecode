@@ -7,6 +7,7 @@ import { TaskRegistry } from "@opencode-ai/task/registry"
 import { Inbox } from "@opencode-ai/inbox"
 import { Bus } from "@opencode-ai/bus"
 import { PluginV2 } from "@opencode-ai/core/plugin"
+import { EventV2 } from "@opencode-ai/core/event"
 import { Session } from "@/session/session"
 import { Agent } from "@/agent/agent"
 import { SessionPrompt } from "@/session/prompt"
@@ -93,6 +94,7 @@ export const SessionCheckpointNode = LayerNode.make({
   deps: [
     Session.node,
     BusNode,
+    EventV2.node,
     Config.node,
     MemoryNode,
     TaskRegistryNode,
