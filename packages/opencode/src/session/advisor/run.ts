@@ -34,7 +34,7 @@ export function isActive(cfg: AdvisorConfig | undefined): cfg is AdvisorConfig &
 
 // Per-session state, least recently used evicted first (a read moves the session to the end).
 const SESSION_LIMIT = 256
-const sessions = new Map<string, { trigger: TriggerState; guard: EmissionGuard; turnID?: string }>()
+const sessions = new Map<string, { trigger: TriggerState; guard: EmissionGuard; turnID?: string; emitted: string[] }>()
 
 export function stateFor(sessionID: string, maxNotes?: number) {
   const existing = sessions.get(sessionID)
@@ -48,11 +48,17 @@ export function stateFor(sessionID: string, maxNotes?: number) {
     const oldest = sessions.keys().next().value
     if (oldest !== undefined) sessions.delete(oldest)
   }
-  const created: { trigger: TriggerState; guard: EmissionGuard; turnID?: string } = { trigger: { lastFiredStep: undefined, lastReasons: [] } as TriggerState, guard: new EmissionGuard({ maxNotes }) }
+  const created: { trigger: TriggerState; guard: EmissionGuard; turnID?: string; emitted: string[] } = {
+    trigger: { lastFiredStep: undefined, lastReasons: [] } as TriggerState,
+    guard: new EmissionGuard({ maxNotes }),
+    emitted: [],
+  }
   sessions.set(sessionID, created)
   return created
 }
 
+const EARLIER_NOTES_LIMIT = 8
+const EARLIER_CHARS_LIMIT = 2000
 const REQUEST_LIMIT = 2000
 const ASSISTANT_LIMIT = 600
 const ERROR_LIMIT = 300
@@ -64,6 +70,14 @@ const ADVISOR_TIMEOUT = Duration.seconds(60)
 
 function text(value: unknown) {
   return typeof value === "string" ? value : undefined
+}
+
+// Permission refusals from the user (RejectedError, CorrectedError) and from a rule (DeniedError).
+// A timeout is not a refusal: nobody decided, so it stays an ordinary error.
+const DENIALS = ["The user rejected permission", "The user has specified a rule which prevents"]
+
+function isDenied(error: string) {
+  return DENIALS.some((prefix) => error.startsWith(prefix))
 }
 
 // Transcript of the current turn: the user request, then assistant text and tool calls in
@@ -85,7 +99,8 @@ export function renderTranscript(messages: SessionV1.WithParts[]): string {
       } else if (part.type === "tool") {
         const input = (part.state.input ?? {}) as Record<string, unknown>
         const target = text(input.filePath) ?? text(input.path)
-        lines.push(`tool ${part.tool} ${part.state.status}${target ? ` ${target}` : ""}`)
+        const status = part.state.status === "error" && isDenied(part.state.error) ? "denied" : part.state.status
+        lines.push(`tool ${part.tool} ${status}${target ? ` ${target}` : ""}`)
         if (part.state.status === "error") lines.push(`  error: ${part.state.error.slice(0, ERROR_LIMIT)}`)
       }
     }
@@ -147,6 +162,8 @@ export const ADVISOR_SYSTEM = [
   "You see a compact transcript of the current task: the user request, the agent's short messages, and its tool calls with file paths and errors.",
   'Reply ONLY with a JSON array of at most 4 objects {"severity":"nit"|"concern"|"blocker","note":"..."}.',
   "Use blocker only for likely damage (data loss, edits outside the task scope, security), concern for a likely wrong direction or a loop, nit otherwise.",
+  "A tool call marked denied was refused by the user or by a rule. Advise stopping and asking the user with the reason; never suggest another tool or command that reaches the same target.",
+  "Add only new information. If the earlier notes already cover what you would say, reply [].",
   "Reply [] when there is nothing useful. Never restate the task.",
 ].join("\n")
 
@@ -160,9 +177,17 @@ export const advise = (input: {
   permission?: LLM.StreamInput["permission"]
   transcript: string
   reasons: string[]
+  earlierNotes?: string[]
 }): Effect.Effect<{ notes: Note[]; usage?: Usage; failed?: string }> =>
   Effect.gen(function* () {
-    const prompt = [`Triggered by: ${input.reasons.join(", ")}`, "", input.transcript].join("\n")
+    // Keep the block bounded: a long turn can emit many notes, and every one is prompt input.
+    const recent = (input.earlierNotes ?? [])
+      .slice(-EARLIER_NOTES_LIMIT)
+      .map((note) => `- ${note}`)
+      .join("\n")
+      .slice(-EARLIER_CHARS_LIMIT)
+    const earlier = recent ? `Earlier advisor notes in this turn:\n${recent}\n\n` : ""
+    const prompt = [`Triggered by: ${input.reasons.join(", ")}`, "", earlier + input.transcript].join("\n")
     let out = ""
     let usage: Usage | undefined
     const stream = input.llm.stream({

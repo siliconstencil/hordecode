@@ -183,6 +183,44 @@ describe("stateFor", () => {
   })
 })
 
+describe("renderTranscript denials", () => {
+  test("a user-rejected call renders as denied", () => {
+    const out = renderTranscript([
+      user("read the secret"),
+      tool("read", "error", { filePath: "/outside/project/secret.txt" }, "The user rejected permission to use this specific tool call."),
+    ])
+    expect(out).toContain("tool read denied /outside/project/secret.txt")
+    expect(out).toContain("error: The user rejected permission")
+  })
+
+  test("a rule-denied call renders as denied", () => {
+    const out = renderTranscript([
+      user("read the secret"),
+      tool("bash", "error", { command: "cat /outside/project/secret.txt" }, "The user has specified a rule which prevents you from using this specific tool call."),
+    ])
+    expect(out).toContain("tool bash denied")
+    expect(ADVISOR_SYSTEM).toContain("never suggest another tool")
+  })
+
+  test("a corrected call renders as denied with the feedback", () => {
+    const out = renderTranscript([
+      user("read the secret"),
+      tool("read", "error", { filePath: "/outside/project/secret.txt" }, "The user rejected permission to use this specific tool call. with the following feedback: use the public API"),
+    ])
+    expect(out).toContain("tool read denied")
+    expect(out).toContain("feedback: use the public API")
+  })
+
+  test("a timeout stays an error, not a denial", () => {
+    const out = renderTranscript([
+      user("read the secret"),
+      tool("read", "error", { filePath: "/outside/project/secret.txt" }, "Permission request timed out after 30s, the call was not run."),
+    ])
+    expect(out).toContain("tool read error")
+    expect(out).not.toContain("denied")
+  })
+})
+
 describe("advise", () => {
   test("parses notes from text-delta events and returns usage from step-finish", async () => {
     const usage: any = { inputTokens: 10, outputTokens: 5 }
@@ -198,6 +236,49 @@ describe("advise", () => {
     )
     expect(result.notes).toEqual([{ severity: "concern", note: "Looping on the same edit." }])
     expect(result.usage).toEqual(usage)
+  })
+
+  test("includes earlier advisor notes when given", async () => {
+    const seen: any[] = []
+    const llm = {
+      stream: (input: any) => {
+        seen.push(input)
+        return Stream.fromIterable([{ type: "text-delta", text: "[]" }])
+      },
+    } as unknown as LLM.Interface
+    await Effect.runPromise(advise({ ...callInput, llm, earlierNotes: ["The retry loop never resets its counter."] }))
+    const body = seen[0].messages[0].content as string
+    expect(body).toContain("Earlier advisor notes")
+    expect(body).toContain("- The retry loop never resets its counter.")
+    expect(ADVISOR_SYSTEM).toContain("only new information")
+  })
+
+  test("caps the earlier notes block and separates it from the transcript", async () => {
+    const seen: any[] = []
+    const llm = {
+      stream: (input: any) => {
+        seen.push(input)
+        return Stream.fromIterable([{ type: "text-delta", text: "[]" }])
+      },
+    } as unknown as LLM.Interface
+    const notes = Array.from({ length: 20 }, (_, i) => `earlier note number ${i}`)
+    await Effect.runPromise(advise({ ...callInput, llm, earlierNotes: notes, transcript: "TRANSCRIPT-BODY" }))
+    const body = seen[0].messages[0].content as string
+    expect(body).not.toContain("earlier note number 0")
+    expect(body).toContain("earlier note number 19")
+    expect(body).toContain("\n\nTRANSCRIPT-BODY")
+  })
+
+  test("omits the earlier notes block when there are none", async () => {
+    const seen: any[] = []
+    const llm = {
+      stream: (input: any) => {
+        seen.push(input)
+        return Stream.fromIterable([{ type: "text-delta", text: "[]" }])
+      },
+    } as unknown as LLM.Interface
+    await Effect.runPromise(advise({ ...callInput, llm }))
+    expect(seen[0].messages[0].content).not.toContain("Earlier advisor notes")
   })
 
   test("sends the system prompt and the trigger line", async () => {
