@@ -6,15 +6,10 @@ import { TrustGate } from "./trust-gate"
 // imports project plugin files and installs project npm packages. Core owns the
 // loader but does not depend on this package, so the trust decision is injected at
 // construction, the way the workflow runtime receives its project-script gate
-// (effect/supervisor-node.ts:122-127). Same rule as the V1 loader
-// (plugin/index.ts:181,344-345): a user-owned file always loads and project code
-// needs a trust decision. The V2 map is built per request with no boot in scope, so
-// this decision reads the store the boot decision is derived from instead of the
-// process memo; no record means no decision and denies.
-export const projectPluginAllow: PluginInternal.ProjectPluginAllow = async (file, directory, worktree) => {
-  if (TrustGate.isUserOwned(file)) return true
-  return (await TrustGate.level({ directory, worktree })) !== "untrusted"
-}
+// (effect/supervisor-node.ts:125). K5: the predicate is the one boundary rule on the
+// source file. The V2 map is built per request with no boot in scope, and mayRunFrom
+// answers from the trust store, so no boot decision is needed.
+export const projectPluginAllow: PluginInternal.ProjectPluginAllow = (file) => TrustGate.mayRunFrom(file)
 
 export const pluginNode = PluginInternal.makeNode({ projectPluginAllow })
 

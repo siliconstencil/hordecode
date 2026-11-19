@@ -1,6 +1,6 @@
 import path from "path"
 import { Global } from "@opencode-ai/core/global"
-import { checkTrust, markTrusted } from "@opencode-ai/project/workspace-trust"
+import { checkTrust, listTrustedSync, markTrusted } from "@opencode-ai/project/workspace-trust"
 import { Filesystem } from "@/util/filesystem"
 
 // K2: upstream opencode 1.19.5 has no project trust gate
@@ -63,10 +63,55 @@ function userNamedConfigFile(): string | undefined {
   return file ? path.resolve(file) : undefined
 }
 
+// K5: N3 fix. Compare real paths on both sides, so a HOME or XDG config tree reached
+// through a symlink is still recognized as user-owned (the trust keys are real paths).
 export function isUserOwned(target: string): boolean {
-  const resolved = path.resolve(target)
-  if (userNamedConfigFile() === resolved) return true
-  return userOwnedDirs().some((dir) => resolved === dir || resolved.startsWith(dir + path.sep))
+  const resolved = realPath(target)
+  const named = userNamedConfigFile()
+  if (named !== undefined && realPath(named) === resolved) return true
+  return userOwnedDirs().some((dir) => {
+    const owned = realPath(dir)
+    return resolved === owned || resolved.startsWith(owned + path.sep)
+  })
+}
+
+// K5: the one boundary rule. Code from an origin may run without a prompt iff the
+// directory holding that origin - the source path itself when it is a directory, its
+// realpath dirname when it is a file - is user-owned or inside a trusted root. A root
+// covers itself and its descendants; an ancestor is outside. No boot decision, no ctx:
+// the answer comes from the store, so the TUI thread and a per-request v2 layer can ask.
+// The resolved directory is cached for a second; trust() clears the cache in this
+// process, and a store write from another process is seen within the TTL.
+const MAY_RUN_TTL_MS = 1_000
+const mayRun = new Map<string, { readonly value: boolean; readonly at: number }>()
+
+export function _resetMayRunCache(): void {
+  mayRun.clear()
+}
+
+function sourceDir(source: string): string {
+  const resolved = realPath(source)
+  if (Filesystem.stat(resolved)?.isDirectory()) return resolved
+  return path.dirname(resolved)
+}
+
+function within(root: string, target: string): boolean {
+  return target === root || target.startsWith(root + path.sep)
+}
+
+export function mayRunFrom(source: string | undefined): boolean {
+  if (source === undefined || source === "") return false
+  // K5: a source the user named through HORDECODE_CONFIG may be a file inside an
+  // untrusted project; it is user-selected, so ask about the path itself before the
+  // directory that holds it (K3 ruling 4, the named-config exception).
+  if (isUserOwned(source)) return true
+  const dir = sourceDir(source)
+  const now = Date.now()
+  const hit = mayRun.get(dir)
+  if (hit !== undefined && now - hit.at < MAY_RUN_TTL_MS) return hit.value
+  const value = isUserOwned(dir) || listTrustedSync().some((root) => within(realPath(root), dir))
+  mayRun.set(dir, { value, at: now })
+  return value
 }
 
 // Boot decision, keyed by trust key. The product creates every instance through
@@ -81,6 +126,12 @@ export function remember(project: ProjectRef, level: Level): void {
 
 export function forget(project: ProjectRef): void {
   decisions.delete(trustKey(project))
+}
+
+// K5: N4. Read the boot memo directly so a suite can assert the fixture recorded a
+// decision instead of inferring it from the store fallback allowed() now has.
+export function _decision(project: ProjectRef): Level | undefined {
+  return decisions.get(trustKey(project))
 }
 
 export async function level(project: ProjectRef): Promise<Level> {
@@ -101,13 +152,16 @@ export { checkTrust }
 // effect/instance-state.ts:17-38) resolves to that worktree root before the lookup.
 // Upstream opencode 1.19.5 has no gate; K2 answered true when no decision existed,
 // which let an unbooted instance run project code.
+// K5: this stays the boot/prompt decision (memo first, unchanged). Without a recorded
+// decision it now answers the same trusted-store question mayRunFrom does, so a caller
+// that never booted (the TUI thread) gets the user's real choice instead of a deny.
 export async function allowed(project: ProjectRef): Promise<boolean> {
   if (isUserOwned(trustKey(project)) || isUserOwned(project.directory)) return true
   for (const key of [trustKey(project), resolveWorktree(project.directory)]) {
     const decision = decisions.get(key)
     if (decision !== undefined) return decision !== "untrusted"
   }
-  return false
+  return mayRunFrom(trustKey(project))
 }
 
 // K3: the outcome is what happened, not what was attempted. markTrusted refuses
@@ -125,6 +179,8 @@ export async function trust(worktree: string): Promise<TrustOutcome> {
   const result = await markTrusted(resolved)
   if (result.status === "refused") return { status: "refused", worktree: resolved, reason: result.reason }
   decisions.delete(resolved)
+  // K5: a new root can make an origin runnable; drop every cached boundary answer.
+  _resetMayRunCache()
   return { status: result.status, worktree: resolved }
 }
 
@@ -136,6 +192,20 @@ export function warnOnce(project: ProjectRef): void {
   warned.add(key)
   process.stderr.write(
     `warning: project ${key} is not trusted; project code from its config directories is skipped. Run with --trust to allow it.\n`,
+  )
+}
+
+// K5: one warning line per denied source, not per entry: a denied config file or
+// directory can name several plugin/tool/command keys. Keyed by the real path so a
+// symlinked spelling of the same source warns once.
+const deniedWarned = new Set<string>()
+
+export function warnDenied(source: string): void {
+  const key = realPath(source)
+  if (deniedWarned.has(key)) return
+  deniedWarned.add(key)
+  process.stderr.write(
+    `warning: ${key} is outside every trusted root; its code is not loaded. Run with --trust in that project to allow it.\n`,
   )
 }
 

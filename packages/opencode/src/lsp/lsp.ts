@@ -147,10 +147,6 @@ const layer = Layer.effect(
     const state = yield* InstanceState.make<State>(
       Effect.fn("LSP.state")(function* (ctx) {
         const cfg = yield* config.get()
-        // K2: an LSP command from project config is project code; user-owned entries
-        // (global config, $HOME dot-dirs) keep spawning.
-        const allowed = yield* Effect.promise(() => TrustGate.allowed(ctx))
-
         const servers: Record<string, LSPServer.Info> = {}
 
         if (!cfg.lsp) {
@@ -164,7 +160,13 @@ const layer = Layer.effect(
 
           if (cfg.lsp !== true) {
             for (const [name, item] of Object.entries(cfg.lsp)) {
-              if (!allowed && cfg.code_origins?.lsp?.[name] === "local") continue
+              // K5: a command whose source config file is outside every trusted root
+              // does not spawn.
+              const denied = Config.codeDeniedSources(cfg.code_origins, "lsp", name)
+              if (denied.length) {
+                for (const source of denied) TrustGate.warnDenied(source)
+                continue
+              }
               const existing = servers[name]
               if (item.disabled) {
                 yield* Effect.logInfo(`LSP server ${name} is disabled`)

@@ -113,9 +113,11 @@ export async function lookupNamedWorkflow(name: string, start: string, stop: str
   if (builtin) return builtin.script
   const file = await resolveWorkflowFile(name, start, stop)
   if (!file) return null
-  // K2: a workflow file under the project is project code. Built-ins and user-owned
-  // files keep working in an untrusted project.
-  if (!TrustGate.isUserOwned(file) && !(await TrustGate.allowed({ directory: start, worktree: stop }))) return null
+  // K5: a workflow file is a code origin; it loads iff mayRunFrom its path.
+  if (!TrustGate.mayRunFrom(file)) {
+    TrustGate.warnDenied(file)
+    return null
+  }
   return Bun.file(file).text()
 }
 

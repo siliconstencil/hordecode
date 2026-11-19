@@ -34,10 +34,10 @@ const PluginModule = Schema.Struct({
 // plugin directory, and installs project npm packages. Core owns the loader but not
 // the trust decision (core does not depend on the app), so the decision is injected
 // at construction by the app, the way the workflow runtime receives its
-// project-script gate. The arguments are the config file (or discovered plugin file)
-// that names the plugin, the opened directory and the resolved worktree.
+// project-script gate. K5: the only argument is the file (or the config document)
+// the plugin comes from; the app's boundary rule answers from that path alone.
 // No predicate means no decision, and no decision denies.
-export type ProjectPluginAllow = (file: string, start: string, stop: string) => Promise<boolean>
+export type ProjectPluginAllow = (file: string) => boolean | Promise<boolean>
 
 // K4: a user-owned config directory is not project content, so it stays exempt even
 // without an injected decision. The mounted loader's only user-owned source is the
@@ -95,9 +95,7 @@ export const make = (allow?: ProjectPluginAllow) =>
 
         for (const ref of configured) {
           yield* Effect.gen(function* () {
-            const permitted = allow
-              ? yield* Effect.promise(() => allow(ref.file, location.directory, location.project.directory))
-              : userOwned(ref.file)
+            const permitted = allow ? yield* Effect.promise(async () => allow(ref.file)) : userOwned(ref.file)
             if (!permitted) return
 
             const entrypoint = path.isAbsolute(ref.package)

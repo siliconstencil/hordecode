@@ -68,9 +68,9 @@ const layer = Layer.effect(
       yield* Effect.sync(() => TrustGate.remember(ctx, trust))
       if (trust === "untrusted") yield* Effect.sync(() => TrustGate.warnOnce(ctx))
       yield* config.get()
-      // Project plugin and hook code is skipped while untrusted; the plugin host
-      // repeats the filter for lazily initialised state.
-      if (trust !== "untrusted") yield* plugin.init()
+      // K5: plugin code is decided per origin by the plugin host, so boot runs the
+      // same loader path a lazy trigger() would; user-owned entries keep loading here.
+      yield* plugin.init()
       // Fire-and-forget writer -- subscribes to PartUpdated/PartRemoved and drains Queue.forever.
       yield* Effect.logInfo("history writer scheduled", { directory: ctx.directory })
       yield* writer.init().pipe(Effect.catchCause((cause) => Effect.logWarning("history writer init failed", { cause })))

@@ -90,16 +90,11 @@ const loadState = Effect.fn("TuiConfig.loadState")(function* (ctx: { directory: 
   // so a tui.json at that root is scoped local from any subdirectory cwd.
   // K4 (ruling 6): the boundary is the real path, matching the trust key and store.
   const worktree = Filesystem.resolve(ctx.worktree ?? TrustGate.resolveWorktree(ctx.directory))
-  // K4 (ruling 4): project writes follow the config loader's rule. An untrusted
-  // worktree gets no plugin install and no tui.json migration/rewrite; user-owned
-  // directories keep working. The TUI thread never boots an instance, so this reads
-  // the shared store (checkTrust answers "trusted" for a record on the worktree or an
-  // ancestor of it), the same decision the TUI runtime makes at plugin load.
-  const projectWritable = yield* Effect.promise(async () => {
-    if (TrustGate.isUserOwned(worktree) || TrustGate.isUserOwned(ctx.directory)) return true
-    return (await TrustGate.checkTrust(worktree)) === "trusted"
-  })
-  const mayWrite = (target: string) => projectWritable || TrustGate.isUserOwned(target)
+  // K5: project writes use the one boundary rule on the target directory. The TUI
+  // thread never boots an instance, so mayRunFrom reads the shared store instead of a
+  // boot decision. A trusted subdirectory writes; an ancestor outside every trusted
+  // root does not. No scope label is consulted.
+  const mayWrite = (target: string) => TrustGate.mayRunFrom(target)
   const afs = yield* FSUtil.Service
   let appliedOrder = 0
 
@@ -191,7 +186,11 @@ const loadState = Effect.fn("TuiConfig.loadState")(function* (ctx: { directory: 
   // `.hordecode` folders between cwd and home, and OPENCODE_CONFIG_DIR.
   const directories = yield* ConfigPaths.directories(ctx.directory)
   // K4 (ruling 4): migration writes only files the gate allows.
-  yield* Effect.promise(() => migrateTuiConfig({ directories, cwd: ctx.directory, mayWrite }))
+  // K5: the migration rewrites the files in the directory holding each opencode.json,
+  // so the boundary rule is asked about that directory, not the file.
+  yield* Effect.promise(() =>
+    migrateTuiConfig({ directories, cwd: ctx.directory, mayWrite: (file) => mayWrite(path.dirname(file)) }),
+  )
 
   const projectFiles = Flag.HORDECODE_DISABLE_PROJECT_CONFIG || Flag.OPENCODE_DISABLE_PROJECT_CONFIG
     ? []
@@ -252,6 +251,7 @@ const loadState = Effect.fn("TuiConfig.loadState")(function* (ctx: { directory: 
     pluginOrigins: acc.plugin_origins,
     // K4 (ruling 4): the install list is the same gate: a project directory is
     // dropped while untrusted, a user-owned directory is kept.
+    // K5: mayWrite is the boundary rule on each install directory.
     dirs: result.plugin?.length ? dirs.filter(mayWrite) : [],
   }
 })

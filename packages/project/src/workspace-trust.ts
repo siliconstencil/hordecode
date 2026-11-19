@@ -1,6 +1,6 @@
 import path from "path"
 import os from "os"
-import { realpathSync } from "fs"
+import { readFileSync, realpathSync } from "fs"
 import { Filesystem } from "@opencode-ai/core/util"
 import { Path as GlobalPath } from "@opencode-ai/global"
 import { Flock } from "@opencode-ai/shared/util/flock"
@@ -99,6 +99,19 @@ export async function markTrusted(directory: string): Promise<TrustWriteResult> 
 
 export async function listTrusted(): Promise<string[]> {
   return readStore()
+}
+
+// K5: the one boundary rule answers from the store without a boot, so a loader in a
+// thread or a per-request layer can call it. A missing or unreadable store answers no
+// roots, which fails closed for everyone but user-owned sources. Read errors are not
+// distinguished from an empty store here: the async reader is the writer's path.
+export function listTrustedSync(): string[] {
+  try {
+    const parsed = JSON.parse(readFileSync(STORE_FILE, "utf8"))
+    return Array.isArray(parsed.trustedPaths) ? parsed.trustedPaths : []
+  } catch {
+    return []
+  }
 }
 
 export async function revokeTrust(directory: string) {

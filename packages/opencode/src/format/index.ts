@@ -121,9 +121,6 @@ const layer = Layer.effect(
         }
 
         const cfg = yield* config.get()
-        // K2: a formatter command from project config is project code; user-owned
-        // entries (global config, $HOME dot-dirs) keep running.
-        const allowed = yield* Effect.promise(() => TrustGate.allowed(ctx))
 
         if (!cfg.formatter) {
           yield* Effect.logInfo("all formatters are disabled")
@@ -141,7 +138,13 @@ const layer = Layer.effect(
 
         if (cfg.formatter !== true) {
           for (const [name, item] of Object.entries(cfg.formatter)) {
-            if (!allowed && cfg.code_origins?.formatter?.[name] === "local") continue
+            // K5: a command whose source config file is outside every trusted root
+            // does not run.
+            const denied = Config.codeDeniedSources(cfg.code_origins, "formatter", name)
+            if (denied.length) {
+              for (const source of denied) TrustGate.warnDenied(source)
+              continue
+            }
             const builtIn = Formatter[name as keyof typeof Formatter]
 
             // Ruff and uv are both the same formatter, so disabling either should disable both.

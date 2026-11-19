@@ -496,10 +496,6 @@ const layer = Layer.effect(
         const cfg = yield* cfgSvc.get()
         const bridge = yield* EffectBridge.make()
         const config = cfg.mcp ?? {}
-        const ctx = yield* InstanceState.context
-        // K2: a local MCP command from project config is project code. User-owned
-        // (global) entries keep connecting in an untrusted project.
-        const allowed = yield* Effect.promise(() => TrustGate.allowed(ctx))
         const s: State = {
           config: {},
           status: {},
@@ -517,7 +513,11 @@ const layer = Layer.effect(
                 return
               }
 
-              if (!allowed && cfg.code_origins?.mcp?.[key] === "local") {
+              // K5: the one boundary rule, per entry: a command whose source config
+              // file is outside every trusted root does not connect.
+              const denied = Config.codeDeniedSources(cfg.code_origins, "mcp", key)
+              if (denied.length) {
+                for (const source of denied) TrustGate.warnDenied(source)
                 s.status[key] = { status: "disabled" }
                 return
               }

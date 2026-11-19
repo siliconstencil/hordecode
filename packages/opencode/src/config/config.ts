@@ -62,10 +62,13 @@ function mergeConfigConcatArrays(target: Info, source: Info): Info {
 
 // K3: per-key, per-field provenance for the code-bearing maps. The merge is a deep
 // merge (upstream 1.19.5 config.ts:43-50), so a later source that only names a key
-// keeps the earlier source's command in the value. A project source taints each
-// code-bearing field it supplies; only a later user-owned source that supplies the
-// same field clears it. Non-code fields never taint and never clear.
-type CodeMap = "mcp" | "lsp" | "formatter" | "provider"
+// keeps the earlier source's command in the value. Only a later source that supplies
+// the same field replaces it; non-code fields never replace a code-bearing field.
+// K5: the record carries the source ID (config file path, "env", "managed", or a
+// remote URL) that set each field last, so the loader decision asks mayRunFrom on that
+// source instead of reading a local/global label. There is no derived label: the
+// source path is the whole record.
+export type CodeMap = "mcp" | "lsp" | "formatter" | "provider"
 const CODE_MAPS: CodeMap[] = ["mcp", "lsp", "formatter", "provider"]
 
 // Code-bearing field paths, confirmed against the schemas: mcp command/environment
@@ -74,8 +77,8 @@ const CODE_MAPS: CodeMap[] = ["mcp", "lsp", "formatter", "provider"]
 // <id>.models.<model>.provider.npm (provider.ts:82-84, :105). args/env are accepted
 // where a source uses those names. The top-level shell scalar also selects code and is
 // tracked by recordCodeOrigins below. enabled/disabled/url/timeout/extensions/options/
-// headers cannot select code, so they never taint; mcp cwd changes only where a command
-// runs, not which command runs.
+// headers cannot select code, so they never record a source; mcp cwd changes only where
+// a command runs, not which command runs.
 function codeFieldPaths(map: CodeMap, entry: unknown): string[] {
   if (!isRecord(entry)) return []
   if (map === "provider") {
@@ -101,15 +104,32 @@ function codeFieldPaths(map: CodeMap, entry: unknown): string[] {
   return fields
 }
 
-// K3: called for every merge step with the scope of the source that supplied `next`.
-// Upstream 1.19.5 config.ts:392 merges without any provenance.
-function recordCodeOrigins(target: Info, source: Info, scope: ConfigPlugin.Scope) {
+// K5: a source ID that is not a filesystem origin. Environment content and managed
+// policy are user-supplied by definition; a remote config URL is reached only through
+// the user's own authenticated account entry. Paths go through mayRunFrom.
+function userSuppliedSource(id: string): boolean {
+  return (
+    id === "env" ||
+    id === "managed" ||
+    id.startsWith("http://") ||
+    id.startsWith("https://") ||
+    TrustGate.mayRunFrom(id)
+  )
+}
+
+// K3: called for every merge step with the source identity of the layer that supplied
+// `next`. Upstream 1.19.5 config.ts:392 merges without any provenance.
+// K5: `id` is the config file path for a file layer, "env" for OPENCODE_CONFIG_CONTENT
+// (or HORDECODE_CONFIG_CONTENT), "managed" for administrator policy, and the URL for a
+// remote config. Sticky per field: the source that supplies a field replaces it; a
+// source that does not supply it leaves the earlier source in place.
+function recordCodeOrigins(target: Info, source: Info, id: string) {
   const previous = target.code_origins
-  const taint: Record<CodeMap, Record<string, string[]>> = {
-    mcp: { ...(previous?.taint?.mcp ?? {}) },
-    lsp: { ...(previous?.taint?.lsp ?? {}) },
-    formatter: { ...(previous?.taint?.formatter ?? {}) },
-    provider: { ...(previous?.taint?.provider ?? {}) },
+  const sources: Record<CodeMap, Record<string, Record<string, string>>> = {
+    mcp: { ...(previous?.sources?.mcp ?? {}) },
+    lsp: { ...(previous?.sources?.lsp ?? {}) },
+    formatter: { ...(previous?.sources?.formatter ?? {}) },
+    provider: { ...(previous?.sources?.provider ?? {}) },
   }
   for (const map of CODE_MAPS) {
     const value = source[map]
@@ -117,33 +137,15 @@ function recordCodeOrigins(target: Info, source: Info, scope: ConfigPlugin.Scope
     for (const [key, entry] of Object.entries(value)) {
       const fields = codeFieldPaths(map, entry)
       if (!fields.length) continue
-      const next = new Set(taint[map][key] ?? [])
-      if (scope === "local") for (const field of fields) next.add(field)
-      else for (const field of fields) next.delete(field)
-      if (next.size) taint[map][key] = [...next].sort()
-      else delete taint[map][key]
+      const record = { ...(sources[map][key] ?? {}) }
+      for (const field of fields) record[field] = id
+      sources[map][key] = record
     }
   }
-  // The map value the loaders read is derived: "local" exactly while the key carries
-  // a taint record. A key mentioned by this source without surviving taint is global.
-  const derive = (map: CodeMap, current: Record<string, ConfigPlugin.Scope> | undefined) => {
-    const next = { ...(current ?? {}) }
-    const value = source[map]
-    if (isRecord(value)) for (const key of Object.keys(value)) next[key] = "global"
-    for (const key of Object.keys(taint[map])) next[key] = "local"
-    return next
-  }
+  const shellSource = source.shell !== undefined ? id : previous?.shellSource
   target.code_origins = {
-    mcp: derive("mcp", previous?.mcp),
-    lsp: derive("lsp", previous?.lsp),
-    formatter: derive("formatter", previous?.formatter),
-    provider: derive("provider", previous?.provider),
-    taint,
-    ...(source.shell !== undefined
-      ? { shell: scope }
-      : previous?.shell !== undefined
-        ? { shell: previous.shell }
-        : {}),
+    sources,
+    ...(shellSource !== undefined ? { shellSource } : {}),
   }
 }
 
@@ -208,24 +210,46 @@ async function resolveLoadedPlugins<T extends { plugin?: ConfigPluginV1.Spec[] }
 // K3: derived provenance for the code-bearing config maps. The trust gate reads it per
 // capability so a global entry keeps loading while a project entry is skipped. Upstream
 // 1.19.5 has no equivalent field.
+// K5: `sources` is the boundary record: per map, key, and code-bearing field, the source
+// ID that set it last. There is no label and no taint: the loaders ask about the source.
 export type CodeOrigins = {
-  mcp?: Record<string, ConfigPlugin.Scope>
-  lsp?: Record<string, ConfigPlugin.Scope>
-  formatter?: Record<string, ConfigPlugin.Scope>
-  provider?: Record<string, ConfigPlugin.Scope>
-  shell?: ConfigPlugin.Scope
-  // Per key, the code-bearing field paths a project source supplied and no later
-  // user-owned source replaced. Empty/absent means no project field remains, so the
-  // key may load while untrusted.
-  taint?: Partial<Record<CodeMap, Record<string, string[]>>>
+  sources?: Partial<Record<CodeMap, Record<string, Record<string, string>>>>
+  shellSource?: string
+}
+
+// K5: the loader question. Deduped source IDs across every code-bearing field of the
+// entry, provider models included. An entry runs when every ID is user-supplied
+// ("env"/"managed"/a remote URL) or mayRunFrom(ID) is true.
+export function codeSourcesFor(origins: CodeOrigins | undefined, map: CodeMap, key: string): string[] {
+  const fields = origins?.sources?.[map]?.[key]
+  if (fields === undefined) return []
+  return [...new Set(Object.values(fields))].sort()
+}
+
+// K5: the source IDs of one entry that the boundary denies. Empty means every field the
+// entry's code comes from may run.
+export function codeDeniedSources(origins: CodeOrigins | undefined, map: CodeMap, key: string): string[] {
+  return codeSourcesFor(origins, map, key).filter((id) => !userSuppliedSource(id))
+}
+
+// K5: per-field view for callers that must distinguish one model's npm from the
+// provider-level npm (the provider loader).
+export function codeFieldSources(origins: CodeOrigins | undefined, map: CodeMap, key: string): Record<string, string> {
+  return { ...(origins?.sources?.[map]?.[key] ?? {}) }
+}
+
+// K5: one source ID against the same rule. An absent source means the product's own
+// value, which runs; a path is asked of mayRunFrom.
+export function sourceMayRun(id: string | undefined): boolean {
+  return id === undefined || userSuppliedSource(id)
 }
 
 type Info = ConfigV1.Info & {
   // plugin_origins is derived state, not a persisted config field. It keeps each winning plugin spec together
   // with the file and scope it came from so later runtime code can make location-sensitive decisions.
   plugin_origins?: ConfigPlugin.Origin[]
-  // code_origins is derived state too: the scope of the source that supplied the winning
-  // value of each code-bearing key. writable() strips it like plugin_origins.
+  // code_origins is derived state too: the source ID that supplied the winning value of
+  // each code-bearing field. writable() strips it like plugin_origins.
   code_origins?: CodeOrigins
 }
 
@@ -386,6 +410,13 @@ const layer = Layer.effect(
 
     const loadGlobal = Effect.fnUntraced(function* (env?: Record<string, string>) {
       let result: Info = {}
+      // K5: record the file that supplied each code-bearing field while the file is
+      // still known. The caller merges this Info without re-recording, so the per-file
+      // sources survive instead of collapsing into the config directory.
+      const absorb = (file: string, next: Info) => {
+        result = mergeConfigConcatArrays(result, next)
+        recordCodeOrigins(result, next, file)
+      }
       // Seed the default global config with the schema for editor completion, but avoid writing when the user
       // explicitly routes config through env-provided paths or content.
       if (!Flag.OPENCODE_CONFIG && !Flag.OPENCODE_CONFIG_DIR && !Flag.OPENCODE_CONFIG_CONTENT) {
@@ -396,12 +427,12 @@ const layer = Layer.effect(
             .pipe(Effect.catch(() => Effect.void))
         }
       }
-      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "config.json"), env))
-      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "opencode.json"), env))
-      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "opencode.jsonc"), env))
-      // hordecode files are primary; opencode files above are compat, lower priority.
-      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "hordecode.json"), env))
-      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "hordecode.jsonc"), env))
+      // config.json and the opencode files are compat; the hordecode files come last
+      // and win on conflict.
+      for (const name of ["config.json", "opencode.json", "opencode.jsonc", "hordecode.json", "hordecode.jsonc"]) {
+        const file = path.join(Global.Path.config, name)
+        absorb(file, yield* loadFile(file, env))
+      }
 
       const legacy = path.join(Global.Path.config, "config")
       if (existsSync(legacy)) {
@@ -411,8 +442,13 @@ const layer = Layer.effect(
               const { provider, model, ...rest } = mod.default
               if (provider && model) result.model = `${provider}/${model}`
               result["$schema"] = "https://hordecode.com/config.json"
-              result = mergeConfig(result, rest)
-              await fsNode.writeFile(path.join(Global.Path.config, "config.json"), JSON.stringify(result, null, 2))
+              result = mergeConfigConcatArrays(result, rest)
+              recordCodeOrigins(result, rest, legacy)
+              // K5: code_origins is derived state, never persisted (writable strips it).
+              await fsNode.writeFile(
+                path.join(Global.Path.config, "config.json"),
+                JSON.stringify(writable(result), null, 2),
+              )
               await fsNode.unlink(legacy)
             })
             .catch(() => {}),
@@ -471,17 +507,16 @@ const layer = Layer.effect(
     const loadInstanceState = Effect.fn("Config.loadInstanceState")(
       function* (ctx: InstanceContext) {
         const auth = yield* authSvc.all().pipe(Effect.orDie)
-        // K2: the boot gate records the decision before config.get() runs. Writes into a
-        // project directory (schema insert, plugin dependency install, .gitignore) are
-        // skipped while it is untrusted (ruling 7); user-owned dirs are never gated.
-        const projectAllowed = yield* Effect.promise(() => TrustGate.allowed(ctx))
-        const mayWrite = (target: string) => projectAllowed || TrustGate.isUserOwned(target)
-        // K3: isUserOwned also covers a user-named HORDECODE_CONFIG(_DIR) path, which is
-        // load-only. A file that lies inside an untrusted project worktree is still
-        // project content for writes: the $schema insert must not touch it (ruling 7).
-        const inProject = (target: string) =>
-          FSUtil.contains(ctx.directory, target) || (ctx.worktree !== "/" && FSUtil.contains(ctx.worktree, target))
-        const mayWriteSource = (target: string) => projectAllowed || (mayWrite(target) && !inProject(target))
+        // K5: writes use the one boundary rule on the target directory (user-owned or
+        // inside a trusted root). It reads the store, so the boot decision, the TUI
+        // thread and a per-request layer answer the same question. A write into an
+        // ancestor outside every trusted root is refused.
+        const mayWrite = (target: string) => TrustGate.mayRunFrom(target)
+        // K3: a user-named HORDECODE_CONFIG(_DIR) path is load-only. The $schema insert
+        // rewrites the file, so its target directory is checked first: a file inside an
+        // untrusted project worktree stays untouched (ruling 7).
+        // K5: same function, applied to the directory that receives the write.
+        const mayWriteSource = (target: string) => mayWrite(path.dirname(target))
 
         let result: Info = {}
         const authEnv: Record<string, string> = {}
@@ -517,10 +552,19 @@ const layer = Layer.effect(
           result.plugin_origins = plugins
         })
 
-        const merge = Effect.fnUntraced(function* (source: string, next: Info, kind?: ConfigPlugin.Scope) {
+        // K5: `origin` is the provenance source ID when it differs from the merge source
+        // (environment content and managed policy); `record` is false for a layer that
+        // recorded its own per-file sources before it reached here.
+        const merge = Effect.fnUntraced(function* (
+          source: string,
+          next: Info,
+          kind?: ConfigPlugin.Scope,
+          origin?: string,
+          record = true,
+        ) {
           const scope = kind ?? sourceScope(source)
           result = mergeConfigConcatArrays(result, next)
-          recordCodeOrigins(result, next, scope)
+          if (record) recordCodeOrigins(result, next, origin ?? source)
           yield* mergePluginOrigins(source, next.plugin, scope)
         })
 
@@ -567,7 +611,9 @@ const layer = Layer.effect(
         }
 
         const global = Object.keys(authEnv).length ? yield* loadGlobal(authEnv) : yield* getGlobal()
-        yield* merge(Global.Path.config, global, "global")
+        // K5: the global layer already recorded the file that set each field; merging it
+        // again would collapse those sources into the config directory.
+        yield* merge(Global.Path.config, global, "global", "global", false)
 
         if (Flag.OPENCODE_CONFIG) {
           // K3: the file is user-named, so its code loads, but the schema write is
@@ -630,7 +676,8 @@ const layer = Layer.effect(
           // directory. Skip them for project dirs while the project is untrusted. K3: a
           // user-named CONFIG_DIR is load-only, so it does not reopen writes into the
           // untrusted worktree it lies in.
-          if (!mayWrite(dir) || (!projectAllowed && inProject(dir))) continue
+          // K5: mayWrite is the boundary rule on the directory itself.
+          if (!mayWrite(dir)) continue
 
           yield* ensureGitignore(dir).pipe(Effect.orDie)
 
@@ -676,7 +723,7 @@ const layer = Layer.effect(
             dir: ctx.directory,
             source,
           })
-          yield* merge(source, next, "local")
+          yield* merge(source, next, "local", "env")
           yield* Effect.logDebug("loaded custom config from OPENCODE_CONFIG_CONTENT")
         }
 
@@ -722,19 +769,21 @@ const layer = Layer.effect(
         if (existsSync(managedDir)) {
           for (const file of ["opencode.json", "opencode.jsonc"]) {
             const source = path.join(managedDir, file)
-            yield* merge(source, yield* loadFile(source), "global")
+            yield* merge(source, yield* loadFile(source), "global", "managed")
           }
         }
 
         // macOS managed preferences (.mobileconfig deployed via MDM) override everything
         const managed = yield* Effect.promise(() => ConfigManaged.readManagedPreferences())
         if (managed) {
-          result = mergeConfigConcatArrays(
-            result,
+          yield* merge(
+            managed.source,
             yield* loadConfig(managed.text, {
               dir: path.dirname(managed.source),
               source: managed.source,
             }),
+            "global",
+            "managed",
           )
         }
 
@@ -836,7 +885,8 @@ const layer = Layer.effect(
       // K4 (rulings 3/4): the same rule as mayWriteSource above. An untrusted project
       // gets no write at all, including the $schema insert that loadFile performs;
       // a trusted project and a user-owned directory are unchanged.
-      if (!(yield* Effect.promise(() => TrustGate.allowed(ctx))) && !TrustGate.isUserOwned(dir)) return
+      // K5: the boundary rule on the target directory replaces the boot decision.
+      if (!TrustGate.mayRunFrom(dir)) return
       const file = path.join(dir, "config.json")
       const existing = yield* loadFile(file)
       const text = yield* readConfigFile(file)

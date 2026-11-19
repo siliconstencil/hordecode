@@ -328,13 +328,15 @@ function cpuCount(): number {
 }
 
 // K3: the host that wires this layer injects the project-code provenance check
-// (opencode passes its trust gate from effect/supervisor-node.ts). Undefined keeps
-// the upstream 1.19.5 behaviour: every resolved saved workflow is allowed.
+// (opencode passes its trust gate from effect/supervisor-node.ts). K5: the check is
+// the boundary rule on the resolved file, so it carries no boot context.
+// K5: N5. Required: a gate-free layer would resolve every saved project workflow
+// (upstream 1.19.5 behaviour), so there is no legitimate caller without it.
 export interface LayerOptions {
-  projectScriptGate?: ProjectScriptAllow
+  projectScriptGate: ProjectScriptAllow
 }
 
-export const layer = (options: LayerOptions = {}) => Layer.effect(
+export const layer = (options: LayerOptions) => Layer.effect(
   Service,
   Effect.gen(function* () {
     const bus = yield* Bus.Service
@@ -1287,9 +1289,9 @@ export const layer = (options: LayerOptions = {}) => Layer.effect(
         return bridge.promise(
           Effect.gen(function* () {
             // K3: a built-in name is package code, not project code, so it bypasses
-            // the host gate. A saved name is a project file unless the host says
-            // otherwise (opencode passes TrustGate in LayerOptions). Upstream 1.19.5
-            // runtime.ts:1278 resolved saved children with no provenance check.
+            // the host gate. A saved name is asked of the host boundary rule (opencode
+            // passes TrustGate in LayerOptions). Upstream 1.19.5 runtime.ts:1278
+            // resolved saved children with no provenance check.
             const builtin = isInlineScript(spec) ? undefined : BuiltinWorkflow.get(spec)
             const childScript = isInlineScript(spec)
               ? spec

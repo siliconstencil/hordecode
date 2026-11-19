@@ -116,14 +116,13 @@ export const SessionPruneNode = LayerNode.make({
 // SupervisorNode satisfies Supervisor's core Session.Service. The runtime populates
 // workflowRef (runtime.ts:1429), which tool/workflow.ts reads at call time.
 // K3: the runtime cannot import the gate (packages/workflow has no opencode
-// dependency), so the trust decision is injected here. A child workflow is project
-// code unless its file is user-owned or the project worktree it starts from is
-// trusted. Upstream 1.19.5 has no workflow runtime and no gate.
+// dependency), so the trust decision is injected here. K5: a child workflow file is
+// a code origin, decided by the same mayRunFrom the root lookup uses.
+// Upstream 1.19.5 has no workflow runtime and no gate.
 export const WorkflowNode = LayerNode.make({
   service: WorkflowRuntime.Service,
   layer: WorkflowRuntime.layer({
-    projectScriptGate: async (file, start, stop) =>
-      TrustGate.isUserOwned(file) || (await TrustGate.allowed({ directory: start, worktree: stop })),
+    projectScriptGate: (file) => TrustGate.mayRunFrom(file),
   }) as Layer.Layer<WorkflowRuntime.Service, never, never>,
   deps: [BusNode, InboxNode, Worktree.node, Provider.node, Config.node, Session.node, SupervisorRegistryNode],
 })

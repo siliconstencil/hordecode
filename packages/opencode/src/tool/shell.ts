@@ -961,11 +961,11 @@ export const ShellTool = Tool.define(
     return () =>
       Effect.gen(function* () {
         const cfg = yield* config.get()
-        const ctx = yield* InstanceState.context
-        // K2: `shell` is an executable path. A project-config value is project code;
-        // an untrusted project falls back to the product default shell.
-        const allowed = yield* Effect.promise(() => TrustGate.allowed(ctx))
-        const configured = allowed || cfg.code_origins?.shell !== "local" ? cfg.shell : undefined
+        // K5: `shell` is an executable path. Ask mayRunFrom about the source that set
+        // it; a denied source falls back to the product default shell.
+        const shellSource = cfg.code_origins?.shellSource
+        if (!Config.sourceMayRun(shellSource) && shellSource !== undefined) TrustGate.warnDenied(shellSource)
+        const configured = Config.sourceMayRun(shellSource) ? cfg.shell : undefined
         const shell = Shell.acceptable(configured)
         const name = Shell.name(shell)
         const limits = yield* trunc.limits()

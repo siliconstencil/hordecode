@@ -22,8 +22,10 @@ const SAFE_NAME = /^[A-Za-z0-9._-]+$/
 // K3: the guest `workflow()` primitive can name a project file. The host injects
 // this provenance check so project code does not run in an untrusted project;
 // packages/workflow must not import the opencode gate, so the callback is passed in.
+// K5: the check is the one boundary rule on the resolved file path alone; the
+// boundary reads the trust store, so it needs no boot context.
 // Upstream 1.19.5 workflow/src/resolve.ts:25-33 has no such check.
-export type ProjectScriptAllow = (file: string, start: string, stop: string) => Promise<boolean>
+export type ProjectScriptAllow = (file: string) => boolean | Promise<boolean>
 
 export async function resolveWorkflowScript(
   name: string,
@@ -48,7 +50,7 @@ export async function resolveWorkflowFile(
   if (!SAFE_NAME.test(name)) throw new Error(`invalid workflow name: ${JSON.stringify(name)}`)
   const subdirs = [".hordecode/workflows", ".claude/workflows"]
   for (const found of await collectUp(name, subdirs, start, stop)) {
-    if (allow && !(await allow(found, start, stop))) return null
+    if (allow && !(await allow(found))) return null
     return found
   }
   return null

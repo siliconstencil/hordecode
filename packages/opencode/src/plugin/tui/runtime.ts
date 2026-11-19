@@ -1088,16 +1088,13 @@ async function load(input: {
     )
     const pluginOrigins = config.plugin_origins ?? (await TuiConfig.pluginOrigins())
     const pureMode = Flag.HORDECODE_PURE || Flag.OPENCODE_PURE
-    // K3: the TUI plugin host runs in its own thread and never boots an instance, so the
-    // process-local trust memo has no decision here. Read the shared store instead; it
-    // answers for a trusted worktree and its subdirectories. User-owned origins keep loading.
-    // K4 (ruling 1): scope labels were assigned first; this decision reads the store for
-    // the resolved worktree root, not cwd, and a missing record denies.
-    const worktree = Filesystem.resolve(TrustGate.resolveWorktree(cwd))
-    const projectAllowed = TrustGate.isUserOwned(cwd) || (await TrustGate.checkTrust(worktree)) === "trusted"
-    const allowedOrigins = projectAllowed
-      ? pluginOrigins
-      : pluginOrigins.filter((origin) => origin.scope !== "local" || TrustGate.isUserOwned(origin.source))
+    // K5: the TUI thread never boots an instance, and it no longer needs to: each
+    // origin is a code origin, and mayRunFrom answers from the trust store alone.
+    const allowedOrigins = pluginOrigins.filter((origin) => {
+      if (TrustGate.mayRunFrom(origin.source)) return true
+      TrustGate.warnDenied(origin.source)
+      return false
+    })
     const records = pureMode ? [] : allowedOrigins
     if (pureMode && pluginOrigins.length) {
     }

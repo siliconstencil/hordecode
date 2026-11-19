@@ -175,10 +175,6 @@ const layer = Layer.effect(
           ...(serverUrl ? {} : { fetch: async (...args) => Server.Default().app.fetch(...args) }),
         })
         const cfg = yield* config.get()
-        // K2: an untrusted project keeps loading user-owned (global) plugin entries and
-        // drops project-origin ones. The boot gate already skipped plugin.init(); this
-        // filter also covers state that is initialised lazily by trigger()/list().
-        const allowed = yield* Effect.promise(() => TrustGate.allowed(ctx))
         const input: PluginInput = {
           client,
           project: ctx.project,
@@ -216,9 +212,15 @@ const layer = Layer.effect(
           }
         }
 
+        // K5: a plugin entry is a code origin; it loads iff mayRunFrom the config file
+        // or plugin directory that named it. The scope label no longer decides.
         const plugins = flags.pure
           ? []
-          : (cfg.plugin_origins ?? []).filter((origin) => allowed || origin.scope === "global")
+          : (cfg.plugin_origins ?? []).filter((origin) => {
+              if (TrustGate.mayRunFrom(origin.source)) return true
+              TrustGate.warnDenied(origin.source)
+              return false
+            })
         if (flags.pure && cfg.plugin_origins?.length) {
         }
         if (plugins.length) yield* config.waitForDependencies()
@@ -339,14 +341,20 @@ const layer = Layer.effect(
     const fileHookState = yield* InstanceState.make<{ hooks: Hooks[] }>(
       Effect.fn("Plugin.fileHooks")(function* () {
         const hooks: Hooks[] = []
-        const ctx = yield* InstanceState.context
-        // K2: hook dirs under a project are project code; user-owned dirs keep loading.
-        const allowed = yield* Effect.promise(() => TrustGate.allowed(ctx))
-        const dirs = (yield* config.directories()).filter((dir) => allowed || TrustGate.isUserOwned(dir))
+        // K5: each hook file is a code origin; it loads iff mayRunFrom its path.
+        const dirs = (yield* config.directories()).filter((dir) => {
+          if (TrustGate.mayRunFrom(dir)) return true
+          TrustGate.warnDenied(dir)
+          return false
+        })
 
         for (const dir of dirs) {
           const matches = Glob.scanSync("{hook,hooks}/*.{js,ts}", { cwd: dir, absolute: true, dot: true, symlink: true })
           for (const match of matches) {
+            if (!TrustGate.mayRunFrom(match)) {
+              TrustGate.warnDenied(match)
+              continue
+            }
             const mod = yield* Effect.tryPromise({
               try: () => import(`${pathToFileURL(match).href}?v=${Date.now()}`),
               catch: (err) => err,

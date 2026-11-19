@@ -62,8 +62,9 @@ export function define<R>(plugin: Plugin<R>) {
 
 export interface Options {
   // K4: the trust decision for project plugin code is owned by the app; core takes
-  // it at construction (see ConfigExternalPlugin.make). Without a predicate only the
-  // user-owned global config directory loads.
+  // it at construction (see ConfigExternalPlugin.make). K5: the predicate is the
+  // boundary rule on the source file. Without a predicate only the user-owned global
+  // config directory loads.
   readonly projectPluginAllow?: ConfigExternalPlugin.ProjectPluginAllow
 }
 

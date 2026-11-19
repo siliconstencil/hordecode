@@ -1301,9 +1301,8 @@ interface State {
   sdk: Map<string, BundledSDK>
   modelLoaders: Record<string, CustomModelLoader>
   varsLoaders: Record<string, CustomVarsLoader>
-  // K2: boot trust decision plus per-provider config provenance, read by resolveSDK
-  // at first use (the npm install/import is the code path being gated).
-  allowed: boolean
+  // K5: per-provider config provenance, read by resolveSDK at first use (the npm
+  // install/import is the code path being gated).
   codeOrigins: Config.CodeOrigins | undefined
 }
 
@@ -1494,8 +1493,6 @@ const layer = Layer.effect(
       Effect.gen(function* () {
         const bridge = yield* EffectBridge.make()
         const cfg = yield* config.get()
-        const ctx = yield* InstanceState.context
-        const allowed = yield* Effect.promise(() => TrustGate.allowed(ctx))
         const modelsDev = yield* modelsDevSvc.get()
         const catalog = mapValues(modelsDev, fromModelsDevProvider)
         const database = mapValues(catalog, toPublicInfo)
@@ -1824,7 +1821,6 @@ const layer = Layer.effect(
           sdk,
           modelLoaders,
           varsLoaders,
-          allowed,
           codeOrigins: cfg.code_origins,
         }
       }),
@@ -1914,15 +1910,15 @@ const layer = Layer.effect(
         // K2: provider npm is gated at first use. A bundled loader is product code;
         // a non-bundled install/import whose provider came from project config is
         // project code and must not run while the project is untrusted.
-        // K3: decide from the per-field taint, so a project npm masked by a later user
-        // source cannot run and a project model npm does not block sibling models.
-        // Upstream v1.19.5 provider.ts:1898 installs and imports unconditionally.
-        const taint = s.codeOrigins?.taint?.provider?.[model.providerID] ?? []
-        const projectNpm =
-          taint.length === 0
-            ? s.codeOrigins?.provider?.[model.providerID] === "local"
-            : taint.includes("npm") || taint.includes(`models.${model.id}.provider.npm`)
-        if (!s.allowed && projectNpm) {
+        // K5: the model's effective npm is its own provider.npm, falling back to the
+        // provider-level npm (provider.ts:1369-1370). Ask mayRunFrom about the source
+        // that set that npm, so a project npm does not block a sibling model whose own
+        // npm came from a user-owned source. Upstream v1.19.5 provider.ts:1898 installs
+        // and imports unconditionally.
+        const npmSources = Config.codeFieldSources(s.codeOrigins, "provider", model.providerID)
+        const npmSource = npmSources[`models.${model.id}.provider.npm`] ?? npmSources.npm
+        if (!Config.sourceMayRun(npmSource)) {
+          if (npmSource !== undefined) TrustGate.warnDenied(npmSource)
           throw new Error(
             `provider ${model.providerID} is configured by an untrusted project; run with --trust to allow it`,
           )
