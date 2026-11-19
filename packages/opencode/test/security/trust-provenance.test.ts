@@ -649,4 +649,60 @@ describe("source provenance", () => {
       )
     }),
   )
+
+  // K6 (ruling 5): environment is recorded per variable name, not as one map source.
+  // A formatter needs no command, so the entry is denied by the project-set variable
+  // alone; the user-set variable keeps its own allowed source.
+  it.live("a project environment variable denies only its own field", () =>
+    Effect.gen(function* () {
+      const dir = yield* project({
+        formatter: { k5env: { environment: { FOO: "project" }, extensions: [".k5env"] } },
+      })
+      yield* globalConfig({ formatter: { k5env: { environment: { BAR: "user" } } } })
+      const file = path.join(dir, "note.k5env")
+      yield* Effect.promise(() => Bun.write(file, "k5"))
+
+      yield* inside(dir, () =>
+        Effect.gen(function* () {
+          const cfg = yield* origins
+          const fields = Config.codeFieldSources(cfg, "formatter", "k5env")
+          expect(fields["environment.FOO"]).toBe(path.join(dir, "hordecode.json"))
+          expect(fields["environment.BAR"]).toBe("managed")
+          expect(Config.sourceMayRun(fields["environment.FOO"])).toBe(false)
+          expect(Config.sourceMayRun(fields["environment.BAR"])).toBe(true)
+          expect(Config.codeDeniedSources(cfg, "formatter", "k5env")).toEqual([path.join(dir, "hordecode.json")])
+
+          // Denied by FOO's source; BAR's user source is not tarred with it.
+          expect(yield* Format.use.file(file)).toBe(false)
+        }),
+      )
+    }),
+  )
+
+  // K6 (ruling 5): the reverse direction. Project-set BAR denies the entry while the
+  // user-set FOO keeps "managed" as its source, so no whole-map taint can hide here.
+  it.live("a project environment variable does not taint a user-set variable", () =>
+    Effect.gen(function* () {
+      const dir = yield* project({
+        formatter: { k5env: { environment: { BAR: "project" }, extensions: [".k5env"] } },
+      })
+      yield* globalConfig({ formatter: { k5env: { environment: { FOO: "user" } } } })
+      const file = path.join(dir, "note.k5env")
+      yield* Effect.promise(() => Bun.write(file, "k5"))
+
+      yield* inside(dir, () =>
+        Effect.gen(function* () {
+          const cfg = yield* origins
+          const fields = Config.codeFieldSources(cfg, "formatter", "k5env")
+          expect(fields["environment.FOO"]).toBe("managed")
+          expect(fields["environment.BAR"]).toBe(path.join(dir, "hordecode.json"))
+          expect(Config.sourceMayRun(fields["environment.FOO"])).toBe(true)
+          expect(Config.sourceMayRun(fields["environment.BAR"])).toBe(false)
+          expect(Config.codeDeniedSources(cfg, "formatter", "k5env")).toEqual([path.join(dir, "hordecode.json")])
+
+          expect(yield* Format.use.file(file)).toBe(false)
+        }),
+      )
+    }),
+  )
 })

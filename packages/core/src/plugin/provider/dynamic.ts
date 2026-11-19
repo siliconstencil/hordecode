@@ -3,6 +3,9 @@ import { pathToFileURL } from "url"
 import { define } from "../internal"
 import { Npm } from "../../npm"
 
+// K6: unreachable today - no executor is wired to this V2 provider plugin, so nothing
+// calls it. When one is wired, evt.package (which can be a file:// project path) must
+// go through TrustGate.mayRunFrom before the import below. No code change here yet.
 export const DynamicProviderPlugin = define({
   id: "dynamic-provider",
   effect: Effect.fn(function* (ctx) {

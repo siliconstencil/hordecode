@@ -221,8 +221,8 @@ const layer = Layer.effect(
               TrustGate.warnDenied(origin.source)
               return false
             })
-        if (flags.pure && cfg.plugin_origins?.length) {
-        }
+        // K6 (ruling 4): removed the empty pure-mode if-block; the filter above already
+        // yields [] under pure mode, so it had no effect.
         if (plugins.length) yield* config.waitForDependencies()
 
         const loaded = yield* Effect.promise(() =>

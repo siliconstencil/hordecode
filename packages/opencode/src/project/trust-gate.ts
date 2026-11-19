@@ -58,17 +58,30 @@ export function userOwnedDirs(): string[] {
   return dirs
 }
 
-function userNamedConfigFile(): string | undefined {
-  const file = process.env["HORDECODE_CONFIG"] ?? process.env["OPENCODE_CONFIG"]
-  return file ? path.resolve(file) : undefined
+// K6 (ruling 4): the TUI config flag names a user-selected file, so the plugins it
+// names are exempt like HORDECODE_CONFIG's. Both pairs are read the way the loaders
+// read them: config/tui.ts:212 uses HORDECODE_TUI_CONFIG ?? OPENCODE_TUI_CONFIG.
+function userNamedConfigFiles(): string[] {
+  const values = [
+    process.env["HORDECODE_CONFIG"] ?? process.env["OPENCODE_CONFIG"],
+    process.env["HORDECODE_TUI_CONFIG"] ?? process.env["OPENCODE_TUI_CONFIG"],
+  ]
+  return values
+    .filter((value): value is string => typeof value === "string" && value !== "")
+    .map((value) => path.resolve(value))
 }
 
 // K5: N3 fix. Compare real paths on both sides, so a HOME or XDG config tree reached
 // through a symlink is still recognized as user-owned (the trust keys are real paths).
+// K6 (ruling 4): a named path is exempt as an exact file; when a flag names a directory
+// (CONFIG_DIR, or a file flag pointed at one) the directory's contents are exempt too.
 export function isUserOwned(target: string): boolean {
   const resolved = realPath(target)
-  const named = userNamedConfigFile()
-  if (named !== undefined && realPath(named) === resolved) return true
+  for (const file of userNamedConfigFiles()) {
+    const named = realPath(file)
+    if (named === resolved) return true
+    if (Filesystem.stat(named)?.isDirectory() === true && resolved.startsWith(named + path.sep)) return true
+  }
   return userOwnedDirs().some((dir) => {
     const owned = realPath(dir)
     return resolved === owned || resolved.startsWith(owned + path.sep)
@@ -112,6 +125,40 @@ export function mayRunFrom(source: string | undefined): boolean {
   const value = isUserOwned(dir) || listTrustedSync().some((root) => within(realPath(root), dir))
   mayRun.set(dir, { value, at: now })
   return value
+}
+
+// K6: a binary resolved from the project (node_modules/.bin, vendor/bin, .venv) is
+// project code. The binary's real directory is the origin; a denied candidate is
+// reported once and the caller continues with its global/managed resolution. When a
+// project root is supplied, a resolution that lands outside it is the managed/global
+// one (the package cache, the user's PATH) and keeps its existing authority.
+export function mayRunBinary(bin: string | undefined, root?: string): boolean {
+  if (bin === undefined || bin === "") return false
+  if (root !== undefined && root !== "") {
+    const scope = realPath(root)
+    // "/" is the product's non-git sentinel, not a real project scope.
+    if (scope === path.parse(scope).root) return true
+    if (!within(scope, realPath(bin))) return true
+  }
+  if (mayRunFrom(bin)) return true
+  warnDenied(bin)
+  return false
+}
+
+// K6: a path-like relative command token is resolved against its cwd, and that
+// resolved path is the origin. A bare name (`node`, `git`) is resolved by PATH and
+// has no project origin.
+export function isRelativeCommand(command: string | undefined): boolean {
+  if (command === undefined || command === "" || path.isAbsolute(command)) return false
+  return command.startsWith(".") || command.includes("/") || command.includes("\\")
+}
+
+export function mayRunCommand(cwd: string, command: string | undefined): boolean {
+  if (!isRelativeCommand(command)) return true
+  const origin = path.resolve(cwd, command!)
+  if (mayRunFrom(origin)) return true
+  warnDenied(origin)
+  return false
 }
 
 // Boot decision, keyed by trust key. The product creates every instance through

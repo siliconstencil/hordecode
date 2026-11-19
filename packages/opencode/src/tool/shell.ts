@@ -175,6 +175,7 @@ type Scan = {
   patterns: Set<string>
   always: Set<string>
   deletes: Set<string>
+  denied: Set<string>
 }
 
 type Chunk = {
@@ -638,6 +639,7 @@ export const ShellTool = Tool.define(
         patterns: new Set<string>(),
         always: new Set<string>(),
         deletes: new Set<string>(),
+        denied: new Set<string>(),
       }
       const shellKind = ShellID.toKind(Shell.name(shell))
       // Effective cwd as the shell walks the command left to right. A chained
@@ -654,6 +656,14 @@ export const ShellTool = Tool.define(
         const command = parts(node)
         const tokens = command.map((item) => item.text)
         const cmd = ps || shellKind === "cmd" ? tokens[0]?.toLowerCase() : tokens[0]
+
+        // K6: a path-like relative command resolves against the cwd it runs in; that
+        // resolved path is the origin, not the shell's own path.
+        const first = tokens[0] && unquote(tokens[0])
+        if (TrustGate.isRelativeCommand(first)) {
+          const origin = path.resolve(current, first!)
+          if (!TrustGate.mayRunFrom(origin)) scan.denied.add(origin)
+        }
 
         if (sequential(node)) {
           const sep = separator(node)
@@ -986,12 +996,15 @@ export const ShellTool = Tool.define(
               }
               const timeout = params.timeout ?? defaultTimeoutMs
               const ps = Shell.ps(shell)
+              let denied: string[] = []
               yield* Effect.scoped(
                 Effect.gen(function* () {
                   const tree = yield* Effect.acquireRelease(parse(params.command, ps), (tree) =>
                     Effect.sync(() => tree.delete()),
                   )
                   const scan = yield* collect(tree.rootNode, cwd, ps, shell, instanceCtx)
+                  denied = Array.from(scan.denied)
+                  if (denied.length > 0) return
                   if (!containsPath(cwd, instanceCtx)) scan.dirs.add(cwd)
                   yield* ProtectedPath.assert(ctx, scan.protected)
                   // Delete-containing commands are authorized by askDelete alone --
@@ -1023,6 +1036,17 @@ export const ShellTool = Tool.define(
                   }
                 }),
               )
+
+              if (denied.length > 0) {
+                for (const origin of denied) TrustGate.warnDenied(origin)
+                const message = `command not run: ${denied.join(", ")} is outside every trusted root. Run with --trust in that project to allow it.`
+                yield* Effect.logWarning("shell command denied by trust gate", { commands: denied })
+                return {
+                  title: params.description ?? params.command,
+                  metadata: { output: message, exit: 1, truncated: false },
+                  output: message,
+                }
+              }
 
               // FORK_DELTA: opencode v1.19.5 packages/opencode/src/tool/shell.ts:631 (before `return yield* run(`)
               if (ctx.extra?.["authorizeOnly"] === true)

@@ -1,7 +1,9 @@
 import { Npm } from "@opencode-ai/core/npm"
+import path from "path"
 import type { InstanceContext } from "../project/instance-context"
 import { Filesystem } from "@/util/filesystem"
 import { Process } from "@/util/process"
+import { TrustGate } from "@/project/trust-gate"
 import { which } from "@opencode-ai/core/util/which"
 
 export interface Context extends Pick<InstanceContext, "directory" | "worktree"> {
@@ -77,7 +79,8 @@ export const prettier: Info = {
       }>(item)
       if (json.dependencies?.prettier || json.devDependencies?.prettier) {
         const bin = await Npm.which("prettier")
-        if (bin) return [bin, "--write", "$FILE"]
+        // K6: a managed resolution that lands in the project is project code.
+        if (bin && TrustGate.mayRunBinary(bin, context.worktree)) return [bin, "--write", "$FILE"]
       }
     }
     return false
@@ -100,7 +103,8 @@ export const oxfmt: Info = {
       }>(item)
       if (json.dependencies?.oxfmt || json.devDependencies?.oxfmt) {
         const bin = await Npm.which("oxfmt")
-        if (bin) return [bin, "$FILE"]
+        // K6: a managed resolution that lands in the project is project code.
+        if (bin && TrustGate.mayRunBinary(bin, context.worktree)) return [bin, "$FILE"]
       }
     }
     return false
@@ -146,7 +150,8 @@ export const biome: Info = {
       const found = await Filesystem.findUp(config, context.directory, context.worktree)
       if (found.length > 0) {
         const bin = await Npm.which("@biomejs/biome")
-        if (bin) return [bin, "format", "--write", "$FILE"]
+        // K6: a managed resolution that lands in the project is project code.
+        if (bin && TrustGate.mayRunBinary(bin, context.worktree)) return [bin, "format", "--write", "$FILE"]
       }
     }
     return false
@@ -367,7 +372,11 @@ export const pint: Info = {
         require?: Record<string, string>
         "require-dev"?: Record<string, string>
       }>(item)
-      if (json.require?.["laravel/pint"] || json["require-dev"]?.["laravel/pint"]) return ["./vendor/bin/pint", "$FILE"]
+      if (json.require?.["laravel/pint"] || json["require-dev"]?.["laravel/pint"]) {
+        // K6: ./vendor/bin/pint is project code; deny it like any other project binary.
+        if (!TrustGate.mayRunBinary(path.resolve(context.directory, "./vendor/bin/pint"))) return false
+        return ["./vendor/bin/pint", "$FILE"]
+      }
     }
     return false
   },

@@ -607,8 +607,10 @@ describe("provider loader", () => {
           const provider = yield* Provider.Service
           const model = yield* provider.getModel(ProviderV2.ID.make("k5prov"), ModelV2.ID.make("k5model"))
           const exit = yield* provider.getLanguage(model).pipe(Effect.exit)
-          expect(exit._tag).toBe("Failure")
+          // K6 (ruling 5): the absent marker is the proof the module never imported;
+          // Failure alone could be any import error.
           expect(yield* marker("prov-ancestor.txt")).toBe(false)
+          expect(exit._tag).toBe("Failure")
         }),
       )
     }),
@@ -692,6 +694,63 @@ describe("shell loader", () => {
           const initialized = yield* tool.init()
           yield* initialized.execute({ command: "true", description: "k5" }, ctx)
           expect(initialized.description).toContain("k5shell")
+          expect(yield* marker("shell.txt")).toBe(true)
+        }),
+      )
+    }),
+  )
+})
+
+// ---------------------------------------------------------------- cwd origin
+// K6: a path-like relative command resolves against the cwd that will run it. The
+// config source can be trusted while that resolved path is outside every root.
+describe("cwd origin", () => {
+  it.live("a relative mcp command whose cwd points into an untrusted dir is not spawned", () =>
+    Effect.gen(function* () {
+      const dirs = yield* Effect.promise(() => checkout("mcp-cwd-untrusted"))
+      const script = path.join(dirs.base, "k5mcp")
+      yield* Effect.promise(() => shellScript(script))
+      yield* writeConfig(dirs.repo, {
+        mcp: { k5mcp: { type: "local", command: ["./k5mcp"], cwd: "../", timeout: 1000 } },
+      })
+
+      yield* inside(dirs.repo, true, () =>
+        Effect.gen(function* () {
+          const mcp = yield* MCP.Service
+          const status = yield* mcp.status()
+          expect(status.k5mcp?.status).not.toBe("connected")
+          expect(yield* marker("shell.txt")).toBe(false)
+        }),
+      )
+    }),
+  )
+
+  it.live("a relative shell command in an untrusted dir is not run", () =>
+    Effect.gen(function* () {
+      const dirs = yield* Effect.promise(() => checkout("shell-cwd-untrusted"))
+      yield* Effect.promise(() => shellScript(path.join(dirs.repo, "k5shell")))
+
+      yield* inside(dirs.repo, false, () =>
+        Effect.gen(function* () {
+          const tool = yield* ShellTool
+          const initialized = yield* tool.init()
+          yield* initialized.execute({ command: "./k5shell", description: "k6" }, ctx)
+          expect(yield* marker("shell.txt")).toBe(false)
+        }),
+      )
+    }),
+  )
+
+  it.live("a relative shell command in a trusted project runs", () =>
+    Effect.gen(function* () {
+      const dirs = yield* Effect.promise(() => checkout("shell-cwd-trusted"))
+      yield* Effect.promise(() => shellScript(path.join(dirs.repo, "k5shell")))
+
+      yield* inside(dirs.repo, true, () =>
+        Effect.gen(function* () {
+          const tool = yield* ShellTool
+          const initialized = yield* tool.init()
+          yield* initialized.execute({ command: "./k5shell", description: "k6" }, ctx)
           expect(yield* marker("shell.txt")).toBe(true)
         }),
       )
@@ -843,6 +902,24 @@ describe("tui loader", () => {
         runTui(Global.Path.config, "user", dirs.child, "tui-user.txt"),
       )
       expect(ran).toBe(true)
+    }),
+  )
+
+  // K6 (ruling 4): the flag names a user-selected file, so its plugin loads even
+  // though neither the project nor the directory holding that file has a trust record.
+  it.live("a tui config named by HORDECODE_TUI_CONFIG loads its plugins in an untrusted project", () =>
+    Effect.gen(function* () {
+      const dirs = yield* Effect.promise(() => checkout("tui-named-env"))
+      const named = path.join(dirs.base, "named-tui")
+      const previous = process.env.HORDECODE_TUI_CONFIG
+      process.env.HORDECODE_TUI_CONFIG = path.join(named, "tui.json")
+      try {
+        const ran = yield* Effect.promise(() => runTui(named, "named", dirs.child, "tui-named-env.txt"))
+        expect(ran).toBe(true)
+      } finally {
+        if (previous === undefined) delete process.env.HORDECODE_TUI_CONFIG
+        else process.env.HORDECODE_TUI_CONFIG = previous
+      }
     }),
   )
 })

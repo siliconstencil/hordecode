@@ -105,6 +105,34 @@ describe("mayRunFrom", () => {
     expect(TrustGate.mayRunFrom(elsewhere)).toBe(false)
   })
 
+  // K6 (ruling 5): the resolved directory is cached for the real 1 s TTL. Removing the
+  // record directly on disk (no in-process trust() call, so no cache clear) stays
+  // invisible inside the window and is seen once the TTL expires.
+  test("the may-run cache expires after its TTL", async () => {
+    const base = await scratch()
+    const root = path.join(base, "project")
+    await fs.mkdir(root)
+    const file = path.join(root, "hordecode.json")
+    await Bun.write(file, "{}")
+    await trust(root)
+    reset()
+
+    expect(TrustGate.mayRunFrom(file)).toBe(true)
+
+    const store = path.join(Global.Path.data, "trusted-workspaces.json")
+    const parsed = JSON.parse(await fs.readFile(store, "utf8")) as { trustedPaths?: string[] }
+    const key = await fs.realpath(root)
+    await Bun.write(
+      store,
+      JSON.stringify({ ...parsed, trustedPaths: (parsed.trustedPaths ?? []).filter((entry) => entry !== key) }),
+    )
+
+    // The cached true answer stands after the record is gone, until the TTL expires.
+    expect(TrustGate.mayRunFrom(file)).toBe(true)
+    await Bun.sleep(1_100)
+    expect(TrustGate.mayRunFrom(file)).toBe(false)
+  })
+
   test("allowed answers the trusted store when no boot decision was recorded", async () => {
     const base = await scratch()
     const root = path.join(base, "project")

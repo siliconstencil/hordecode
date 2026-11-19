@@ -60,7 +60,8 @@ import { SupervisorRegistryService } from "@opencode-ai/supervisor/registry"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { SessionV2 } from "@opencode-ai/core/session"
 import * as SessionExecutionLocal from "@opencode-ai/core/session/execution/local"
-import { locationServiceMapLayer } from "@opencode-ai/core/location-services"
+// K6 (ruling 4): removed the locationServiceMapLayer import; nothing in this file
+// referenced it (verified by grep before the edit).
 
 import { NotFoundError } from "@/storage/storage"
 import { eq } from "drizzle-orm"

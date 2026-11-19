@@ -350,6 +350,14 @@ const layer = Layer.effect(
       const [cmd, ...args] = mcp.command
       const baseDir = yield* InstanceState.directory
       const cwd = mcp.cwd ? path.resolve(baseDir, mcp.cwd) : baseDir
+      // K6: a relative command resolves against the cwd that will run it; the resolved
+      // path is the code origin and must pass before the transport spawns.
+      if (!TrustGate.mayRunCommand(cwd, cmd)) {
+        return {
+          client: undefined as MCPClient | undefined,
+          status: { status: "failed", error: `command ${cmd} is outside every trusted root` } as Status,
+        }
+      }
       const transport = new StdioClientTransport({
         stderr: "pipe",
         command: cmd,

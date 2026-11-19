@@ -77,8 +77,10 @@ const CODE_MAPS: CodeMap[] = ["mcp", "lsp", "formatter", "provider"]
 // <id>.models.<model>.provider.npm (provider.ts:82-84, :105). args/env are accepted
 // where a source uses those names. The top-level shell scalar also selects code and is
 // tracked by recordCodeOrigins below. enabled/disabled/url/timeout/extensions/options/
-// headers cannot select code, so they never record a source; mcp cwd changes only where
-// a command runs, not which command runs.
+// headers cannot select code, so they never record a source. mcp/lsp cwd is not a code
+// field by itself: for a relative command it decides which executable path runs, and
+// that resolved path is what mayRunFrom gates at the spawn site (mcp/index.ts,
+// lsp/lsp.ts); the shell tool gates a relative first token the same way.
 function codeFieldPaths(map: CodeMap, entry: unknown): string[] {
   if (!isRecord(entry)) return []
   if (map === "provider") {

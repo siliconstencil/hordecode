@@ -178,13 +178,17 @@ const layer = Layer.effect(
                 id: name,
                 root: existing?.root ?? (async (_file, ctx) => ctx.directory),
                 extensions: item.extensions ?? existing?.extensions ?? [],
-                spawn: async (root) => ({
-                  process: lspspawn(item.command[0], item.command.slice(1), {
-                    cwd: root,
-                    env: { ...withoutCredentials(process.env), ...item.env },
-                  }),
-                  initialization: item.initialization,
-                }),
+                spawn: async (root) => {
+                  // K6: a relative configured command resolves against the server root.
+                  if (!TrustGate.mayRunCommand(root, item.command[0])) return undefined
+                  return {
+                    process: lspspawn(item.command[0], item.command.slice(1), {
+                      cwd: root,
+                      env: { ...withoutCredentials(process.env), ...item.env },
+                    }),
+                    initialization: item.initialization,
+                  }
+                },
               }
             }
           }
