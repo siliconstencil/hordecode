@@ -29,6 +29,7 @@ import { ConfigPermissionV1 } from "@opencode-ai/core/v1/config/permission"
 import { ConfigPluginV1 } from "@opencode-ai/core/v1/config/plugin"
 import { ConfigAgent } from "./agent"
 import { ConfigCommand } from "./command"
+import { ConfigMarkdown } from "./markdown"
 import { findUnknownConfigKeys, recordUnknownConfigKeys } from "./unknown-keys"
 import { ConfigManaged } from "./managed"
 import { ConfigParse } from "./parse"
@@ -144,10 +145,24 @@ function recordCodeOrigins(target: Info, source: Info, id: string) {
       sources[map][key] = record
     }
   }
+  // K6: a command template that contains a `!`...`` snippet runs shell when the command
+  // runs (session/prompt.ts), so the template text selects code exactly like an mcp/lsp
+  // command. Record one source per command name. A later layer that supplies the template
+  // without a snippet clears the entry: the merge keeps the earlier template when a later
+  // entry omits the field, so only a supplied template changes the answer.
+  const commandSources = { ...(previous?.commandSources ?? {}) }
+  if (isRecord(source.command)) {
+    for (const [name, entry] of Object.entries(source.command)) {
+      if (!isRecord(entry) || typeof entry.template !== "string") continue
+      if (ConfigMarkdown.shell(entry.template).length > 0) commandSources[name] = id
+      else delete commandSources[name]
+    }
+  }
   const shellSource = source.shell !== undefined ? id : previous?.shellSource
   target.code_origins = {
     sources,
     ...(shellSource !== undefined ? { shellSource } : {}),
+    ...(Object.keys(commandSources).length > 0 ? { commandSources } : {}),
   }
 }
 
@@ -217,6 +232,9 @@ async function resolveLoadedPlugins<T extends { plugin?: ConfigPluginV1.Spec[] }
 export type CodeOrigins = {
   sources?: Partial<Record<CodeMap, Record<string, Record<string, string>>>>
   shellSource?: string
+  // K6: per command name, the source ID that supplied a template containing a shell
+  // snippet. A command that is absent here is the product's own or has no snippet.
+  commandSources?: Record<string, string>
 }
 
 // K5: the loader question. Deduped source IDs across every code-bearing field of the
@@ -244,6 +262,13 @@ export function codeFieldSources(origins: CodeOrigins | undefined, map: CodeMap,
 // value, which runs; a path is asked of mayRunFrom.
 export function sourceMayRun(id: string | undefined): boolean {
   return id === undefined || userSuppliedSource(id)
+}
+
+// K6: the source ID that supplied a command's shell-bearing template. Undefined means
+// the command is not config content (a built-in, MCP prompt, or markdown command) or
+// its template has no snippet, so there is nothing to gate.
+export function commandShellSource(origins: CodeOrigins | undefined, name: string): string | undefined {
+  return origins?.commandSources?.[name]
 }
 
 type Info = ConfigV1.Info & {
@@ -705,7 +730,13 @@ const layer = Layer.effect(
             )
           deps.push(dep)
 
-          result.command = mergeDeep(result.command ?? {}, yield* Effect.promise(() => ConfigCommand.load(dir)))
+          // K6: markdown commands reach ConfigCommand.load only for a directory the trust
+          // boundary allows (mayWrite above), but record the directory as their source so a
+          // markdown command that replaces a JSON entry inherits the markdown template's
+          // origin instead of the earlier one.
+          const loadedCommands = yield* Effect.promise(() => ConfigCommand.load(dir))
+          result.command = mergeDeep(result.command ?? {}, loadedCommands)
+          recordCodeOrigins(result, { command: loadedCommands }, dir)
           result.agent = mergeDeep(result.agent ?? {}, yield* Effect.promise(() => ConfigAgent.load(dir)))
           result.agent = mergeDeep(result.agent ?? {}, yield* Effect.promise(() => ConfigAgent.loadMode(dir)))
           // Auto-discovered plugins under `.opencode/plugin(s)` are already local files, so ConfigPlugin.load

@@ -80,6 +80,61 @@ const shim = async (target: string, name: string, linger = false) => {
   await fs.chmod(target, 0o755)
 }
 
+// K6: a language-server shim that records the initialize params it receives. The LSP
+// client frames JSON on stdin, so the script parses one frame and writes the body to
+// the marker dir. Installed in the managed package cache, the same place Npm.which
+// resolves a real typescript-language-server from.
+const recorderShim = async (pkg: string, bin: string) => {
+  const target = path.join(Global.Path.cache, "packages", pkg, "node_modules", ".bin", bin)
+  await fs.mkdir(path.dirname(target), { recursive: true })
+  const script = [
+    "#!/usr/bin/env bun",
+    'import fs from "node:fs"',
+    'const out = process.env.K2_MARKER_DIR + "/k6-lsp-init.json"',
+    "let buf = Buffer.alloc(0)",
+    "const parse = () => {",
+    "  while (true) {",
+    '    const head = buf.indexOf("\\r\\n\\r\\n")',
+    "    if (head < 0) return",
+    '    const match = /content-length:\\s*(\\d+)/i.exec(buf.subarray(0, head).toString())',
+    "    if (!match) return",
+    "    const length = Number(match[1])",
+    "    if (buf.length < head + 4 + length) return",
+    "    const body = buf.subarray(head + 4, head + 4 + length).toString()",
+    "    buf = buf.subarray(head + 4 + length)",
+    `    if (body.includes("initialize")) fs.writeFileSync(out, body)`,
+    "  }",
+    "}",
+    'process.stdin.on("data", (chunk) => { buf = Buffer.concat([buf, chunk]); parse() })',
+    "setTimeout(() => process.exit(0), 5000)",
+    "",
+  ].join("\n")
+  await Bun.write(target, script)
+  await fs.chmod(target, 0o755)
+  return target
+}
+
+async function typescriptProject(name: string) {
+  const dir = await checkout(name)
+  await Bun.write(path.join(dir, "package.json"), JSON.stringify({ name: "fixture", version: "1.0.0" }))
+  await Bun.write(
+    path.join(dir, "node_modules", "typescript", "package.json"),
+    JSON.stringify({ name: "typescript", version: "1.0.0" }),
+  )
+  const tsserver = path.join(dir, "node_modules", "typescript", "lib", "tsserver.js")
+  await Bun.write(tsserver, "// project tsserver\n")
+  await Bun.write(path.join(dir, "note.ts"), "export const value = 1\n")
+  return { dir, tsserver }
+}
+
+const recordedInit = Effect.promise(async () => {
+  try {
+    return JSON.parse(await fs.readFile(path.join(markerDir, "k6-lsp-init.json"), "utf8")) as Record<string, any>
+  } catch {
+    return undefined
+  }
+})
+
 async function biomeProject(name: string, markerName: string) {
   const dir = await checkout(name)
   await Bun.write(path.join(dir, "biome.json"), "{}")
@@ -130,6 +185,47 @@ describe("project-local language server binaries", () => {
           )
           yield* Fiber.interrupt(fiber)
           expect(yield* marker("lsp-trusted.txt")).toBe(true)
+        }),
+      )
+    }),
+  )
+})
+
+// K6: the built-in TypeScript server must not receive a project tsserver path.
+describe("project TypeScript server path", () => {
+  it.live("an untrusted project's tsserver is not passed to the language server", () =>
+    Effect.gen(function* () {
+      const project = yield* Effect.promise(() => typescriptProject("ts-untrusted"))
+      yield* Effect.promise(() => recorderShim("typescript-language-server", "typescript-language-server"))
+      yield* inside(project.dir, false, () =>
+        Effect.gen(function* () {
+          const lsp = yield* LSP.Service
+          const fiber = yield* lsp.touchFile(path.join(project.dir, "note.ts")).pipe(Effect.forkChild)
+          const init = yield* pollWithTimeout(recordedInit, "language server never sent initialize").pipe(
+            Effect.timeout("10 seconds"),
+          )
+          yield* Fiber.interrupt(fiber)
+          expect(JSON.stringify(init)).not.toContain(project.tsserver)
+          expect(init.params?.initializationOptions?.tsserver).toBeUndefined()
+        }),
+      )
+    }),
+  )
+
+  it.live("a trusted project's tsserver is passed", () =>
+    Effect.gen(function* () {
+      const project = yield* Effect.promise(() => typescriptProject("ts-trusted"))
+      trusted.push(project.dir)
+      yield* Effect.promise(() => recorderShim("typescript-language-server", "typescript-language-server"))
+      yield* inside(project.dir, true, () =>
+        Effect.gen(function* () {
+          const lsp = yield* LSP.Service
+          const fiber = yield* lsp.touchFile(path.join(project.dir, "note.ts")).pipe(Effect.forkChild)
+          const init = yield* pollWithTimeout(recordedInit, "language server never sent initialize").pipe(
+            Effect.timeout("10 seconds"),
+          )
+          yield* Fiber.interrupt(fiber)
+          expect(init.params?.initializationOptions?.tsserver?.path).toBe(project.tsserver)
         }),
       )
     }),

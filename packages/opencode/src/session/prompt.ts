@@ -35,6 +35,8 @@ import * as Stream from "effect/Stream"
 import { Command } from "../command"
 import { pathToFileURL, fileURLToPath } from "url"
 import { Config } from "@/config/config"
+// K6: prompt shell paths use the same trust rule as tool/shell.ts.
+import { TrustGate } from "@/project/trust-gate"
 import { isMemoryWriteEnabled } from "@/memory/write-gate"
 import { Memory } from "@opencode-ai/memory"
 import { node as EmbeddingNode } from "@opencode-ai/memory/embedding/service"
@@ -880,7 +882,8 @@ const layer = Layer.effect(
           }).pipe(Effect.ensuring(markReady))
 
           const cfg = yield* config.get()
-          const sh = Shell.preferred(cfg.shell)
+          // K6: a project-selected shell is gated like tool/shell.ts; denied falls back.
+          const sh = promptShell(cfg)
           const args = Shell.args(sh, input.command, cwd)
           let output = ""
           let aborted = false
@@ -2840,14 +2843,24 @@ const layer = Layer.effect(
       const shellMatches = ConfigMarkdown.shell(template)
       if (shellMatches.length > 0) {
         const cfg = yield* config.get()
-        const sh = Shell.preferred(cfg.shell)
-        const results = yield* Effect.promise(() =>
-          Promise.all(
-            shellMatches.map(async ([, cmd]) => (await Process.text([cmd], { shell: sh, nothrow: true })).text),
-          ),
-        )
-        let index = 0
-        template = template.replace(bashRegex, () => results[index++])
+        // K6: the template text is config content, and a project config is project code.
+        // Gate the snippets by the source that supplied this command's template. A denied
+        // source leaves the snippets out; the rest of the template still reaches the model.
+        const shellSource = Config.commandShellSource(cfg.code_origins, input.command)
+        if (!Config.sourceMayRun(shellSource)) {
+          if (shellSource !== undefined) TrustGate.warnDenied(shellSource)
+          template = template.replace(bashRegex, "")
+        } else {
+          // K6: a project-selected shell is gated like tool/shell.ts; denied falls back.
+          const sh = promptShell(cfg)
+          const results = yield* Effect.promise(() =>
+            Promise.all(
+              shellMatches.map(async ([, cmd]) => (await Process.text([cmd], { shell: sh, nothrow: true })).text),
+            ),
+          )
+          let index = 0
+          template = template.replace(bashRegex, () => results[index++])
+        }
       }
       template = template.trim()
 
@@ -3067,6 +3080,16 @@ export function createStructuredOutputTool(input: {
     },
   })
 }
+// K6: `shell` is an executable path. When the config source that set it is outside
+// every trusted root the prompt paths must not run that interpreter. Same rule and
+// warning as tool/shell.ts:975-980; a denied source falls back to the product default.
+export function promptShell(cfg: { readonly shell?: string; readonly code_origins?: Config.CodeOrigins }): string {
+  const source = cfg.code_origins?.shellSource
+  const allowed = Config.sourceMayRun(source)
+  if (!allowed && source !== undefined) TrustGate.warnDenied(source)
+  return Shell.preferred(allowed ? cfg.shell : undefined)
+}
+
 const bashRegex = /!`([^`]+)`/g
 // Match [Image N] as single token, quoted strings, or non-space sequences
 const argsRegex = /(?:\[Image\s+\d+\]|"[^"]*"|'[^']*'|[^\s"']+)/gi

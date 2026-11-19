@@ -8,6 +8,7 @@ import { EventV2Bridge } from "@/event-v2-bridge"
 import { expect } from "bun:test"
 import { Cause, Deferred, Duration, Effect, Exit, Fiber, Layer } from "effect"
 import path from "path"
+import { chmodSync, existsSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "url"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { Agent as AgentSvc } from "../../src/agent/agent"
@@ -53,7 +54,7 @@ import { Truncate } from "@/tool/truncate"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { Format } from "../../src/format"
-import { TestInstance } from "../fixture/fixture"
+import { mkdtempTmp, TestInstance } from "../fixture/fixture"
 import { awaitWithTimeout, pollWithTimeout, testEffect } from "../lib/effect"
 import { reply, TestLLMServer } from "../lib/llm-server"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -340,6 +341,19 @@ const cfg = {
     },
   },
 }
+
+// K6: a shell that records every invocation. A project config names it as `shell`;
+// an untrusted project must fall back to the default shell before it can run.
+const shellShimDir = mkdtempTmp("k6-prompt-shell-")
+function shellShim(name: string) {
+  const file = path.join(shellShimDir, name)
+  const marker = path.join(shellShimDir, `${name}.marker`)
+  writeFileSync(file, `#!/bin/sh\nprintf ran > ${JSON.stringify(marker)}\nexit 0\n`)
+  chmodSync(file, 0o755)
+  return { file, marker }
+}
+const untrustedShell = shellShim("untrusted-shell")
+const trustedShell = shellShim("trusted-shell")
 
 function providerCfg(url: string) {
   return {
@@ -1757,6 +1771,46 @@ unixNoLLMServer(
       }),
     ),
   { config: { ...cfg, shell: "bash" } },
+  30_000,
+)
+
+// K6: a project-selected shell must pass the trust rule before either prompt path runs it.
+unixNoLLMServer(
+  "a project-selected shell is not used for a prompt shell command in an untrusted project",
+  () =>
+    Effect.gen(function* () {
+      const { prompt, chat } = yield* boot()
+      const result = yield* prompt.shell({
+        sessionID: chat.id,
+        agent: "build",
+        model: ref,
+        command: "printf gated",
+      })
+
+      expect(existsSync(untrustedShell.marker)).toBe(false)
+      const tool = completedTool(result.parts)
+      if (!tool) return
+      expect(tool.state.output).toContain("gated")
+    }),
+  { config: { shell: untrustedShell.file }, trust: false },
+  30_000,
+)
+
+unixNoLLMServer(
+  "a project-selected shell is used for a prompt shell command in a trusted project",
+  () =>
+    Effect.gen(function* () {
+      const { prompt, chat } = yield* boot()
+      yield* prompt.shell({
+        sessionID: chat.id,
+        agent: "build",
+        model: ref,
+        command: "printf ignored",
+      })
+
+      expect(existsSync(trustedShell.marker)).toBe(true)
+    }),
+  { config: { shell: trustedShell.file } },
   30_000,
 )
 

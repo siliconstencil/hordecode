@@ -122,12 +122,16 @@ export const Typescript: Info = {
   ),
   extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"],
   async spawn(root, ctx) {
-    const tsserver = Module.resolve("typescript/lib/tsserver.js", ctx.directory)
-    if (!tsserver) return
+    const resolved = Module.resolve("typescript/lib/tsserver.js", ctx.directory)
+    if (!resolved) return
     const bin = await Npm.which("typescript-language-server")
     if (!bin) return
     // K6: a managed resolution that lands in the project is project code.
     if (!TrustGate.mayRunBinary(bin, ctx.worktree)) return
+    // K6: a project tsserver.js is project code. Ask about the opened directory
+    // (ctx.worktree is "/" for a non-git project); a denied path is omitted so the
+    // server can fall back to its bundled TypeScript.
+    const tsserver = TrustGate.mayRunBinary(resolved, ctx.directory) ? resolved : undefined
     const proc = spawn(bin, ["--stdio"], {
       cwd: root,
       env: {
@@ -136,11 +140,13 @@ export const Typescript: Info = {
     })
     return {
       process: proc,
-      initialization: {
-        tsserver: {
-          path: tsserver,
-        },
-      },
+      initialization: tsserver
+        ? {
+            tsserver: {
+              path: tsserver,
+            },
+          }
+        : {},
     }
   },
 }
@@ -1119,11 +1125,13 @@ export const Astro: Info = {
   extensions: [".astro"],
   root: NearestRoot(["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"]),
   async spawn(root, ctx, flags) {
-    const tsserver = Module.resolve("typescript/lib/tsserver.js", ctx.directory)
-    if (!tsserver) {
+    const resolved = Module.resolve("typescript/lib/tsserver.js", ctx.directory)
+    if (!resolved) {
       return
     }
-    const tsdk = path.dirname(tsserver)
+    // K6: a project tsserver is project code; a denied tsdk is omitted and the
+    // server uses its bundled TypeScript. ctx.directory, not the "/" sentinel.
+    const tsdk = TrustGate.mayRunBinary(resolved, ctx.directory) ? path.dirname(resolved) : undefined
 
     let binary = which("astro-ls")
     const args: string[] = []
@@ -1144,11 +1152,13 @@ export const Astro: Info = {
     })
     return {
       process: proc,
-      initialization: {
-        typescript: {
-          tsdk,
-        },
-      },
+      initialization: tsdk
+        ? {
+            typescript: {
+              tsdk,
+            },
+          }
+        : {},
     }
   },
 }
