@@ -7,9 +7,9 @@ import { maybeAdvise } from "../../../src/session/advisor/hook"
 
 type Msg = SessionV1.WithParts
 
-function user(text: string): Msg {
+function user(text: string, id = "u"): Msg {
   return {
-    info: { id: "u", role: "user", sessionID: "s" },
+    info: { id, role: "user", sessionID: "s" },
     parts: [{ type: "text", text }],
   } as unknown as Msg
 }
@@ -47,7 +47,26 @@ function fakeLLM(text: string) {
   return { llm, count: () => streams }
 }
 
+function fakeLLMCapture(text: string) {
+  const prompts: string[] = []
+  const llm = {
+    stream: (input: any) => {
+      prompts.push(input.messages[0].content as string)
+      return Stream.fromIterable([{ type: "text-delta", text }, { type: "step-finish", usage: { inputTokens: 10, outputTokens: 5 } }])
+    },
+  } as unknown as LLM.Interface
+  return { llm, prompts }
+}
+
+function wroteFile(path: string): Msg {
+  return {
+    info: { id: "a", role: "assistant", sessionID: "s" },
+    parts: [{ type: "tool", tool: "write", callID: `c-${Math.random()}`, state: { status: "completed", input: { filePath: path }, time: { start: 0, end: 0 } } }],
+  } as unknown as Msg
+}
+
 const failures = [user("fix the build"), failedTool("exit 1"), failedTool("exit 2"), failedTool("exit 3")]
+const files = [user("fix the build"), ...[1, 2, 3, 4, 5, 6, 7, 8].map((i) => wroteFile(`/project/file-${i}.ts`))]
 const reply = '[{"severity":"concern","note":"The same command keeps failing; read the error before retrying."}]'
 
 function run(input: { cfg: unknown; step: number; sessionID: string; llm: LLM.Interface; provider: Provider.Interface; messages?: Msg[] }) {
@@ -101,6 +120,28 @@ describe("maybeAdvise", () => {
     expect(out?.reminder).toContain("[concern] The same command keeps failing")
     expect(out?.usage).toBeDefined()
     expect(out?.notes).toEqual([{ severity: "concern", note: "The same command keeps failing; read the error before retrying." }])
+  })
+
+  test("a second fire in the same turn sees the earlier advisor note", async () => {
+    const { provider } = fakeProvider()
+    const first = fakeLLMCapture('[{"severity":"concern","note":"The retry loop never resets its counter."}]')
+    const second = fakeLLMCapture('[{"severity":"concern","note":"The config read happens before validation."}]')
+    const cfg = { enabled: true, model: "test/advisor", cooldown_steps: 0 }
+    await run({ cfg, step: 2, sessionID: "e1", llm: first.llm, provider })
+    await run({ cfg, step: 3, sessionID: "e1", llm: second.llm, provider, messages: files })
+    expect(second.prompts[0]).toContain("Earlier advisor notes")
+    expect(second.prompts[0]).toContain("- The retry loop never resets its counter.")
+  })
+
+  test("a new turn clears the earlier advisor notes", async () => {
+    const { provider } = fakeProvider()
+    const first = fakeLLMCapture('[{"severity":"concern","note":"The retry loop never resets its counter."}]')
+    const second = fakeLLMCapture('[{"severity":"concern","note":"The config read happens before validation."}]')
+    const cfg = { enabled: true, model: "test/advisor", cooldown_steps: 0 }
+    await run({ cfg, step: 2, sessionID: "e2", llm: first.llm, provider })
+    const next = [user("try again", "u2"), failedTool("exit 1"), failedTool("exit 2"), failedTool("exit 3")]
+    await run({ cfg, step: 3, sessionID: "e2", llm: second.llm, provider, messages: next })
+    expect(second.prompts[0]).not.toContain("Earlier advisor notes")
   })
 
   test("cooldown and repeat suppression keep the next steps quiet", async () => {

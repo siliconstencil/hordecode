@@ -51,34 +51,74 @@ describe("emission guard", () => {
     expect(guard.admit([n("concern", "unchecked return value of save")], "nit")).toEqual([])
   })
 
+  test("a paraphrase of an earlier note at the same severity is dropped", () => {
+    const guard = new EmissionGuard()
+    const first = "Repeated `tool invalid` calls indicate malformed tool invocations; verify tool syntax/arguments before retrying rather than continuing to guess."
+    const second = "Repeated `tool invalid` calls indicate malformed tool invocations; the agent should stop and fix the tool syntax/arguments instead of continuing to retry."
+    expect(guard.admit([n("concern", first)], "nit")).toHaveLength(1)
+    expect(guard.admit([n("concern", second)], "nit")).toEqual([])
+  })
+
+  test("a higher severity paraphrase is admitted as escalation", () => {
+    const guard = new EmissionGuard()
+    const first = "Repeated `tool invalid` calls indicate malformed tool invocations; verify tool syntax/arguments before retrying rather than continuing to guess."
+    const second = "Repeated `tool invalid` calls indicate malformed tool invocations; the agent should stop and fix the tool syntax/arguments instead of continuing to retry."
+    expect(guard.admit([n("concern", first)], "nit")).toHaveLength(1)
+    expect(guard.admit([n("blocker", second)], "nit")).toHaveLength(1)
+  })
+
+  test("a paraphrase that changes the target path is not dropped", () => {
+    const guard = new EmissionGuard()
+    expect(guard.admit([n("concern", "read of /project/src/a.ts fails with a missing import")], "nit")).toHaveLength(1)
+    expect(guard.admit([n("concern", "read of /project/src/b.ts fails with a missing import")], "nit")).toHaveLength(1)
+  })
+
+  test("a negation is not a paraphrase", () => {
+    const guard = new EmissionGuard()
+    expect(guard.admit([n("concern", "the guard does not clear the cache")], "nit")).toHaveLength(1)
+    expect(guard.admit([n("concern", "the guard clears the cache")], "nit")).toHaveLength(1)
+  })
+
+  test("an unrelated note after a note passes the paraphrase check", () => {
+    const guard = new EmissionGuard()
+    guard.admit(
+      [n("concern", "Repeated `tool invalid` calls indicate malformed tool invocations; verify tool syntax/arguments before retrying rather than continuing to guess.")],
+      "nit",
+    )
+    expect(guard.admit([n("concern", "Bash call is blocked by an 'ask' permission rule; stop retrying and request permission explicitly.")], "nit")).toHaveLength(1)
+  })
+
   test("budget keeps at most maxNotes non-blocker notes, in input order", () => {
     const guard = new EmissionGuard({ maxNotes: 2 })
     const out = guard.admit(
       [
-        n("concern", "first distinct concern here"),
-        n("concern", "second distinct concern here"),
-        n("concern", "third distinct concern here"),
+        n("concern", "the retry loop never resets its counter"),
+        n("concern", "the config read happens before validation"),
+        n("concern", "the error path swallows the cause"),
       ],
       "nit",
     )
-    expect(out.map((x) => x.note)).toEqual(["first distinct concern here", "second distinct concern here"])
+    expect(out.map((x) => x.note)).toEqual([
+      "the retry loop never resets its counter",
+      "the config read happens before validation",
+    ])
   })
 
   test("blockers are exempt from the budget", () => {
     const guard = new EmissionGuard({ maxNotes: 1 })
     const out = guard.admit(
       [
-        n("concern", "a concern that fills the budget"),
-        n("concern", "a second concern over budget"),
-        n("blocker", "a blocker that must survive"),
-        n("blocker", "another blocker that must survive"),
+        n("concern", "the snapshot directory is never cleaned up"),
+        n("concern", "permission rules are evaluated after the write"),
+        n("blocker", "the write path truncates the file first"),
+        n("blocker", "the read path trusts an unchecked length"),
       ],
       "nit",
     )
     expect(out.map((x) => x.note)).toEqual([
-      "a concern that fills the budget",
-      "a blocker that must survive",
-      "another blocker that must survive",
+      "the snapshot directory is never cleaned up",
+      "the write path truncates the file first",
+      "the read path trusts an unchecked length",
     ])
   })
 
@@ -102,10 +142,19 @@ describe("emission guard", () => {
 describe("setMaxNotes", () => {
   test("a changed budget applies to the next admit", () => {
     const guard = new EmissionGuard({ maxNotes: 1 })
-    const notes = (prefix: string) =>
-      [1, 2, 3].map((i) => ({ severity: "concern" as const, note: `${prefix} distinct advisory note number ${i}` }))
-    expect(guard.admit(notes("first"), "nit").length).toBe(1)
+    const notes = (topics: string[]) =>
+      topics.map((topic) => ({ severity: "concern" as const, note: topic }))
+    expect(guard.admit(notes(["the retry loop never resets its counter"]), "nit").length).toBe(1)
     guard.setMaxNotes(3)
-    expect(guard.admit(notes("second"), "nit").length).toBe(3)
+    expect(
+      guard.admit(
+        notes([
+          "the config read happens before validation",
+          "the error path swallows the cause",
+          "the snapshot directory is never cleaned up",
+        ]),
+        "nit",
+      ).length,
+    ).toBe(3)
   })
 })

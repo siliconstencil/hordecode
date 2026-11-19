@@ -73,6 +73,7 @@ export const maybeAdvise = (input: {
       state.turnID = turnID
       state.trigger.lastFiredStep = undefined
       state.trigger.lastReasons = []
+      state.emitted = []
     }
     const facts = collectFacts(input.messages, input.contextLimit ?? input.model.limit?.context)
     const preset = PRESETS[cfg.sensitivity ?? "default"] ?? PRESETS.default
@@ -100,8 +101,10 @@ export const maybeAdvise = (input: {
       parentSessionID: input.parentSessionID,
       transcript: renderTranscript(input.messages),
       reasons: decision.reasons,
+      earlierNotes: state.emitted,
     })
     const notes = state.guard.admit(result.notes, cfg.min_severity ?? "concern")
+    if (notes.length > 0) state.emitted = [...state.emitted, ...notes.map((note) => note.note)]
     yield* Effect.logInfo("advisor", {
       "session.id": input.sessionID,
       reasons: decision.reasons.join("; "),
