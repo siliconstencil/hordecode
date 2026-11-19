@@ -147,6 +147,10 @@ interface State {
   clients: Record<string, MCPClient>
   defs: Record<string, MCPToolDef[]>
   instructions: Record<string, string>
+  // K5: names the state builder refused because their code source is outside every
+  // trusted root. Kept so the later entrances (connect/enable, auth) ask the same
+  // question instead of re-resolving the static config and spawning the command.
+  denied: Record<string, true>
 }
 
 export interface ServerInstructions {
@@ -502,6 +506,7 @@ const layer = Layer.effect(
           clients: {},
           defs: {},
           instructions: {},
+          denied: {},
         }
 
         yield* Effect.forEach(
@@ -519,6 +524,7 @@ const layer = Layer.effect(
               if (denied.length) {
                 for (const source of denied) TrustGate.warnDenied(source)
                 s.status[key] = { status: "disabled" }
+                s.denied[key] = true
                 return
               }
 
@@ -800,6 +806,10 @@ const layer = Layer.effect(
 
     const getMcpConfig = Effect.fnUntraced(function* (mcpName: string) {
       const s = yield* InstanceState.get(state)
+      // K5: the connect/enable and auth entrances resolve the name here. A name the
+      // state builder refused stays refused even though the static config still has
+      // it; otherwise the fallback below would hand the project command to create().
+      if (s.denied[mcpName]) return undefined
       if (s.config[mcpName]) return s.config[mcpName]
 
       const cfg = yield* cfgSvc.get()
