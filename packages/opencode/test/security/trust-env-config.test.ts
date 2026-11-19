@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import path from "path"
+import os from "os"
 import fs from "fs/promises"
 import { fileURLToPath, pathToFileURL } from "url"
 
@@ -15,7 +16,7 @@ const packageDir = fileURLToPath(new URL("../..", import.meta.url))
 let base = ""
 
 beforeEach(async () => {
-  base = await fs.mkdtemp(path.join(process.env.HORDECODE_TEST_TMP || "/tmp", "k3-env-config-"))
+  base = await fs.mkdtemp(path.join(process.env.HORDECODE_TEST_TMP || os.tmpdir(), "k3-env-config-"))
 })
 
 afterEach(async () => {

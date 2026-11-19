@@ -54,4 +54,25 @@ describe("tmpdir", () => {
       await fs.rm(root, { recursive: true, force: true })
     }
   })
+
+  // K5: the fallback is os.tmpdir(), never the literal "/tmp", so a run with TMPDIR
+  // pointing inside the project keeps its fixtures there.
+  test("the fixture temp root honors TMPDIR when HORDECODE_TEST_TMP is unset", async () => {
+    const previousTest = process.env.HORDECODE_TEST_TMP
+    const previousTmp = process.env.TMPDIR
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "tmpdir-env-root-"))
+    delete process.env.HORDECODE_TEST_TMP
+    process.env.TMPDIR = root
+    try {
+      const tmp = await tmpdir()
+      expect(tmp.path.startsWith(root)).toBe(true)
+      await tmp[Symbol.asyncDispose]()
+    } finally {
+      if (previousTest === undefined) delete process.env.HORDECODE_TEST_TMP
+      else process.env.HORDECODE_TEST_TMP = previousTest
+      if (previousTmp === undefined) delete process.env.TMPDIR
+      else process.env.TMPDIR = previousTmp
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
 })

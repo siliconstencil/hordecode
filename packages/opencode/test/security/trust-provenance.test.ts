@@ -17,11 +17,14 @@ import { lazyLayer, markerExists } from "./harness"
 
 // Provenance under collision: a project source supplies a code-bearing field, then a
 // later user-owned (global) source names the same map key. The merged value keeps the
-// project field, so the key must stay "local" unless the global source replaced that
+// project field, so the key must stay denied unless the global source replaced that
 // exact field. User-owned sources merge from the managed config dir, after project
 // files (config.ts:637-643), which is the real later-global order. The config loader,
 // the trust store and every loader are the product's; only network leaves and the
 // package installer are replaced (harness.ts).
+// K5: every assertion reads the per-field SOURCE record and the loader's behaviour;
+// no label and no taint exist any more, so a correct record with a wrong loader
+// decision still fails.
 
 const installs: Install[] = []
 const it = testEffect(lazyLayer(installs))
@@ -33,8 +36,9 @@ let previousManaged: string | undefined
 
 beforeEach(async () => {
   installs.length = 0
-  markerDir = await fs.mkdtemp(path.join(testTmpRoot(), "k3-prov-"))
-  managedDir = await fs.mkdtemp(path.join(testTmpRoot(), "k3-managed-"))
+  TrustGate._resetMayRunCache?.()
+  markerDir = await fs.mkdtemp(path.join(testTmpRoot(), "k5-prov-"))
+  managedDir = await fs.mkdtemp(path.join(testTmpRoot(), "k5-managed-"))
   previousManaged = process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR
   process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR = managedDir
   process.env.K2_MARKER_DIR = markerDir
@@ -42,7 +46,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  stderr.mockRestore()
+  stderr?.mockRestore()
   if (previousManaged === undefined) delete process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR
   else process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR = previousManaged
   delete process.env.K2_MARKER_DIR
@@ -81,57 +85,67 @@ const providerModule = (markerName: string) =>
   [
     'import { writeFileSync } from "fs"',
     `writeFileSync(process.env.K2_MARKER_DIR + "/${markerName}", "ran")`,
-    "export function createK3() {",
-    '  return { languageModel: (id: string) => ({ specificationVersion: "v1", provider: "k3prov", modelId: id }) }',
+    "export function createK5() {",
+    '  return { languageModel: (id: string) => ({ specificationVersion: "v1", provider: "k5prov", modelId: id }) }',
     "}",
     "",
   ].join("\n")
 
 const providerFailure = (exit: { _tag: string }) => exit._tag === "Failure"
 
-describe("sticky code provenance", () => {
-  it.live("a project mcp command survives a later global key entry as local origin", () =>
+// The loader question exactly as production asks it: every source ID of the key is
+// user-supplied ("env"/"managed"/a remote URL) or mayRunFrom.
+const sourcesOf = (map: "mcp" | "lsp" | "formatter" | "provider", key: string) =>
+  Effect.gen(function* () {
+    const cfg = yield* origins
+    return Config.codeSourcesFor(cfg, map, key)
+  })
+
+const userSupplied = (list: string[]) => list.every((id) => Config.sourceMayRun(id))
+
+describe("source provenance", () => {
+  it.live("a project mcp command survives a later global key entry as a denied source", () =>
     Effect.gen(function* () {
-      const dir = yield* project({ mcp: { k3mcp: { type: "local", command: node("mcp-project.txt") } } })
+      const dir = yield* project({ mcp: { k5mcp: { type: "local", command: node("k5-mcp-project.txt") } } })
       // A remote entry is the only schema-valid way for a later source to name an mcp key
       // without supplying command; deep merge keeps the project command in the value.
-      yield* globalConfig({ mcp: { k3mcp: { type: "remote", url: "http://127.0.0.1:1/mcp" } } })
+      yield* globalConfig({ mcp: { k5mcp: { type: "remote", url: "http://127.0.0.1:1/mcp" } } })
 
       yield* inside(dir, () =>
         Effect.gen(function* () {
-          const cfg = yield* origins
-          expect(cfg?.mcp?.k3mcp).toBe("local")
-          expect(cfg?.taint?.mcp?.k3mcp).toContain("command")
+          const list = yield* sourcesOf("mcp", "k5mcp")
+          expect(list).toEqual([path.join(dir, "hordecode.json")])
+          expect(userSupplied(list)).toBe(false)
 
           const mcp = yield* MCP.Service
           const status = yield* mcp.status()
-          expect(status.k3mcp?.status).toBe("disabled")
-          expect(yield* marker("mcp-project.txt")).toBe(false)
+          expect(status.k5mcp?.status).toBe("disabled")
+          expect(yield* marker("k5-mcp-project.txt")).toBe(false)
         }),
       )
     }),
   )
 
-  it.live("a later global mcp command replaces the project command and the key may run untrusted", () =>
+  it.live("a later user-owned mcp command replaces the project command and may run", () =>
     Effect.gen(function* () {
-      const dir = yield* project({ mcp: { k3mcp: { type: "local", command: node("mcp-project.txt") } } })
-      yield* globalConfig({ mcp: { k3mcp: { type: "local", command: node("mcp-global.txt") } } })
+      const dir = yield* project({ mcp: { k5mcp: { type: "local", command: node("k5-mcp-project.txt") } } })
+      yield* globalConfig({ mcp: { k5mcp: { type: "local", command: node("k5-mcp-global.txt") } } })
 
       yield* inside(dir, () =>
         Effect.gen(function* () {
-          const cfg = yield* origins
-          expect(cfg?.mcp?.k3mcp).toBe("global")
-          expect(cfg?.taint?.mcp?.k3mcp).toBeUndefined()
+          const list = yield* sourcesOf("mcp", "k5mcp")
+          expect(list).toEqual(["managed"])
+          expect(userSupplied(list)).toBe(true)
 
           const mcp = yield* MCP.Service
           const fiber = yield* mcp.status().pipe(Effect.forkChild)
-          yield* pollWithTimeout(markerSoon("mcp-global.txt"), "global mcp command never spawned").pipe(
+          yield* pollWithTimeout(markerSoon("k5-mcp-global.txt"), "user-owned mcp command never spawned").pipe(
             Effect.timeout("10 seconds"),
           )
           yield* Fiber.interrupt(fiber)
 
-          expect(yield* marker("mcp-project.txt")).toBe(false)
-          expect(yield* marker("mcp-global.txt")).toBe(true)
+          expect(yield* marker("k5-mcp-project.txt")).toBe(false)
+          expect(yield* marker("k5-mcp-global.txt")).toBe(true)
         }),
       )
     }),
@@ -139,29 +153,37 @@ describe("sticky code provenance", () => {
 
   it.live("a project-only mcp entry does not run in an untrusted project and runs when trusted", () =>
     Effect.gen(function* () {
-      const config = { mcp: { k3mcp: { type: "local", command: node("mcp-project-only.txt") } } }
+      const config = { mcp: { k5mcp: { type: "local", command: node("k5-mcp-project-only.txt") } } }
       const untrusted = yield* project(config)
       const trusted = yield* project(config)
       yield* Effect.promise(() => TrustGate.trust(trusted))
 
       yield* inside(untrusted, () =>
         Effect.gen(function* () {
+          const list = yield* sourcesOf("mcp", "k5mcp")
+          expect(list).toEqual([path.join(untrusted, "hordecode.json")])
+          expect(userSupplied(list)).toBe(false)
+
           const mcp = yield* MCP.Service
           const status = yield* mcp.status()
-          expect(status.k3mcp?.status).toBe("disabled")
-          expect(yield* marker("mcp-project-only.txt")).toBe(false)
+          expect(status.k5mcp?.status).toBe("disabled")
+          expect(yield* marker("k5-mcp-project-only.txt")).toBe(false)
         }),
       )
 
       yield* inside(trusted, () =>
         Effect.gen(function* () {
+          const list = yield* sourcesOf("mcp", "k5mcp")
+          expect(list).toEqual([path.join(trusted, "hordecode.json")])
+          expect(userSupplied(list)).toBe(true)
+
           const mcp = yield* MCP.Service
           const fiber = yield* mcp.status().pipe(Effect.forkChild)
-          yield* pollWithTimeout(markerSoon("mcp-project-only.txt"), "trusted mcp command never spawned").pipe(
+          yield* pollWithTimeout(markerSoon("k5-mcp-project-only.txt"), "trusted mcp command never spawned").pipe(
             Effect.timeout("10 seconds"),
           )
           yield* Fiber.interrupt(fiber)
-          expect(yield* marker("mcp-project-only.txt")).toBe(true)
+          expect(yield* marker("k5-mcp-project-only.txt")).toBe(true)
         }),
       )
     }),
@@ -169,70 +191,72 @@ describe("sticky code provenance", () => {
 
   it.live("a global-only mcp entry runs in an untrusted project", () =>
     Effect.gen(function* () {
-      const dir = yield* project({ username: "k3" })
-      yield* globalConfig({ mcp: { k3mcp: { type: "local", command: node("mcp-global-only.txt") } } })
+      const dir = yield* project({ username: "k5" })
+      yield* globalConfig({ mcp: { k5mcp: { type: "local", command: node("k5-mcp-global-only.txt") } } })
 
       yield* inside(dir, () =>
         Effect.gen(function* () {
-          const cfg = yield* origins
-          expect(cfg?.mcp?.k3mcp).toBe("global")
+          const list = yield* sourcesOf("mcp", "k5mcp")
+          expect(list).toEqual(["managed"])
+          expect(userSupplied(list)).toBe(true)
 
           const mcp = yield* MCP.Service
           const fiber = yield* mcp.status().pipe(Effect.forkChild)
-          yield* pollWithTimeout(markerSoon("mcp-global-only.txt"), "global-only mcp command never spawned").pipe(
+          yield* pollWithTimeout(markerSoon("k5-mcp-global-only.txt"), "global-only mcp command never spawned").pipe(
             Effect.timeout("10 seconds"),
           )
           yield* Fiber.interrupt(fiber)
-          expect(yield* marker("mcp-global-only.txt")).toBe(true)
+          expect(yield* marker("k5-mcp-global-only.txt")).toBe(true)
         }),
       )
     }),
   )
 
-  it.live("a project lsp command survives a later global key entry as local origin", () =>
+  it.live("a project lsp command survives a later global key entry as a denied source", () =>
     Effect.gen(function* () {
-      const dir = yield* project({ lsp: { k3lsp: { command: node("lsp-project.txt"), extensions: [".k3lsp"] } } })
+      const dir = yield* project({ lsp: { k5lsp: { command: node("k5-lsp-project.txt"), extensions: [".k5lsp"] } } })
       // disabled is the only schema-valid lsp field a later source can supply without
       // command; deep merge keeps the project command in the value.
-      yield* globalConfig({ lsp: { k3lsp: { disabled: true } } })
-      const file = path.join(dir, "note.k3lsp")
-      yield* Effect.promise(() => Bun.write(file, "k3"))
+      yield* globalConfig({ lsp: { k5lsp: { disabled: true } } })
+      const file = path.join(dir, "note.k5lsp")
+      yield* Effect.promise(() => Bun.write(file, "k5"))
 
       yield* inside(dir, () =>
         Effect.gen(function* () {
-          const cfg = yield* origins
-          expect(cfg?.lsp?.k3lsp).toBe("local")
-          expect(cfg?.taint?.lsp?.k3lsp).toContain("command")
+          const list = yield* sourcesOf("lsp", "k5lsp")
+          expect(list).toEqual([path.join(dir, "hordecode.json")])
+          expect(userSupplied(list)).toBe(false)
 
           const lsp = yield* LSP.Service
           yield* lsp.touchFile(file).pipe(Effect.timeout("10 seconds"))
-          expect(yield* marker("lsp-project.txt")).toBe(false)
+          expect(yield* marker("k5-lsp-project.txt")).toBe(false)
         }),
       )
     }),
   )
 
-  it.live("a later global lsp command replaces the project command and the key may run untrusted", () =>
+  it.live("a later user-owned lsp command replaces the project command and may run", () =>
     Effect.gen(function* () {
-      const dir = yield* project({ lsp: { k3lsp: { command: node("lsp-project.txt"), extensions: [".k3lsp"] } } })
-      yield* globalConfig({ lsp: { k3lsp: { command: node("lsp-global.txt"), extensions: [".k3lsp"] } } })
-      const file = path.join(dir, "note.k3lsp")
-      yield* Effect.promise(() => Bun.write(file, "k3"))
+      const dir = yield* project({ lsp: { k5lsp: { command: node("k5-lsp-project.txt"), extensions: [".k5lsp"] } } })
+      yield* globalConfig({ lsp: { k5lsp: { command: node("k5-lsp-global.txt"), extensions: [".k5lsp"] } } })
+      const file = path.join(dir, "note.k5lsp")
+      yield* Effect.promise(() => Bun.write(file, "k5"))
 
       yield* inside(dir, () =>
         Effect.gen(function* () {
-          const cfg = yield* origins
-          expect(cfg?.lsp?.k3lsp).toBe("global")
+          const list = yield* sourcesOf("lsp", "k5lsp")
+          expect(list).toEqual(["managed"])
+          expect(userSupplied(list)).toBe(true)
 
           const lsp = yield* LSP.Service
           const fiber = yield* lsp.touchFile(file).pipe(Effect.forkChild)
-          yield* pollWithTimeout(markerSoon("lsp-global.txt"), "global lsp command never spawned").pipe(
+          yield* pollWithTimeout(markerSoon("k5-lsp-global.txt"), "user-owned lsp command never spawned").pipe(
             Effect.timeout("10 seconds"),
           )
           yield* Fiber.interrupt(fiber)
 
-          expect(yield* marker("lsp-project.txt")).toBe(false)
-          expect(yield* marker("lsp-global.txt")).toBe(true)
+          expect(yield* marker("k5-lsp-project.txt")).toBe(false)
+          expect(yield* marker("k5-lsp-global.txt")).toBe(true)
         }),
       )
     }),
@@ -240,32 +264,40 @@ describe("sticky code provenance", () => {
 
   it.live("a project-only lsp entry does not run in an untrusted project and runs when trusted", () =>
     Effect.gen(function* () {
-      const config = { lsp: { k3lsp: { command: node("lsp-project-only.txt"), extensions: [".k3lsp"] } } }
+      const config = { lsp: { k5lsp: { command: node("k5-lsp-project-only.txt"), extensions: [".k5lsp"] } } }
       const untrusted = yield* project(config)
       const trusted = yield* project(config)
       yield* Effect.promise(() => TrustGate.trust(trusted))
-      const untrustedFile = path.join(untrusted, "note.k3lsp")
-      const trustedFile = path.join(trusted, "note.k3lsp")
-      yield* Effect.promise(() => Bun.write(untrustedFile, "k3"))
-      yield* Effect.promise(() => Bun.write(trustedFile, "k3"))
+      const untrustedFile = path.join(untrusted, "note.k5lsp")
+      const trustedFile = path.join(trusted, "note.k5lsp")
+      yield* Effect.promise(() => Bun.write(untrustedFile, "k5"))
+      yield* Effect.promise(() => Bun.write(trustedFile, "k5"))
 
       yield* inside(untrusted, () =>
         Effect.gen(function* () {
+          const list = yield* sourcesOf("lsp", "k5lsp")
+          expect(list).toEqual([path.join(untrusted, "hordecode.json")])
+          expect(userSupplied(list)).toBe(false)
+
           const lsp = yield* LSP.Service
           yield* lsp.touchFile(untrustedFile).pipe(Effect.timeout("10 seconds"))
-          expect(yield* marker("lsp-project-only.txt")).toBe(false)
+          expect(yield* marker("k5-lsp-project-only.txt")).toBe(false)
         }),
       )
 
       yield* inside(trusted, () =>
         Effect.gen(function* () {
+          const list = yield* sourcesOf("lsp", "k5lsp")
+          expect(list).toEqual([path.join(trusted, "hordecode.json")])
+          expect(userSupplied(list)).toBe(true)
+
           const lsp = yield* LSP.Service
           const fiber = yield* lsp.touchFile(trustedFile).pipe(Effect.forkChild)
-          yield* pollWithTimeout(markerSoon("lsp-project-only.txt"), "trusted lsp command never spawned").pipe(
+          yield* pollWithTimeout(markerSoon("k5-lsp-project-only.txt"), "trusted lsp command never spawned").pipe(
             Effect.timeout("10 seconds"),
           )
           yield* Fiber.interrupt(fiber)
-          expect(yield* marker("lsp-project-only.txt")).toBe(true)
+          expect(yield* marker("k5-lsp-project-only.txt")).toBe(true)
         }),
       )
     }),
@@ -273,69 +305,71 @@ describe("sticky code provenance", () => {
 
   it.live("a global-only lsp entry runs in an untrusted project", () =>
     Effect.gen(function* () {
-      const dir = yield* project({ username: "k3" })
-      yield* globalConfig({ lsp: { k3lsp: { command: node("lsp-global-only.txt"), extensions: [".k3lsp"] } } })
-      const file = path.join(dir, "note.k3lsp")
-      yield* Effect.promise(() => Bun.write(file, "k3"))
+      const dir = yield* project({ username: "k5" })
+      yield* globalConfig({ lsp: { k5lsp: { command: node("k5-lsp-global-only.txt"), extensions: [".k5lsp"] } } })
+      const file = path.join(dir, "note.k5lsp")
+      yield* Effect.promise(() => Bun.write(file, "k5"))
 
       yield* inside(dir, () =>
         Effect.gen(function* () {
-          const cfg = yield* origins
-          expect(cfg?.lsp?.k3lsp).toBe("global")
+          const list = yield* sourcesOf("lsp", "k5lsp")
+          expect(list).toEqual(["managed"])
+          expect(userSupplied(list)).toBe(true)
 
           const lsp = yield* LSP.Service
           const fiber = yield* lsp.touchFile(file).pipe(Effect.forkChild)
-          yield* pollWithTimeout(markerSoon("lsp-global-only.txt"), "global-only lsp command never spawned").pipe(
+          yield* pollWithTimeout(markerSoon("k5-lsp-global-only.txt"), "global-only lsp command never spawned").pipe(
             Effect.timeout("10 seconds"),
           )
           yield* Fiber.interrupt(fiber)
-          expect(yield* marker("lsp-global-only.txt")).toBe(true)
+          expect(yield* marker("k5-lsp-global-only.txt")).toBe(true)
         }),
       )
     }),
   )
 
-  it.live("a project formatter command survives a later global key entry as local origin", () =>
+  it.live("a project formatter command survives a later global key entry as a denied source", () =>
     Effect.gen(function* () {
       const dir = yield* project({
-        formatter: { k3fmt: { command: [...node("fmt-project.txt"), "$FILE"], extensions: [".k3fmt"] } },
+        formatter: { k5fmt: { command: [...node("k5-fmt-project.txt"), "$FILE"], extensions: [".k5fmt"] } },
       })
-      yield* globalConfig({ formatter: { k3fmt: { extensions: [".k3fmt"] } } })
-      const file = path.join(dir, "note.k3fmt")
-      yield* Effect.promise(() => Bun.write(file, "k3"))
+      yield* globalConfig({ formatter: { k5fmt: { extensions: [".k5fmt"] } } })
+      const file = path.join(dir, "note.k5fmt")
+      yield* Effect.promise(() => Bun.write(file, "k5"))
 
       yield* inside(dir, () =>
         Effect.gen(function* () {
-          const cfg = yield* origins
-          expect(cfg?.formatter?.k3fmt).toBe("local")
-          expect(cfg?.taint?.formatter?.k3fmt).toContain("command")
+          const list = yield* sourcesOf("formatter", "k5fmt")
+          expect(list).toEqual([path.join(dir, "hordecode.json")])
+          expect(userSupplied(list)).toBe(false)
 
-          const formatted = yield* Format.use.file(file)
-          expect(formatted).toBe(false)
-          expect(yield* marker("fmt-project.txt")).toBe(false)
+          expect(yield* Format.use.file(file)).toBe(false)
+          expect(yield* marker("k5-fmt-project.txt")).toBe(false)
         }),
       )
     }),
   )
 
-  it.live("a later global formatter command replaces the project command and the key may run untrusted", () =>
+  it.live("a later user-owned formatter command replaces the project command and may run", () =>
     Effect.gen(function* () {
       const dir = yield* project({
-        formatter: { k3fmt: { command: [...node("fmt-project.txt"), "$FILE"], extensions: [".k3fmt"] } },
+        formatter: { k5fmt: { command: [...node("k5-fmt-project.txt"), "$FILE"], extensions: [".k5fmt"] } },
       })
-      yield* globalConfig({ formatter: { k3fmt: { command: [...node("fmt-global.txt"), "$FILE"], extensions: [".k3fmt"] } } })
-      const file = path.join(dir, "note.k3fmt")
-      yield* Effect.promise(() => Bun.write(file, "k3"))
+      yield* globalConfig({
+        formatter: { k5fmt: { command: [...node("k5-fmt-global.txt"), "$FILE"], extensions: [".k5fmt"] } },
+      })
+      const file = path.join(dir, "note.k5fmt")
+      yield* Effect.promise(() => Bun.write(file, "k5"))
 
       yield* inside(dir, () =>
         Effect.gen(function* () {
-          const cfg = yield* origins
-          expect(cfg?.formatter?.k3fmt).toBe("global")
+          const list = yield* sourcesOf("formatter", "k5fmt")
+          expect(list).toEqual(["managed"])
+          expect(userSupplied(list)).toBe(true)
 
-          const formatted = yield* Format.use.file(file)
-          expect(formatted).toBe(true)
-          expect(yield* marker("fmt-project.txt")).toBe(false)
-          expect(yield* marker("fmt-global.txt")).toBe(true)
+          expect(yield* Format.use.file(file)).toBe(true)
+          expect(yield* marker("k5-fmt-project.txt")).toBe(false)
+          expect(yield* marker("k5-fmt-global.txt")).toBe(true)
         }),
       )
     }),
@@ -344,27 +378,35 @@ describe("sticky code provenance", () => {
   it.live("a project-only formatter entry does not run in an untrusted project and runs when trusted", () =>
     Effect.gen(function* () {
       const config = {
-        formatter: { k3fmt: { command: [...node("fmt-project-only.txt"), "$FILE"], extensions: [".k3fmt"] } },
+        formatter: { k5fmt: { command: [...node("k5-fmt-project-only.txt"), "$FILE"], extensions: [".k5fmt"] } },
       }
       const untrusted = yield* project(config)
       const trusted = yield* project(config)
       yield* Effect.promise(() => TrustGate.trust(trusted))
-      const untrustedFile = path.join(untrusted, "note.k3fmt")
-      const trustedFile = path.join(trusted, "note.k3fmt")
-      yield* Effect.promise(() => Bun.write(untrustedFile, "k3"))
-      yield* Effect.promise(() => Bun.write(trustedFile, "k3"))
+      const untrustedFile = path.join(untrusted, "note.k5fmt")
+      const trustedFile = path.join(trusted, "note.k5fmt")
+      yield* Effect.promise(() => Bun.write(untrustedFile, "k5"))
+      yield* Effect.promise(() => Bun.write(trustedFile, "k5"))
 
       yield* inside(untrusted, () =>
         Effect.gen(function* () {
+          const list = yield* sourcesOf("formatter", "k5fmt")
+          expect(list).toEqual([path.join(untrusted, "hordecode.json")])
+          expect(userSupplied(list)).toBe(false)
+
           expect(yield* Format.use.file(untrustedFile)).toBe(false)
-          expect(yield* marker("fmt-project-only.txt")).toBe(false)
+          expect(yield* marker("k5-fmt-project-only.txt")).toBe(false)
         }),
       )
 
       yield* inside(trusted, () =>
         Effect.gen(function* () {
+          const list = yield* sourcesOf("formatter", "k5fmt")
+          expect(list).toEqual([path.join(trusted, "hordecode.json")])
+          expect(userSupplied(list)).toBe(true)
+
           expect(yield* Format.use.file(trustedFile)).toBe(true)
-          expect(yield* marker("fmt-project-only.txt")).toBe(true)
+          expect(yield* marker("k5-fmt-project-only.txt")).toBe(true)
         }),
       )
     }),
@@ -372,84 +414,86 @@ describe("sticky code provenance", () => {
 
   it.live("a global-only formatter entry runs in an untrusted project", () =>
     Effect.gen(function* () {
-      const dir = yield* project({ username: "k3" })
+      const dir = yield* project({ username: "k5" })
       yield* globalConfig({
-        formatter: { k3fmt: { command: [...node("fmt-global-only.txt"), "$FILE"], extensions: [".k3fmt"] } },
+        formatter: { k5fmt: { command: [...node("k5-fmt-global-only.txt"), "$FILE"], extensions: [".k5fmt"] } },
       })
-      const file = path.join(dir, "note.k3fmt")
-      yield* Effect.promise(() => Bun.write(file, "k3"))
+      const file = path.join(dir, "note.k5fmt")
+      yield* Effect.promise(() => Bun.write(file, "k5"))
 
       yield* inside(dir, () =>
         Effect.gen(function* () {
-          const cfg = yield* origins
-          expect(cfg?.formatter?.k3fmt).toBe("global")
+          const list = yield* sourcesOf("formatter", "k5fmt")
+          expect(list).toEqual(["managed"])
+          expect(userSupplied(list)).toBe(true)
 
           expect(yield* Format.use.file(file)).toBe(true)
-          expect(yield* marker("fmt-global-only.txt")).toBe(true)
+          expect(yield* marker("k5-fmt-global-only.txt")).toBe(true)
         }),
       )
     }),
   )
 
-  it.live("a project provider npm survives a later global key entry as local origin", () =>
+  it.live("a project provider npm survives a later global key entry as a denied source", () =>
     Effect.gen(function* () {
-      const dir = yield* project({ username: "k3" })
+      const dir = yield* project({ username: "k5" })
       const module = path.join(dir, "provider-project.ts")
-      yield* Effect.promise(() => Bun.write(module, providerModule("provider-project.txt")))
+      yield* Effect.promise(() => Bun.write(module, providerModule("k5-provider-project.txt")))
       yield* Effect.promise(() =>
         Bun.write(
           path.join(dir, "hordecode.json"),
           JSON.stringify({
-            provider: { k3prov: { npm: `file://${module}`, models: { k3model: { name: "K3" } } } },
+            provider: { k5prov: { npm: `file://${module}`, models: { k5model: { name: "K5" } } } },
           }),
         ),
       )
-      yield* globalConfig({ provider: { k3prov: { name: "Global K3" } } })
+      yield* globalConfig({ provider: { k5prov: { name: "Global K5" } } })
 
       yield* inside(dir, () =>
         Effect.gen(function* () {
-          const cfg = yield* origins
-          expect(cfg?.provider?.k3prov).toBe("local")
-          expect(cfg?.taint?.provider?.k3prov).toContain("npm")
+          const list = yield* sourcesOf("provider", "k5prov")
+          expect(list).toEqual([path.join(dir, "hordecode.json")])
+          expect(userSupplied(list)).toBe(false)
 
           const provider = yield* Provider.Service
-          const model = yield* provider.getModel(ProviderV2.ID.make("k3prov"), ModelV2.ID.make("k3model"))
+          const model = yield* provider.getModel(ProviderV2.ID.make("k5prov"), ModelV2.ID.make("k5model"))
           const exit = yield* provider.getLanguage(model).pipe(Effect.exit)
           expect(providerFailure(exit)).toBe(true)
-          expect(yield* marker("provider-project.txt")).toBe(false)
+          expect(yield* marker("k5-provider-project.txt")).toBe(false)
         }),
       )
     }),
   )
 
-  it.live("a later global provider npm replaces the project npm and the key may run untrusted", () =>
+  it.live("a later user-owned provider npm replaces the project npm and may run", () =>
     Effect.gen(function* () {
-      const dir = yield* project({ username: "k3" })
+      const dir = yield* project({ username: "k5" })
       const module = path.join(dir, "provider-project.ts")
-      yield* Effect.promise(() => Bun.write(module, providerModule("provider-project.txt")))
+      yield* Effect.promise(() => Bun.write(module, providerModule("k5-provider-project.txt")))
       yield* Effect.promise(() =>
         Bun.write(
           path.join(dir, "hordecode.json"),
           JSON.stringify({
-            provider: { k3prov: { npm: `file://${module}`, models: { k3model: { name: "K3" } } } },
+            provider: { k5prov: { npm: `file://${module}`, models: { k5model: { name: "K5" } } } },
           }),
         ),
       )
       const globalModule = path.join(managedDir, "provider-global.ts")
-      yield* Effect.promise(() => Bun.write(globalModule, providerModule("provider-global.txt")))
-      yield* globalConfig({ provider: { k3prov: { npm: `file://${globalModule}` } } })
+      yield* Effect.promise(() => Bun.write(globalModule, providerModule("k5-provider-global.txt")))
+      yield* globalConfig({ provider: { k5prov: { npm: `file://${globalModule}` } } })
 
       yield* inside(dir, () =>
         Effect.gen(function* () {
-          const cfg = yield* origins
-          expect(cfg?.provider?.k3prov).toBe("global")
+          const list = yield* sourcesOf("provider", "k5prov")
+          expect(list).toEqual(["managed"])
+          expect(userSupplied(list)).toBe(true)
 
           const provider = yield* Provider.Service
-          const model = yield* provider.getModel(ProviderV2.ID.make("k3prov"), ModelV2.ID.make("k3model"))
+          const model = yield* provider.getModel(ProviderV2.ID.make("k5prov"), ModelV2.ID.make("k5model"))
           yield* provider.getLanguage(model)
 
-          expect(yield* marker("provider-project.txt")).toBe(false)
-          expect(yield* marker("provider-global.txt")).toBe(true)
+          expect(yield* marker("k5-provider-project.txt")).toBe(false)
+          expect(yield* marker("k5-provider-global.txt")).toBe(true)
         }),
       )
     }),
@@ -457,17 +501,17 @@ describe("sticky code provenance", () => {
 
   it.live("a project-only provider entry does not run in an untrusted project and runs when trusted", () =>
     Effect.gen(function* () {
-      const untrusted = yield* project({ username: "k3" })
-      const trusted = yield* project({ username: "k3" })
+      const untrusted = yield* project({ username: "k5" })
+      const trusted = yield* project({ username: "k5" })
       const untrustedModule = path.join(untrusted, "provider-project-only.ts")
       const trustedModule = path.join(trusted, "provider-project-only.ts")
-      yield* Effect.promise(() => Bun.write(untrustedModule, providerModule("provider-project-only.txt")))
-      yield* Effect.promise(() => Bun.write(trustedModule, providerModule("provider-project-only.txt")))
+      yield* Effect.promise(() => Bun.write(untrustedModule, providerModule("k5-provider-project-only.txt")))
+      yield* Effect.promise(() => Bun.write(trustedModule, providerModule("k5-provider-project-only.txt")))
       yield* Effect.promise(() =>
         Bun.write(
           path.join(untrusted, "hordecode.json"),
           JSON.stringify({
-            provider: { k3prov: { npm: `file://${untrustedModule}`, models: { k3model: { name: "K3" } } } },
+            provider: { k5prov: { npm: `file://${untrustedModule}`, models: { k5model: { name: "K5" } } } },
           }),
         ),
       )
@@ -475,7 +519,7 @@ describe("sticky code provenance", () => {
         Bun.write(
           path.join(trusted, "hordecode.json"),
           JSON.stringify({
-            provider: { k3prov: { npm: `file://${trustedModule}`, models: { k3model: { name: "K3" } } } },
+            provider: { k5prov: { npm: `file://${trustedModule}`, models: { k5model: { name: "K5" } } } },
           }),
         ),
       )
@@ -483,20 +527,28 @@ describe("sticky code provenance", () => {
 
       yield* inside(untrusted, () =>
         Effect.gen(function* () {
+          const list = yield* sourcesOf("provider", "k5prov")
+          expect(list).toEqual([path.join(untrusted, "hordecode.json")])
+          expect(userSupplied(list)).toBe(false)
+
           const provider = yield* Provider.Service
-          const model = yield* provider.getModel(ProviderV2.ID.make("k3prov"), ModelV2.ID.make("k3model"))
+          const model = yield* provider.getModel(ProviderV2.ID.make("k5prov"), ModelV2.ID.make("k5model"))
           const exit = yield* provider.getLanguage(model).pipe(Effect.exit)
           expect(providerFailure(exit)).toBe(true)
-          expect(yield* marker("provider-project-only.txt")).toBe(false)
+          expect(yield* marker("k5-provider-project-only.txt")).toBe(false)
         }),
       )
 
       yield* inside(trusted, () =>
         Effect.gen(function* () {
+          const list = yield* sourcesOf("provider", "k5prov")
+          expect(list).toEqual([path.join(trusted, "hordecode.json")])
+          expect(userSupplied(list)).toBe(true)
+
           const provider = yield* Provider.Service
-          const model = yield* provider.getModel(ProviderV2.ID.make("k3prov"), ModelV2.ID.make("k3model"))
+          const model = yield* provider.getModel(ProviderV2.ID.make("k5prov"), ModelV2.ID.make("k5model"))
           yield* provider.getLanguage(model)
-          expect(yield* marker("provider-project-only.txt")).toBe(true)
+          expect(yield* marker("k5-provider-project-only.txt")).toBe(true)
         }),
       )
     }),
@@ -504,63 +556,64 @@ describe("sticky code provenance", () => {
 
   it.live("a global-only provider entry runs in an untrusted project", () =>
     Effect.gen(function* () {
-      const dir = yield* project({ username: "k3" })
+      const dir = yield* project({ username: "k5" })
       const module = path.join(managedDir, "provider-global-only.ts")
-      yield* Effect.promise(() => Bun.write(module, providerModule("provider-global-only.txt")))
+      yield* Effect.promise(() => Bun.write(module, providerModule("k5-provider-global-only.txt")))
       yield* globalConfig({
-        provider: { k3prov: { npm: `file://${module}`, models: { k3model: { name: "K3" } } } },
+        provider: { k5prov: { npm: `file://${module}`, models: { k5model: { name: "K5" } } } },
       })
 
       yield* inside(dir, () =>
         Effect.gen(function* () {
-          const cfg = yield* origins
-          expect(cfg?.provider?.k3prov).toBe("global")
+          const list = yield* sourcesOf("provider", "k5prov")
+          expect(list).toEqual(["managed"])
+          expect(userSupplied(list)).toBe(true)
 
           const provider = yield* Provider.Service
-          const model = yield* provider.getModel(ProviderV2.ID.make("k3prov"), ModelV2.ID.make("k3model"))
+          const model = yield* provider.getModel(ProviderV2.ID.make("k5prov"), ModelV2.ID.make("k5model"))
           yield* provider.getLanguage(model)
-          expect(yield* marker("provider-global-only.txt")).toBe(true)
+          expect(yield* marker("k5-provider-global-only.txt")).toBe(true)
         }),
       )
     }),
   )
 
-  it.live("a non-code field from a project entry does not taint the key", () =>
+  it.live("a non-code field from a project entry does not deny the key", () =>
     Effect.gen(function* () {
-      const dir = yield* project({ formatter: { k3fmt: { extensions: [".k3fmt"] } } })
+      const dir = yield* project({ formatter: { k5fmt: { extensions: [".k5fmt"] } } })
       yield* globalConfig({
-        formatter: { k3fmt: { command: [...node("fmt-global-noncode.txt"), "$FILE"], extensions: [".k3fmt"] } },
+        formatter: { k5fmt: { command: [...node("k5-fmt-global-noncode.txt"), "$FILE"], extensions: [".k5fmt"] } },
       })
-      const file = path.join(dir, "note.k3fmt")
-      yield* Effect.promise(() => Bun.write(file, "k3"))
+      const file = path.join(dir, "note.k5fmt")
+      yield* Effect.promise(() => Bun.write(file, "k5"))
 
       yield* inside(dir, () =>
         Effect.gen(function* () {
-          const cfg = yield* origins
-          expect(cfg?.formatter?.k3fmt).toBe("global")
-          expect(cfg?.taint?.formatter?.k3fmt).toBeUndefined()
+          const list = yield* sourcesOf("formatter", "k5fmt")
+          expect(list).toEqual(["managed"])
+          expect(userSupplied(list)).toBe(true)
 
           expect(yield* Format.use.file(file)).toBe(true)
-          expect(yield* marker("fmt-global-noncode.txt")).toBe(true)
+          expect(yield* marker("k5-fmt-global-noncode.txt")).toBe(true)
         }),
       )
     }),
   )
 
-  it.live("a project provider npm taints only that model entry", () =>
+  it.live("a project provider npm denies only that model entry", () =>
     Effect.gen(function* () {
-      const dir = yield* project({ username: "k3" })
+      const dir = yield* project({ username: "k5" })
       const modelModule = path.join(dir, "provider-model.ts")
       const globalModule = path.join(managedDir, "provider-global-model.ts")
-      yield* Effect.promise(() => Bun.write(modelModule, providerModule("provider-model.txt")))
-      yield* Effect.promise(() => Bun.write(globalModule, providerModule("provider-model-global.txt")))
+      yield* Effect.promise(() => Bun.write(modelModule, providerModule("k5-provider-model.txt")))
+      yield* Effect.promise(() => Bun.write(globalModule, providerModule("k5-provider-model-global.txt")))
       yield* Effect.promise(() =>
         Bun.write(
           path.join(dir, "hordecode.json"),
           JSON.stringify({
             provider: {
-              k3prov: {
-                models: { k3modela: { name: "A", provider: { npm: `file://${modelModule}` } } },
+              k5prov: {
+                models: { k5modela: { name: "A", provider: { npm: `file://${modelModule}` } } },
               },
             },
           }),
@@ -568,9 +621,9 @@ describe("sticky code provenance", () => {
       )
       yield* globalConfig({
         provider: {
-          k3prov: {
+          k5prov: {
             npm: `file://${globalModule}`,
-            models: { k3modela: { name: "A" }, k3modelb: { name: "B" } },
+            models: { k5modela: { name: "A" }, k5modelb: { name: "B" } },
           },
         },
       })
@@ -578,18 +631,20 @@ describe("sticky code provenance", () => {
       yield* inside(dir, () =>
         Effect.gen(function* () {
           const cfg = yield* origins
-          expect(cfg?.taint?.provider?.k3prov).toContain("models.k3modela.provider.npm")
-          expect(cfg?.taint?.provider?.k3prov).not.toContain("models.k3modelb.provider.npm")
-          expect(cfg?.taint?.provider?.k3prov).not.toContain("npm")
+          const fields = Config.codeFieldSources(cfg, "provider", "k5prov")
+          expect(fields["models.k5modela.provider.npm"]).toBe(path.join(dir, "hordecode.json"))
+          expect(fields["npm"]).toBe("managed")
+          expect(Config.sourceMayRun(fields["models.k5modela.provider.npm"])).toBe(false)
+          expect(Config.sourceMayRun(fields["models.k5modelb.provider.npm"])).toBe(true)
 
           const provider = yield* Provider.Service
-          const modelA = yield* provider.getModel(ProviderV2.ID.make("k3prov"), ModelV2.ID.make("k3modela"))
-          const modelB = yield* provider.getModel(ProviderV2.ID.make("k3prov"), ModelV2.ID.make("k3modelb"))
+          const modelA = yield* provider.getModel(ProviderV2.ID.make("k5prov"), ModelV2.ID.make("k5modela"))
+          const modelB = yield* provider.getModel(ProviderV2.ID.make("k5prov"), ModelV2.ID.make("k5modelb"))
           expect(providerFailure(yield* provider.getLanguage(modelA).pipe(Effect.exit))).toBe(true)
           yield* provider.getLanguage(modelB)
 
-          expect(yield* marker("provider-model.txt")).toBe(false)
-          expect(yield* marker("provider-model-global.txt")).toBe(true)
+          expect(yield* marker("k5-provider-model.txt")).toBe(false)
+          expect(yield* marker("k5-provider-model-global.txt")).toBe(true)
         }),
       )
     }),

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 import path from "path"
+import os from "os"
 import { resolveInWorkspace, makeFileHooks } from "@opencode-ai/workflow/workspace"
 
 const ROOT = "/srv/workflow-root"
@@ -33,7 +34,7 @@ describe("makeFileHooks (jailed file host)", () => {
   let hooks: ReturnType<typeof makeFileHooks>
 
   beforeEach(async () => {
-    dir = path.join("/tmp", `wf-ws-${Math.random().toString(36).slice(2, 10)}`)
+    dir = path.join(os.tmpdir(), `wf-ws-${Math.random().toString(36).slice(2, 10)}`)
     await Bun.write(path.join(dir, ".sentinel"), "")
     hooks = makeFileHooks(dir)
   })

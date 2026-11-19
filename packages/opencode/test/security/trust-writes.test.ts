@@ -1,7 +1,8 @@
-import { describe, expect } from "bun:test"
+import { afterEach, describe, expect } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
+import { revokeTrust } from "@opencode-ai/project/workspace-trust"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { httpClient } from "@opencode-ai/core/effect/app-node-platform"
@@ -60,6 +61,21 @@ function ctxFor(directory: string): InstanceContext {
 
 const configFile = (directory: string) => path.join(directory, "config.json")
 
+// K5: writes now read the shared store (mayRunFrom), so a trusted case records a real
+// record and the suite removes it afterwards.
+const trusted: string[] = []
+
+async function recordTrust(directory: string) {
+  const outcome = await TrustGate.trust(directory)
+  if (outcome.status === "refused") throw new Error(`refusing to trust test root: ${directory}`)
+  trusted.push(directory)
+}
+
+afterEach(async () => {
+  for (const directory of trusted.splice(0)) await revokeTrust(directory)
+  TrustGate._resetMayRunCache()
+})
+
 describe("config.update", () => {
   it.effect("config.update does not write in an untrusted project", () =>
     Effect.gen(function* () {
@@ -80,8 +96,7 @@ describe("config.update", () => {
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped()
       yield* Effect.promise(() => fs.writeFile(configFile(dir), JSON.stringify({ model: "test/model" }, null, 2)))
-      yield* Effect.sync(() => TrustGate.remember({ directory: dir, worktree: dir }, "trusted"))
-      yield* Effect.addFinalizer(() => Effect.sync(() => TrustGate.forget({ directory: dir, worktree: dir })))
+      yield* Effect.promise(() => recordTrust(dir))
 
       const config = yield* Config.Service
       yield* config
@@ -92,6 +107,46 @@ describe("config.update", () => {
         shell?: string
       }
       expect(written.shell).toBe("/bin/zsh")
+    }),
+  )
+
+  // K5: the boundary is a trusted root and its descendants, checked on the write
+  // target. Neither case consults the boot memo.
+  it.effect("a write into a trusted subdirectory is allowed", () =>
+    Effect.gen(function* () {
+      const root = yield* tmpdirScoped()
+      const subdir = path.join(root, "packages", "nested")
+      yield* Effect.promise(() => fs.mkdir(subdir, { recursive: true }))
+      yield* Effect.promise(() => fs.writeFile(configFile(subdir), JSON.stringify({ model: "test/model" }, null, 2)))
+      yield* Effect.promise(() => recordTrust(root))
+
+      const config = yield* Config.Service
+      yield* config
+        .update(ConfigParse.schema(ConfigV1.Info, { shell: "/bin/zsh" }, "test:config"))
+        .pipe(Effect.provideService(InstanceRef, ctxFor(subdir)))
+
+      const written = JSON.parse(yield* Effect.promise(() => fs.readFile(configFile(subdir), "utf8"))) as {
+        shell?: string
+      }
+      expect(written.shell).toBe("/bin/zsh")
+    }),
+  )
+
+  it.effect("a write into an ancestor of the trusted root is refused", () =>
+    Effect.gen(function* () {
+      const ancestor = yield* tmpdirScoped()
+      const root = path.join(ancestor, "project")
+      yield* Effect.promise(() => fs.mkdir(root))
+      yield* Effect.promise(() => recordTrust(root))
+      const original = JSON.stringify({ model: "test/model" }, null, 2)
+      yield* Effect.promise(() => fs.writeFile(configFile(ancestor), original))
+
+      const config = yield* Config.Service
+      yield* config
+        .update(ConfigParse.schema(ConfigV1.Info, { shell: "/bin/zsh" }, "test:config"))
+        .pipe(Effect.provideService(InstanceRef, ctxFor(ancestor)))
+
+      expect(yield* Effect.promise(() => fs.readFile(configFile(ancestor), "utf8"))).toBe(original)
     }),
   )
 })
@@ -159,6 +214,53 @@ describe("tui config writes", () => {
       expect(yield* Effect.promise(() => exists("tui.json"))).toBe(false)
       expect(yield* Effect.promise(() => exists("opencode.json.tui-migration.bak"))).toBe(false)
       expect(yield* Effect.promise(() => fs.readFile(path.join(dir, "opencode.json"), "utf8"))).toBe(original)
+    }),
+  )
+
+  // K5: N7. The trusted counterpart of each write test: the same call runs once the
+  // directory is inside a trusted root.
+  it.effect("install runs in a trusted project", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const local = path.join(dir, ".hordecode")
+      yield* Effect.promise(() => fs.mkdir(local, { recursive: true }))
+      yield* Effect.promise(() =>
+        fs.writeFile(path.join(local, "tui.json"), JSON.stringify({ plugin: ["tui-plugin-pkg"] })),
+      )
+      yield* Effect.promise(() => recordTrust(dir))
+
+      const installs: string[] = []
+      const run = Effect.gen(function* () {
+        const svc = yield* TuiConfig.Service
+        yield* svc.waitForDependencies()
+      }).pipe(Effect.scoped, Effect.provide(tuiLayer(dir, installs)))
+      yield* run
+
+      expect(installs.filter((entry) => entry === local)).toEqual([local])
+    }),
+  )
+
+  it.effect("migrate rewrites in a trusted project", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      yield* Effect.promise(() => fs.writeFile(path.join(dir, "opencode.json"), JSON.stringify({ theme: "dark" }, null, 2)))
+      yield* Effect.promise(() => recordTrust(dir))
+
+      const installs: string[] = []
+      const run = Effect.gen(function* () {
+        const svc = yield* TuiConfig.Service
+        yield* svc.get()
+      }).pipe(Effect.scoped, Effect.provide(tuiLayer(dir, installs)))
+      yield* run
+
+      const migrated = JSON.parse(yield* Effect.promise(() => fs.readFile(path.join(dir, "tui.json"), "utf8"))) as {
+        theme?: string
+      }
+      expect(migrated.theme).toBe("dark")
+      const stripped = JSON.parse(yield* Effect.promise(() => fs.readFile(path.join(dir, "opencode.json"), "utf8"))) as {
+        theme?: string
+      }
+      expect(stripped.theme).toBeUndefined()
     }),
   )
 })

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn } from "bun:test"
 import path from "path"
+import os from "os"
 import fs from "fs/promises"
 import { Effect } from "effect"
 import { Global } from "@opencode-ai/core/global"
@@ -23,7 +24,7 @@ let markerDir = ""
 
 beforeEach(async () => {
   installs.length = 0
-  markerDir = await fs.mkdtemp(path.join(process.env.HORDECODE_TEST_TMP || "/tmp", "k2-markers-"))
+  markerDir = await fs.mkdtemp(path.join(process.env.HORDECODE_TEST_TMP || os.tmpdir(), "k2-markers-"))
   process.env.K2_MARKER_DIR = markerDir
   // The gate prints one warning per untrusted worktree; keep the test output clean.
   stderr = spyOn(process.stderr, "write").mockImplementation(() => true)

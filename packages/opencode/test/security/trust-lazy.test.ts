@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn } from "bun:test"
 import path from "path"
+import os from "os"
 import fs from "fs/promises"
 import { Cause, Effect, Exit, Fiber } from "effect"
 import { Global } from "@opencode-ai/core/global"
@@ -47,7 +48,7 @@ let markerDir = ""
 
 beforeEach(async () => {
   installs.length = 0
-  markerDir = await fs.mkdtemp(path.join(process.env.HORDECODE_TEST_TMP || "/tmp", "k2-lazy-"))
+  markerDir = await fs.mkdtemp(path.join(process.env.HORDECODE_TEST_TMP || os.tmpdir(), "k2-lazy-"))
   process.env.K2_MARKER_DIR = markerDir
   stderr = spyOn(process.stderr, "write").mockImplementation(() => true)
 })

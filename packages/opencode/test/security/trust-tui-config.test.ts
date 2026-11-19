@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test"
 import path from "path"
+import os from "os"
 import fs from "fs/promises"
 import { pathToFileURL } from "url"
 import { Effect, Layer } from "effect"
@@ -26,7 +27,7 @@ const trusted: string[] = []
 beforeEach(async () => {
   // K4: trust keys and the scope boundary are real paths, so the fixture root must be
   // real too; otherwise a symlinked TMPDIR would compare two spellings of one path.
-  base = await fs.realpath(await fs.mkdtemp(path.join(process.env.HORDECODE_TEST_TMP || "/tmp", "k3-tui-")))
+  base = await fs.realpath(await fs.mkdtemp(path.join(process.env.HORDECODE_TEST_TMP || os.tmpdir(), "k3-tui-")))
   cwd = process.cwd()
 })
 
@@ -65,6 +66,12 @@ function loadOrigins(directory: string) {
     ),
   )
 }
+
+const existsFile = (file: string) =>
+  fs
+    .stat(file)
+    .then(() => true)
+    .catch(() => false)
 
 function projectConfig(root: string, name: string, options: { cwd?: string; git?: boolean } = {}) {
   const pluginFile = path.join(root, "tui-plugin.ts")
@@ -207,32 +214,73 @@ describe("tui.json plugin origins and the trust gate", () => {
     }
   }, 30000)
 
-  // K4: ruling 1 is label-first. A tui.json above the worktree that the config walk
-  // still reads is project-adjacent content, not a global config, unless the user owns
-  // the directory it lives in (K2 ruling 8). Assert the loader-assigned origin scope.
-  it("a tui.json above the worktree is not labelled global unless the directory is user-owned", async () => {
-    const parent = path.join(base, "scope-parent")
-    const project = path.join(parent, "scope-project")
+  // K5: the origin scope label is gone from the decision. A tui.json above the
+  // worktree is a code origin like any other: it runs iff mayRunFrom its path, so the
+  // directory it lives in is trusted or user-owned. The two behaviours are separate
+  // tests because the ESM cache would skip the plugin's marker on a second import.
+  async function ancestorScenario(name: string) {
+    const parent = path.join(base, name)
+    const project = path.join(parent, "project")
     await fs.mkdir(project, { recursive: true })
     const init = Bun.spawnSync(["git", "init", "-q", project])
     if (init.exitCode !== 0) throw new Error("git init failed")
-    const file = path.join(parent, "tui.json")
-    // A plugin spec is required for the loader to record an origin at all; the file
-    // does not exist because this test asserts the assigned scope, not a plugin load.
+    const plugin = path.join(parent, "tui-plugin.ts")
+    const configFile = path.join(parent, "tui.json")
+    const marker = path.join(base, `${name}.txt`)
     await Bun.write(
-      file,
-      JSON.stringify({ plugin: [pathToFileURL(path.join(parent, "scope-plugin.ts")).href] }),
+      plugin,
+      [
+        'import { writeFileSync } from "fs"',
+        'writeFileSync(process.env.K3_TUI_MARKER as string, "loaded")',
+        'export default { id: "demo.k5", tui: async () => {} }',
+        "",
+      ].join("\n"),
     )
+    await Bun.write(configFile, JSON.stringify({ plugin: [pathToFileURL(plugin).href] }))
+    process.env.OPENCODE_PLUGIN_META_FILE = path.join(base, `${name}-meta.json`)
+    process.env.K3_TUI_MARKER = marker
     process.chdir(project)
+    const origins = (await loadOrigins(project)).filter((origin) => origin.source === configFile)
+    return { origins, marker }
+  }
 
-    const unowned = (await loadOrigins(project)).filter((origin) => origin.source === file)
-    expect(unowned.map((origin) => origin.scope)).toEqual(["local"])
-
-    const previous = process.env.HORDECODE_CONFIG_DIR
-    process.env.HORDECODE_CONFIG_DIR = parent
+  it("a tui.json above an untrusted worktree does not run its plugin", async () => {
+    const scenario = await ancestorScenario("ancestor-untrusted")
+    expect(scenario.origins.length).toBe(1)
+    const wait = spyOn(TuiConfig, "waitForDependencies").mockResolvedValue()
     try {
-      const owned = (await loadOrigins(project)).filter((origin) => origin.source === file)
-      expect(owned.map((origin) => origin.scope)).toEqual(["global"])
+      await TuiPluginRuntime.init({
+        api: createTuiPluginApi(),
+        config: createTuiResolvedConfig({
+          plugin: scenario.origins.map((origin) => origin.spec),
+          plugin_origins: scenario.origins,
+        }),
+      })
+      expect(await existsFile(scenario.marker)).toBe(false)
+    } finally {
+      wait.mockRestore()
+    }
+  }, 30000)
+
+  it("a tui.json in a user-owned directory above the worktree runs its plugin", async () => {
+    const scenario = await ancestorScenario("ancestor-user-owned")
+    const previous = process.env.HORDECODE_CONFIG_DIR
+    process.env.HORDECODE_CONFIG_DIR = path.dirname(scenario.marker)
+    try {
+      expect(scenario.origins.length).toBe(1)
+      const wait = spyOn(TuiConfig, "waitForDependencies").mockResolvedValue()
+      try {
+        await TuiPluginRuntime.init({
+          api: createTuiPluginApi(),
+          config: createTuiResolvedConfig({
+            plugin: scenario.origins.map((origin) => origin.spec),
+            plugin_origins: scenario.origins,
+          }),
+        })
+        expect(await existsFile(scenario.marker)).toBe(true)
+      } finally {
+        wait.mockRestore()
+      }
     } finally {
       if (previous === undefined) delete process.env.HORDECODE_CONFIG_DIR
       else process.env.HORDECODE_CONFIG_DIR = previous

@@ -5,7 +5,7 @@ import { Effect } from "effect"
 import { Global } from "@opencode-ai/core/global"
 import { TrustGate } from "../../src/project/trust-gate"
 import { InstanceStore } from "../../src/project/instance-store"
-import { tmpdirScoped } from "../fixture/fixture"
+import { provideInstance, testInstanceStoreLayer, tmpdirScoped } from "../fixture/fixture"
 import { pollWithTimeout, testEffect } from "../lib/effect"
 import type { Install } from "./harness"
 import { bootLayer, markerExists } from "./harness"
@@ -52,6 +52,23 @@ const project = (config?: unknown) =>
   })
 
 describe("trust memo and the mini entry", () => {
+  // K5: N4. The plain fixture path records the deny; it does not leave the memo
+  // empty and let allowed() fall through to the store. Drives the no-op-bootstrap
+  // store, so nothing but the fixture writes the decision.
+  it.live("the plain instance fixture records a deny", () =>
+    Effect.gen(function* () {
+      const dir = yield* project()
+      yield* Effect.addFinalizer(() => Effect.sync(() => TrustGate.forget({ directory: dir, worktree: dir })))
+      const check = Effect.suspend(() => Effect.void).pipe(
+        provideInstance(dir),
+        Effect.provide(testInstanceStoreLayer),
+      )
+      yield* check
+
+      expect(TrustGate._decision({ directory: dir, worktree: dir })).toBe("untrusted")
+    }),
+  )
+
   it.live("allowed fails closed without a decision", () =>
     Effect.gen(function* () {
       const dir = yield* project()

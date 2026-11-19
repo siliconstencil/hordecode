@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, mock, spyOn } from "bun:test"
+import { afterEach, beforeEach, describe, expect, spyOn } from "bun:test"
 import path from "path"
+import os from "os"
 import fs from "fs/promises"
 import { Effect } from "effect"
 import { Global } from "@opencode-ai/core/global"
@@ -24,7 +25,7 @@ let markerDir = ""
 
 beforeEach(async () => {
   installs.length = 0
-  markerDir = await fs.mkdtemp(path.join(process.env.HORDECODE_TEST_TMP || "/tmp", "k2-cli-"))
+  markerDir = await fs.mkdtemp(path.join(process.env.HORDECODE_TEST_TMP || os.tmpdir(), "k2-cli-"))
   process.env.K2_MARKER_DIR = markerDir
   stderr = spyOn(process.stderr, "write").mockImplementation(() => true)
 })
@@ -138,7 +139,7 @@ describe("non-interactive project trust", () => {
     () =>
       Effect.gen(function* () {
         const home = yield* Effect.promise(() =>
-          fs.mkdtemp(path.join(process.env.HORDECODE_TEST_TMP || "/tmp", "k3-cli-refused-")),
+          fs.mkdtemp(path.join(process.env.HORDECODE_TEST_TMP || os.tmpdir(), "k3-cli-refused-")),
         )
         yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(home, { recursive: true, force: true })))
 
@@ -172,44 +173,25 @@ describe("non-interactive project trust", () => {
   // K4 (ruling 7 Minor 3): --trust is a flag on the tui command. The mini branch
   // builds its own input object; before this test the flag never reached miniGate,
   // so `tui --mini --trust` printed nothing and recorded nothing.
+  // K5: N6. Drive the real miniGate (not a mocked runMini handoff) and assert the
+  // recording: --trust writes the store, a run without it writes nothing.
   it.live(
     "tui --mini --trust records trust",
     () =>
       Effect.gen(function* () {
         const dir = yield* tmpdirScoped({ git: true })
-        const seen: { directory?: string; trust?: boolean }[] = []
-        const spec = "../../src/cli/cmd/run"
-        const real = yield* Effect.promise(() => import(spec))
-        // The handoff is what the command owns; the mocked runMini performs the
-        // same recording call miniGate makes and stops before booting the mini app.
-        mock.module(spec, () => ({
-          ...real,
-          runMini: async (input: { directory?: string; trust?: boolean }) => {
-            seen.push(input)
-            const { recordTrust } = await import("../../src/cli/effect-cmd")
-            await recordTrust(input.directory!, input.trust === true)
-          },
-        }))
-        try {
-          const { TuiThreadCommand } = yield* Effect.promise(() => import("../../src/cli/cmd/tui"))
-          yield* Effect.promise(() =>
-            Promise.resolve(
-              (TuiThreadCommand.handler as (args: unknown) => unknown)({
-                $0: "hordecode",
-                _: [],
-                mini: true,
-                trust: true,
-                project: dir,
-              }),
-            ),
-          )
-        } finally {
-          mock.module(spec, () => real)
-        }
+        yield* Effect.addFinalizer(() => Effect.promise(() => revokeTrust(dir).catch(() => undefined)))
 
-        expect(seen).toHaveLength(1)
-        expect(seen[0]!.trust).toBe(true)
+        const { miniGate } = yield* Effect.promise(() => import("../../src/cli/cmd/run"))
+        expect(yield* Effect.promise(() => miniGate({ directory: dir, trust: true }))).toBe(dir)
         expect(yield* Effect.promise(() => checkTrust(dir))).toBe("trusted")
+        expect(TrustGate._decision({ directory: dir, worktree: dir })).toBeUndefined()
+
+        // Same entry, no --trust: the store stays untouched and no decision is recorded.
+        const plain = yield* tmpdirScoped({ git: true })
+        expect(yield* Effect.promise(() => miniGate({ directory: plain }))).toBe(plain)
+        expect(yield* Effect.promise(() => checkTrust(plain))).not.toBe("trusted")
+        expect(TrustGate._decision({ directory: plain, worktree: plain })).toBeUndefined()
       }),
     20000,
   )
@@ -245,7 +227,7 @@ describe("non-interactive project trust", () => {
     () =>
       Effect.gen(function* () {
         const base = yield* Effect.promise(() =>
-          fs.mkdtemp(path.join(process.env.HORDECODE_TEST_TMP || "/tmp", "k4-refused-prompt-")),
+          fs.mkdtemp(path.join(process.env.HORDECODE_TEST_TMP || os.tmpdir(), "k4-refused-prompt-")),
         )
         yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(base, { recursive: true, force: true })))
         const home = path.join(base, "home")

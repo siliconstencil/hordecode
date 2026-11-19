@@ -14,6 +14,7 @@ import { Permission } from "@/permission"
 import { InstanceBootstrap } from "@/project/bootstrap"
 import { InstanceStore } from "@/project/instance-store"
 import { TrustGate } from "@/project/trust-gate"
+import { revokeTrust } from "@opencode-ai/project/workspace-trust"
 import { WorkflowNode } from "@/effect/supervisor-node"
 import { WorkflowRuntime } from "@opencode-ai/workflow/runtime"
 import { TestInstance } from "../fixture/fixture"
@@ -96,8 +97,11 @@ describe("child workflow trust gate", () => {
       const sessionID = SessionID.descending("ses_k3_child_untrusted")
       yield* seedFkParents(sessionID, dir)
 
-      // The fixture stands in for a trusted boot; forget it to model an untrusted
-      // project without mocking the gate.
+      // The fixture stands in for a trusted boot. K5: allowed() now answers the
+      // trusted store when the memo has no decision, so untrusting the directory means
+      // removing the store entry too, not only the memo.
+      yield* Effect.promise(() => revokeTrust(dir))
+      TrustGate._resetMayRunCache()
       yield* Effect.sync(() => TrustGate.forget({ directory: dir, worktree: dir }))
 
       const { outcome } = yield* runParent(sessionID, parentScript)
