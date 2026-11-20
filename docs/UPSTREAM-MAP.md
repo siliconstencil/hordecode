@@ -20,7 +20,7 @@ Reference points:
 | kept (upstream removed) | Hordecode still carries a file upstream deleted | Decide per file at the next port. |
 | UPSTREAM_ONLY | present in 1.19.6, absent here | Not yet ported (deliberately dropped: `packages/console`, `packages/stats`). |
 
-Totals: PARITY 4915, LAGGING 0, FORK_DELTA 948, FORK_ONLY 1456, FORK_KEPT_UPSTREAM_REMOVED 0, UPSTREAM_ONLY 72.
+Totals: PARITY 4916, LAGGING 0, FORK_DELTA 947, FORK_ONLY 1456, FORK_KEPT_UPSTREAM_REMOVED 0, UPSTREAM_ONLY 72.
 
 ## Packages that are entirely Hordecode's
 
@@ -69,7 +69,7 @@ A package with zero LAGGING and zero UPSTREAM_ONLY rows is at parity. LAGGING an
 
 | path | parity | lagging | fork delta | fork only | kept (upstream removed) | upstream only |
 |---|---|---|---|---|---|---|
-| .github | 19 | 0 | 6 | 18 | 0 | 32 |
+| .github | 20 | 0 | 5 | 18 | 0 | 32 |
 | script | 14 | 0 | 4 | 4 | 0 | 4 |
 | docs | 0 | 0 | 0 | 7 | 0 | 0 |
 | infra | 0 | 0 | 0 | 7 | 0 | 0 |

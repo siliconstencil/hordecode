@@ -50,7 +50,7 @@ PARITY	.github/workflows/close-issues.yml
 PARITY	.github/workflows/close-prs.yml
 PARITY	.github/workflows/compliance-close.yml
 PARITY	.github/workflows/containers.yml
-FORK_DELTA	.github/workflows/deploy.yml
+PARITY	.github/workflows/deploy.yml
 FORK_ONLY	.github/workflows/docs-locale-sync.yml
 FORK_ONLY	.github/workflows/docs-update.yml
 FORK_ONLY	.github/workflows/duplicate-issues.yml
