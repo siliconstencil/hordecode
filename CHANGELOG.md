@@ -20,6 +20,8 @@ All notable changes to this project will be documented in this file.
 - The HTML statistics page lists the same rows and numbers as the text output.
 - Harness output paths anchor to the project directory when it is not a git repository, instead of the
   filesystem root.
+- A model step that ends without a tool call and with a stray tool-markup fragment or a repetition-dominated
+  reasoning tail is retried once, and the retried request omits that step's reasoning and fragment.
 
 ## [0.1.6] - 2026-11-07
 

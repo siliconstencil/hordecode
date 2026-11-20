@@ -17,6 +17,8 @@ import * as ModelValue from "./model-value"
 import * as Advisor from "./advisor/hook"
 import * as AdvisorRun from "./advisor/run"
 import * as LoopGuard from "./loop-guard"
+// F4: detector for a stop that ended without the tool call it was making.
+import { FRAGMENT_MAX, degenerateStep, isToolMarkupFragment, type DegenerateKind } from "./degenerate-step"
 import { CompactionGuard } from "./compaction-guard"
 import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
@@ -1626,6 +1628,9 @@ const layer = Layer.effect(
         let structured: unknown
         let step = 0
         let textToolCallRetries = 0
+        // F4: at most one degenerate-end retry per user turn (each runLoop is one turn).
+        let degenerateRetries = 0
+        const dropReplay = new Map<string, DegenerateKind>()
         let skipOverflowCheck = false
         const compactionGuard = CompactionGuard.make()
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
@@ -1696,6 +1701,25 @@ const layer = Layer.effect(
           let msgs = yield* MessageV2.filterCompactedEffect(sessionID).pipe(
             Effect.provideService(Database.Service, database),
           )
+          // F4: the retry request drops the degenerate step's reasoning and payload text; stored rows stay.
+          const replayable = (list: typeof msgs) =>
+            dropReplay.size === 0
+              ? list
+              : list.map((m) => {
+                  const kind = dropReplay.get(m.info.id)
+                  if (!kind) return m
+                  return {
+                    ...m,
+                    parts: m.parts.filter(
+                      (part) =>
+                        part.type !== "reasoning" &&
+                        !(
+                          part.type === "text" &&
+                          (kind === "repetition" || isToolMarkupFragment(part.text.trim()))
+                        ),
+                    ),
+                  }
+                })
           yield* Effect.logDebug("rl:iter", {
             "session.id": sessionID,
             step,
@@ -1784,6 +1808,60 @@ const layer = Layer.effect(
                 return parsed.complete && parsed.trailing && parsed.calls.length > 0
               }) ??
                 false)
+            // F4: a stop with no tool call whose payload is a stray tool-markup fragment or a
+            // reasoning tail dominated by one repeated n-gram (session/degenerate-step.ts).
+            // One retry per user turn, subagents included; the retry request drops this step's
+            // reasoning and fragment (Addendum B), stored rows stay intact.
+            const degenerate = degenerateStep({
+              finish: lastAssistant.finish,
+              error: lastAssistant.error,
+              parts: lastAssistantMsg?.parts ?? [],
+            })
+            if (degenerate && !dsmlToolCallStop && degenerateRetries === 0 && lastAssistantMsg) {
+              degenerateRetries++
+              dropReplay.set(lastAssistantMsg.info.id, degenerate.kind)
+              const now = Date.now()
+              yield* sessions
+                .updatePart({
+                  id: PartID.ascending(),
+                  messageID: lastAssistant.id,
+                  sessionID,
+                  type: "text",
+                  text: "The model ended the step without a tool call; retrying once.",
+                  synthetic: true,
+                  ignored: true,
+                  time: { start: now, end: now },
+                  metadata: { degenerate: { kind: degenerate.kind } },
+                })
+                .pipe(Effect.ignore)
+              yield* Effect.logInfo("degenerate:retry", { "session.id": sessionID, kind: degenerate.kind })
+              const reentry = yield* sessions.updateMessage({
+                id: MessageID.ascending(),
+                role: "user",
+                sessionID,
+                agent: lastUser.agent,
+                // F4: a reentry that drops agentID loses the supervisor row and tool allowlist.
+                agentID: lastUser.agentID,
+                model: lastUser.model,
+                tools: lastUser.tools,
+                format: lastUser.format,
+                time: { created: Date.now() },
+              } satisfies SessionV1.User)
+              yield* sessions.updatePart({
+                id: PartID.ascending(),
+                messageID: reentry.id,
+                sessionID,
+                type: "text",
+                synthetic: true,
+                text: [
+                  "<system-reminder>",
+                  "Your previous response ended without the tool call it was making.",
+                  "Continue the task; if you meant to call a tool, issue it through the real tool channel.",
+                  "</system-reminder>",
+                ].join("\n"),
+              } satisfies SessionV1.TextPart)
+              continue
+            }
             if (dsmlToolCallStop && textToolCallRetries < Flag.HORDECODE_TEXT_TOOL_CALL_RETRY_LIMIT) {
               textToolCallRetries++
               lastAssistant.error = new NamedError.Unknown({
@@ -2345,7 +2423,8 @@ const layer = Layer.effect(
               const ownNew = msgs.filter(
                 (m) => m.info.id > forkCtx.watermarkMsgID && m.info.agentID === lastUser.agentID,
               )
-              const ownNewModelMsgs = yield* MessageV2.toModelMessagesEffect(ownNew, model)
+              // F4: same replay filter on the fork path.
+              const ownNewModelMsgs = yield* MessageV2.toModelMessagesEffect(replayable(ownNew), model)
               const forkModelMsgs = [...forkCtx.inheritedMessages, ...ownNewModelMsgs]
               // opencode/src/session/prompt.ts:1746 (opencode MessageV2.format) vs MaxMode.runMaxStep signature
               const format: { type: string } = lastUser.format ?? { type: "text" as const }
@@ -2497,7 +2576,8 @@ const layer = Layer.effect(
               sys.environment(model),
               instruction.system().pipe(Effect.orDie),
               sys.mcp(agent, session.permission),
-              MessageV2.toModelMessagesEffect(boundedMsgs, model),
+              // F4: retry history drops the degenerate step's reasoning and payload text.
+              MessageV2.toModelMessagesEffect(replayable(boundedMsgs), model),
             ])
             // Surface which instruction files (CLAUDE.md, AGENTS.md, ...) were
             // loaded. Only for primary sessions (subagents would be noisy) and
