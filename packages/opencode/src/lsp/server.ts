@@ -49,6 +49,15 @@ async function managedTypeScriptLib(flags: RuntimeFlags.Info) {
   return lib
 }
 
+// K8: a language server that runs project code - build scripts, plugins, rc files, a
+// project interpreter or environment - starts only for a trusted root. The evidence for
+// each caller is in its own K8 comment. Trusted projects are unchanged.
+function projectCodeDenied(root: string): boolean {
+  if (TrustGate.mayRunFrom(root)) return false
+  TrustGate.warnDenied(root)
+  return true
+}
+
 export interface Handle {
   process: ChildProcessWithoutNullStreams
   initialization?: Record<string, any>
@@ -489,6 +498,8 @@ export const Rubocop: Info = {
   root: NearestRoot(["Gemfile"]),
   extensions: [".rb", ".rake", ".gemspec", ".ru"],
   async spawn(root, _ctx, flags) {
+    // K8: rubocop --lsp loads <root>/.rubocop.yml require/plugins (Ruby files); no disable.
+    if (projectCodeDenied(root)) return
     let bin = which("rubocop")
     if (!bin) {
       const ruby = which("ruby")
@@ -532,6 +543,10 @@ export const Ty: Info = {
     if (!flags.experimentalLspTy) {
       return undefined
     }
+
+    // K8: ty looks for <root>/.venv and runs its interpreter (ty configuration docs,
+    // Python environment discovery); no disable, so an untrusted root gets no server.
+    if (projectCodeDenied(root)) return
 
     let binary = which("ty")
 
@@ -585,6 +600,9 @@ export const Pyright: Info = {
   extensions: [".py", ".pyi"],
   root: NearestRoot(["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile", "pyrightconfig.json"]),
   async spawn(root, ctx, flags) {
+    // K8: pyrightconfig.json can point at <root>/.venv and pyright runs the configured
+    // interpreter for sys.path; no disable, so an untrusted root gets no server.
+    if (projectCodeDenied(root)) return
     let binary = which("pyright-langserver")
     const args = []
     if (!binary) {
@@ -633,6 +651,8 @@ export const ElixirLS: Info = {
   extensions: [".ex", ".exs"],
   root: NearestRoot(["mix.exs", "mix.lock"]),
   async spawn(root, _ctx, flags) {
+    // K8: elixir-ls compiles with mix (mix.exs is Elixir code; README "Automatic builds").
+    if (projectCodeDenied(root)) return
     let binary = which("elixir-ls")
     if (!binary) {
       const elixirLsPath = path.join(Global.Path.bin, "elixir-ls")
@@ -689,6 +709,9 @@ export const Zls: Info = {
   extensions: [".zig", ".zon"],
   root: NearestRoot(["build.zig"]),
   async spawn(root, _ctx, flags) {
+    // K8: zls runs the project build runner (build.zig is Zig code; zls schema
+    // enable_build_on_save/build_on_save_args); no complete disable, so no server.
+    if (projectCodeDenied(root)) return
     let bin = which("zls")
 
     if (!bin) {
@@ -791,6 +814,9 @@ export const CSharp: Info = {
   root: NearestRoot([".slnx", ".sln", ".csproj", "global.json"]),
   extensions: [".cs", ".csx"],
   async spawn(root, _ctx, flags) {
+    // K8: roslyn loads MSBuild projects (--autoLoadProjects) and their analyzers/source
+    // generators; .csproj tasks are project code, so an untrusted root gets no server.
+    if (projectCodeDenied(root)) return
     const bin = await getRoslynLanguageServer(flags.disableLspDownload)
     if (!bin) return
 
@@ -807,6 +833,8 @@ export const Razor: Info = {
   root: NearestRoot([".slnx", ".sln", ".csproj", "global.json"]),
   extensions: [".razor", ".cshtml"],
   async spawn(root, _ctx, flags) {
+    // K8: Razor runs the same MSBuild load as C# plus the project's Razor source generator.
+    if (projectCodeDenied(root)) return
     const bin = await getRoslynLanguageServer(flags.disableLspDownload)
     if (!bin) return
 
@@ -927,6 +955,8 @@ export const FSharp: Info = {
   root: NearestRoot([".slnx", ".sln", ".fsproj", "global.json"]),
   extensions: [".fs", ".fsi", ".fsx", ".fsscript"],
   async spawn(root, _ctx, flags) {
+    // K8: fsautocomplete loads MSBuild projects and runs F# type providers (project code).
+    if (projectCodeDenied(root)) return
     let bin = which("fsautocomplete")
     if (!bin) {
       if (!which("dotnet")) {
@@ -960,6 +990,8 @@ export const SourceKit: Info = {
   extensions: [".swift", ".objc", "objcpp"],
   root: NearestRoot(["Package.swift", "*.xcodeproj", "*.xcworkspace"]),
   async spawn(root) {
+    // K8: sourcekit-lsp loads and builds SwiftPM projects; Package.swift is executable Swift.
+    if (projectCodeDenied(root)) return
     // Check if sourcekit-lsp is available in the PATH
     // This is installed with the Swift toolchain
     const sourcekit = which("sourcekit-lsp")
@@ -1022,6 +1054,9 @@ export const RustAnalyzer: Info = {
   },
   extensions: [".rs"],
   async spawn(root) {
+    // K8: rust-analyzer runs build scripts (build.rs) and proc macros, and cargo check on
+    // save (rust-analyzer manual, cargo build scripts and proc macros); no server.
+    if (projectCodeDenied(root)) return
     const bin = which("rust-analyzer")
     if (!bin) {
       return
@@ -1206,6 +1241,9 @@ export const Astro: Info = {
   extensions: [".astro"],
   root: NearestRoot(["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"]),
   async spawn(root, ctx, flags) {
+    // K8: astro-ls requires workspace packages through importPackage.ts (isTrusted defaults
+    // true and no LSP option calls setIsTrusted), including prettier and integrations.
+    if (projectCodeDenied(root)) return
     const resolved = Module.resolve("typescript/lib/tsserver.js", ctx.directory)
     if (!resolved) {
       return
@@ -1303,6 +1341,9 @@ export const JDTLS: Info = {
   },
   extensions: [".java"],
   async spawn(root, _ctx, flags) {
+    // K8: jdtls imports Gradle/Maven projects (build scripts) and runs project annotation
+    // processors; the import settings do not disable every project-code path.
+    if (projectCodeDenied(root)) return
     const java = which("java")
     if (!java) {
       return
@@ -1404,6 +1445,8 @@ export const KotlinLS: Info = {
     return NearestRoot(["pom.xml"])(file, ctx)
   },
   async spawn(root, _ctx, flags) {
+    // K8: kotlin-lsp imports Gradle/Maven builds and runs their compiler plugins.
+    if (projectCodeDenied(root)) return
     const distPath = path.join(Global.Path.bin, "kotlin-ls")
     const launcherScript =
       process.platform === "win32" ? path.join(distPath, "kotlin-lsp.cmd") : path.join(distPath, "kotlin-lsp.sh")
@@ -1516,6 +1559,8 @@ export const LuaLS: Info = {
   ]),
   extensions: [".lua"],
   async spawn(root, _ctx, flags) {
+    // K8: lua-language-server loads the workspace .luarc.json runtime.plugin Lua code.
+    if (projectCodeDenied(root)) return
     let bin = which("lua-language-server")
 
     if (!bin) {
@@ -1669,6 +1714,8 @@ export const Prisma: Info = {
   extensions: [".prisma"],
   root: NearestRoot(["schema.prisma", "prisma/schema.prisma", "prisma"], ["package.json"]),
   async spawn(root) {
+    // K8: the prisma CLI loads <root>/prisma.config.ts (TypeScript) before its commands.
+    if (projectCodeDenied(root)) return
     const prisma = which("prisma")
     if (!prisma) {
       return
@@ -1686,6 +1733,9 @@ export const Dart: Info = {
   extensions: [".dart"],
   root: NearestRoot(["pubspec.yaml", "analysis_options.yaml"]),
   async spawn(root) {
+    // K8: the Dart analysis server loads analysis_options.yaml plugins (project Dart code;
+    // dart.dev/tools/analyzer-plugins).
+    if (projectCodeDenied(root)) return
     const dart = which("dart")
     if (!dart) {
       return
@@ -1703,6 +1753,8 @@ export const Ocaml: Info = {
   extensions: [".ml", ".mli"],
   root: NearestRoot(["dune-project", "dune-workspace", ".merlin", "opam"]),
   async spawn(root) {
+    // K8: merlin applies project ppx rewriters (merlin src/kernel/mppx.ml applies cfg.ppx).
+    if (projectCodeDenied(root)) return
     const bin = which("ocamllsp")
     if (!bin) {
       return
@@ -1747,6 +1799,9 @@ export const TerraformLS: Info = {
   extensions: [".tf", ".tfvars"],
   root: NearestRoot([".terraform.lock.hcl", "terraform.tfstate", "*.tf"]),
   async spawn(root, _ctx, flags) {
+    // K8: terraform-ls executes `terraform providers schema -json`, which runs the
+    // project's .terraform provider binaries (terraform-ls docs/schema.md).
+    if (projectCodeDenied(root)) return
     let bin = which("terraform-ls")
 
     if (!bin) {
@@ -1820,6 +1875,8 @@ export const TexLab: Info = {
   extensions: [".tex", ".bib"],
   root: NearestRoot([".latexmkrc", "latexmkrc", ".texlabroot", "texlabroot"]),
   async spawn(root, _ctx, flags) {
+    // K8: texlab builds with latexmk, which loads <root>/.latexmkrc (Perl) from the root.
+    if (projectCodeDenied(root)) return
     let bin = which("texlab")
 
     if (!bin) {
@@ -1944,6 +2001,8 @@ export const Clojure: Info = {
   extensions: [".clj", ".cljs", ".cljc", ".edn"],
   root: NearestRoot(["deps.edn", "project.clj", "shadow-cljs.edn", "bb.edn", "build.boot"]),
   async spawn(root) {
+    // K8: clojure-lsp spawns lein/clojure/boot for the classpath (project.clj/build.boot are code).
+    if (projectCodeDenied(root)) return
     let bin = which("clojure-lsp")
     if (!bin && process.platform === "win32") {
       bin = which("clojure-lsp.exe")
@@ -1967,13 +2026,17 @@ export const Nixd: Info = {
     const flakeRoot = await NearestRoot(["flake.nix"])(file, ctx)
     if (flakeRoot && flakeRoot !== ctx.directory) return flakeRoot
 
-    // If no flake.nix, fall back to git repository root
-    if (ctx.worktree && ctx.worktree !== ctx.directory) return ctx.worktree
+    // K8: ctx.worktree is "/" for a non-git project (project/project.ts:217), so the
+    // opened directory is its root; returning "/" would gate and serve the filesystem.
+    if (ctx.worktree && ctx.worktree !== "/" && ctx.worktree !== ctx.directory) return ctx.worktree
 
     // Finally, use the instance directory as fallback
     return ctx.directory
   },
   async spawn(root) {
+    // K8: nixd evaluates the project's flake/Nix expressions, which can import from a
+    // derivation and build (nixd README; Nix manual); no server.
+    if (projectCodeDenied(root)) return
     const nixd = which("nixd")
     if (!nixd) {
       return
@@ -1994,6 +2057,9 @@ export const Tinymist: Info = {
   extensions: [".typ", ".typc"],
   root: NearestRoot(["typst.toml"]),
   async spawn(root, _ctx, flags) {
+    // K8: tinymist's default mode compiles the document, so the project's Typst code -
+    // including WASM plugins in its sandbox - runs (tinymist docs, compile/export).
+    if (projectCodeDenied(root)) return
     let bin = which("tinymist")
 
     if (!bin) {
@@ -2078,6 +2144,9 @@ export const HLS: Info = {
   extensions: [".hs", ".lhs"],
   root: NearestRoot(["stack.yaml", "cabal.project", "hie.yaml", "*.cabal"]),
   async spawn(root) {
+    // K8: haskell-language-server loads the project through hie-bios (cabal/stack) and
+    // GHC plugins; Setup.hs and ghc-options -fplugin are project code.
+    if (projectCodeDenied(root)) return
     const bin = which("haskell-language-server-wrapper")
     if (!bin) {
       return
@@ -2095,6 +2164,9 @@ export const JuliaLS: Info = {
   extensions: [".jl"],
   root: NearestRoot(["Project.toml", "Manifest.toml", "*.jl"]),
   async spawn(root) {
+    // K8: LanguageServer.jl chooses the project environment containing pwd (runserver.jl
+    // choose_env), so project packages/build steps can run; no disable.
+    if (projectCodeDenied(root)) return
     const julia = which("julia")
     if (!julia) {
       return
