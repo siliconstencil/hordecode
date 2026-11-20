@@ -4,37 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Security
-
-- Ask before running code from a project directory: project plugins, hooks, tools,
-  MCP/LSP/formatter commands, provider npm packages, the `shell` value and project
-  workflows are skipped until the project is trusted; `--trust` records the same trust
-  as the TUI prompt.
-
-### Fixed
-
-- MiniMax streams that close a tool call before its last argument chunk are repaired before the SDK
-  parses them; every other provider's stream is unchanged.
-- Overflow compaction no longer drops the user's attachments when replaying the last user turn.
-- The prompt image cap now counts image attachments sent as file parts, and the live CLI request path applies it
-- Removing a session drops its checkpoint settlement records, runs that cleanup on the removal channel, and
-  keeps a writer that is still in flight.
-- A checkpoint rebuild inserts its boundary from the same window the freshness check measured, and refuses a
-  boundary whose time is unknown.
-- A checkpoint writer that settles before a waiting caller starts waiting keeps its outcome for that caller.
-- The writer spawn and its record complete inside the spawn mask, so an interrupt cannot leave a paid writer
-  running without its record.
-- Path containment treats only a whole `..` segment as outside the working directory, so a file named `..foo`
-  stays inside.
-- The HTML statistics page lists the same rows and numbers as the text output.
-- Harness output paths anchor to the project directory when it is not a git repository, instead of the
-  filesystem root.
-- A model step that ends without a tool call and with a stray tool-markup fragment or a repetition-dominated
-  reasoning tail is retried once, and the retried request omits that step's reasoning and fragment.
-- Images re-sent from session history are replaced with a placeholder once the inline payload passes 25 MiB,
-  down to 15 MiB, oldest first.
-
-## [0.1.6] - 2026-11-07
+## [0.1.6] - 2026-11-20
 
 ### Added
 
@@ -89,6 +59,26 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- MiniMax streams that close a tool call before its last argument chunk are repaired before the SDK
+  parses them; every other provider's stream is unchanged.
+- Overflow compaction no longer drops the user's attachments when replaying the last user turn.
+- The prompt image cap now counts image attachments sent as file parts, and the live CLI request path applies it
+- Removing a session drops its checkpoint settlement records, runs that cleanup on the removal channel, and
+  keeps a writer that is still in flight.
+- A checkpoint rebuild inserts its boundary from the same window the freshness check measured, and refuses a
+  boundary whose time is unknown.
+- A checkpoint writer that settles before a waiting caller starts waiting keeps its outcome for that caller.
+- The writer spawn and its record complete inside the spawn mask, so an interrupt cannot leave a paid writer
+  running without its record.
+- Path containment treats only a whole `..` segment as outside the working directory, so a file named `..foo`
+  stays inside.
+- The HTML statistics page lists the same rows and numbers as the text output.
+- Harness output paths anchor to the project directory when it is not a git repository, instead of the
+  filesystem root.
+- A model step that ends without a tool call and with a stray tool-markup fragment or a repetition-dominated
+  reasoning tail is retried once, and the retried request omits that step's reasoning and fragment.
+- Images re-sent from session history are replaced with a placeholder once the inline payload passes 25 MiB,
+  down to 15 MiB, oldest first.
 - A one-shot CLI run waits for in-flight checkpoint writers before it exits, bounded by the writer's own
   timeout, so a paid writer run is finished and its checkpoint written instead of being discarded. The
   first SIGINT or SIGTERM in that window keeps draining; a second one exits at once (130/143). No new
@@ -156,6 +146,13 @@ All notable changes to this project will be documented in this file.
 - Dead code: 18 environment flags with no consumer, the orphaned mcp-exa module, 13 orphaned TUI files, the
   unreachable UI route module, dead update and voice strings, the unused `serveUIEffect` client parameter,
   and the dead `notifyParentOnComplete` parameter.
+
+### Security
+
+- Ask before running code from a project directory: project plugins, hooks, tools,
+  MCP/LSP/formatter commands, provider npm packages, the `shell` value and project
+  workflows are skipped until the project is trusted; `--trust` records the same trust
+  as the TUI prompt.
 
 ## [0.1.5] - 2026-11-03
 
