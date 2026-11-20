@@ -6,21 +6,21 @@ Regenerate with `bun run script/upstream-map.ts` (writes this file and `docs/ups
 Reference points:
 
 - Git base: upstream tag `v1.17.18` (an ancestor of `main`).
-- Parity reference: opencode 1.19.5 checkout at `../repos/opencode-1.19.5`.
+- Parity reference: opencode 1.19.6 checkout at `../repos/opencode-1.19.6`.
 - MiMo Code references: `../repos/mimocode-v0.1.5` (starting base) and `../repos/mimocode-v0.1.11` (parity), selective from 0.1.12.
 
 ## Classes
 
 | class | meaning | rule for changes |
 |---|---|---|
-| PARITY | identical to opencode 1.19.5 | Base file, maintained by Hordecode. Change it when the change is needed and measured: reason, test, one provenance line. |
+| PARITY | identical to opencode 1.19.6 | Base file, maintained by Hordecode. Change it when the change is needed and measured: reason, test, one provenance line. |
 | LAGGING | identical to v1.17.18, upstream has moved on | Base file; take the upstream change when it helps, or replace it with a better one. |
 | FORK_DELTA | upstream file that Hordecode modified | A changed base file. Each hunk carries one provenance line (upstream or MiMo file:line it departs from). |
 | FORK_ONLY | exists only in Hordecode | Hordecode owns it. Custom features and the MiMo delta-port live here. |
 | kept (upstream removed) | Hordecode still carries a file upstream deleted | Decide per file at the next port. |
-| UPSTREAM_ONLY | present in 1.19.5, absent here | Not yet ported (deliberately dropped: `packages/console`, `packages/stats`). |
+| UPSTREAM_ONLY | present in 1.19.6, absent here | Not yet ported (deliberately dropped: `packages/console`, `packages/stats`). |
 
-Totals: PARITY 4914, LAGGING 55, FORK_DELTA 918, FORK_ONLY 1384, FORK_KEPT_UPSTREAM_REMOVED 11, UPSTREAM_ONLY 30.
+Totals: PARITY 4916, LAGGING 17, FORK_DELTA 943, FORK_ONLY 1422, FORK_KEPT_UPSTREAM_REMOVED 21, UPSTREAM_ONLY 72.
 
 ## Packages that are entirely Hordecode's
 
@@ -32,12 +32,12 @@ agent, bus, control-plane, cron, global, inbox, memory, project, shared, skill, 
 
 | path | parity | lagging | fork delta | fork only | kept (upstream removed) | upstream only |
 |---|---|---|---|---|---|---|
-| packages/opencode | 580 | 0 | 246 | 314 | 4 | 5 |
+| packages/opencode | 568 | 0 | 258 | 350 | 4 | 5 |
 | packages/core | 367 | 0 | 121 | 353 | 0 | 5 |
 | packages/tui | 121 | 1 | 117 | 153 | 0 | 5 |
-| packages/desktop | 140 | 0 | 165 | 3 | 1 | 1 |
-| packages/app | 546 | 14 | 84 | 0 | 4 | 0 |
-| packages/web | 633 | 13 | 59 | 0 | 0 | 0 |
+| packages/desktop | 132 | 3 | 170 | 3 | 1 | 1 |
+| packages/app | 555 | 4 | 85 | 0 | 4 | 4 |
+| packages/web | 646 | 0 | 59 | 0 | 0 | 0 |
 | packages/ui | 1651 | 0 | 45 | 0 | 0 | 1 |
 | packages/server | 27 | 0 | 4 | 14 | 0 | 0 |
 | packages/cli | 22 | 0 | 3 | 7 | 0 | 0 |
@@ -45,7 +45,7 @@ agent, bus, control-plane, cron, global, inbox, memory, project, shared, skill, 
 | packages/plugin | 35 | 0 | 6 | 4 | 0 | 1 |
 | packages/schema | 66 | 0 | 8 | 0 | 0 | 0 |
 | packages/sdk | 42 | 0 | 6 | 0 | 0 | 0 |
-| packages/enterprise | 18 | 14 | 4 | 0 | 0 | 0 |
+| packages/enterprise | 32 | 0 | 4 | 0 | 0 | 0 |
 | packages/protocol | 23 | 0 | 3 | 0 | 0 | 0 |
 | packages/session-ui | 117 | 0 | 3 | 0 | 0 | 0 |
 | packages/function | 2 | 0 | 2 | 0 | 0 | 2 |
@@ -58,7 +58,7 @@ agent, bus, control-plane, cron, global, inbox, memory, project, shared, skill, 
 | packages/llm | 151 | 0 | 1 | 0 | 0 | 0 |
 | packages/storybook | 17 | 8 | 1 | 0 | 0 | 2 |
 | packages/containers | 8 | 0 | 0 | 0 | 0 | 0 |
-| packages/docs | 23 | 1 | 0 | 0 | 0 | 0 |
+| packages/docs | 24 | 0 | 0 | 0 | 0 | 0 |
 | packages/effect-sqlite-node | 0 | 0 | 0 | 0 | 0 | 4 |
 | packages/identity | 6 | 0 | 0 | 0 | 0 | 0 |
 | packages/script | 4 | 0 | 0 | 0 | 0 | 0 |
@@ -69,10 +69,11 @@ A package with zero LAGGING and zero UPSTREAM_ONLY rows is at parity. LAGGING an
 
 | path | parity | lagging | fork delta | fork only | kept (upstream removed) | upstream only |
 |---|---|---|---|---|---|---|
-| .github | 30 | 0 | 7 | 4 | 2 | 0 |
+| .github | 20 | 0 | 10 | 5 | 8 | 32 |
 | docs | 0 | 0 | 0 | 7 | 0 | 0 |
 | reports | 0 | 0 | 0 | 7 | 0 | 0 |
-| script | 14 | 1 | 3 | 4 | 0 | 2 |
+| script | 14 | 1 | 3 | 4 | 0 | 4 |
+| infra | 0 | 0 | 3 | 0 | 4 | 0 |
 | patches | 19 | 0 | 1 | 1 | 0 | 0 |
 | .gitignore | 0 | 0 | 1 | 0 | 0 | 0 |
 | .husky | 0 | 0 | 1 | 0 | 0 | 0 |
@@ -88,8 +89,9 @@ A package with zero LAGGING and zero UPSTREAM_ONLY rows is at parity. LAGGING an
 | package.json | 0 | 0 | 1 | 0 | 0 | 0 |
 | README.md | 0 | 0 | 1 | 0 | 0 | 0 |
 | ROADMAP.md | 0 | 0 | 0 | 1 | 0 | 0 |
-| sdks | 12 | 3 | 1 | 0 | 0 | 0 |
+| sdks | 15 | 0 | 1 | 0 | 0 | 0 |
 | SECURITY.md | 0 | 0 | 1 | 0 | 0 | 0 |
+| sst.config.ts | 0 | 0 | 1 | 0 | 0 | 0 |
 | TOOLBOX.md | 0 | 0 | 0 | 1 | 0 | 0 |
 | .dockerignore | 1 | 0 | 0 | 0 | 0 | 0 |
 | .editorconfig | 1 | 0 | 0 | 0 | 0 | 0 |
@@ -104,7 +106,6 @@ A package with zero LAGGING and zero UPSTREAM_ONLY rows is at parity. LAGGING an
 | flake.lock | 1 | 0 | 0 | 0 | 0 | 0 |
 | flake.nix | 1 | 0 | 0 | 0 | 0 | 0 |
 | github | 10 | 0 | 0 | 0 | 0 | 0 |
-| infra | 7 | 0 | 0 | 0 | 0 | 0 |
 | nix | 6 | 0 | 0 | 0 | 0 | 0 |
 | perf | 1 | 0 | 0 | 0 | 0 | 0 |
 | README.ar.md | 1 | 0 | 0 | 0 | 0 | 0 |
@@ -129,14 +130,14 @@ A package with zero LAGGING and zero UPSTREAM_ONLY rows is at parity. LAGGING an
 | README.zh.md | 1 | 0 | 0 | 0 | 0 | 0 |
 | README.zht.md | 1 | 0 | 0 | 0 | 0 | 0 |
 | screenshot-uk.png | 1 | 0 | 0 | 0 | 0 | 0 |
+| services | 0 | 0 | 0 | 0 | 0 | 4 |
 | specs | 14 | 0 | 0 | 0 | 0 | 0 |
 | sst-env.d.ts | 1 | 0 | 0 | 0 | 0 | 0 |
-| sst.config.ts | 1 | 0 | 0 | 0 | 0 | 0 |
 | STATS.md | 1 | 0 | 0 | 0 | 0 | 0 |
 | tsconfig.json | 1 | 0 | 0 | 0 | 0 | 0 |
 | turbo.json | 1 | 0 | 0 | 0 | 0 | 0 |
 
-Upstream infrastructure that Hordecode cannot run (`infra/`, `sst.config.ts`, `github/`, `STATS.md`, the `stats`/`deploy`/`docs-update`/`opencode` workflows, the translated READMEs, `artifacts/`) is kept at parity on purpose: it is not part of the product, and keeping it identical to upstream makes every port a clean fast-forward for those paths. It is never rebranded or hand-edited.
+Upstream infrastructure that Hordecode cannot run (`infra/`, `sst.config.ts`, `github/`, `STATS.md`, the `stats`/`deploy`/`docs-update`/`opencode` workflows, the translated READMEs, `artifacts/`) is kept at parity on purpose: it is not part of the product, and keeping it identical to upstream makes every port a clean fast-forward for those paths. It is never rebranded or hand-edited. Workflows that upstream deleted are kept in place under the zero-delete rule and show as FORK_ONLY until the maintainer decides otherwise.
 
 ## Working rules
 

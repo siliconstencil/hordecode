@@ -861,16 +861,71 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
 
   const tools = Object.fromEntries(Array.from(toolNames).map((toolName) => [toolName, { toModelOutput }]))
 
-  return yield* Effect.promise(() =>
-    convertToModelMessages(
-      result.filter((msg) => msg.parts.some((msgPart) => msgPart.type !== "step-start")),
-      {
-        //@ts-expect-error (convertToModelMessages expects a ToolSet but only actually needs tools[name]?.toModelOutput)
-        tools,
-      },
+  // P196: opencode v1.19.6 packages/opencode/src/session/message-v2.ts:424-434
+  return boundImages(
+    yield* Effect.promise(() =>
+      convertToModelMessages(
+        result.filter((msg) => msg.parts.some((msgPart) => msgPart.type !== "step-start")),
+        {
+          //@ts-expect-error (convertToModelMessages expects a ToolSet but only actually needs tools[name]?.toModelOutput)
+          tools,
+        },
+      ),
     ),
   )
 })
+
+// P196: opencode v1.19.6 packages/opencode/src/session/message-v2.ts:49-53
+const IMAGE_BYTES_TRIGGER = 25 * 1024 * 1024 // 25 MiB
+const IMAGE_BYTES_TARGET = 15 * 1024 * 1024 // 15 MiB
+const IMAGE_REMOVED =
+  "[This image was removed to reduce the request size and is no longer visible. Do not make claims about its contents from memory. If needed, retrieve it again with an available tool or ask the user to attach it again.]"
+
+// P196: opencode v1.19.6 packages/opencode/src/session/message-v2.ts:445-499
+export function boundImages(messages: ModelMessage[]) {
+  const sizes: number[] = []
+  replaceImages(messages, (bytes) => {
+    sizes.push(bytes)
+    return false
+  })
+  let cut = 0
+  let kept = 0
+  for (const size of sizes) {
+    kept += size
+    if (kept <= IMAGE_BYTES_TRIGGER) continue
+    while (kept > IMAGE_BYTES_TARGET) kept -= sizes[cut++]!
+  }
+  if (cut === 0) return messages
+
+  let index = 0
+  return replaceImages(messages, () => index++ < cut)
+}
+
+function replaceImages(messages: ModelMessage[], remove: (bytes: number) => boolean) {
+  const isImage = (mime: string | undefined) => mime?.toLowerCase().startsWith("image/") ?? false
+  const placeholder = () => ({ type: "text" as const, text: IMAGE_REMOVED })
+  return messages.map((message) => {
+    if (typeof message.content === "string") return message
+    const parts: Exclude<ModelMessage["content"], string>[number][] = message.content
+    const content = parts.map((part) => {
+      if (part.type === "image") return remove(inlineBytes(part.image)) ? placeholder() : part
+      if (part.type === "file") return isImage(part.mediaType) && remove(inlineBytes(part.data)) ? placeholder() : part
+      if (part.type !== "tool-result" || part.output.type !== "content") return part
+      const output = part.output
+      const value = output.value.map((item) =>
+        "data" in item && isImage(item.mediaType) && remove(item.data.length) ? placeholder() : item,
+      )
+      return value.every((item, i) => item === output.value[i]) ? part : { ...part, output: { ...output, value } }
+    })
+    return content.every((part, i) => part === parts[i]) ? message : ({ ...message, content } as ModelMessage)
+  })
+}
+
+function inlineBytes(data: string | URL | Uint8Array | ArrayBuffer) {
+  if (data instanceof URL) return 0
+  if (typeof data === "string") return data.length
+  return data.byteLength
+}
 
 export function toModelMessages(
   input: WithParts[],

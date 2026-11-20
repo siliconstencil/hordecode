@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "hordecode",
-  "hordecodeBase": "1.19.5",
+  "hordecodeBase": "1.19.6",
   "description": "AI-powered development tool",
   "private": false,
   "type": "module",

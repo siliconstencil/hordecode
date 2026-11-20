@@ -23,6 +23,8 @@ const opt = (name: string, fallback: string) => {
   return args[idx + 1] ?? fallback
 }
 const root = path.resolve(import.meta.dir, "..")
+// P196A: the header cites the canonical path from the main checkout, which is what a reader there can open.
+const mainRoot = path.resolve(root, path.dirname((await $`git -C ${root} rev-parse --git-common-dir`.text()).trim()))
 const base = opt("--base", "v1.17.18")
 const ref = path.resolve(root, opt("--ref", "../repos/opencode-1.19.3"))
 const parityLabel = path.basename(ref).replace(/^opencode-/, "")
@@ -44,7 +46,9 @@ async function lsTree(rev: string) {
 }
 
 function blobSha(file: string) {
-  const data = fs.readFileSync(file)
+  // A symlink's git blob is its link text, not the target's content. Hashing the target marked
+  // every symlink as LAGGING.
+  const data = fs.lstatSync(file).isSymbolicLink() ? fs.readlinkSync(file) : fs.readFileSync(file)
   return createHash("sha1").update(`blob ${data.length}\0`).update(data).digest("hex")
 }
 
@@ -127,7 +131,7 @@ Regenerate with \`bun run script/upstream-map.ts\` (writes this file and \`docs/
 Reference points:
 
 - Git base: upstream tag \`${base}\` (an ancestor of \`main\`).
-- Parity reference: opencode ${parityLabel} checkout at \`${path.relative(root, ref)}\`.
+- Parity reference: opencode ${parityLabel} checkout at \`${path.relative(mainRoot, ref)}\`.
 - MiMo Code references: \`../repos/mimocode-v0.1.5\` (starting base) and \`../repos/mimocode-v0.1.11\` (parity), selective from 0.1.12.
 
 ## Classes
@@ -162,7 +166,7 @@ A package with zero LAGGING and zero UPSTREAM_ONLY rows is at parity. LAGGING an
 
 ${table(rootKeys)}
 
-Upstream infrastructure that Hordecode cannot run (\`infra/\`, \`sst.config.ts\`, \`github/\`, \`STATS.md\`, the \`stats\`/\`deploy\`/\`docs-update\`/\`opencode\` workflows, the translated READMEs, \`artifacts/\`) is kept at parity on purpose: it is not part of the product, and keeping it identical to upstream makes every port a clean fast-forward for those paths. It is never rebranded or hand-edited.
+Upstream infrastructure that Hordecode cannot run (\`infra/\`, \`sst.config.ts\`, \`github/\`, \`STATS.md\`, the \`stats\`/\`deploy\`/\`docs-update\`/\`opencode\` workflows, the translated READMEs, \`artifacts/\`) is kept at parity on purpose: it is not part of the product, and keeping it identical to upstream makes every port a clean fast-forward for those paths. It is never rebranded or hand-edited. Workflows that upstream deleted are kept in place under the zero-delete rule and show as FORK_ONLY until the maintainer decides otherwise.
 
 ## Working rules
 
