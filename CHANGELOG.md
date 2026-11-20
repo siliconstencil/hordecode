@@ -4,21 +4,6 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Security
-
-- Installed harness and research skill files are read-only: edit, write, apply_patch,
-  multiedit and notebook_edit are denied on `harness/` and `research/` under the data
-  root (no prompt, and no user or session rule can relax it). Shell redirection into
-  those roots asks `installed_skill_write`. Reading stays allowed, and user-authored
-  skill directories stay writable.
-
-### Changed
-
-- A bundled skill improvement is a proposal, not an edit: eval and report write
-  `docs/harness/proposals/<run-id>-<skill>.md` with the evidence, the requirement, the
-  expected effect and the diff against the bundle, then ask the user. Extraction
-  restores any installed skill file whose content differs from the bundle.
-
 ## [0.1.6] - 2026-11-20
 
 ### Added
@@ -51,6 +36,10 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- A bundled skill improvement is a proposal, not an edit: eval and report write
+  `docs/harness/proposals/<run-id>-<skill>.md` with the evidence, the requirement, the
+  expected effect and the diff against the bundle, then ask the user. Extraction
+  restores any installed skill file whose content differs from the bundle.
 - The cron scheduler lock moved from `<project>/.hordecode/.cron-lock` to the global state dir
   (`cron-locks/<hash of the project path>.lock`); nothing is left in the project.
 - Harness stage summaries, eval files and the eval summary follow `harness.docs`; the runtime resolves the
@@ -174,6 +163,11 @@ All notable changes to this project will be documented in this file.
 
 ### Security
 
+- Installed harness and research skill files are read-only: edit, write, apply_patch,
+  multiedit and notebook_edit are denied on `harness/` and `research/` under the data
+  root (no prompt, and no user or session rule can relax it). Shell redirection into
+  those roots asks `installed_skill_write`. Reading stays allowed, and user-authored
+  skill directories stay writable.
 - Ask before running code from a project directory: project plugins, hooks, tools,
   MCP/LSP/formatter commands, provider npm packages, the `shell` value and project
   workflows are skipped until the project is trusted; `--trust` records the same trust
