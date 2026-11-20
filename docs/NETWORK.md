@@ -27,7 +27,7 @@ value wins when both are set.
 | `mcp.exa.ai`, `search.parallel.ai` | The `websearch` tool, with `HORDECODE_ENABLE_EXA=1` or `HORDECODE_ENABLE_PARALLEL=1` | The search query |
 | `huggingface.co` | First semantic memory search with `memory.embedding` enabled | The embedding model download, about 133 MB, once |
 | npm registry | Plugins listed in `plugin`; provider SDK packages for the providers you use | Package downloads |
-| npm registry, GitHub releases | Language servers (`lsp`) and formatters (`formatter`) you enable, installed on first use | Package and archive downloads; `HORDECODE_DISABLE_LSP_DOWNLOAD=1` stops language server downloads |
+| npm registry, GitHub releases | Language servers (`lsp`) and formatters (`formatter`) you enable, installed on first use | Package and archive downloads; `HORDECODE_DISABLE_LSP_DOWNLOAD=1` stops managed language servers from starting, including when their cache is already warm |
 | URLs in `instructions`, `skills.urls` and remote `references` | Loading the config, skills or references you list | Plain GETs |
 | Your MCP servers and remote workspaces | When configured | MCP and workspace traffic |
 | Your GitHub token broker (`OIDC_BASE_URL`) | `horde github run` in GitHub Actions, when configured | The Actions OIDC token |
