@@ -256,7 +256,12 @@ const reminders = Effect.fn("degenerate-retry.reminders")(function* (sessionID: 
   return msgs
     .filter((m) => m.info.role === "user")
     .flatMap((m) => m.parts)
-    .filter((p) => p.type === "text" && p.synthetic === true && p.text.includes("ended without the tool call"))
+    .filter(
+      (p) =>
+        p.type === "text" &&
+        p.synthetic === true &&
+        (p.text.includes("tool call") || p.text.includes("repeating")),
+    )
 })
 
 const assistantErrors = Effect.fn("degenerate-retry.assistantErrors")(function* (sessionID: SessionID) {
@@ -297,6 +302,8 @@ it.instance("field shape: a fragment stop is retried once and its payload is not
     expect(second).not.toContain("hmm: hmm: hmm:")
     expect(second).not.toContain("</oldString>")
     expect(yield* reminders(chat.id)).toHaveLength(1)
+    expect(((yield* reminders(chat.id))[0] as { text?: string }).text ?? "").toContain("lost")
+    expect(((yield* reminders(chat.id))[0] as { text?: string }).text ?? "").toContain("tool call")
     expect(yield* degenerateParts(chat.id)).toHaveLength(1)
     // Stored history keeps what the user sees; only the replay copy drops it.
     const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
@@ -429,12 +436,83 @@ it.instance("a stream that degenerates is cut before its end and retried once", 
     const reasoning = msgs
       .flatMap((m) => m.parts)
       .filter((p) => p.type === "reasoning")
-      .reduce((n, p) => n + p.text.length, 0)
+      .reduce((n, p) => n + (p as { text: string }).text.length, 0)
     // The full stream is 40 x 8 x 5 = 1600 chars; the cut keeps well under half.
     expect(reasoning).toBeLessThan(800)
     expect(yield* degenerateParts(chat.id)).toHaveLength(1)
+    expect(((yield* reminders(chat.id))[0] as { text?: string }).text ?? "").toContain("repeating")
+    expect(((yield* reminders(chat.id))[0] as { text?: string }).text ?? "").toContain("cut")
     const last = msgs.findLast((m) => m.info.role === "assistant")
     expect(last?.parts.some((p) => p.type === "text" && p.text.includes("Done."))).toBe(true)
+  }),
+)
+
+// F4c (open 2): the text-delta path had no stream-level cut test; only reasoning was covered.
+it.instance("a repeating text stream (not reasoning) is cut early", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "text cut", permission: allowAll })
+
+    const flow = reply()
+    for (let i = 0; i < 400; i++) flow.text("hmm: ")
+    yield* llm.push(flow.stop())
+    yield* llm.text("Done.")
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+    expect(yield* llm.calls).toBe(2)
+    const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
+    const text = msgs
+      .flatMap((m) => m.parts)
+      .filter((p) => p.type === "text" && !p.ignored && !p.synthetic)
+      .reduce((n, p) => n + (p as { text: string }).text.length, 0)
+    // The full stream is 2000 chars; the cut keeps well under half.
+    expect(text).toBeLessThan(1000)
+    expect(yield* degenerateParts(chat.id)).toHaveLength(1)
+    const last = msgs.findLast((m) => m.info.role === "assistant")
+    expect(last?.parts.some((p) => p.type === "text" && p.text.includes("Done."))).toBe(true)
+  }),
+)
+
+// F4c: a cut step used to end without a step-finish, so its tokens/cost and the turn totals lost it.
+it.instance("a cut step records its step-finish and the turn totals add up", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "cut accounting", permission: allowAll })
+
+    const flow = reply()
+    for (let i = 0; i < 40; i++) flow.reason("hmm: ".repeat(8))
+    yield* llm.push(flow.stop())
+    yield* llm.text("Done.", { usage: { input: 10, output: 5 } })
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+    expect(yield* llm.calls).toBe(2)
+    const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
+    const assistants = msgs.filter((m) => m.info.role === "assistant")
+    const cut = assistants[0]
+    const finishes = cut.parts.filter((p) => p.type === "step-finish")
+    expect(finishes).toHaveLength(1)
+    const finish = finishes[0] as { tokens: { input: number; output: number }; cost: number }
+    expect(typeof finish.cost).toBe("number")
+    expect(typeof finish.tokens.input).toBe("number")
+    expect(typeof finish.tokens.output).toBe("number")
+    // The provider reported no usage before the cut, so the synthesized finish records what is known: zero.
+    expect(finish.tokens.output).toBe(0)
+    const info = cut.info as { cost?: number; tokens?: { input?: number; output?: number } }
+    expect(typeof info.cost).toBe("number")
+    expect(typeof info.tokens?.input).toBe("number")
+    const sumFinish = assistants
+      .flatMap((m) => m.parts)
+      .filter((p) => p.type === "step-finish")
+      .reduce((n, p) => n + (p as { tokens: { output: number } }).tokens.output, 0)
+    const sumMessage = assistants.reduce((n, m) => n + ((m.info as { tokens?: { output?: number } }).tokens?.output ?? 0), 0)
+    expect(sumFinish).toBe(sumMessage)
+    expect(sumMessage).toBe(5)
   }),
 )
 

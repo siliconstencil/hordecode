@@ -1857,10 +1857,15 @@ const layer = Layer.effect(
                 sessionID,
                 type: "text",
                 synthetic: true,
+                // F4c: name the actual cause; a retried step must not repeat the wrong instruction.
                 text: [
                   "<system-reminder>",
-                  "Your previous response ended without the tool call it was making.",
-                  "Continue the task; if you meant to call a tool, issue it through the real tool channel.",
+                  degenerate.kind === "fragment"
+                    ? "Your previous response ended with a stray tool-markup fragment and the tool call it was making was lost."
+                    : "Your previous reasoning was repeating and the step was cut.",
+                  degenerate.kind === "fragment"
+                    ? "Re-issue it through the real tool channel; do not paste markup as text."
+                    : "Continue the task from where it stopped; do not repeat the same reasoning.",
                   "</system-reminder>",
                 ].join("\n"),
               } satisfies SessionV1.TextPart)

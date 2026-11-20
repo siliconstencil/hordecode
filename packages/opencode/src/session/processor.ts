@@ -215,6 +215,9 @@ interface ProcessorContext extends Input {
   needsCompaction: boolean
   // F4b: the stream was cut for repetition; the step ends as a clean stop.
   repetitionCut: boolean
+  // F4c: usage reported before a cut ends the step, and whether a step-finish was already written.
+  partialUsage?: Usage
+  stepFinished: boolean
   monitoring: boolean
   sawToolCall: boolean
   currentText: SessionV1.TextPart | undefined
@@ -264,6 +267,8 @@ const layer = Layer.effect(
         blocked: false,
         needsCompaction: false,
         repetitionCut: false,
+        partialUsage: undefined,
+        stepFinished: false,
         monitoring: false,
         sawToolCall: false,
         currentText: undefined,
@@ -511,6 +516,8 @@ const layer = Layer.effect(
       }
 
       const handleEvent = Effect.fnUntraced(function* (value: StreamEvent) {
+        // F4c: a cut can end the step before any step-finish; keep the last usage the provider sent.
+        if ((value as { usage?: Usage }).usage) ctx.partialUsage = (value as { usage: Usage }).usage
         switch (value.type) {
           case "reasoning-start":
             if (value.id in ctx.reasoningMap) return
@@ -702,6 +709,8 @@ const layer = Layer.effect(
             return
 
           case "step-finish": {
+            // F4c: a real step-finish owns the accounting; the cut path below must not add a second one.
+            ctx.stepFinished = true
             const completedSnapshot = yield* snapshot.track()
             yield* Effect.forEach(Object.keys(ctx.reasoningMap), finishReasoning)
             // Anthropic reports thinking blocks it removed before the model saw the
@@ -1138,6 +1147,27 @@ const layer = Layer.effect(
             }
             // F4b: a cut stream ends as a clean stop; the finish gate classifies the marker as repetition.
             if (ctx.repetitionCut) {
+              // F4c: the cut skipped step-finish, so synthesize it from the usage reported so far;
+              // without it the step's tokens and cost never reach the message or the turn totals.
+              if (!ctx.stepFinished) {
+                const usage = Session.getUsage({
+                  model: ctx.model,
+                  usage: ctx.partialUsage ?? new Usage({}),
+                  metadata: undefined,
+                })
+                ctx.assistantMessage.cost += usage.cost
+                ctx.assistantMessage.tokens = usage.tokens
+                yield* session.updatePart({
+                  id: PartID.ascending(),
+                  reason: "stop",
+                  snapshot: yield* snapshot.track(),
+                  messageID: ctx.assistantMessage.id,
+                  sessionID: ctx.assistantMessage.sessionID,
+                  type: "step-finish",
+                  tokens: usage.tokens,
+                  cost: usage.cost,
+                })
+              }
               ctx.assistantMessage.finish = "stop"
               yield* session.updateMessage(ctx.assistantMessage)
             }
