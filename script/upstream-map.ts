@@ -44,7 +44,9 @@ async function lsTree(rev: string) {
 }
 
 function blobSha(file: string) {
-  const data = fs.readFileSync(file)
+  // A symlink's git blob is its link text, not the target's content. Hashing the target marked
+  // every symlink as LAGGING.
+  const data = fs.lstatSync(file).isSymbolicLink() ? fs.readlinkSync(file) : fs.readFileSync(file)
   return createHash("sha1").update(`blob ${data.length}\0`).update(data).digest("hex")
 }
 
@@ -162,7 +164,7 @@ A package with zero LAGGING and zero UPSTREAM_ONLY rows is at parity. LAGGING an
 
 ${table(rootKeys)}
 
-Upstream infrastructure that Hordecode cannot run (\`infra/\`, \`sst.config.ts\`, \`github/\`, \`STATS.md\`, the \`stats\`/\`deploy\`/\`docs-update\`/\`opencode\` workflows, the translated READMEs, \`artifacts/\`) is kept at parity on purpose: it is not part of the product, and keeping it identical to upstream makes every port a clean fast-forward for those paths. It is never rebranded or hand-edited.
+Upstream infrastructure that Hordecode cannot run (\`infra/\`, \`sst.config.ts\`, \`github/\`, \`STATS.md\`, the \`stats\`/\`deploy\`/\`docs-update\`/\`opencode\` workflows, the translated READMEs, \`artifacts/\`) is kept at parity on purpose: it is not part of the product, and keeping it identical to upstream makes every port a clean fast-forward for those paths. It is never rebranded or hand-edited. Workflows that upstream deleted are kept in place under the zero-delete rule and show as FORK_ONLY until the maintainer decides otherwise.
 
 ## Working rules
 

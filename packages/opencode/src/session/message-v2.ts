@@ -424,7 +424,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
 
   const tools = Object.fromEntries(Array.from(toolNames).map((toolName) => [toolName, { toModelOutput }]))
 
-  // P196: opencode v1.19.6 packages/opencode/src/session/message-v2.ts:424-437
+  // P196: opencode v1.19.6 packages/opencode/src/session/message-v2.ts:424-434
   return boundImages(
     yield* Effect.promise(() =>
       convertToModelMessages(

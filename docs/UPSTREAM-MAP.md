@@ -20,7 +20,7 @@ Reference points:
 | kept (upstream removed) | Hordecode still carries a file upstream deleted | Decide per file at the next port. |
 | UPSTREAM_ONLY | present in 1.19.6, absent here | Not yet ported (deliberately dropped: `packages/console`, `packages/stats`). |
 
-Totals: PARITY 4870, LAGGING 45, FORK_DELTA 948, FORK_ONLY 1456, FORK_KEPT_UPSTREAM_REMOVED 0, UPSTREAM_ONLY 72.
+Totals: PARITY 4915, LAGGING 0, FORK_DELTA 948, FORK_ONLY 1456, FORK_KEPT_UPSTREAM_REMOVED 0, UPSTREAM_ONLY 72.
 
 ## Packages that are entirely Hordecode's
 
@@ -36,8 +36,8 @@ agent, bus, control-plane, cron, global, inbox, memory, project, shared, skill, 
 | packages/core | 367 | 0 | 121 | 353 | 0 | 5 |
 | packages/tui | 121 | 0 | 118 | 153 | 0 | 5 |
 | packages/desktop | 132 | 0 | 173 | 4 | 0 | 1 |
-| packages/app | 541 | 14 | 88 | 5 | 0 | 4 |
-| packages/web | 633 | 13 | 59 | 0 | 0 | 0 |
+| packages/app | 555 | 0 | 88 | 5 | 0 | 4 |
+| packages/web | 646 | 0 | 59 | 0 | 0 | 0 |
 | packages/ui | 1651 | 0 | 45 | 0 | 0 | 1 |
 | packages/server | 27 | 0 | 4 | 14 | 0 | 0 |
 | packages/cli | 22 | 0 | 3 | 7 | 0 | 0 |
@@ -46,7 +46,7 @@ agent, bus, control-plane, cron, global, inbox, memory, project, shared, skill, 
 | packages/storybook | 17 | 0 | 9 | 0 | 0 | 2 |
 | packages/schema | 66 | 0 | 8 | 0 | 0 | 0 |
 | packages/sdk | 42 | 0 | 6 | 0 | 0 | 0 |
-| packages/enterprise | 18 | 14 | 4 | 0 | 0 | 0 |
+| packages/enterprise | 32 | 0 | 4 | 0 | 0 | 0 |
 | packages/protocol | 23 | 0 | 3 | 0 | 0 | 0 |
 | packages/session-ui | 117 | 0 | 1 | 2 | 0 | 0 |
 | packages/function | 2 | 0 | 2 | 0 | 0 | 2 |
@@ -58,7 +58,7 @@ agent, bus, control-plane, cron, global, inbox, memory, project, shared, skill, 
 | packages/httpapi-codegen | 15 | 0 | 1 | 0 | 0 | 0 |
 | packages/llm | 151 | 0 | 1 | 0 | 0 | 0 |
 | packages/containers | 8 | 0 | 0 | 0 | 0 | 0 |
-| packages/docs | 23 | 1 | 0 | 0 | 0 | 0 |
+| packages/docs | 24 | 0 | 0 | 0 | 0 | 0 |
 | packages/effect-sqlite-node | 0 | 0 | 0 | 0 | 0 | 4 |
 | packages/identity | 6 | 0 | 0 | 0 | 0 | 0 |
 | packages/script | 4 | 0 | 0 | 0 | 0 | 0 |
@@ -89,7 +89,7 @@ A package with zero LAGGING and zero UPSTREAM_ONLY rows is at parity. LAGGING an
 | package.json | 0 | 0 | 1 | 0 | 0 | 0 |
 | README.md | 0 | 0 | 1 | 0 | 0 | 0 |
 | ROADMAP.md | 0 | 0 | 0 | 1 | 0 | 0 |
-| sdks | 12 | 3 | 1 | 0 | 0 | 0 |
+| sdks | 15 | 0 | 1 | 0 | 0 | 0 |
 | SECURITY.md | 0 | 0 | 1 | 0 | 0 | 0 |
 | sst.config.ts | 0 | 0 | 0 | 1 | 0 | 0 |
 | TOOLBOX.md | 0 | 0 | 0 | 1 | 0 | 0 |
@@ -137,7 +137,7 @@ A package with zero LAGGING and zero UPSTREAM_ONLY rows is at parity. LAGGING an
 | tsconfig.json | 1 | 0 | 0 | 0 | 0 | 0 |
 | turbo.json | 1 | 0 | 0 | 0 | 0 | 0 |
 
-Upstream infrastructure that Hordecode cannot run (`infra/`, `sst.config.ts`, `github/`, `STATS.md`, the `stats`/`deploy`/`docs-update`/`opencode` workflows, the translated READMEs, `artifacts/`) is kept at parity on purpose: it is not part of the product, and keeping it identical to upstream makes every port a clean fast-forward for those paths. It is never rebranded or hand-edited.
+Upstream infrastructure that Hordecode cannot run (`infra/`, `sst.config.ts`, `github/`, `STATS.md`, the `stats`/`deploy`/`docs-update`/`opencode` workflows, the translated READMEs, `artifacts/`) is kept at parity on purpose: it is not part of the product, and keeping it identical to upstream makes every port a clean fast-forward for those paths. It is never rebranded or hand-edited. Workflows that upstream deleted are kept in place under the zero-delete rule and show as FORK_ONLY until the maintainer decides otherwise.
 
 ## Working rules
 
