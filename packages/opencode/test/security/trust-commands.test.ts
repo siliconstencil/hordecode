@@ -1,15 +1,15 @@
-import { afterEach, beforeEach, expect, spyOn } from "bun:test"
+import { afterAll, afterEach, beforeAll, beforeEach, expect, spyOn } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
 import { existsSync } from "node:fs"
 import { Effect } from "effect"
-import { Global } from "@opencode-ai/core/global"
 import { Config } from "../../src/config/config"
 import { Session } from "../../src/session/session"
 import { SessionPrompt } from "../../src/session/prompt"
 import { TrustGate } from "../../src/project/trust-gate"
 import { TestInstance, testTmpRoot } from "../fixture/fixture"
 import { it, useServerConfig } from "../supervisor/supervisor-test-harness"
+import { holdGlobalConfig } from "./global-config"
 
 // K6: a command template can contain a shell snippet (`!`cmd``); session/prompt.ts runs
 // it before the model sees the prompt. The template text is config content, so a project
@@ -18,33 +18,34 @@ import { it, useServerConfig } from "../supervisor/supervisor-test-harness"
 
 let stderr: ReturnType<typeof spyOn>
 let markerDir = ""
-let userConfig: string | undefined
+let userProbeDir = ""
+let releaseUserProbe: (() => Promise<void>) | undefined
 
 const clean = (target: string) => fs.rm(target, { recursive: true, force: true }).catch(() => undefined)
+
+// A command in the user-owned config directory. The instance boots and loads the
+// global layer before the test body runs, so the file has to exist now. The probe
+// directory is file-scoped: the global entry cannot carry a per-test marker path.
+beforeAll(async () => {
+  userProbeDir = await fs.mkdtemp(path.join(testTmpRoot(), "k6-commands-user-"))
+  releaseUserProbe = await holdGlobalConfig({
+    command: { userprobe: { template: `Probe: !\`touch ${path.join(userProbeDir, "user-owned")}\`` } },
+  })
+})
+
+afterAll(async () => {
+  await releaseUserProbe?.()
+  releaseUserProbe = undefined
+  await clean(userProbeDir)
+})
 
 beforeEach(async () => {
   TrustGate._resetMayRunCache?.()
   markerDir = await fs.mkdtemp(path.join(testTmpRoot(), "k6-commands-"))
   stderr = spyOn(process.stderr, "write").mockImplementation(() => true)
-  // A command in the user-owned config directory. The instance boots and loads the
-  // global layer before the test body runs, so the file has to exist now.
-  const file = path.join(Global.Path.config, "hordecode.json")
-  userConfig = await fs.readFile(file, "utf8").catch(() => undefined)
-  await fs.mkdir(Global.Path.config, { recursive: true })
-  await Bun.write(
-    file,
-    JSON.stringify({
-      $schema: "https://hordecode.com/config.json",
-      command: { userprobe: { template: `Probe: !\`touch ${path.join(markerDir, "user-owned")}\`` } },
-    }),
-  )
 })
 
 afterEach(async () => {
-  const file = path.join(Global.Path.config, "hordecode.json")
-  if (userConfig === undefined) await fs.rm(file, { force: true })
-  else await Bun.write(file, userConfig)
-  userConfig = undefined
   stderr?.mockRestore()
   await clean(markerDir)
   TrustGate._resetMayRunCache?.()
@@ -113,7 +114,7 @@ it.instance(
 
       yield* prompt.command({ sessionID: chat.id, command: "userprobe", arguments: "" })
 
-      expect(existsSync(path.join(markerDir, "user-owned"))).toBe(true)
+      expect(existsSync(path.join(userProbeDir, "user-owned"))).toBe(true)
     }),
   { trust: false },
   30_000,

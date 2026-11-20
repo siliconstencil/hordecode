@@ -20,6 +20,7 @@ import { provideInstance, tmpdirScoped } from "../fixture/fixture"
 import { pollWithTimeout, testEffect } from "../lib/effect"
 import type { Install } from "./harness"
 import { lazyLayer, markerExists } from "./harness"
+import { recorderAt } from "./lsp-recorder"
 
 // One test per P4-P11 load site. Each drives the service that owns the site in the
 // product (ToolRegistry.ids, MCP.status, LSP.touchFile, Format.file,
@@ -57,7 +58,6 @@ afterEach(async () => {
   stderr.mockRestore()
   delete process.env.K2_MARKER_DIR
   await fs.rm(markerDir, { recursive: true, force: true })
-  await fs.rm(path.join(Global.Path.config, "tool"), { recursive: true, force: true })
 })
 
 const project = (config?: unknown) =>
@@ -78,6 +78,9 @@ const marker = (name: string) => Effect.promise(() => markerExists(markerDir, na
 const markerSoon = (name: string) =>
   Effect.promise(async () => ((await markerExists(markerDir, name)) ? true : undefined))
 const node = (code: string) => ["node", "-e", `require("fs").writeFileSync(process.env.K2_MARKER_DIR + "/${code}", "ran")`]
+// The language server answers initialize; a command that exits after one write leaves
+// the client handshake pending and its later shutdown rejects on the dead stream.
+const lspNode = (code: string) => ["node", "-e", recorderAt(path.join(markerDir, code))]
 const toolFile = (id: string, markerName: string) =>
   [
     'import { writeFileSync } from "fs"',
@@ -160,7 +163,7 @@ describe("project trust for lazy code paths", () => {
 
   it.live("an untrusted project does not run an lsp command", () =>
     Effect.gen(function* () {
-      const dir = yield* project({ lsp: { k2lsp: { command: node("lsp.txt"), extensions: [".k2lsp"] } } })
+      const dir = yield* project({ lsp: { k2lsp: { command: lspNode("lsp.txt"), extensions: [".k2lsp"] } } })
       const file = path.join(dir, "note.k2lsp")
       yield* Effect.promise(() => Bun.write(file, "k2"))
 
@@ -180,7 +183,7 @@ describe("project trust for lazy code paths", () => {
 
   it.live("a trusted project runs an lsp command", () =>
     Effect.gen(function* () {
-      const dir = yield* project({ lsp: { k2lsp: { command: node("lsp.txt"), extensions: [".k2lsp"] } } })
+      const dir = yield* project({ lsp: { k2lsp: { command: lspNode("lsp.txt"), extensions: [".k2lsp"] } } })
       yield* Effect.promise(() => TrustGate.trust(dir))
       const file = path.join(dir, "note.k2lsp")
       yield* Effect.promise(() => Bun.write(file, "k2"))
@@ -190,7 +193,7 @@ describe("project trust for lazy code paths", () => {
           const lsp = yield* LSP.Service
           const fiber = yield* lsp.touchFile(file).pipe(Effect.forkChild)
           yield* pollWithTimeout(markerSoon("lsp.txt"), "lsp command never spawned")
-          yield* Fiber.interrupt(fiber)
+          yield* Fiber.join(fiber).pipe(Effect.timeout("10 seconds"))
 
           expect(yield* marker("lsp.txt")).toBe(true)
         }),
@@ -405,10 +408,10 @@ describe("project trust for lazy code paths", () => {
 
   it.live("a global-dir tool still loads in an untrusted project", () =>
     Effect.gen(function* () {
-      yield* Effect.promise(() => fs.mkdir(path.join(Global.Path.config, "tool"), { recursive: true }))
-      yield* Effect.promise(() =>
-        Bun.write(path.join(Global.Path.config, "tool", "k2global.ts"), toolFile("k2global", "global-tool.txt")),
-      )
+      const file = path.join(Global.Path.config, "tool", "k2global.ts")
+      yield* Effect.promise(() => fs.mkdir(path.dirname(file), { recursive: true }))
+      yield* Effect.promise(() => Bun.write(file, toolFile("k2global", "global-tool.txt")))
+      yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(file, { force: true }).catch(() => undefined)))
       const dir = yield* project()
 
       yield* inside(dir, () =>

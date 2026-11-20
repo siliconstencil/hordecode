@@ -44,6 +44,8 @@ import { disposeAllInstances } from "../fixture/fixture"
 import { pollWithTimeout, testEffect } from "../lib/effect"
 import type { Install } from "./harness"
 import { lazyLayer, markerExists } from "./harness"
+import { holdGlobalConfig } from "./global-config"
+import { recorderAt } from "./lsp-recorder"
 
 // K5: one named test per behaviour per loader group. The layout is identical for
 // every group, so the only difference between the three cases is where the code
@@ -92,11 +94,6 @@ afterEach(async () => {
   delete process.env.OPENCODE_PLUGIN_META_FILE
   for (const dir of trusted.splice(0)) await revokeTrust(dir).catch(() => undefined)
   for (const base of bases.splice(0)) await clean(base)
-  await Promise.all(
-    ["hordecode.json", "tui.json", "tui-plugin.ts", "k5shell", "k5-provider.ts", "plugin", "hook", "tool"].map((name) =>
-      clean(path.join(Global.Path.config, name)),
-    ),
-  )
   TrustGate._resetMayRunCache?.()
 })
 
@@ -137,10 +134,43 @@ const codeDir = (root: string, kind: string) =>
 
 const configFile = (root: string) => path.join(root, "hordecode.json")
 
+// The user-owned cases write the shared global config, so they hold only their own
+// entries and release them when the test scope closes. Project files stay direct
+// writes under the checkout the test owns.
 const writeConfig = (root: string, config: unknown) =>
-  Effect.promise(async () => {
-    await fs.mkdir(root, { recursive: true })
-    await Bun.write(configFile(root), JSON.stringify(config))
+  Effect.gen(function* () {
+    if (root === Global.Path.config) {
+      yield* Effect.acquireRelease(
+        Effect.promise(() => holdGlobalConfig(config as Record<string, unknown>)),
+        (release) => Effect.promise(release),
+      )
+      return
+    }
+    yield* Effect.promise(async () => {
+      await fs.mkdir(root, { recursive: true })
+      await Bun.write(configFile(root), JSON.stringify(config))
+    })
+  })
+
+// A global user-owned file belongs to one test; clean exactly that path so a
+// concurrent test's file in the same directory survives.
+const cleanAfter = (file: string) => Effect.addFinalizer(() => Effect.promise(() => clean(file)))
+
+// `shell` is one top-level string, so a global user-owned value and the project
+// values in this file cannot coexist under the config merge. A shell case holds
+// this slot for its whole test scope; the next one waits instead of racing.
+let shellTail: Promise<void> = Promise.resolve()
+
+const acquireShell = () =>
+  Effect.gen(function* () {
+    const release = yield* Effect.promise(async () => {
+      const previous = shellTail
+      let release!: () => void
+      shellTail = new Promise<void>((resolve) => (release = resolve))
+      await previous
+      return release
+    })
+    yield* Effect.addFinalizer(() => Effect.sync(release))
   })
 
 const inside = <A, E, R>(directory: string, trust: boolean, body: () => Effect.Effect<A, E, R>) =>
@@ -150,16 +180,24 @@ const marker = (name: string) => Effect.promise(() => markerExists(markerDir, na
 const markerSoon = (name: string) =>
   Effect.promise(async () => ((await markerExists(markerDir, name)) ? true : undefined))
 
+// Commands that must terminate (mcp, formatter) write a marker and exit. Language
+// servers below stay alive for the test scope: a server that exits while the client
+// still owns its stdin makes the JSON-RPC writer reject on the destroyed stream,
+// which surfaces as an unhandled error under a concurrent test.
 const node = (code: string) => [
   "node",
   "-e",
-  `require("fs").writeFileSync(process.env.K2_MARKER_DIR + "/${code}", "ran")`,
+  `require("fs").writeFileSync(${JSON.stringify(path.join(markerDir, code))}, "ran")`,
 ]
+
+// The server answers initialize and writes the marker from that frame, so the client
+// handshake finishes before the test interrupts it.
+const lspNode = (code: string) => ["node", "-e", recorderAt(path.join(markerDir, code))]
 
 const pluginFile = (markerName: string) =>
   [
     'import { writeFileSync } from "fs"',
-    `writeFileSync(process.env.K2_MARKER_DIR + "/${markerName}", "imported")`,
+    `writeFileSync(${JSON.stringify(path.join(markerDir, markerName))}, "imported")`,
     "export const Marker = async () => ({})",
     "",
   ].join("\n")
@@ -167,7 +205,7 @@ const pluginFile = (markerName: string) =>
 const toolFile = (id: string, markerName: string) =>
   [
     'import { writeFileSync } from "fs"',
-    `writeFileSync(process.env.K2_MARKER_DIR + "/${markerName}", "imported")`,
+    `writeFileSync(${JSON.stringify(path.join(markerDir, markerName))}, "imported")`,
     `export default { description: "${id} tool", args: {}, execute: async () => "ok" }`,
     "",
   ].join("\n")
@@ -175,7 +213,7 @@ const toolFile = (id: string, markerName: string) =>
 const providerModule = (markerName: string) =>
   [
     'import { writeFileSync } from "fs"',
-    `writeFileSync(process.env.K2_MARKER_DIR + "/${markerName}", "ran")`,
+    `writeFileSync(${JSON.stringify(path.join(markerDir, markerName))}, "ran")`,
     "export function createK5() {",
     '  return { languageModel: (id: string) => ({ specificationVersion: "v1", provider: "k5prov", modelId: id }) }',
     "}",
@@ -183,9 +221,10 @@ const providerModule = (markerName: string) =>
   ].join("\n")
 
 const shellScript = (target: string) =>
-  Bun.write(target, `#!/bin/sh\necho ran > "$K2_MARKER_DIR/shell.txt"\nexec /bin/sh "$@"\n`).then(() =>
-    fs.chmod(target, 0o755),
-  )
+  Bun.write(
+    target,
+    `#!/bin/sh\nprintf ran > ${JSON.stringify(path.join(markerDir, "shell.txt"))}\nexec /bin/sh "$@"\n`,
+  ).then(() => fs.chmod(target, 0o755))
 
 // ---------------------------------------------------------------- plugins
 describe("plugins loader", () => {
@@ -232,6 +271,7 @@ describe("plugins loader", () => {
       const dir = codeDir(where.code, "plugin")
       yield* Effect.promise(() => fs.mkdir(dir, { recursive: true }))
       yield* Effect.promise(() => Bun.write(path.join(dir, "k5.ts"), pluginFile("plugin-user.txt")))
+      yield* cleanAfter(path.join(dir, "k5.ts"))
 
       yield* inside(where.instance, where.trusted, () =>
         Effect.gen(function* () {
@@ -289,6 +329,7 @@ describe("hooks loader", () => {
       const dir = codeDir(where.code, "hook")
       yield* Effect.promise(() => fs.mkdir(dir, { recursive: true }))
       yield* Effect.promise(() => Bun.write(path.join(dir, "k5.ts"), pluginFile("hook-user.txt")))
+      yield* cleanAfter(path.join(dir, "k5.ts"))
 
       yield* inside(where.instance, where.trusted, () =>
         Effect.gen(function* () {
@@ -346,6 +387,7 @@ describe("tools loader", () => {
       const dir = codeDir(where.code, "tool")
       yield* Effect.promise(() => fs.mkdir(dir, { recursive: true }))
       yield* Effect.promise(() => Bun.write(path.join(dir, "k5tool.ts"), toolFile("k5tool", "tool-user.txt")))
+      yield* cleanAfter(path.join(dir, "k5tool.ts"))
 
       yield* inside(where.instance, where.trusted, () =>
         Effect.gen(function* () {
@@ -401,7 +443,7 @@ describe("mcp loader", () => {
     Effect.gen(function* () {
       const dirs = yield* Effect.promise(() => checkout("mcp-user"))
       const where = layout("user", dirs)
-      yield* writeConfig(where.code, { mcp: { k5mcp: { type: "local", command: node("mcp-user.txt") } } })
+      yield* writeConfig(where.code, { mcp: { "k5mcp-user": { type: "local", command: node("mcp-user.txt") } } })
 
       yield* inside(where.instance, where.trusted, () =>
         Effect.gen(function* () {
@@ -445,7 +487,7 @@ describe("lsp loader", () => {
       const dirs = yield* Effect.promise(() => checkout("lsp-trusted"))
       const where = layout("trusted", dirs)
       yield* writeConfig(where.code, {
-        lsp: { k5lsp: { command: node("lsp-trusted.txt"), extensions: [".k5lsp"] } },
+        lsp: { k5lsp: { command: lspNode("lsp-trusted.txt"), extensions: [".k5lsp"] } },
       })
       const file = path.join(where.instance, "note.k5lsp")
       yield* Effect.promise(() => Bun.write(file, "k5"))
@@ -457,7 +499,7 @@ describe("lsp loader", () => {
           yield* pollWithTimeout(markerSoon("lsp-trusted.txt"), "trusted lsp command never spawned").pipe(
             Effect.timeout("10 seconds"),
           )
-          yield* Fiber.interrupt(fiber)
+          yield* Fiber.join(fiber).pipe(Effect.timeout("10 seconds"))
           expect(yield* marker("lsp-trusted.txt")).toBe(true)
         }),
       )
@@ -469,7 +511,7 @@ describe("lsp loader", () => {
       const dirs = yield* Effect.promise(() => checkout("lsp-ancestor"))
       const where = layout("ancestor", dirs)
       yield* writeConfig(where.code, {
-        lsp: { k5lsp: { command: node("lsp-ancestor.txt"), extensions: [".k5lsp"] } },
+        lsp: { k5lsp: { command: lspNode("lsp-ancestor.txt"), extensions: [".k5lsp"] } },
       })
       const file = path.join(where.instance, "note.k5lsp")
       yield* Effect.promise(() => Bun.write(file, "k5"))
@@ -489,9 +531,9 @@ describe("lsp loader", () => {
       const dirs = yield* Effect.promise(() => checkout("lsp-user"))
       const where = layout("user", dirs)
       yield* writeConfig(where.code, {
-        lsp: { k5lsp: { command: node("lsp-user.txt"), extensions: [".k5lsp"] } },
+        lsp: { "k5lsp-user": { command: lspNode("lsp-user.txt"), extensions: [".k5lspuser"] } },
       })
-      const file = path.join(where.instance, "note.k5lsp")
+      const file = path.join(where.instance, "note.k5lspuser")
       yield* Effect.promise(() => Bun.write(file, "k5"))
 
       yield* inside(where.instance, where.trusted, () =>
@@ -501,7 +543,7 @@ describe("lsp loader", () => {
           yield* pollWithTimeout(markerSoon("lsp-user.txt"), "user-owned lsp command never spawned").pipe(
             Effect.timeout("10 seconds"),
           )
-          yield* Fiber.interrupt(fiber)
+          yield* Fiber.join(fiber).pipe(Effect.timeout("10 seconds"))
           expect(yield* marker("lsp-user.txt")).toBe(true)
         }),
       )
@@ -554,9 +596,9 @@ describe("formatter loader", () => {
       const dirs = yield* Effect.promise(() => checkout("fmt-user"))
       const where = layout("user", dirs)
       yield* writeConfig(where.code, {
-        formatter: { k5fmt: { command: [...node("fmt-user.txt"), "$FILE"], extensions: [".k5fmt"] } },
+        formatter: { "k5fmt-user": { command: [...node("fmt-user.txt"), "$FILE"], extensions: [".k5fmtuser"] } },
       })
-      const file = path.join(where.instance, "note.k5fmt")
+      const file = path.join(where.instance, "note.k5fmtuser")
       yield* Effect.promise(() => Bun.write(file, "k5"))
 
       yield* inside(where.instance, where.trusted, () =>
@@ -622,14 +664,18 @@ describe("provider loader", () => {
       const where = layout("user", dirs)
       const module = path.join(where.code, "k5-provider.ts")
       yield* Effect.promise(() => Bun.write(module, providerModule("prov-user.txt")))
+      yield* cleanAfter(module)
       yield* writeConfig(where.code, {
-        provider: { k5prov: { npm: `file://${module}`, models: { k5model: { name: "K5" } } } },
+        provider: { "k5prov-user": { npm: `file://${module}`, models: { "k5model-user": { name: "K5" } } } },
       })
 
       yield* inside(where.instance, where.trusted, () =>
         Effect.gen(function* () {
           const provider = yield* Provider.Service
-          const model = yield* provider.getModel(ProviderV2.ID.make("k5prov"), ModelV2.ID.make("k5model"))
+          const model = yield* provider.getModel(
+            ProviderV2.ID.make("k5prov-user"),
+            ModelV2.ID.make("k5model-user"),
+          )
           yield* provider.getLanguage(model)
           expect(yield* marker("prov-user.txt")).toBe(true)
         }),
@@ -642,6 +688,7 @@ describe("provider loader", () => {
 describe("shell loader", () => {
   it.live("shell: code in a trusted root runs", () =>
     Effect.gen(function* () {
+      yield* acquireShell()
       const dirs = yield* Effect.promise(() => checkout("shell-trusted"))
       const where = layout("trusted", dirs)
       const shell = path.join(where.code, "k5shell")
@@ -662,6 +709,7 @@ describe("shell loader", () => {
 
   it.live("shell: code in an ancestor outside every trusted root does not run", () =>
     Effect.gen(function* () {
+      yield* acquireShell()
       const dirs = yield* Effect.promise(() => checkout("shell-ancestor"))
       const where = layout("ancestor", dirs)
       const shell = path.join(where.code, "k5shell")
@@ -682,10 +730,12 @@ describe("shell loader", () => {
 
   it.live("shell: user-owned code runs untrusted", () =>
     Effect.gen(function* () {
+      yield* acquireShell()
       const dirs = yield* Effect.promise(() => checkout("shell-user"))
       const where = layout("user", dirs)
       const shell = path.join(where.code, "k5shell")
       yield* Effect.promise(() => shellScript(shell))
+      yield* cleanAfter(shell)
       yield* writeConfig(where.code, { shell })
 
       yield* inside(where.instance, where.trusted, () =>
@@ -831,7 +881,7 @@ async function runTui(root: string, pluginName: string, cwd: string, markerName:
     pluginFile,
     [
       'import { writeFileSync } from "fs"',
-      'writeFileSync(process.env.K3_TUI_MARKER as string, "loaded")',
+      `writeFileSync(${JSON.stringify(path.join(markerDir, markerName))}, "loaded")`,
       'export default { id: "demo.k5", tui: async () => {} }',
       "",
     ].join("\n"),
@@ -898,6 +948,8 @@ describe("tui loader", () => {
   it.live("tui: user-owned code runs untrusted", () =>
     Effect.gen(function* () {
       const dirs = yield* Effect.promise(() => checkout("tui-user"))
+      yield* cleanAfter(path.join(Global.Path.config, "tui.json"))
+      yield* cleanAfter(path.join(Global.Path.config, "tui-plugin.ts"))
       const ran = yield* Effect.promise(() =>
         runTui(Global.Path.config, "user", dirs.child, "tui-user.txt"),
       )
@@ -977,6 +1029,7 @@ describe("workflows loader", () => {
       yield* Effect.promise(() =>
         Bun.write(path.join(dir, "k5flow.js"), 'export const meta = { name: "k5flow" }\n'),
       )
+      yield* cleanAfter(path.join(dir, "k5flow.js"))
 
       yield* inside(where.instance, where.trusted, () =>
         Effect.gen(function* () {
@@ -1122,8 +1175,9 @@ describe("v2 external plugin loader", () => {
   const control = async (name: string) => {
     const dir = path.join(Global.Path.config, "plugin")
     await fs.mkdir(dir, { recursive: true })
-    await Bun.write(path.join(dir, `k5-control-${name}.ts`), pluginFile(`v2-control-${name}.txt`))
-    return path.join(markerDir, `v2-control-${name}.txt`)
+    const file = path.join(dir, `k5-control-${name}.ts`)
+    await Bun.write(file, pluginFile(`v2-control-${name}.txt`))
+    return { file, marker: path.join(markerDir, `v2-control-${name}.txt`) }
   }
 
   afterEach(async () => {
@@ -1140,11 +1194,15 @@ describe("v2 external plugin loader", () => {
     trusted.push(dirs.child)
     TrustGate._resetMayRunCache?.()
 
-    const controlMarker = await control("trusted")
-    const response = await v2Request("/api/command", dirs.child)
-    expect(response.status).toBe(200)
-    expect(await waitFor(controlMarker)).toBe(true)
-    expect(await waitFor(path.join(markerDir, "v2-trusted.txt"))).toBe(true)
+    const { file, marker: controlMarker } = await control("trusted")
+    try {
+      const response = await v2Request("/api/command", dirs.child)
+      expect(response.status).toBe(200)
+      expect(await waitFor(controlMarker)).toBe(true)
+      expect(await waitFor(path.join(markerDir, "v2-trusted.txt"))).toBe(true)
+    } finally {
+      await clean(file)
+    }
   }, 30_000)
 
   test("v2: code in an ancestor outside every trusted root does not run", async () => {
@@ -1156,22 +1214,31 @@ describe("v2 external plugin loader", () => {
     trusted.push(dirs.child)
     TrustGate._resetMayRunCache?.()
 
-    const controlMarker = await control("ancestor")
-    const response = await v2Request("/api/command", dirs.child)
-    expect(response.status).toBe(200)
-    expect(await waitFor(controlMarker)).toBe(true)
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-    expect(await exists(path.join(markerDir, "v2-ancestor.txt"))).toBe(false)
+    const { file, marker: controlMarker } = await control("ancestor")
+    try {
+      const response = await v2Request("/api/command", dirs.child)
+      expect(response.status).toBe(200)
+      expect(await waitFor(controlMarker)).toBe(true)
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      expect(await exists(path.join(markerDir, "v2-ancestor.txt"))).toBe(false)
+    } finally {
+      await clean(file)
+    }
   }, 30_000)
 
   test("v2: user-owned code runs untrusted", async () => {
     const dirs = await checkout("v2-user")
-    await fs.mkdir(path.join(Global.Path.config, "plugin"), { recursive: true })
-    await Bun.write(path.join(Global.Path.config, "plugin", "k5-user.ts"), pluginFile("v2-user.txt"))
+    const file = path.join(Global.Path.config, "plugin", "k5-user.ts")
+    await fs.mkdir(path.dirname(file), { recursive: true })
+    await Bun.write(file, pluginFile("v2-user.txt"))
     TrustGate._resetMayRunCache?.()
 
-    const response = await v2Request("/api/command", dirs.child)
-    expect(response.status).toBe(200)
-    expect(await waitFor(path.join(markerDir, "v2-user.txt"))).toBe(true)
+    try {
+      const response = await v2Request("/api/command", dirs.child)
+      expect(response.status).toBe(200)
+      expect(await waitFor(path.join(markerDir, "v2-user.txt"))).toBe(true)
+    } finally {
+      await clean(file)
+    }
   }, 30_000)
 })

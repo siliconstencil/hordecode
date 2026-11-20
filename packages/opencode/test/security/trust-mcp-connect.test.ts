@@ -9,6 +9,7 @@ import { provideInstance, testTmpRoot } from "../fixture/fixture"
 import { pollWithTimeout, testEffect } from "../lib/effect"
 import type { Install } from "./harness"
 import { lazyLayer, markerExists } from "./harness"
+import { holdGlobalConfig } from "./global-config"
 
 // K5: the state builder refuses a project MCP entry whose code source is denied, but
 // the connect entrance resolves its config again. These tests drive MCP.Service.connect
@@ -40,9 +41,6 @@ afterEach(async () => {
   stderr?.mockRestore()
   delete process.env.K2_MARKER_DIR
   for (const base of bases.splice(0)) await clean(base)
-  await Promise.all(
-    ["hordecode.json"].map((name) => clean(path.join(Global.Path.config, name))),
-  )
   TrustGate._resetMayRunCache?.()
 })
 
@@ -70,10 +68,21 @@ function layout(place: Place, dirs: { repo: string; child: string; base: string 
   return { code: dirs.repo, instance: dirs.repo, trusted: true }
 }
 
+// The user-owned case writes the shared global config, so it holds only its own
+// entry and releases it at the end of the test.
 const writeConfig = (root: string, config: unknown) =>
-  Effect.promise(async () => {
-    await fs.mkdir(root, { recursive: true })
-    await Bun.write(path.join(root, "hordecode.json"), JSON.stringify(config))
+  Effect.gen(function* () {
+    if (root === Global.Path.config) {
+      yield* Effect.acquireRelease(
+        Effect.promise(() => holdGlobalConfig(config as Record<string, unknown>)),
+        (release) => Effect.promise(release),
+      )
+      return
+    }
+    yield* Effect.promise(async () => {
+      await fs.mkdir(root, { recursive: true })
+      await Bun.write(path.join(root, "hordecode.json"), JSON.stringify(config))
+    })
   })
 
 const inside = <A, E, R>(directory: string, trust: boolean, body: () => Effect.Effect<A, E, R>) =>
@@ -86,7 +95,7 @@ const markerSoon = (name: string) =>
 const node = (code: string) => [
   "node",
   "-e",
-  `require("fs").writeFileSync(process.env.K2_MARKER_DIR + "/${code}", "ran")`,
+  `require("fs").writeFileSync(${JSON.stringify(path.join(markerDir, code))}, "ran")`,
 ]
 
 describe("mcp connect entrance", () => {
@@ -95,17 +104,18 @@ describe("mcp connect entrance", () => {
       const dirs = yield* Effect.promise(() => checkout("mcp-connect-denied"))
       const where = layout("ancestor", dirs)
       yield* writeConfig(where.code, {
-        mcp: { k5mcp: { type: "local", command: node("mcp-connect-denied.txt") } },
+        mcp: { "k6connect-denied": { type: "local", command: node("mcp-connect-denied.txt") } },
       })
 
       yield* inside(where.instance, where.trusted, () =>
         Effect.gen(function* () {
           const mcp = yield* MCP.Service
           // The state builder already refused the entry.
-          expect((yield* mcp.status()).k5mcp?.status).toBe("disabled")
+          const status = yield* mcp.status()
+      expect(status["k6connect-denied"]?.status).toBe("disabled")
 
           // The connect entrance must refuse with the same typed answer.
-          const exit = yield* mcp.connect("k5mcp").pipe(Effect.exit)
+          const exit = yield* mcp.connect("k6connect-denied").pipe(Effect.exit)
           expect(Exit.isFailure(exit)).toBe(true)
           if (Exit.isFailure(exit)) expect(Cause.squash(exit.cause)).toBeInstanceOf(MCP.NotFoundError)
           expect(yield* marker("mcp-connect-denied.txt")).toBe(false)
@@ -119,13 +129,13 @@ describe("mcp connect entrance", () => {
       const dirs = yield* Effect.promise(() => checkout("mcp-connect-trusted"))
       const where = layout("trusted", dirs)
       yield* writeConfig(where.code, {
-        mcp: { k5mcp: { type: "local", command: node("mcp-connect-trusted.txt") } },
+        mcp: { "k6connect-trusted": { type: "local", command: node("mcp-connect-trusted.txt") } },
       })
 
       yield* inside(where.instance, where.trusted, () =>
         Effect.gen(function* () {
           const mcp = yield* MCP.Service
-          yield* mcp.connect("k5mcp")
+          yield* mcp.connect("k6connect-trusted")
           yield* pollWithTimeout(markerSoon("mcp-connect-trusted.txt"), "trusted mcp connect never ran").pipe(
             Effect.timeout("10 seconds"),
           )
@@ -140,13 +150,13 @@ describe("mcp connect entrance", () => {
       const dirs = yield* Effect.promise(() => checkout("mcp-connect-user"))
       const where = layout("user", dirs)
       yield* writeConfig(where.code, {
-        mcp: { k5mcp: { type: "local", command: node("mcp-connect-user.txt") } },
+        mcp: { "k6connect-user": { type: "local", command: node("mcp-connect-user.txt") } },
       })
 
       yield* inside(where.instance, where.trusted, () =>
         Effect.gen(function* () {
           const mcp = yield* MCP.Service
-          yield* mcp.connect("k5mcp")
+          yield* mcp.connect("k6connect-user")
           yield* pollWithTimeout(markerSoon("mcp-connect-user.txt"), "user-owned mcp connect never ran").pipe(
             Effect.timeout("10 seconds"),
           )

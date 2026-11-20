@@ -131,7 +131,11 @@ export const Typescript: Info = {
     // K6: a project tsserver.js is project code. Ask about the opened directory
     // (ctx.worktree is "/" for a non-git project); a denied path is omitted so the
     // server can fall back to its bundled TypeScript.
-    const tsserver = TrustGate.mayRunBinary(resolved, ctx.directory) ? resolved : undefined
+    // K6c: Module.resolve walks ancestor node_modules, so a result outside the opened
+    // directory is still project code. Decide it by origin, not by position.
+    const allowed = TrustGate.mayRunFrom(resolved)
+    if (!allowed) TrustGate.warnDenied(resolved)
+    const tsserver = allowed ? resolved : undefined
     const proc = spawn(bin, ["--stdio"], {
       cwd: root,
       env: {
@@ -189,6 +193,12 @@ export const ESLint: Info = {
   async spawn(root, ctx, flags) {
     const eslint = Module.resolve("eslint", ctx.directory)
     if (!eslint) return
+    // K6c: an eslint found by walking ancestor node_modules is project code. A denied
+    // path takes the existing unavailable branch, so the server does not start.
+    if (!TrustGate.mayRunFrom(eslint)) {
+      TrustGate.warnDenied(eslint)
+      return
+    }
     const serverPath = path.join(Global.Path.bin, "vscode-eslint", "server", "out", "eslintServer.js")
     if (!(await Filesystem.exists(serverPath))) {
       if (flags.disableLspDownload) return
@@ -1131,7 +1141,10 @@ export const Astro: Info = {
     }
     // K6: a project tsserver is project code; a denied tsdk is omitted and the
     // server uses its bundled TypeScript. ctx.directory, not the "/" sentinel.
-    const tsdk = TrustGate.mayRunBinary(resolved, ctx.directory) ? path.dirname(resolved) : undefined
+    // K6c: Module.resolve walks ancestor node_modules, so decide the result by origin.
+    const allowed = TrustGate.mayRunFrom(resolved)
+    if (!allowed) TrustGate.warnDenied(resolved)
+    const tsdk = allowed ? path.dirname(resolved) : undefined
 
     let binary = which("astro-ls")
     const args: string[] = []

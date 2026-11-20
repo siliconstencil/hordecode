@@ -45,20 +45,13 @@ async function waitFor(file: string, timeout = 20_000) {
   return exists(file)
 }
 
-const controlPlugin = path.join(Global.Path.config, "plugin", "k4-control.ts")
-
 let markerDir = ""
 
 beforeEach(async () => {
   markerDir = await fs.mkdtemp(path.join(process.env.HORDECODE_TEST_TMP ?? os.tmpdir(), "k4-v2-config-"))
-  // Positive control: the global config directory is user-owned, so its plugin
-  // loads whatever the project's trust level is. It runs from the same loader pass.
-  await fs.mkdir(path.dirname(controlPlugin), { recursive: true })
-  await Bun.write(controlPlugin, pluginFile(markerFile(markerDir, "control.txt")))
 })
 
 afterEach(async () => {
-  await fs.rm(controlPlugin, { force: true }).catch(() => undefined)
   await fs.rm(markerDir, { recursive: true, force: true }).catch(() => undefined)
   await disposeAllInstances()
   await resetDatabase()
@@ -74,14 +67,24 @@ describe("project plugin trust at the mounted v2 config loader", () => {
       JSON.stringify({ plugin: [`file://${plugin}`] }),
     )
 
-    const response = await request("/api/command", tmp.path)
-    expect(response.status).toBe(200)
+    // Positive control: the global config directory is user-owned, so its plugin
+    // loads whatever the project's trust level is. It runs from the same loader pass.
+    // The name is per test so a concurrent case cannot remove this file mid-load.
+    const control = path.join(Global.Path.config, "plugin", "k4-control-" + path.basename(markerDir) + ".ts")
+    await fs.mkdir(path.dirname(control), { recursive: true })
+    await Bun.write(control, pluginFile(markerFile(markerDir, "control.txt")))
+    try {
+      const response = await request("/api/command", tmp.path)
+      expect(response.status).toBe(200)
 
-    expect(await waitFor(markerFile(markerDir, "control.txt"))).toBe(true)
-    // The loop imports the project entry next in the same pass (project document
-    // directly after the global directory); give the denied branch a moment.
-    await sleep(1000)
-    expect(await exists(markerFile(markerDir, "project.txt"))).toBe(false)
+      expect(await waitFor(markerFile(markerDir, "control.txt"))).toBe(true)
+      // The loop imports the project entry next in the same pass (project document
+      // directly after the global directory); give the denied branch a moment.
+      await sleep(1000)
+      expect(await exists(markerFile(markerDir, "project.txt"))).toBe(false)
+    } finally {
+      await fs.rm(control, { force: true }).catch(() => undefined)
+    }
   }, 30_000)
 
   test("a trusted project plugin from the mounted v2 config loader is imported", async () => {

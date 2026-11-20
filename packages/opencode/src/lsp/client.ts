@@ -1,6 +1,7 @@
 import path from "path"
 import { pathToFileURL, fileURLToPath } from "url"
 import { createMessageConnection, StreamMessageReader, StreamMessageWriter } from "vscode-jsonrpc/node"
+import type { Message, MessageWriter } from "vscode-jsonrpc/node"
 import type { Diagnostic as VSCodeDiagnostic } from "vscode-languageserver-types"
 import { Process } from "@/util/process"
 import { LANGUAGE_EXTENSIONS } from "./language"
@@ -9,6 +10,9 @@ import type * as LSPServer from "./server"
 import { withTimeout } from "../util/timeout"
 import { Filesystem } from "@/util/filesystem"
 import type { InstanceContext } from "@/project/instance-context"
+import { Log } from "@opencode-ai/core/util"
+
+const log = Log.create({ service: "lsp.client" })
 
 const DIAGNOSTICS_DEBOUNCE_MS = 150
 const DIAGNOSTICS_DOCUMENT_WAIT_TIMEOUT_MS = 5_000
@@ -120,6 +124,49 @@ function shouldSeedDiagnosticsOnFirstPush(serverID: string) {
   return serverID === "typescript"
 }
 
+// K6c: jsonrpc's StreamMessageWriter rejects writes that were still queued when
+// shutdown ends the connection and Process.stop destroys the child's stdin.
+// jsonrpc fires those rejections without a handler, so they surface as
+// process-level unhandled rejections attributed to whatever test is running.
+// This wrapper swallows only the shutdown failure; every other write error
+// still rejects to the caller.
+export function guardedMessageWriter(inner: MessageWriter): MessageWriter {
+  let ended = false
+  let disposed = false
+  return {
+    get onError() {
+      return inner.onError
+    },
+    get onClose() {
+      return inner.onClose
+    },
+    async write(msg: Message) {
+      try {
+        return await inner.write(msg)
+      } catch (error) {
+        const code = (error as { code?: unknown } | null)?.code
+        if (!ended && !disposed && code !== "ERR_STREAM_DESTROYED") throw error
+        log.debug("ignored write after shutdown", {
+          code,
+          message: error instanceof Error ? error.message : String(error),
+        })
+      }
+    },
+    end() {
+      ended = true
+      inner.end()
+    },
+    dispose() {
+      disposed = true
+      inner.dispose()
+    },
+  }
+}
+
+export function createStreamWriter(writable: NodeJS.WritableStream): MessageWriter {
+  return guardedMessageWriter(new StreamMessageWriter(writable))
+}
+
 export async function create(input: {
   serverID: string
   server: LSPServer.Handle
@@ -131,7 +178,7 @@ export async function create(input: {
 
   const connection = createMessageConnection(
     new StreamMessageReader(input.server.process.stdout as any),
-    new StreamMessageWriter(input.server.process.stdin as any),
+    createStreamWriter(input.server.process.stdin as any),
   )
   input.server.process.stderr?.resume()
   // --- Connection state ---

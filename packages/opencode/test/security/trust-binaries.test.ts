@@ -1,8 +1,7 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
 import { Effect, Fiber } from "effect"
-import { Global } from "@opencode-ai/core/global"
 import { revokeTrust } from "@opencode-ai/project/workspace-trust"
 import { LSP } from "../../src/lsp/lsp"
 import { Format } from "../../src/format"
@@ -11,6 +10,8 @@ import { provideInstance, testTmpRoot } from "../fixture/fixture"
 import { pollWithTimeout, testEffect } from "../lib/effect"
 import type { Install } from "./harness"
 import { lazyLayer, markerExists } from "./harness"
+import { installResponder, readRecorded, recorderShim } from "./lsp-recorder"
+import { holdGlobalConfig } from "./global-config"
 
 // K6: built-in language servers and formatters resolve a project-local binary from
 // node_modules/.bin, vendor/bin or .venv. That binary is project code; each case drives
@@ -25,8 +26,21 @@ const trusted: string[] = []
 let stderr: ReturnType<typeof spyOn>
 let markerDir = ""
 let savedPath: string | undefined
+let releaseGlobalConfig: (() => Promise<void>) | undefined
 
 const clean = (target: string) => fs.rm(target, { recursive: true, force: true }).catch(() => undefined)
+
+// A user-owned config enables the built-in servers/formatters for both cases; the
+// project's own config is skipped when it is untrusted. Empty records keep every
+// built-in enabled and merge with a custom entry another file holds at the same key.
+beforeAll(async () => {
+  releaseGlobalConfig = await holdGlobalConfig({ lsp: {}, formatter: {} })
+})
+
+afterAll(async () => {
+  await releaseGlobalConfig?.()
+  releaseGlobalConfig = undefined
+})
 
 beforeEach(async () => {
   installs.length = 0
@@ -35,10 +49,6 @@ beforeEach(async () => {
   process.env.K2_MARKER_DIR = markerDir
   savedPath = process.env.PATH
   stderr = spyOn(process.stderr, "write").mockImplementation(() => true)
-  // A user-owned config enables the built-in servers/formatters for both cases; the
-  // project's own config is skipped when it is untrusted.
-  await fs.mkdir(Global.Path.config, { recursive: true })
-  await Bun.write(path.join(Global.Path.config, "hordecode.json"), JSON.stringify({ lsp: true, formatter: true }))
 })
 
 afterEach(async () => {
@@ -46,7 +56,6 @@ afterEach(async () => {
   else process.env.PATH = savedPath
   delete process.env.K2_MARKER_DIR
   stderr?.mockRestore()
-  await fs.rm(path.join(Global.Path.config, "hordecode.json"), { force: true }).catch(() => undefined)
   for (const dir of trusted.splice(0)) await revokeTrust(dir).catch(() => undefined)
   for (const base of bases.splice(0)) await clean(base)
   TrustGate._resetMayRunCache?.()
@@ -71,48 +80,17 @@ const marker = (name: string) => Effect.promise(() => markerExists(markerDir, na
 const markerSoon = (name: string) =>
   Effect.promise(async () => ((await markerExists(markerDir, name)) ? true : undefined))
 
-const shim = async (target: string, name: string, linger = false) => {
+const shim = async (target: string, name: string) => {
   await fs.mkdir(path.dirname(target), { recursive: true })
-  const body = linger
-    ? `#!/bin/sh\nprintf ran > "$K2_MARKER_DIR/${name}"\nsleep 2\nexit 0\n`
-    : `#!/bin/sh\nprintf ran > "$K2_MARKER_DIR/${name}"\nexit 0\n`
+  const body = `#!/bin/sh\nprintf ran > ${JSON.stringify(path.join(markerDir, name))}\nexit 0\n`
   await Bun.write(target, body)
   await fs.chmod(target, 0o755)
 }
 
-// K6: a language-server shim that records the initialize params it receives. The LSP
-// client frames JSON on stdin, so the script parses one frame and writes the body to
-// the marker dir. Installed in the managed package cache, the same place Npm.which
-// resolves a real typescript-language-server from.
-const recorderShim = async (pkg: string, bin: string) => {
-  const target = path.join(Global.Path.cache, "packages", pkg, "node_modules", ".bin", bin)
-  await fs.mkdir(path.dirname(target), { recursive: true })
-  const script = [
-    "#!/usr/bin/env bun",
-    'import fs from "node:fs"',
-    'const out = process.env.K2_MARKER_DIR + "/k6-lsp-init.json"',
-    "let buf = Buffer.alloc(0)",
-    "const parse = () => {",
-    "  while (true) {",
-    '    const head = buf.indexOf("\\r\\n\\r\\n")',
-    "    if (head < 0) return",
-    '    const match = /content-length:\\s*(\\d+)/i.exec(buf.subarray(0, head).toString())',
-    "    if (!match) return",
-    "    const length = Number(match[1])",
-    "    if (buf.length < head + 4 + length) return",
-    "    const body = buf.subarray(head + 4, head + 4 + length).toString()",
-    "    buf = buf.subarray(head + 4 + length)",
-    `    if (body.includes("initialize")) fs.writeFileSync(out, body)`,
-    "  }",
-    "}",
-    'process.stdin.on("data", (chunk) => { buf = Buffer.concat([buf, chunk]); parse() })',
-    "setTimeout(() => process.exit(0), 5000)",
-    "",
-  ].join("\n")
-  await Bun.write(target, script)
-  await fs.chmod(target, 0o755)
-  return target
-}
+// K6c: a language-server shim answers initialize, so the client handshake completes
+// before the test interrupts it. The recording shim that captures the initialize
+// frame lives in lsp-recorder.ts so the ancestor-resolution suite drives the same
+// server.
 
 async function typescriptProject(name: string) {
   const dir = await checkout(name)
@@ -127,19 +105,13 @@ async function typescriptProject(name: string) {
   return { dir, tsserver }
 }
 
-const recordedInit = Effect.promise(async () => {
-  try {
-    return JSON.parse(await fs.readFile(path.join(markerDir, "k6-lsp-init.json"), "utf8")) as Record<string, any>
-  } catch {
-    return undefined
-  }
-})
+const recordedInit = Effect.promise(() => readRecorded(markerDir, "k6-lsp-init.json"))
 
 async function biomeProject(name: string, markerName: string) {
   const dir = await checkout(name)
   await Bun.write(path.join(dir, "biome.json"), "{}")
   await Bun.write(path.join(dir, "note.json"), "{}")
-  await shim(path.join(dir, "node_modules", ".bin", "biome"), markerName, true)
+  await installResponder(path.join(dir, "node_modules", ".bin", "biome"), path.join(markerDir, markerName))
   return dir
 }
 
@@ -165,7 +137,7 @@ describe("project-local language server binaries", () => {
             Effect.timeout("1 seconds"),
             Effect.orElseSucceed(() => false),
           )
-          yield* Fiber.interrupt(fiber)
+          yield* Fiber.join(fiber).pipe(Effect.timeout("1 seconds"))
           expect(yield* marker("lsp-local.txt")).toBe(false)
         }),
       )
@@ -183,7 +155,7 @@ describe("project-local language server binaries", () => {
           yield* pollWithTimeout(markerSoon("lsp-trusted.txt"), "trusted local language server never spawned").pipe(
             Effect.timeout("10 seconds"),
           )
-          yield* Fiber.interrupt(fiber)
+          yield* Fiber.join(fiber).pipe(Effect.timeout("10 seconds"))
           expect(yield* marker("lsp-trusted.txt")).toBe(true)
         }),
       )
@@ -204,7 +176,7 @@ describe("project TypeScript server path", () => {
           const init = yield* pollWithTimeout(recordedInit, "language server never sent initialize").pipe(
             Effect.timeout("10 seconds"),
           )
-          yield* Fiber.interrupt(fiber)
+          yield* Fiber.join(fiber).pipe(Effect.timeout("10 seconds"))
           expect(JSON.stringify(init)).not.toContain(project.tsserver)
           expect(init.params?.initializationOptions?.tsserver).toBeUndefined()
         }),
@@ -224,7 +196,7 @@ describe("project TypeScript server path", () => {
           const init = yield* pollWithTimeout(recordedInit, "language server never sent initialize").pipe(
             Effect.timeout("10 seconds"),
           )
-          yield* Fiber.interrupt(fiber)
+          yield* Fiber.join(fiber).pipe(Effect.timeout("10 seconds"))
           expect(init.params?.initializationOptions?.tsserver?.path).toBe(project.tsserver)
         }),
       )
@@ -270,7 +242,7 @@ describe("managed fallback", () => {
       const dir = yield* Effect.promise(() => biomeProject("lsp-fallback", "local.txt"))
       const globalBin = yield* Effect.promise(() => fs.mkdtemp(path.join(testTmpRoot(), "k6-global-")))
       bases.push(globalBin)
-      yield* Effect.promise(() => shim(path.join(globalBin, "biome"), "global.txt", true))
+      yield* Effect.promise(() => installResponder(path.join(globalBin, "biome"), path.join(markerDir, "global.txt")))
       process.env.PATH = [globalBin, savedPath ?? ""].filter(Boolean).join(path.delimiter)
 
       yield* inside(dir, false, () =>
@@ -281,7 +253,7 @@ describe("managed fallback", () => {
             Effect.timeout("2 seconds"),
             Effect.orElseSucceed(() => false),
           )
-          yield* Fiber.interrupt(fiber)
+          yield* Fiber.join(fiber).pipe(Effect.timeout("2 seconds"))
           expect(fallback).toBe(true)
           expect(yield* marker("local.txt")).toBe(false)
         }),
