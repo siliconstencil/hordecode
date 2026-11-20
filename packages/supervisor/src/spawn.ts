@@ -216,6 +216,19 @@ function classifyAssistantError(err: SessionRetry.Err): FailureInfo {
   return { kind, retryable, name: err.name }
 }
 
+// F6: the tool result must say why the provider refused, not just the error name. Only the
+// provider message is carried (one line, at most 300 chars); headers and request bodies never are.
+const MAX_FAILURE_MESSAGE = 300
+
+export function supervisorFailureText(err: { name: string; data?: unknown }): string {
+  const raw = (err.data as { message?: unknown } | undefined)?.message
+  const oneLine = typeof raw === "string" ? raw.replace(/\s+/g, " ").trim() : ""
+  if (oneLine.length === 0) return `Supervisor assistant failed: ${err.name}`
+  const capped =
+    oneLine.length > MAX_FAILURE_MESSAGE ? `${oneLine.slice(0, MAX_FAILURE_MESSAGE - 3)}...` : oneLine
+  return `Supervisor assistant failed: ${err.name}: ${capped}`
+}
+
 /**
  * Raised by runAgentLoop when the child's turn settled with an assistant error.
  * Exists solely to carry the classification across the Effect failure channel to
@@ -484,7 +497,8 @@ export const layer = Layer.effect(
       if (info?.role === "assistant" && info.error) {
         return yield* Effect.fail(
           new AssistantSettledError(
-            `Supervisor assistant failed: ${info.error.name}`,
+            // F6: carry the provider message, not only the error name.
+            supervisorFailureText(info.error),
             classifyAssistantError(info.error),
           ),
         )

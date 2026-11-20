@@ -17,6 +17,7 @@ import { prefixCaptureRef } from "@opencode-ai/core/session/prefix-capture-ref"
 import { Bus } from "@opencode-ai/bus"
 import { TuiEvent } from "@opencode-ai/cli/cmd/tui/event"
 import { SessionID, type MessageID } from "../session/schema"
+import { crossProviderRefusal } from "../session/model-value"
 import type { Interface as SupervisorInterface } from "@opencode-ai/supervisor/spawn"
 import type { ForkContext } from "@opencode-ai/supervisor/spawn"
 import { toLegacyProviderID, toLegacyModelID } from "@opencode-ai/core/provider/bridge"
@@ -762,6 +763,12 @@ export const SessionTool = Tool.define<
           // Peers count toward the breadth limit while their first turn runs. Checked before the
           // worktree is created, so a refusal leaves nothing behind.
           const cfg = yield* config.get()
+          // F6: a literal model chosen by the model stays on the session provider unless the user opted out.
+          const sessionProviderID = (ctx.extra as { model?: Provider.Model } | undefined)?.model?.providerID
+          if (createOp.model && sessionProviderID && cfg.supervisor?.allow_cross_provider_models !== true) {
+            const refusal = yield* crossProviderRefusal(provider, createOp.model, sessionProviderID)
+            if (refusal) return yield* Effect.fail(new Tool.InvalidArgumentsError({ tool: id, detail: refusal }))
+          }
           const depthLimit = subagentDepthLimit(cfg.subagent_depth)
           const depth = yield* subagentDepthOf(sessions, supervisorReg, ctx.sessionID as SessionID, depthLimit)
           if (depth >= depthLimit) return yield* Effect.die(new Error(subagentDepthRefusal(depthLimit)))
