@@ -13,6 +13,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- MiniMax streams that close a tool call before its last argument chunk are repaired before the SDK
+  parses them; every other provider's stream is unchanged.
 - Overflow compaction no longer drops the user's attachments when replaying the last user turn.
 - The prompt image cap now counts image attachments sent as file parts, and the live CLI request path applies it
 - Removing a session drops its checkpoint settlement records, runs that cleanup on the removal channel, and

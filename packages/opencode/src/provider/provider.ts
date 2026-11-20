@@ -32,6 +32,8 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { ModelStatus } from "./model-status"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderError } from "./error"
+// F5: import for the MiniMax SSE repair wired in timeoutFetch (opencode v1.19.6 provider.ts:123 returns the fetch result there).
+import { applyMinimaxSSE } from "./minimax-sse"
 
 const OPENAI_HEADER_TIMEOUT_DEFAULT = 300_000
 
@@ -98,7 +100,7 @@ function timeoutController(ms: number) {
 
 // Applies the `headerTimeout`, `chunkTimeout` (SSE idle) and `timeout` provider options at the
 // fetch layer, on top of `options.fetch` when a custom fetch is configured.
-function timeoutFetch(options: Record<string, any>) {
+export function timeoutFetch(options: Record<string, any>) {
   const customFetch = options["fetch"]
   const chunkTimeout = options["chunkTimeout"] ?? 300_000
   const headerTimeout = options["headerTimeout"] ?? 300_000
@@ -120,11 +122,18 @@ function timeoutFetch(options: Record<string, any>) {
     const combined = signals.length === 0 ? null : signals.length === 1 ? signals[0] : AbortSignal.any(signals)
     if (combined) opts.signal = combined
 
-    const res = await fetchFn(input, {
-      ...opts,
-      // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
-      timeout: false,
-    }).finally(() => headerTimeoutCtl?.clear())
+    // F5: departs from opencode v1.19.6 packages/opencode/src/provider/provider.ts:123-127
+    // (`const res = await fetchFn(...)` returned directly): MiniMax tags the last chunk of a
+    // tool call with the next block's index, so the SSE bytes are repaired before
+    // @ai-sdk/anthropic closes the tool block. Other URLs and content types pass through.
+    const res = applyMinimaxSSE(
+      input,
+      await fetchFn(input, {
+        ...opts,
+        // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
+        timeout: false,
+      }).finally(() => headerTimeoutCtl?.clear()),
+    )
 
     if (!chunkAbortCtl) return res
     return wrapSSE(res, chunkTimeout, chunkAbortCtl)
