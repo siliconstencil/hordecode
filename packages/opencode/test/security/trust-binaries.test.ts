@@ -238,19 +238,39 @@ describe("project-local formatter binaries", () => {
 })
 
 describe("managed fallback", () => {
+  // K6: Oxlint resolves the local node_modules/.bin/oxlint first, then falls back to the
+  // global oxc_language_server. A local binary whose real path is outside the trusted
+  // root is denied and the global server runs; K7 keeps that path live.
   it.live("a denied local binary falls back to the global one when present", () =>
     Effect.gen(function* () {
-      const dir = yield* Effect.promise(() => biomeProject("lsp-fallback", "local.txt"))
+      const dir = yield* Effect.promise(() => checkout("oxlint-fallback"))
+      trusted.push(dir)
+      yield* Effect.promise(async () => {
+        await Bun.write(path.join(dir, ".oxlintrc.json"), "{}\n")
+        await Bun.write(path.join(dir, "note.js"), "export const value = 1\n")
+        // The symlink target lives outside the trusted root, so mayRunBinary denies the
+        // local candidate even though its directory is inside a trusted project.
+        const denied = await installResponder(path.join(markerDir, "local-oxlint"), path.join(markerDir, "local.txt"))
+        await fs.mkdir(path.join(dir, "node_modules", ".bin"), { recursive: true })
+        await fs.symlink(denied, path.join(dir, "node_modules", ".bin", "oxlint"))
+      })
       const globalBin = yield* Effect.promise(() => fs.mkdtemp(path.join(testTmpRoot(), "k6-global-")))
       bases.push(globalBin)
-      yield* Effect.promise(() => installResponder(path.join(globalBin, "biome"), path.join(markerDir, "global.txt")))
+      yield* Effect.promise(async () => {
+        // A probe that exits without output skips the `oxlint --lsp` path; the server
+        // then resolves oxc_language_server globally and records its start.
+        const probe = path.join(globalBin, "oxlint")
+        await Bun.write(probe, "#!/bin/sh\nexit 0\n")
+        await fs.chmod(probe, 0o755)
+        await installResponder(path.join(globalBin, "oxc_language_server"), path.join(markerDir, "global.txt"))
+      })
       process.env.PATH = [globalBin, savedPath ?? ""].filter(Boolean).join(path.delimiter)
 
-      yield* inside(dir, false, () =>
+      yield* inside(dir, true, () =>
         Effect.gen(function* () {
           const lsp = yield* LSP.Service
-          const fiber = yield* lsp.touchFile(path.join(dir, "note.json")).pipe(Effect.forkChild)
-          const fallback = yield* pollWithTimeout(markerSoon("global.txt"), "global biome fallback never spawned").pipe(
+          const fiber = yield* lsp.touchFile(path.join(dir, "note.js")).pipe(Effect.forkChild)
+          const fallback = yield* pollWithTimeout(markerSoon("global.txt"), "global oxlint fallback never spawned").pipe(
             Effect.timeout("2 seconds"),
             Effect.orElseSucceed(() => false),
           )

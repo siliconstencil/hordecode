@@ -76,7 +76,14 @@ const lazyAuth = Layer.mock(Auth.Service)({
   get: () => Effect.succeed(undefined),
 })
 
-export function lazyLayer(installs: Install[]) {
+export function lazyLayer(installs: Install[], flags?: Partial<RuntimeFlags.Info>) {
+  const replacements = [
+    [InstanceStore.bootstrapNode, InstanceBootstrap.node],
+    [Npm.node, npmLayer(installs)],
+    [Auth.node, lazyAuth],
+    [Account.node, AccountTest.empty],
+    [httpClient, Layer.succeed(HttpClient.HttpClient, unexpectedHttp)],
+  ] as LayerNode.Replacements
   return AppNodeBuilder.build(
     LayerNode.group([
       InstanceStore.node,
@@ -94,13 +101,9 @@ export function lazyLayer(installs: Install[]) {
       Agent.node,
       Git.node,
     ]),
-    [
-      [InstanceStore.bootstrapNode, InstanceBootstrap.node],
-      [Npm.node, npmLayer(installs)],
-      [Auth.node, lazyAuth],
-      [Account.node, AccountTest.empty],
-      [httpClient, Layer.succeed(HttpClient.HttpClient, unexpectedHttp)],
-    ],
+    flags
+      ? [...replacements, [RuntimeFlags.node, RuntimeFlags.layer(flags)] as LayerNode.Replacement]
+      : replacements,
   )
 }
 
