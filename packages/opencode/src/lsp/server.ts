@@ -15,6 +15,10 @@ import { spawn } from "./launch"
 import { Npm } from "@opencode-ai/core/npm"
 import type { RuntimeFlags } from "@/effect/runtime-flags"
 import { withoutCredentials } from "@opencode-ai/core/util/credential-env"
+import { Log } from "@opencode-ai/core/util"
+
+// K7: module logger for the managed TypeScript install line (K6d open decision 3).
+const log = Log.create({ service: "lsp.server" })
 
 const pathExists = async (p: string) =>
   fs
@@ -28,7 +32,16 @@ const output = (cmd: string[], opts: Process.RunOptions = {}) => Process.text(cm
 // getWorkspaceVersion([root]), which loads <root>/node_modules/typescript/lib/tsserver.js,
 // so omitting the option still runs project code. Resolve TypeScript from the same
 // managed cache as the server package; undefined means the server cannot start safely.
-async function managedTypeScriptLib() {
+// K7: the managed install follows the managed language-server download contract: no
+// install when flags.disableLspDownload is set (the server then does not start), and
+// the install is logged (K6d open decision 3).
+async function managedTypeScriptLib(flags: RuntimeFlags.Info) {
+  if (flags.disableLspDownload) return undefined
+  // K7: log only a real install; Npm.add returns the cached package without one.
+  const cached = path.join(Global.Path.cache, "packages", "typescript", "node_modules", "typescript")
+  if (!(await Filesystem.exists(cached))) {
+    log.info("installing managed typescript for the language server", { package: "typescript" })
+  }
   const entry = await Npm.add("typescript").catch(() => undefined)
   if (!entry) return undefined
   const lib = path.join(entry.directory, "lib")
@@ -114,6 +127,14 @@ export const Deno: Info = {
   },
   extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs"],
   async spawn(root) {
+    // K7: deno lsp loads <root>/deno.json lint.plugins (Deno docs, Lint Plugins:
+    // "Plugins are loaded via the lint.plugins setting in deno.json"); the LSP settings
+    // list (docs.deno.com/runtime/reference/lsp_integration) has no plugin disable, so an
+    // untrusted project gets no server.
+    if (!TrustGate.mayRunFrom(root)) {
+      TrustGate.warnDenied(root)
+      return
+    }
     const deno = which("deno")
     if (!deno) {
       return
@@ -133,13 +154,9 @@ export const Typescript: Info = {
     ["deno.json", "deno.jsonc"],
   ),
   extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"],
-  async spawn(root, ctx) {
+  async spawn(root, ctx, flags) {
     const resolved = Module.resolve("typescript/lib/tsserver.js", ctx.directory)
     if (!resolved) return
-    const bin = await Npm.which("typescript-language-server")
-    if (!bin) return
-    // K6: a managed resolution that lands in the project is project code.
-    if (!TrustGate.mayRunBinary(bin, ctx.worktree)) return
     // K6: a project tsserver.js is project code. Ask about the opened directory
     // (ctx.worktree is "/" for a non-git project).
     // K6c: Module.resolve walks ancestor node_modules, so a result outside the opened
@@ -149,7 +166,17 @@ export const Typescript: Info = {
     // TypeScript instead, or do not start the server.
     const allowed = TrustGate.mayRunFrom(resolved)
     if (!allowed) TrustGate.warnDenied(resolved)
-    const lib = allowed ? path.dirname(resolved) : await managedTypeScriptLib()
+    // K7: Npm.which resolves typescript-language-server from the managed cache and
+    // installs it when that cache is cold (core/npm/index.ts add), so it is a managed
+    // download. With downloads disabled the managed lookup is skipped and the server
+    // does not start; the project tsserver decision above still runs, and an untrusted
+    // project with a denied tsserver keeps its existing outcome.
+    if (flags.disableLspDownload) return
+    const bin = await Npm.which("typescript-language-server")
+    if (!bin) return
+    // K6: a managed resolution that lands in the project is project code.
+    if (!TrustGate.mayRunBinary(bin, ctx.worktree)) return
+    const lib = allowed ? path.dirname(resolved) : await managedTypeScriptLib(flags)
     if (!lib) return
     const proc = spawn(bin, ["--stdio"], {
       cwd: root,
@@ -173,6 +200,13 @@ export const Vue: Info = {
   extensions: [".vue"],
   root: NearestRoot(["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"]),
   async spawn(root, ctx, flags) {
+    // K7: @vue/language-server resolves <root>/tsconfig vueCompilerOptions.plugins and
+    // requires the plugin modules (language-core/lib/compilerOptions.js:121-124,179-190);
+    // no initialize option disables that resolution, so an untrusted project gets no server.
+    if (!TrustGate.mayRunFrom(root)) {
+      TrustGate.warnDenied(root)
+      return
+    }
     let binary = which("vue-language-server")
     const args: string[] = []
     if (!binary) {
@@ -270,6 +304,13 @@ export const Oxlint: Info = {
   ]),
   extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".vue", ".astro", ".svelte"],
   async spawn(root, ctx) {
+    // K7: oxlint's language server loads <root>/.oxlintrc.json jsPlugins and imports the
+    // plugin modules (oxlint configuration_schema.json:59-73; oxc docs "JS Plugins");
+    // the LSP options reference has no plugin disable, so an untrusted project gets no server.
+    if (!TrustGate.mayRunFrom(root)) {
+      TrustGate.warnDenied(root)
+      return
+    }
     const ext = process.platform === "win32" ? ".cmd" : ""
 
     const serverTarget = path.join("node_modules", ".bin", "oxc_language_server" + ext)
@@ -362,7 +403,15 @@ export const Biome: Info = {
     ".gql",
     ".html",
   ],
-  async spawn(root, ctx) {
+  async spawn(root, ctx, flags) {
+    // K7: biome lsp-proxy loads <root>/biome.json plugins; JS plugins are enabled by the
+    // config list alone (biomejs.dev/linter/plugins, "JavaScript plugins"; no opt-in
+    // beyond the config), and lsp-proxy has no documented plugin disable (every
+    // check/lint-only --skip=plugin), so an untrusted project gets no server.
+    if (!TrustGate.mayRunFrom(root)) {
+      TrustGate.warnDenied(root)
+      return
+    }
     // K6: a project-local biome is code; a denied one falls through to the global resolution.
     const localBin = path.join(root, "node_modules", ".bin", "biome")
     let bin: string | undefined
@@ -377,6 +426,10 @@ export const Biome: Info = {
     if (!bin) {
       const resolved = Module.resolve("biome", root)
       if (!resolved) return
+      // K7: Npm.which resolves biome from the managed cache and installs it when that
+      // cache is cold (core/npm/index.ts add), so it is a managed download. With
+      // downloads disabled the managed lookup is skipped and the server does not start.
+      if (flags.disableLspDownload) return
       bin = await Npm.which("biome")
       if (!bin) return
       // K6: a managed resolution that lands in the project is project code.
@@ -1163,7 +1216,7 @@ export const Astro: Info = {
     // TypeScript itself. Pass the managed lib, or do not start the server.
     const allowed = TrustGate.mayRunFrom(resolved)
     if (!allowed) TrustGate.warnDenied(resolved)
-    const tsdk = allowed ? path.dirname(resolved) : await managedTypeScriptLib()
+    const tsdk = allowed ? path.dirname(resolved) : await managedTypeScriptLib(flags)
     if (!tsdk) return
 
     let binary = which("astro-ls")
