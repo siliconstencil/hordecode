@@ -29,6 +29,8 @@ All notable changes to this project will be documented in this file.
   filesystem root.
 - A model step that ends without a tool call and with a stray tool-markup fragment or a repetition-dominated
   reasoning tail is retried once, and the retried request omits that step's reasoning and fragment.
+- Images re-sent from session history are replaced with a placeholder once the inline payload passes 25 MiB,
+  down to 15 MiB, oldest first.
 
 ## [0.1.6] - 2026-11-07
 
