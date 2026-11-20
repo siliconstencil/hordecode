@@ -24,6 +24,18 @@ const pathExists = async (p: string) =>
 const run = (cmd: string[], opts: Process.RunOptions = {}) => Process.run(cmd, { ...opts, nothrow: true })
 const output = (cmd: string[], opts: Process.RunOptions = {}) => Process.text(cmd, { ...opts, nothrow: true })
 
+// K6d: typescript-language-server's findTypescriptVersion falls back to
+// getWorkspaceVersion([root]), which loads <root>/node_modules/typescript/lib/tsserver.js,
+// so omitting the option still runs project code. Resolve TypeScript from the same
+// managed cache as the server package; undefined means the server cannot start safely.
+async function managedTypeScriptLib() {
+  const entry = await Npm.add("typescript").catch(() => undefined)
+  if (!entry) return undefined
+  const lib = path.join(entry.directory, "lib")
+  if (!(await Filesystem.exists(path.join(lib, "tsserver.js")))) return undefined
+  return lib
+}
+
 export interface Handle {
   process: ChildProcessWithoutNullStreams
   initialization?: Record<string, any>
@@ -129,13 +141,16 @@ export const Typescript: Info = {
     // K6: a managed resolution that lands in the project is project code.
     if (!TrustGate.mayRunBinary(bin, ctx.worktree)) return
     // K6: a project tsserver.js is project code. Ask about the opened directory
-    // (ctx.worktree is "/" for a non-git project); a denied path is omitted so the
-    // server can fall back to its bundled TypeScript.
+    // (ctx.worktree is "/" for a non-git project).
     // K6c: Module.resolve walks ancestor node_modules, so a result outside the opened
     // directory is still project code. Decide it by origin, not by position.
+    // K6d: a denied path cannot be omitted - the server would discover the same project
+    // tsserver through findTypescriptVersion -> getWorkspaceVersion. Pass the managed
+    // TypeScript instead, or do not start the server.
     const allowed = TrustGate.mayRunFrom(resolved)
     if (!allowed) TrustGate.warnDenied(resolved)
-    const tsserver = allowed ? resolved : undefined
+    const lib = allowed ? path.dirname(resolved) : await managedTypeScriptLib()
+    if (!lib) return
     const proc = spawn(bin, ["--stdio"], {
       cwd: root,
       env: {
@@ -144,13 +159,11 @@ export const Typescript: Info = {
     })
     return {
       process: proc,
-      initialization: tsserver
-        ? {
-            tsserver: {
-              path: tsserver,
-            },
-          }
-        : {},
+      initialization: {
+        tsserver: {
+          path: path.join(lib, "tsserver.js"),
+        },
+      },
     }
   },
 }
@@ -180,7 +193,8 @@ export const Vue: Info = {
     return {
       process: proc,
       initialization: {
-        // Leave empty; the server will auto-detect workspace TypeScript.
+        // K6d: the server uses its own installed TypeScript peer, not the workspace one;
+        // a tsconfig vueCompilerOptions.plugins entry would still load project code.
       },
     }
   },
@@ -1125,7 +1139,11 @@ export const Svelte: Info = {
     })
     return {
       process: proc,
-      initialization: {},
+      // K6d: the server defaults isTrusted to true and then imports svelte.config.js /
+      // vite.config.* from the workspace (dist/src/server.js:74); pass the real decision.
+      initialization: {
+        isTrusted: TrustGate.mayRunFrom(root),
+      },
     }
   },
 }
@@ -1139,12 +1157,14 @@ export const Astro: Info = {
     if (!resolved) {
       return
     }
-    // K6: a project tsserver is project code; a denied tsdk is omitted and the
-    // server uses its bundled TypeScript. ctx.directory, not the "/" sentinel.
+    // K6: a project tsserver is project code. ctx.directory, not the "/" sentinel.
     // K6c: Module.resolve walks ancestor node_modules, so decide the result by origin.
+    // K6d: a denied tsdk cannot be omitted - the server would resolve the workspace
+    // TypeScript itself. Pass the managed lib, or do not start the server.
     const allowed = TrustGate.mayRunFrom(resolved)
     if (!allowed) TrustGate.warnDenied(resolved)
-    const tsdk = allowed ? path.dirname(resolved) : undefined
+    const tsdk = allowed ? path.dirname(resolved) : await managedTypeScriptLib()
+    if (!tsdk) return
 
     let binary = which("astro-ls")
     const args: string[] = []
@@ -1165,13 +1185,11 @@ export const Astro: Info = {
     })
     return {
       process: proc,
-      initialization: tsdk
-        ? {
-            typescript: {
-              tsdk,
-            },
-          }
-        : {},
+      initialization: {
+        typescript: {
+          tsdk,
+        },
+      },
     }
   },
 }

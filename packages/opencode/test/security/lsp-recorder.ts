@@ -78,6 +78,18 @@ export async function recorderShim(pkg: string, bin: string, name = "k6-lsp-init
   return installRecorder(path.join(Global.Path.cache, "packages", pkg, "node_modules", ".bin", bin), name)
 }
 
+// K6d: the denied-project branch now passes a managed tsserver instead of omitting the
+// option. Seed the package so Npm.add returns it without a registry install; the
+// recorder never loads it, the test only reads the initialize options.
+export async function installManagedTypeScript() {
+  const dir = path.join(Global.Path.cache, "packages", "typescript", "node_modules", "typescript")
+  await fs.mkdir(path.join(dir, "lib"), { recursive: true })
+  await Bun.write(path.join(dir, "package.json"), JSON.stringify({ name: "typescript", version: "5.6.3" }))
+  const tsserver = path.join(dir, "lib", "tsserver.js")
+  await Bun.write(tsserver, "// managed tsserver\n")
+  return tsserver
+}
+
 export async function readRecorded(markerDir: string, name: string) {
   try {
     return JSON.parse(await fs.readFile(path.join(markerDir, name), "utf8")) as Record<string, any>

@@ -10,7 +10,7 @@ import { provideInstance, testTmpRoot } from "../fixture/fixture"
 import { pollWithTimeout, testEffect } from "../lib/effect"
 import type { Install } from "./harness"
 import { lazyLayer } from "./harness"
-import { installRecorder, readRecorded, recorderShim } from "./lsp-recorder"
+import { installManagedTypeScript, installRecorder, readRecorded, recorderShim } from "./lsp-recorder"
 import { holdGlobalConfig } from "./global-config"
 
 // K6c: Module.resolve walks ancestor node_modules. A tsserver or eslint found above the
@@ -114,6 +114,8 @@ const tsserverCases = (name: string, git: boolean, trust: boolean) =>
   it.live(name, () =>
     Effect.gen(function* () {
       const project = yield* Effect.promise(() => ancestorProject(git ? `ts-${name}-git` : `ts-${name}-plain`, git))
+      // K6d: a denied project tsserver is replaced by the managed one, never omitted.
+      const managed = trust ? undefined : yield* Effect.promise(() => installManagedTypeScript())
       if (trust) {
         const outcome = yield* Effect.promise(() => TrustGate.trust(project.base))
         expect(outcome.status).not.toBe("refused")
@@ -133,7 +135,7 @@ const tsserverCases = (name: string, git: boolean, trust: boolean) =>
             return
           }
           expect(JSON.stringify(init)).not.toContain(project.tsserver)
-          expect(init.params?.initializationOptions?.tsserver).toBeUndefined()
+          expect(init.params?.initializationOptions?.tsserver?.path).toBe(managed)
           expect(init.params?.initializationOptions?.typescript?.tsdk).toBeUndefined()
         }),
       )

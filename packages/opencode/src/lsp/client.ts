@@ -1,6 +1,7 @@
 import path from "path"
+import type { ChildProcess } from "child_process"
 import { pathToFileURL, fileURLToPath } from "url"
-import { createMessageConnection, StreamMessageReader, StreamMessageWriter } from "vscode-jsonrpc/node"
+import { Emitter, createMessageConnection, StreamMessageReader, StreamMessageWriter } from "vscode-jsonrpc/node"
 import type { Message, MessageWriter } from "vscode-jsonrpc/node"
 import type { Diagnostic as VSCodeDiagnostic } from "vscode-languageserver-types"
 import { Process } from "@/util/process"
@@ -128,28 +129,62 @@ function shouldSeedDiagnosticsOnFirstPush(serverID: string) {
 // shutdown ends the connection and Process.stop destroys the child's stdin.
 // jsonrpc fires those rejections without a handler, so they surface as
 // process-level unhandled rejections attributed to whatever test is running.
-// This wrapper swallows only the shutdown failure; every other write error
-// still rejects to the caller.
-export function guardedMessageWriter(inner: MessageWriter): MessageWriter {
+// K6d: a write on a dead transport (end/dispose, a destroyed stream, or an
+// exited child process) resolves after one debug log. The wrapper reports the
+// original error through its own onError and onClose exactly once, so the
+// connection is marked dead and pending requests reject through jsonrpc's
+// close/dispose path instead of hanging or surfacing as an unhandled rejection.
+// Every other write error still rejects to the caller.
+export function guardedMessageWriter(
+  inner: MessageWriter,
+  child?: Pick<ChildProcess, "exitCode" | "signalCode">,
+): MessageWriter {
   let ended = false
   let disposed = false
+  let errorNotified = false
+  let closeNotified = false
+  const errorEmitter = new Emitter<[Error, Message | undefined, number | undefined]>()
+  const closeEmitter = new Emitter<void>()
+  const processHasExited = () => child !== undefined && (child.exitCode !== null || child.signalCode !== null)
+  const asError = (error: unknown) =>
+    error instanceof Error ? error : new Error(`Writer received error. Reason: ${String(error)}`)
+  // One notification per connection lifetime: several queued writes can fail
+  // against the same dead transport.
+  const notifyError = (error: unknown) => {
+    if (errorNotified) return
+    errorNotified = true
+    errorEmitter.fire([asError(error), undefined, undefined])
+  }
+  const notifyClose = () => {
+    if (closeNotified) return
+    closeNotified = true
+    closeEmitter.fire()
+  }
+  // A transport that closes on its own (destroyed stream, server exit) must mark
+  // the connection dead even when no write follows it.
+  inner.onClose(notifyClose)
   return {
     get onError() {
-      return inner.onError
+      return errorEmitter.event
     },
     get onClose() {
-      return inner.onClose
+      return closeEmitter.event
     },
     async write(msg: Message) {
       try {
         return await inner.write(msg)
       } catch (error) {
         const code = (error as { code?: unknown } | null)?.code
-        if (!ended && !disposed && code !== "ERR_STREAM_DESTROYED") throw error
+        if (!ended && !disposed && !processHasExited() && code !== "ERR_STREAM_DESTROYED") {
+          notifyError(error)
+          throw error
+        }
         log.debug("ignored write after shutdown", {
           code,
           message: error instanceof Error ? error.message : String(error),
         })
+        notifyError(error)
+        notifyClose()
       }
     },
     end() {
@@ -163,8 +198,11 @@ export function guardedMessageWriter(inner: MessageWriter): MessageWriter {
   }
 }
 
-export function createStreamWriter(writable: NodeJS.WritableStream): MessageWriter {
-  return guardedMessageWriter(new StreamMessageWriter(writable))
+export function createStreamWriter(
+  writable: NodeJS.WritableStream,
+  child?: Pick<ChildProcess, "exitCode" | "signalCode">,
+): MessageWriter {
+  return guardedMessageWriter(new StreamMessageWriter(writable), child)
 }
 
 export async function create(input: {
@@ -178,7 +216,7 @@ export async function create(input: {
 
   const connection = createMessageConnection(
     new StreamMessageReader(input.server.process.stdout as any),
-    createStreamWriter(input.server.process.stdin as any),
+    createStreamWriter(input.server.process.stdin as any, input.server.process),
   )
   input.server.process.stderr?.resume()
   // --- Connection state ---
@@ -251,6 +289,10 @@ export async function create(input: {
     },
   ])
   connection.onRequest("workspace/diagnostic/refresh", async () => null)
+  // K6d: jsonrpc 8.2.1 marks a connection closed when the writer or reader
+  // closes but leaves pending requests pending forever. Disposing on close
+  // rejects them with PendingResponseRejected to their caller.
+  connection.onClose(() => connection.dispose())
   connection.listen()
 
   // --- Initialize handshake ---

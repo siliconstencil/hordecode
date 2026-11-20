@@ -10,7 +10,7 @@ import { provideInstance, testTmpRoot } from "../fixture/fixture"
 import { pollWithTimeout, testEffect } from "../lib/effect"
 import type { Install } from "./harness"
 import { lazyLayer, markerExists } from "./harness"
-import { installResponder, readRecorded, recorderShim } from "./lsp-recorder"
+import { installManagedTypeScript, installResponder, readRecorded, recorderShim } from "./lsp-recorder"
 import { holdGlobalConfig } from "./global-config"
 
 // K6: built-in language servers and formatters resolve a project-local binary from
@@ -163,11 +163,12 @@ describe("project-local language server binaries", () => {
   )
 })
 
-// K6: the built-in TypeScript server must not receive a project tsserver path.
+// K6d: a denied project tsserver is replaced by the managed one, never omitted.
 describe("project TypeScript server path", () => {
   it.live("an untrusted project's tsserver is not passed to the language server", () =>
     Effect.gen(function* () {
       const project = yield* Effect.promise(() => typescriptProject("ts-untrusted"))
+      const managed = yield* Effect.promise(() => installManagedTypeScript())
       yield* Effect.promise(() => recorderShim("typescript-language-server", "typescript-language-server"))
       yield* inside(project.dir, false, () =>
         Effect.gen(function* () {
@@ -178,7 +179,7 @@ describe("project TypeScript server path", () => {
           )
           yield* Fiber.join(fiber).pipe(Effect.timeout("10 seconds"))
           expect(JSON.stringify(init)).not.toContain(project.tsserver)
-          expect(init.params?.initializationOptions?.tsserver).toBeUndefined()
+          expect(init.params?.initializationOptions?.tsserver?.path).toBe(managed)
         }),
       )
     }),
