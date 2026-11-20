@@ -190,15 +190,22 @@ export function refloatMinimaxSSE(response: Response): Response {
   const reader = response.body.getReader()
   const body = new ReadableStream<Uint8Array>({
     async pull(controller) {
-      const { done, value } = await reader.read()
-      if (done) {
-        const tail = rewriter.flush()
-        if (tail) controller.enqueue(encoder.encode(tail))
-        controller.close()
-        return
+      // F5: a pull that enqueues nothing is not called again, so keep reading until the
+      // rewriter yields bytes; a network chunk that ends mid-event yields none.
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) {
+          const tail = rewriter.flush()
+          if (tail) controller.enqueue(encoder.encode(tail))
+          controller.close()
+          return
+        }
+        const text = rewriter.push(decoder.decode(value, { stream: true }))
+        if (text) {
+          controller.enqueue(encoder.encode(text))
+          return
+        }
       }
-      const text = rewriter.push(decoder.decode(value, { stream: true }))
-      if (text) controller.enqueue(encoder.encode(text))
     },
     cancel(reason) {
       return reader.cancel(reason)

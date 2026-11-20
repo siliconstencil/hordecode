@@ -171,6 +171,19 @@ describe("applyMinimaxSSE", () => {
     expect(await res.text()).toBe("{}")
   })
 
+  test("byte-sized network chunks do not stall the stream", async () => {
+    const enc = new TextEncoder()
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        for (const ch of broken) c.enqueue(enc.encode(ch))
+        c.close()
+      },
+    })
+    const res = refloatMinimaxSSE(new Response(body, { headers: { "content-type": "text/event-stream" } }))
+    const out = await Promise.race([res.text(), Bun.sleep(3000).then(() => "STALL")])
+    expect(tools(out)[0].input).toEqual({ pattern: "packages/core/src/session/**" })
+  })
+
   test("refloatMinimaxSSE keeps status and content-type", async () => {
     const res = refloatMinimaxSSE(response())
     expect(res.status).toBe(200)
