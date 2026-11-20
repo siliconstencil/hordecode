@@ -105,7 +105,7 @@ occurrence_count: 1
 RECOMMENDATION for harness:execute:
 - Problem: Subagent modified files outside task scope
 - Evidence: EVAL-001, subagent 2 modified error.ts and config.ts (not in task)
-- Suggested fix: Add to harness:execute SKILL.md:
+- Proposed fix: Add to harness:execute SKILL.md (proposal only):
   "Each task MUST list allowed files. Subagents may ONLY modify listed files.
    If a subagent needs to modify an unlisted file, it must STOP and request scope expansion."
 - Expected impact: scope_adherence score 0.6 -> 0.9+

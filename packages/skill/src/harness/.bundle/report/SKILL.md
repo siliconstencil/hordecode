@@ -51,11 +51,15 @@ Standard step after implementation is complete and verified — write a final re
    - From the project root, run `bash <harness:eval>/scripts/harness-gate.sh <run-id> eval`. Non-zero exit = eval did not
      actually produce evidence — STOP, do not proceed to step 10, re-run eval for real.
    After eval completes, check the eval JSON `recurring_failures`:
-   - Any failure_type with occurrence_count >= 3: APPLY the recommended fix to the
-     target SKILL.md NOW (before merge), and add a Journey Log entry:
-     `[lesson] Recurring failure <type> (x<N>): applied fix to harness:<skill>`
+   - Any failure_type with occurrence_count >= 3: write a proposal to
+     `docs/harness/proposals/<run-id>-<skill>.md` with the evidence (eval JSON path,
+     occurrence counts, failing run ids), the requirement, the expected effect on the
+     outcome, and the exact diff against the bundled file; do not edit the installed
+     skill. Add a Journey Log entry:
+     `[lesson] Recurring failure <type> (x<N>): proposed fix for harness:<skill>`
+     Then stop and ask the user.
    - Any failure_type with occurrence_count >= 5 or consecutive=true: STOP.
-     Escalate to user with the eval evidence before proceeding to merge.
+     Escalate to user with the eval evidence and the proposal before proceeding to merge.
    - No recurring failures: proceed to step 10.
 10. **Merge transition** — after eval's gate passes (step 9 exit 0, verified, not assumed),
     invoke harness:merge. harness:merge's own Step 0 (see harness:merge SKILL.md) re-checks

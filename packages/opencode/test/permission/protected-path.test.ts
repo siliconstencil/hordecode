@@ -16,6 +16,7 @@ import type { Tool } from "@/tool/tool"
 import { Agent } from "../../src/agent/agent"
 import { Permission } from "../../src/permission"
 import { ProtectedPath } from "../../src/permission/protected-path"
+import { InstalledSkill } from "../../src/permission/installed-skill"
 import { Plugin } from "../../src/plugin"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { ShellTool } from "../../src/tool/shell"
@@ -204,6 +205,19 @@ describe.skipIf(process.platform === "win32")("shell tool", () => {
       const dir = yield* tmpdirScoped({ git: true })
       const req = yield* shell("cat README.md", dir)
       expect(req?.permission).toBe("bash")
+    }),
+  )
+})
+
+// F7: a shell redirect into the harness tree asks installed_skill_write.
+describe.skipIf(process.platform === "win32")("installed skill shell write lock", () => {
+  it.live("asks installed_skill_write for a redirect into the harness bundle", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped({ git: true })
+      const file = path.join(Global.Path.data, "harness", "0.1.6", "skills", "eval", "SKILL.md")
+      const req = yield* shell(`echo x > ${file}`, dir)
+      expect(req?.permission).toBe(InstalledSkill.PERMISSION)
+      expect(req?.patterns).toEqual([file])
     }),
   )
 })

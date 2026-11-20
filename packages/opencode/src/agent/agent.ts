@@ -23,6 +23,8 @@ import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
 import { Permission } from "@/permission"
 import { ProtectedPath } from "@/permission/protected-path"
+// F7: installed skill write lock rides in the same last-applied hard-rule slot.
+import { InstalledSkill } from "@/permission/installed-skill"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@opencode-ai/core/global"
 import path from "path"
@@ -111,7 +113,14 @@ export const use = serviceUse(Service)
 // session approval could introduce. Every permission-evaluation site routes
 // through this — there is no per-agent name special-casing.
 export function runtimePermission(agent: Info, permission?: PermissionV1.Ruleset): PermissionV1.Ruleset {
-  return Permission.merge(agent.permission ?? [], permission ?? [], agent.hardPermission ?? [], ProtectedPath.ruleset())
+  // F7: InstalledSkill.ruleset is last so no user or session allow can relax it.
+  return Permission.merge(
+    agent.permission ?? [],
+    permission ?? [],
+    agent.hardPermission ?? [],
+    ProtectedPath.ruleset(),
+    InstalledSkill.ruleset(),
+  )
 }
 
 const layer = Layer.effect(

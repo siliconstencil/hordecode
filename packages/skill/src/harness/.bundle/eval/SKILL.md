@@ -25,7 +25,7 @@ If you haven't measured pipeline quality, you cannot recommend skill changes. "I
 
 **Mandatory:**
 - After ANY harness pipeline completes (brainstorm -> plan -> tdd -> execute -> verify -> review -> report)
-- Before modifying any harness SKILL.md (baseline first)
+- Before proposing any harness SKILL.md change (baseline first)
 
 **Optional but valuable:**
 - After a single harness skill produces poor results
@@ -72,7 +72,7 @@ Read `<harness-docs>/eval/SUMMARY.md` to check existing patterns:
 
 Scan SUMMARY.md for failure types that appear 3+ times across different runs:
 - **3+ occurrences**: This is a systemic issue. Apply -0.1 penalty to the affected stage score.
-- **5+ occurrences**: This is a critical pattern. Apply -0.15 penalty AND flag for immediate skill modification.
+- **5+ occurrences**: This is a critical pattern. Apply -0.15 penalty AND flag for a skill proposal.
 - **Same failure in consecutive runs**: The previous fix didn't work. Escalate severity by one level.
 
 Record the recurring pattern in the eval JSON under `recurring_failures`:
@@ -153,14 +153,22 @@ For each failure or pattern, produce a concrete recommendation:
 RECOMMENDATION for harness:<skill>:
 - Problem: <what's failing>
 - Evidence: <eval data showing the failure>
-- Suggested fix: <specific change to SKILL.md>
+- Proposed fix: <specific change to SKILL.md; goes in the proposal, never applied here>
 - Expected impact: <what should improve>
 ```
+
+**Proposals, not edits:** installed skill files are read-only. For a recommendation
+strong enough to act on, write `docs/harness/proposals/<run-id>-<skill>.md` in the
+project with the evidence (eval JSON path, occurrence counts, failing run ids), the
+requirement, the expected effect on the outcome, and the exact diff against the
+bundled file; then stop and ask the user. Never edit a file under the installed
+skill roots.
 
 **Rule:** Never recommend a skill change without eval evidence.
 
 **Closure rule:** A recommendation tied to a recurring failure (3+) is not advisory --
-harness:report is obligated to apply it before merge or escalate. See harness:report step 9.
+harness:report must carry it into a proposal before merge (see harness:report step 9).
+The run never edits an installed skill.
 
 ## Anti-Patterns
 
