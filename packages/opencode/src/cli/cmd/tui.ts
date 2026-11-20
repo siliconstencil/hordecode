@@ -14,7 +14,8 @@ import { writeHeapSnapshot } from "v8"
 import { ServerAuth } from "@/server/auth"
 import { validateSession } from "../tui/validate-session"
 import { win32InstallCtrlCGuard } from "@opencode-ai/tui/terminal-win32"
-import { checkTrust, markTrusted, type TrustLevel } from "@opencode-ai/project/workspace-trust"
+import { checkTrust, type TrustLevel } from "@opencode-ai/project/workspace-trust"
+import { TrustGate } from "@/project/trust-gate"
 
 declare global {
   const OPENCODE_WORKER_PATH: string
@@ -162,6 +163,16 @@ export async function promptWorkspaceTrust(
   return result
 }
 
+// K4 (ruling 7 Minor 5): an accepted prompt is only as good as the record it
+// writes. markTrusted refuses "/", $HOME and home ancestors; report that outcome
+// in one line and do not let the caller proceed as trusted.
+export async function acceptWorkspaceTrust(directory: string): Promise<boolean> {
+  const outcome = await TrustGate.trust(TrustGate.resolveWorktree(directory))
+  if (outcome.status !== "refused") return true
+  console.error(`refused to trust ${outcome.worktree}: ${outcome.reason}; project code stays disabled`)
+  return false
+}
+
 export async function ensureWorkspaceTrusted(
   directory: string,
   skipPrompt: boolean,
@@ -171,7 +182,9 @@ export async function ensureWorkspaceTrusted(
   if (level === "trusted") return true
   const accepted = await promptWorkspaceTrust(directory, level)
   if (!accepted) return false
-  if (level === "untrusted") await markTrusted(directory)
+  // K4: a dangerous (home/root) acceptance is not written; an untrusted one must
+  // write a record or the prompt's "yes" would not reach the boot gate.
+  if (level === "untrusted") return acceptWorkspaceTrust(directory)
   return true
 }
 
@@ -273,6 +286,9 @@ export const TuiThreadCommand = cmd({
       const { runMini } = await import("./run")
       await runMini({
         directory: resolveThreadDirectory(args.project),
+        // K4 (ruling 7 Minor 3): --mini must hand --trust to miniGate; the
+        // handler otherwise starts the project without a store record.
+        trust: args.trust,
         continue: args.continue,
         session: args.session,
         fork: args.fork,
@@ -318,6 +334,16 @@ export const TuiThreadCommand = cmd({
       }
       const cwd = Filesystem.resolve(process.cwd())
 
+      // K2: --trust is the non-interactive opt-in; record it before the worker boots
+      // so the worker's boot gate reads the same store entry as the prompt path.
+      // K3: a refused path is an error, and --trust is not treated as an acceptance.
+      if (args.trust) {
+        const outcome = await TrustGate.trustDirectory(cwd)
+        if (outcome.status === "refused") {
+          process.exitCode = 1
+          return
+        }
+      }
       const gateAccepted = await ensureWorkspaceTrusted(cwd, args.trust)
       if (!gateAccepted) return
 

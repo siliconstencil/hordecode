@@ -24,6 +24,7 @@ import { WorkflowTool } from "./workflow"
 import { SessionTool } from "./session"
 import * as Tool from "./tool"
 import { Config } from "@/config/config"
+import { TrustGate } from "@/project/trust-gate"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
 import type { JSONSchema7, JSONSchema7Definition } from "@ai-sdk/provider"
 import { Schema } from "effect"
@@ -256,9 +257,16 @@ const layer = Layer.effect(
         const custom: Tool.Def[] = []
 
         const dirs = yield* config.directories()
-        const matches = dirs.flatMap((dir) =>
-          Glob.scanSync("{tool,tools}/*.{js,ts}", { cwd: dir, absolute: true, dot: true, symlink: true }),
-        )
+        // K5: each {tool,tools} file is a code origin; it loads iff mayRunFrom its path.
+        const matches = dirs
+          .flatMap((dir) =>
+            Glob.scanSync("{tool,tools}/*.{js,ts}", { cwd: dir, absolute: true, dot: true, symlink: true }),
+          )
+          .filter((match) => {
+            if (TrustGate.mayRunFrom(match)) return true
+            TrustGate.warnDenied(match)
+            return false
+          })
         if (matches.length) yield* config.waitForDependencies()
         for (const match of matches) {
           const namespace = path.basename(match, path.extname(match))

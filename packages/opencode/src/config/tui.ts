@@ -15,6 +15,7 @@ import { Global } from "@opencode-ai/core/global"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { CurrentWorkingDirectory } from "./tui-cwd"
 import { ConfigPlugin } from "@/config/plugin"
+import { TrustGate } from "@/project/trust-gate"
 import { TuiKeybind } from "@opencode-ai/tui/config/keybind"
 import { InstallationLocal, InstallationPluginVersion } from "@opencode-ai/core/installation/version"
 import { makeRuntime } from "@opencode-ai/core/effect/runtime"
@@ -46,10 +47,14 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/TuiConfig") {}
 
-function pluginScope(file: string, ctx: { directory: string }): ConfigPlugin.Scope {
-  if (Filesystem.contains(ctx.directory, file)) return "local"
-  // if (ctx.worktree !== "/" && Filesystem.contains(ctx.worktree, file)) return "local"
-  return "global"
+function pluginScope(file: string, worktree: string): ConfigPlugin.Scope {
+  // K3: the project boundary is the resolved worktree root, not cwd. The tui config
+  // walk reaches the worktree root while cwd may be a subdirectory; that file is
+  // project content and must not be relabelled global to slip past the trust filter.
+  if (Filesystem.contains(worktree, file)) return "local"
+  // K4 (ruling 1): above the worktree, only a user-owned source is global. Everything
+  // else above a worktree is project-adjacent content and is gated as local.
+  return TrustGate.isUserOwned(file) ? "global" : "local"
 }
 
 function normalize(raw: Record<string, unknown>) {
@@ -80,7 +85,16 @@ function dropUnknownKeybinds(input: Record<string, unknown>) {
   }
 }
 
-const loadState = Effect.fn("TuiConfig.loadState")(function* (ctx: { directory: string }) {
+const loadState = Effect.fn("TuiConfig.loadState")(function* (ctx: { directory: string; worktree?: string }) {
+  // K3: use the project's worktree root, the same boundary the trust gate resolves,
+  // so a tui.json at that root is scoped local from any subdirectory cwd.
+  // K4 (ruling 6): the boundary is the real path, matching the trust key and store.
+  const worktree = Filesystem.resolve(ctx.worktree ?? TrustGate.resolveWorktree(ctx.directory))
+  // K5: project writes use the one boundary rule on the target directory. The TUI
+  // thread never boots an instance, so mayRunFrom reads the shared store instead of a
+  // boot decision. A trusted subdirectory writes; an ancestor outside every trusted
+  // root does not. No scope label is consulted.
+  const mayWrite = (target: string) => TrustGate.mayRunFrom(target)
   const afs = yield* FSUtil.Service
   let appliedOrder = 0
 
@@ -156,7 +170,7 @@ const loadState = Effect.fn("TuiConfig.loadState")(function* (ctx: { directory: 
       acc.result = mergeDeep(acc.result, data)
       if (!data.plugin?.length) return
 
-      const scope = pluginScope(file, ctx)
+      const scope = pluginScope(file, worktree)
       const plugins = ConfigPlugin.deduplicatePluginOrigins([
         ...acc.plugin_origins,
         ...data.plugin.map((spec) => ({ spec: spec as ConfigPlugin.Origin["spec"], scope, source: file })),
@@ -171,7 +185,12 @@ const loadState = Effect.fn("TuiConfig.loadState")(function* (ctx: { directory: 
   // Every config dir we may read from: global config dir, any `.opencode` or
   // `.hordecode` folders between cwd and home, and OPENCODE_CONFIG_DIR.
   const directories = yield* ConfigPaths.directories(ctx.directory)
-  yield* Effect.promise(() => migrateTuiConfig({ directories, cwd: ctx.directory }))
+  // K4 (ruling 4): migration writes only files the gate allows.
+  // K5: the migration rewrites the files in the directory holding each opencode.json,
+  // so the boundary rule is asked about that directory, not the file.
+  yield* Effect.promise(() =>
+    migrateTuiConfig({ directories, cwd: ctx.directory, mayWrite: (file) => mayWrite(path.dirname(file)) }),
+  )
 
   const projectFiles = Flag.HORDECODE_DISABLE_PROJECT_CONFIG || Flag.OPENCODE_DISABLE_PROJECT_CONFIG
     ? []
@@ -230,7 +249,10 @@ const loadState = Effect.fn("TuiConfig.loadState")(function* (ctx: { directory: 
   return {
     config: result,
     pluginOrigins: acc.plugin_origins,
-    dirs: result.plugin?.length ? dirs : [],
+    // K4 (ruling 4): the install list is the same gate: a project directory is
+    // dropped while untrusted, a user-owned directory is kept.
+    // K5: mayWrite is the boundary rule on each install directory.
+    dirs: result.plugin?.length ? dirs.filter(mayWrite) : [],
   }
 })
 

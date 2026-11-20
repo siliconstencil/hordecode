@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import path from "path"
+import { Global } from "@opencode-ai/core/global"
 import { credentialEnvKeys } from "@opencode-ai/core/util/credential-env"
 import { Module } from "@opencode-ai/core/util/module"
 import { Npm } from "@opencode-ai/core/npm"
@@ -45,7 +46,10 @@ describe("builtin Typescript LSP server spawn credential strip", () => {
     const dir = path.join(__dirname, ".server-strip-tmp")
     setCredentialEnv()
 
-    spies.push(spyOn(Module, "resolve").mockImplementation(() => "/fake/tsserver.js"))
+    // K6c: the resolved tsserver is now decided by mayRunFrom. A user-owned config path
+    // keeps this test about env stripping while exercising the allowed branch.
+    const tsserver = path.join(Global.Path.config, "fake", "tsserver.js")
+    spies.push(spyOn(Module, "resolve").mockImplementation(() => tsserver))
     spies.push(spyOn(Npm, "which").mockImplementation(async () => "/fake/tls"))
     spies.push(
       spyOn(Process, "spawn").mockImplementation(((_cmd: string[], opts?: Process.Options) => {
@@ -68,6 +72,6 @@ describe("builtin Typescript LSP server spawn credential strip", () => {
     // Non-credential inherited env must survive the scrub.
     expect(capturedEnv?.PATH).toBeTypeOf("string")
     // The resolved tsserver path is carried into the initialization block.
-    expect(handle?.initialization?.tsserver?.path).toBe("/fake/tsserver.js")
+    expect(handle?.initialization?.tsserver?.path).toBe(tsserver)
   })
 })

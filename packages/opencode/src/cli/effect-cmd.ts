@@ -49,6 +49,28 @@ interface EffectCmdOpts<Args, A> {
   handler: (args: WithDoubleDash<Args>) => Effect.Effect<A, CliError, AppServices | InstanceStore.Service>
 }
 
+// K3: --trust records the same workspace-trust entry the TUI prompt writes,
+// before store.load() boots the instance and before any project code runs.
+// Returns the real outcome so the caller can exit non-zero on a refusal instead of
+// running with the default untrusted decision (K2 Minor 1).
+// Upstream v1.19.5 cli/effect-cmd.ts:75-100 has no trust step.
+export async function recordTrust(directory: string, trust: boolean) {
+  if (!trust) return undefined
+  const { TrustGate } = await import("@/project/trust-gate")
+  return TrustGate.trustDirectory(directory)
+}
+
+// K3: one boot entry for the yargs wrapper and for runMini, which calls the run
+// handler with a constructed args object. Upstream v1.19.5 cli/effect-cmd.ts:86-90
+// inlines store.load here.
+export async function enterProject(directory: string) {
+  const { AppRuntime } = await import("@/effect/app-runtime")
+  const { InstanceStore } = await import("@/project/instance-store")
+  return AppRuntime.runPromise(
+    InstanceStore.Service.use((store) => store.load({ directory }).pipe(Effect.map((ctx) => ({ store, ctx })))),
+  )
+}
+
 /**
  * Effect-native CLI command builder. Wraps yargs `cmd()` so the handler body is
  * an `Effect` with `InstanceRef` provided and any `AppServices` yieldable.
@@ -76,17 +98,19 @@ export const effectCmd = <Args, A>(opts: EffectCmdOpts<Args, A>) =>
       const { AppRuntime } = await import("@/effect/app-runtime")
       // yargs typing wraps Args in ArgumentsCamelCase<WithDoubleDash<...>>; cast at the boundary.
       const args = rawArgs as unknown as WithDoubleDash<Args>
+      const directory = opts.directory?.(args) ?? process.cwd()
+      const trustOutcome = await recordTrust(directory, (args as { trust?: boolean }).trust === true)
+      if (trustOutcome?.status === "refused") {
+        process.exitCode = 1
+        return
+      }
       const useInstance = typeof opts.instance === "function" ? opts.instance(args) : opts.instance !== false
       if (!useInstance) {
         await AppRuntime.runPromise(opts.handler(args))
         return
       }
-      const { InstanceStore } = await import("@/project/instance-store")
       const { InstanceRef } = await import("@/effect/instance-ref")
-      const directory = opts.directory?.(args) ?? process.cwd()
-      const { store, ctx } = await AppRuntime.runPromise(
-        InstanceStore.Service.use((store) => store.load({ directory }).pipe(Effect.map((ctx) => ({ store, ctx })))),
-      )
+      const { store, ctx } = await enterProject(directory)
       try {
         await AppRuntime.runPromise(opts.handler(args).pipe(Effect.provideService(InstanceRef, ctx)))
       } finally {

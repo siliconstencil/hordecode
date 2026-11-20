@@ -3,6 +3,7 @@ import os from "os"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import fuzzysort from "fuzzysort"
 import { Config } from "@/config/config"
+import { TrustGate } from "@/project/trust-gate"
 import { mapValues, mergeDeep, omit, pickBy, sortBy } from "remeda"
 import { NoSuchModelError, type Provider as SDK } from "ai"
 import { Npm } from "@opencode-ai/core/npm"
@@ -1300,6 +1301,9 @@ interface State {
   sdk: Map<string, BundledSDK>
   modelLoaders: Record<string, CustomModelLoader>
   varsLoaders: Record<string, CustomVarsLoader>
+  // K5: per-provider config provenance, read by resolveSDK at first use (the npm
+  // install/import is the code path being gated).
+  codeOrigins: Config.CodeOrigins | undefined
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Provider") {}
@@ -1817,6 +1821,7 @@ const layer = Layer.effect(
           sdk,
           modelLoaders,
           varsLoaders,
+          codeOrigins: cfg.code_origins,
         }
       }),
     )
@@ -1900,6 +1905,23 @@ const layer = Layer.effect(
           })
           s.sdk.set(key, loaded)
           return loaded as SDK
+        }
+
+        // K2: provider npm is gated at first use. A bundled loader is product code;
+        // a non-bundled install/import whose provider came from project config is
+        // project code and must not run while the project is untrusted.
+        // K5: the model's effective npm is its own provider.npm, falling back to the
+        // provider-level npm (provider.ts:1369-1370). Ask mayRunFrom about the source
+        // that set that npm, so a project npm does not block a sibling model whose own
+        // npm came from a user-owned source. Upstream v1.19.5 provider.ts:1898 installs
+        // and imports unconditionally.
+        const npmSources = Config.codeFieldSources(s.codeOrigins, "provider", model.providerID)
+        const npmSource = npmSources[`models.${model.id}.provider.npm`] ?? npmSources.npm
+        if (!Config.sourceMayRun(npmSource)) {
+          if (npmSource !== undefined) TrustGate.warnDenied(npmSource)
+          throw new Error(
+            `provider ${model.providerID} is configured by an untrusted project; run with --trust to allow it`,
+          )
         }
 
         const installedPath = await (async () => {

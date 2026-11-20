@@ -10,6 +10,7 @@ import { Cause, Effect, Exit, Fiber } from "effect"
 import { bootstrap as cliBootstrap } from "../../src/cli/bootstrap"
 import { InstanceBootstrap } from "../../src/project/bootstrap"
 import { InstanceStore } from "../../src/project/instance-store"
+import { TrustGate } from "../../src/project/trust-gate"
 import { disposeAllInstances, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { waitGlobalBusEvent } from "../server/global-bus"
@@ -60,6 +61,8 @@ const bootstrapFixture = Effect.gen(function* () {
       }),
     ),
   )
+  // K2: project plugin code only loads for a trusted worktree.
+  yield* Effect.promise(() => TrustGate.trust(dir))
   return { directory: dir, marker }
 })
 

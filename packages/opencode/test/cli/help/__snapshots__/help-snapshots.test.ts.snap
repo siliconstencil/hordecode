@@ -68,7 +68,8 @@ Options:
                       OPENCODE_SERVER_USERNAME or 'hordecode')                              [string]
       --mini          start the minimal interactive interface             [boolean] [default: false]
       --no-replay     disable mini session history replay on resume and after resize       [boolean]
-      --replay-limit  cap visible mini replay to the newest N messages                      [number]"
+      --replay-limit  cap visible mini replay to the newest N messages                      [number]
+      --trust         trust this project and load its project code        [boolean] [default: false]"
 `;
 
 exports[`horde CLI help-text snapshots every documented command emits stable help text: horde run --help 1`] = `
@@ -103,6 +104,8 @@ Options:
       --dir          directory to run in, path on remote server if attaching                [string]
       --port         port for the local server (defaults to random port if no value provided)
                                                                                             [number]
+      --trust        trust this project and load its project code (plugins, hooks, tools, MCP, LSP,
+                     formatters)                                          [boolean] [default: false]
       --variant      model variant (provider-specific reasoning effort, e.g., high, max, minimal)
                                                                                             [string]
       --thinking     show thinking blocks                                                  [boolean]
@@ -229,7 +232,9 @@ Options:
                                                                           [boolean] [default: false]
       --mdns-domain  custom domain name for mDNS service (default: hordecode.local)
                                                                [string] [default: "hordecode.local"]
-      --cors         additional domains to allow for CORS                      [array] [default: []]"
+      --cors         additional domains to allow for CORS                      [array] [default: []]
+      --trust        trust the project in the current directory and load its project code
+                                                                          [boolean] [default: false]"
 `;
 
 exports[`horde CLI help-text snapshots every documented command emits stable help text: horde web --help 1`] = `

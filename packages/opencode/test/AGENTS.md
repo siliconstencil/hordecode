@@ -20,6 +20,7 @@ test("example", async () => {
 
 - `git?: boolean` - Initialize a git repo with a root commit
 - `config?: Partial<Config.Info>` - Write an `opencode.json` config file
+- `trust?: boolean` - Record the trusted project decision the boot path writes (for suites that drive project code without booting an instance; off by default)
 - `init?: (dir: string) => Promise<T>` - Custom setup function, returns value accessible as `tmp.extra`
 - `dispose?: (dir: string) => Promise<T>` - Custom cleanup function
 

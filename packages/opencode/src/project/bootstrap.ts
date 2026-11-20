@@ -6,6 +6,7 @@ import { Snapshot } from "../snapshot"
 import * as Project from "./project"
 import * as Vcs from "./vcs"
 import { InstanceState } from "@/effect/instance-state"
+import { TrustGate } from "./trust-gate"
 import { Effect, Layer } from "effect"
 import { Config } from "@/config/config"
 import { Service } from "./bootstrap-service"
@@ -59,7 +60,16 @@ const layer = Layer.effect(
     const run = Effect.gen(function* () {
       const ctx = yield* InstanceState.context
       yield* Effect.logInfo("bootstrapping", { directory: ctx.directory })
+      // K2: decide once per instance before any project code runs, and record the
+      // decision so the config loader and every lazy loader read the same answer.
+      // upstream opencode 1.19.5 project/bootstrap.ts:62-63 boots config and plugins
+      // without a trust decision; the gate departs here.
+      const trust = yield* Effect.promise(() => TrustGate.level(ctx))
+      yield* Effect.sync(() => TrustGate.remember(ctx, trust))
+      if (trust === "untrusted") yield* Effect.sync(() => TrustGate.warnOnce(ctx))
       yield* config.get()
+      // K5: plugin code is decided per origin by the plugin host, so boot runs the
+      // same loader path a lazy trigger() would; user-owned entries keep loading here.
       yield* plugin.init()
       // Fire-and-forget writer -- subscribes to PartUpdated/PartRemoved and drains Queue.forever.
       yield* Effect.logInfo("history writer scheduled", { directory: ctx.directory })

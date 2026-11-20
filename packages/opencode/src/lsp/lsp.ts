@@ -6,6 +6,7 @@ import path from "path"
 import { pathToFileURL, fileURLToPath } from "url"
 import * as LSPServer from "./server"
 import { Config } from "@/config/config"
+import { TrustGate } from "@/project/trust-gate"
 import { Process } from "@/util/process"
 import { spawn as lspspawn } from "./launch"
 import { withoutCredentials } from "@opencode-ai/core/util/credential-env"
@@ -146,7 +147,6 @@ const layer = Layer.effect(
     const state = yield* InstanceState.make<State>(
       Effect.fn("LSP.state")(function* (ctx) {
         const cfg = yield* config.get()
-
         const servers: Record<string, LSPServer.Info> = {}
 
         if (!cfg.lsp) {
@@ -160,6 +160,13 @@ const layer = Layer.effect(
 
           if (cfg.lsp !== true) {
             for (const [name, item] of Object.entries(cfg.lsp)) {
+              // K5: a command whose source config file is outside every trusted root
+              // does not spawn.
+              const denied = Config.codeDeniedSources(cfg.code_origins, "lsp", name)
+              if (denied.length) {
+                for (const source of denied) TrustGate.warnDenied(source)
+                continue
+              }
               const existing = servers[name]
               if (item.disabled) {
                 yield* Effect.logInfo(`LSP server ${name} is disabled`)
@@ -171,13 +178,17 @@ const layer = Layer.effect(
                 id: name,
                 root: existing?.root ?? (async (_file, ctx) => ctx.directory),
                 extensions: item.extensions ?? existing?.extensions ?? [],
-                spawn: async (root) => ({
-                  process: lspspawn(item.command[0], item.command.slice(1), {
-                    cwd: root,
-                    env: { ...withoutCredentials(process.env), ...item.env },
-                  }),
-                  initialization: item.initialization,
-                }),
+                spawn: async (root) => {
+                  // K6: a relative configured command resolves against the server root.
+                  if (!TrustGate.mayRunCommand(root, item.command[0])) return undefined
+                  return {
+                    process: lspspawn(item.command[0], item.command.slice(1), {
+                      cwd: root,
+                      env: { ...withoutCredentials(process.env), ...item.env },
+                    }),
+                    initialization: item.initialization,
+                  }
+                },
               }
             }
           }

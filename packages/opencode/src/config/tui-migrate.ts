@@ -19,6 +19,11 @@ const decodeDiffStyle = Schema.decodeUnknownOption(TuiConfig.DiffStyle)
 interface MigrateInput {
   cwd: string
   directories: string[]
+  // K4 (ruling 4): the caller's write gate. A project file while the worktree is
+  // untrusted is skipped before any read-side effect.
+  // K5: required, so a future caller cannot omit the boundary rule and migrate
+  // unmetered.
+  mayWrite: (file: string) => boolean
 }
 
 /**
@@ -29,6 +34,7 @@ interface MigrateInput {
 export async function migrateTuiConfig(input: MigrateInput) {
   const opencode = await opencodeFiles(input)
   for (const file of opencode) {
+    if (!input.mayWrite(file)) continue
     const source = await Filesystem.readText(file).catch(() => undefined)
     if (!source) continue
     const errors: JsoncParseError[] = []

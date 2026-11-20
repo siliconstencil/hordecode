@@ -10,8 +10,12 @@ import { Npm } from "@opencode-ai/core/npm"
 
 const { TuiPluginRuntime } = await import("../../../src/plugin/tui/runtime")
 
+// K3: these tests drive TuiPluginRuntime.init directly, so no boot path records a trust
+// decision. A trusted tmpdir stands in for the boot decision; without it the host drops
+// project-scope origins and the rejection tests would pass for the wrong reason.
 test("loads npm tui plugin from package ./tui export", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const mod = path.join(dir, "mods", "acme-plugin")
       const marker = path.join(dir, "tui-called.txt")
@@ -77,6 +81,7 @@ test("loads npm tui plugin from package ./tui export", async () => {
 
 test("does not use npm package exports dot for tui entry", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const mod = path.join(dir, "mods", "acme-plugin")
       const marker = path.join(dir, "dot-called.txt")
@@ -135,6 +140,7 @@ test("does not use npm package exports dot for tui entry", async () => {
 
 test("rejects npm tui export that resolves outside plugin directory", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const mod = path.join(dir, "mods", "acme-plugin")
       const outside = path.join(dir, "outside")
@@ -199,6 +205,7 @@ test("rejects npm tui export that resolves outside plugin directory", async () =
 
 test("rejects npm tui plugin that exports server and tui together", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const mod = path.join(dir, "mods", "acme-plugin")
       const marker = path.join(dir, "mixed-called.txt")
@@ -259,6 +266,7 @@ test("rejects npm tui plugin that exports server and tui together", async () => 
 
 test("does not use npm package main for tui entry", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const mod = path.join(dir, "mods", "acme-plugin")
       const marker = path.join(dir, "main-called.txt")
@@ -323,6 +331,7 @@ test("does not use npm package main for tui entry", async () => {
 
 test("does not use directory package main for tui entry", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const mod = path.join(dir, "mods", "dir-plugin")
       const spec = pathToFileURL(mod).href
@@ -380,6 +389,7 @@ test("does not use directory package main for tui entry", async () => {
 
 test("uses directory index fallback for tui when package.json is missing", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const mod = path.join(dir, "mods", "dir-index")
       const spec = pathToFileURL(mod).href
@@ -427,6 +437,7 @@ test("uses directory index fallback for tui when package.json is missing", async
 
 test("uses npm package name when tui plugin id is omitted", async () => {
   await using tmp = await tmpdir({
+    trust: true,
     init: async (dir) => {
       const mod = path.join(dir, "mods", "acme-plugin")
       const marker = path.join(dir, "name-id-called.txt")

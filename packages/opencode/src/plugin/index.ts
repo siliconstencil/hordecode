@@ -9,6 +9,7 @@ import type {
 import type { HookEntry } from "@opencode-ai/core/plugin"
 import { PluginV2 } from "@opencode-ai/core/plugin"
 import { Config } from "@/config/config"
+import { TrustGate } from "@/project/trust-gate"
 import { createOpencodeClient } from "@opencode-ai/sdk"
 import { ServerAuth } from "@/server/auth"
 import { CodexAuthPlugin } from "./openai/codex"
@@ -211,9 +212,17 @@ const layer = Layer.effect(
           }
         }
 
-        const plugins = flags.pure ? [] : (cfg.plugin_origins ?? [])
-        if (flags.pure && cfg.plugin_origins?.length) {
-        }
+        // K5: a plugin entry is a code origin; it loads iff mayRunFrom the config file
+        // or plugin directory that named it. The scope label no longer decides.
+        const plugins = flags.pure
+          ? []
+          : (cfg.plugin_origins ?? []).filter((origin) => {
+              if (TrustGate.mayRunFrom(origin.source)) return true
+              TrustGate.warnDenied(origin.source)
+              return false
+            })
+        // K6 (ruling 4): removed the empty pure-mode if-block; the filter above already
+        // yields [] under pure mode, so it had no effect.
         if (plugins.length) yield* config.waitForDependencies()
 
         const loaded = yield* Effect.promise(() =>
@@ -332,11 +341,20 @@ const layer = Layer.effect(
     const fileHookState = yield* InstanceState.make<{ hooks: Hooks[] }>(
       Effect.fn("Plugin.fileHooks")(function* () {
         const hooks: Hooks[] = []
-        const dirs = yield* config.directories()
+        // K5: each hook file is a code origin; it loads iff mayRunFrom its path.
+        const dirs = (yield* config.directories()).filter((dir) => {
+          if (TrustGate.mayRunFrom(dir)) return true
+          TrustGate.warnDenied(dir)
+          return false
+        })
 
         for (const dir of dirs) {
           const matches = Glob.scanSync("{hook,hooks}/*.{js,ts}", { cwd: dir, absolute: true, dot: true, symlink: true })
           for (const match of matches) {
+            if (!TrustGate.mayRunFrom(match)) {
+              TrustGate.warnDenied(match)
+              continue
+            }
             const mod = yield* Effect.tryPromise({
               try: () => import(`${pathToFileURL(match).href}?v=${Date.now()}`),
               catch: (err) => err,

@@ -6,6 +6,7 @@ import { text } from "node:stream/consumers"
 import fs from "fs/promises"
 import { Filesystem } from "@/util/filesystem"
 import type { InstanceContext } from "../project/instance-context"
+import { TrustGate } from "@/project/trust-gate"
 import { Archive } from "@/util/archive"
 import { Process } from "@/util/process"
 import { which } from "@opencode-ai/core/util/which"
@@ -22,6 +23,18 @@ const pathExists = async (p: string) =>
     .catch(() => false)
 const run = (cmd: string[], opts: Process.RunOptions = {}) => Process.run(cmd, { ...opts, nothrow: true })
 const output = (cmd: string[], opts: Process.RunOptions = {}) => Process.text(cmd, { ...opts, nothrow: true })
+
+// K6d: typescript-language-server's findTypescriptVersion falls back to
+// getWorkspaceVersion([root]), which loads <root>/node_modules/typescript/lib/tsserver.js,
+// so omitting the option still runs project code. Resolve TypeScript from the same
+// managed cache as the server package; undefined means the server cannot start safely.
+async function managedTypeScriptLib() {
+  const entry = await Npm.add("typescript").catch(() => undefined)
+  if (!entry) return undefined
+  const lib = path.join(entry.directory, "lib")
+  if (!(await Filesystem.exists(path.join(lib, "tsserver.js")))) return undefined
+  return lib
+}
 
 export interface Handle {
   process: ChildProcessWithoutNullStreams
@@ -121,10 +134,23 @@ export const Typescript: Info = {
   ),
   extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"],
   async spawn(root, ctx) {
-    const tsserver = Module.resolve("typescript/lib/tsserver.js", ctx.directory)
-    if (!tsserver) return
+    const resolved = Module.resolve("typescript/lib/tsserver.js", ctx.directory)
+    if (!resolved) return
     const bin = await Npm.which("typescript-language-server")
     if (!bin) return
+    // K6: a managed resolution that lands in the project is project code.
+    if (!TrustGate.mayRunBinary(bin, ctx.worktree)) return
+    // K6: a project tsserver.js is project code. Ask about the opened directory
+    // (ctx.worktree is "/" for a non-git project).
+    // K6c: Module.resolve walks ancestor node_modules, so a result outside the opened
+    // directory is still project code. Decide it by origin, not by position.
+    // K6d: a denied path cannot be omitted - the server would discover the same project
+    // tsserver through findTypescriptVersion -> getWorkspaceVersion. Pass the managed
+    // TypeScript instead, or do not start the server.
+    const allowed = TrustGate.mayRunFrom(resolved)
+    if (!allowed) TrustGate.warnDenied(resolved)
+    const lib = allowed ? path.dirname(resolved) : await managedTypeScriptLib()
+    if (!lib) return
     const proc = spawn(bin, ["--stdio"], {
       cwd: root,
       env: {
@@ -135,7 +161,7 @@ export const Typescript: Info = {
       process: proc,
       initialization: {
         tsserver: {
-          path: tsserver,
+          path: path.join(lib, "tsserver.js"),
         },
       },
     }
@@ -146,13 +172,15 @@ export const Vue: Info = {
   id: "vue",
   extensions: [".vue"],
   root: NearestRoot(["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"]),
-  async spawn(root, _ctx, flags) {
+  async spawn(root, ctx, flags) {
     let binary = which("vue-language-server")
     const args: string[] = []
     if (!binary) {
       if (flags.disableLspDownload) return
       const resolved = await Npm.which("@vue/language-server")
       if (!resolved) return
+      // K6: a managed resolution that lands in the project is project code.
+      if (!TrustGate.mayRunBinary(resolved, ctx.worktree)) return
       binary = resolved
     }
     args.push("--stdio")
@@ -165,7 +193,8 @@ export const Vue: Info = {
     return {
       process: proc,
       initialization: {
-        // Leave empty; the server will auto-detect workspace TypeScript.
+        // K6d: the server uses its own installed TypeScript peer, not the workspace one;
+        // a tsconfig vueCompilerOptions.plugins entry would still load project code.
       },
     }
   },
@@ -178,6 +207,12 @@ export const ESLint: Info = {
   async spawn(root, ctx, flags) {
     const eslint = Module.resolve("eslint", ctx.directory)
     if (!eslint) return
+    // K6c: an eslint found by walking ancestor node_modules is project code. A denied
+    // path takes the existing unavailable branch, so the server does not start.
+    if (!TrustGate.mayRunFrom(eslint)) {
+      TrustGate.warnDenied(eslint)
+      return
+    }
     const serverPath = path.join(Global.Path.bin, "vscode-eslint", "server", "out", "eslintServer.js")
     if (!(await Filesystem.exists(serverPath))) {
       if (flags.disableLspDownload) return
@@ -241,8 +276,11 @@ export const Oxlint: Info = {
     const lintTarget = path.join("node_modules", ".bin", "oxlint" + ext)
 
     const resolveBin = async (target: string) => {
+      // K6: both candidates are inside the worktree; a denied one falls through to which().
       const localBin = path.join(root, target)
-      if (await Filesystem.exists(localBin)) return localBin
+      if (await Filesystem.exists(localBin)) {
+        if (TrustGate.mayRunBinary(localBin)) return localBin
+      }
 
       const candidates = Filesystem.up({
         targets: [target],
@@ -251,7 +289,7 @@ export const Oxlint: Info = {
       })
       const first = await candidates.next()
       await candidates.return()
-      if (first.value) return first.value
+      if (first.value && TrustGate.mayRunBinary(first.value)) return first.value
 
       return undefined
     }
@@ -324,10 +362,11 @@ export const Biome: Info = {
     ".gql",
     ".html",
   ],
-  async spawn(root) {
+  async spawn(root, ctx) {
+    // K6: a project-local biome is code; a denied one falls through to the global resolution.
     const localBin = path.join(root, "node_modules", ".bin", "biome")
     let bin: string | undefined
-    if (await Filesystem.exists(localBin)) bin = localBin
+    if (await Filesystem.exists(localBin) && TrustGate.mayRunBinary(localBin)) bin = localBin
     if (!bin) {
       const found = which("biome")
       if (found) bin = found
@@ -340,6 +379,8 @@ export const Biome: Info = {
       if (!resolved) return
       bin = await Npm.which("biome")
       if (!bin) return
+      // K6: a managed resolution that lands in the project is project code.
+      if (!TrustGate.mayRunBinary(bin, ctx.worktree)) return
       args = ["lsp-proxy", "--stdio"]
     }
 
@@ -452,6 +493,8 @@ export const Ty: Info = {
         ? path.join(venvPath, "Scripts", "python.exe")
         : path.join(venvPath, "bin", "python")
       if (await Filesystem.exists(potentialPythonPath)) {
+        // K6: a venv under the project is project code; VIRTUAL_ENV came from the user's env.
+        if (venvPath !== process.env["VIRTUAL_ENV"] && !TrustGate.mayRunBinary(potentialPythonPath)) continue
         initialization["pythonPath"] = potentialPythonPath
         break
       }
@@ -461,10 +504,11 @@ export const Ty: Info = {
       for (const venvPath of potentialVenvPaths) {
         const isWindows = process.platform === "win32"
         const potentialTyPath = isWindows ? path.join(venvPath, "Scripts", "ty.exe") : path.join(venvPath, "bin", "ty")
-        if (await Filesystem.exists(potentialTyPath)) {
-          binary = potentialTyPath
-          break
-        }
+        if (!(await Filesystem.exists(potentialTyPath))) continue
+        // K6: a venv under the project is project code; VIRTUAL_ENV came from the user's env.
+        if (venvPath !== process.env["VIRTUAL_ENV"] && !TrustGate.mayRunBinary(potentialTyPath)) continue
+        binary = potentialTyPath
+        break
       }
     }
 
@@ -487,13 +531,15 @@ export const Pyright: Info = {
   id: "pyright",
   extensions: [".py", ".pyi"],
   root: NearestRoot(["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile", "pyrightconfig.json"]),
-  async spawn(root, _ctx, flags) {
+  async spawn(root, ctx, flags) {
     let binary = which("pyright-langserver")
     const args = []
     if (!binary) {
       if (flags.disableLspDownload) return
       const resolved = await Npm.which("pyright", "pyright-langserver")
       if (!resolved) return
+      // K6: a managed resolution that lands in the project is project code.
+      if (!TrustGate.mayRunBinary(resolved, ctx.worktree)) return
       binary = resolved
     }
     args.push("--stdio")
@@ -509,6 +555,8 @@ export const Pyright: Info = {
         ? path.join(venvPath, "Scripts", "python.exe")
         : path.join(venvPath, "bin", "python")
       if (await Filesystem.exists(potentialPythonPath)) {
+        // K6: a venv under the project is project code; VIRTUAL_ENV came from the user's env.
+        if (venvPath !== process.env["VIRTUAL_ENV"] && !TrustGate.mayRunBinary(potentialPythonPath)) continue
         initialization["pythonPath"] = potentialPythonPath
         break
       }
@@ -1071,13 +1119,15 @@ export const Svelte: Info = {
   id: "svelte",
   extensions: [".svelte"],
   root: NearestRoot(["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"]),
-  async spawn(root, _ctx, flags) {
+  async spawn(root, ctx, flags) {
     let binary = which("svelteserver")
     const args: string[] = []
     if (!binary) {
       if (flags.disableLspDownload) return
       const resolved = await Npm.which("svelte-language-server")
       if (!resolved) return
+      // K6: a managed resolution that lands in the project is project code.
+      if (!TrustGate.mayRunBinary(resolved, ctx.worktree)) return
       binary = resolved
     }
     args.push("--stdio")
@@ -1089,7 +1139,11 @@ export const Svelte: Info = {
     })
     return {
       process: proc,
-      initialization: {},
+      // K6d: the server defaults isTrusted to true and then imports svelte.config.js /
+      // vite.config.* from the workspace (dist/src/server.js:74); pass the real decision.
+      initialization: {
+        isTrusted: TrustGate.mayRunFrom(root),
+      },
     }
   },
 }
@@ -1099,11 +1153,18 @@ export const Astro: Info = {
   extensions: [".astro"],
   root: NearestRoot(["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"]),
   async spawn(root, ctx, flags) {
-    const tsserver = Module.resolve("typescript/lib/tsserver.js", ctx.directory)
-    if (!tsserver) {
+    const resolved = Module.resolve("typescript/lib/tsserver.js", ctx.directory)
+    if (!resolved) {
       return
     }
-    const tsdk = path.dirname(tsserver)
+    // K6: a project tsserver is project code. ctx.directory, not the "/" sentinel.
+    // K6c: Module.resolve walks ancestor node_modules, so decide the result by origin.
+    // K6d: a denied tsdk cannot be omitted - the server would resolve the workspace
+    // TypeScript itself. Pass the managed lib, or do not start the server.
+    const allowed = TrustGate.mayRunFrom(resolved)
+    if (!allowed) TrustGate.warnDenied(resolved)
+    const tsdk = allowed ? path.dirname(resolved) : await managedTypeScriptLib()
+    if (!tsdk) return
 
     let binary = which("astro-ls")
     const args: string[] = []
@@ -1111,6 +1172,8 @@ export const Astro: Info = {
       if (flags.disableLspDownload) return
       const resolved = await Npm.which("@astrojs/language-server")
       if (!resolved) return
+      // K6: a managed resolution that lands in the project is project code.
+      if (!TrustGate.mayRunBinary(resolved, ctx.worktree)) return
       binary = resolved
     }
     args.push("--stdio")
@@ -1363,13 +1426,15 @@ export const YamlLS: Info = {
   id: "yaml-ls",
   extensions: [".yaml", ".yml"],
   root: NearestRoot(["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"]),
-  async spawn(root, _ctx, flags) {
+  async spawn(root, ctx, flags) {
     let binary = which("yaml-language-server")
     const args: string[] = []
     if (!binary) {
       if (flags.disableLspDownload) return
       const resolved = await Npm.which("yaml-language-server")
       if (!resolved) return
+      // K6: a managed resolution that lands in the project is project code.
+      if (!TrustGate.mayRunBinary(resolved, ctx.worktree)) return
       binary = resolved
     }
     args.push("--stdio")
@@ -1517,13 +1582,15 @@ export const PHPIntelephense: Info = {
   id: "php intelephense",
   extensions: [".php"],
   root: NearestRoot(["composer.json", "composer.lock", ".php-version"]),
-  async spawn(root, _ctx, flags) {
+  async spawn(root, ctx, flags) {
     let binary = which("intelephense")
     const args: string[] = []
     if (!binary) {
       if (flags.disableLspDownload) return
       const resolved = await Npm.which("intelephense")
       if (!resolved) return
+      // K6: a managed resolution that lands in the project is project code.
+      if (!TrustGate.mayRunBinary(resolved, ctx.worktree)) return
       binary = resolved
     }
     args.push("--stdio")
@@ -1598,13 +1665,15 @@ export const BashLS: Info = {
   id: "bash",
   extensions: [".sh", ".bash", ".zsh", ".ksh"],
   root: async (_file, ctx) => ctx.directory,
-  async spawn(root, _ctx, flags) {
+  async spawn(root, ctx, flags) {
     let binary = which("bash-language-server")
     const args: string[] = []
     if (!binary) {
       if (flags.disableLspDownload) return
       const resolved = await Npm.which("bash-language-server")
       if (!resolved) return
+      // K6: a managed resolution that lands in the project is project code.
+      if (!TrustGate.mayRunBinary(resolved, ctx.worktree)) return
       binary = resolved
     }
     args.push("start")
@@ -1776,13 +1845,15 @@ export const DockerfileLS: Info = {
   id: "dockerfile",
   extensions: [".dockerfile", "Dockerfile"],
   root: async (_file, ctx) => ctx.directory,
-  async spawn(root, _ctx, flags) {
+  async spawn(root, ctx, flags) {
     let binary = which("docker-langserver")
     const args: string[] = []
     if (!binary) {
       if (flags.disableLspDownload) return
       const resolved = await Npm.which("dockerfile-language-server-nodejs")
       if (!resolved) return
+      // K6: a managed resolution that lands in the project is project code.
+      if (!TrustGate.mayRunBinary(resolved, ctx.worktree)) return
       binary = resolved
     }
     args.push("--stdio")

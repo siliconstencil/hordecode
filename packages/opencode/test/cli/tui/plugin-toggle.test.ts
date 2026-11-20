@@ -6,8 +6,18 @@ import { tmpdir } from "../../fixture/fixture"
 import { createTuiPluginApi } from "../../fixture/tui-plugin"
 import { createTuiResolvedConfig } from "../../fixture/tui-runtime"
 import { TuiConfig } from "../../../src/config/tui"
+import { TrustGate } from "../../../src/project/trust-gate"
 
 const { TuiPluginRuntime } = await import("../../../src/plugin/tui/runtime")
+
+// K3: the tui plugin host now checks the project trust decision itself, from the shared
+// store rather than the boot memo. These tests mock the cwd instead of booting an
+// instance, so record both decisions a TUI boot would have written before loading local
+// origins.
+const trustProject = async (directory: string) => {
+  await TrustGate.trust(directory)
+  TrustGate.remember({ directory, worktree: directory }, "trusted")
+}
 
 test("toggles plugin runtime state by exported id", async () => {
   await using tmp = await tmpdir({
@@ -55,6 +65,7 @@ test("toggles plugin runtime state by exported id", async () => {
   })
   const wait = spyOn(TuiConfig, "waitForDependencies").mockResolvedValue()
   const cwd = spyOn(process, "cwd").mockImplementation(() => tmp.path)
+  await trustProject(tmp.path)
   const api = createTuiPluginApi()
 
   try {
@@ -137,6 +148,7 @@ test("deactivating plugin pops pushed mode", async () => {
   })
   const wait = spyOn(TuiConfig, "waitForDependencies").mockResolvedValue()
   const cwd = spyOn(process, "cwd").mockImplementation(() => tmp.path)
+  await trustProject(tmp.path)
 
   try {
     await TuiPluginRuntime.init({ api, config })
@@ -196,6 +208,7 @@ test("kv plugin_enabled overrides tui config on startup", async () => {
   })
   const wait = spyOn(TuiConfig, "waitForDependencies").mockResolvedValue()
   const cwd = spyOn(process, "cwd").mockImplementation(() => tmp.path)
+  await trustProject(tmp.path)
   const api = createTuiPluginApi()
   api.kv.set("plugin_enabled", {
     "demo.startup": true,
@@ -226,6 +239,7 @@ test("loads disabled-by-default internal plugin inactive and activates on demand
   const config = createTuiResolvedConfig()
   const wait = spyOn(TuiConfig, "waitForDependencies").mockResolvedValue()
   const cwd = spyOn(process, "cwd").mockImplementation(() => tmp.path)
+  await trustProject(tmp.path)
   const api = createTuiPluginApi()
 
   try {

@@ -17,7 +17,8 @@ import type { ProviderID, ModelID } from "@opencode-ai/core/provider/schema"
 import { parseMeta } from "./meta"
 import { evalScript, type HostFn } from "./sandbox"
 import { makeFileHooks, resolveInWorkspace } from "./workspace"
-import { isInlineScript, resolveWorkflowScript } from "./resolve"
+import { isInlineScript, resolveWorkflowScript, type ProjectScriptAllow } from "./resolve"
+import { BuiltinWorkflow } from "./builtin"
 import { WorkflowAgentFailed, WorkflowChildFailed, WorkflowFinished, WorkflowLog, WorkflowPhase, WorkflowStarted } from "./events"
 import { WorkflowPersistence, journalKeyBase } from "./persistence"
 import type { RunSummary } from "./persistence"
@@ -326,7 +327,16 @@ function cpuCount(): number {
   return n > 0 ? n : 4
 }
 
-export const layer = Layer.effect(
+// K3: the host that wires this layer injects the project-code provenance check
+// (opencode passes its trust gate from effect/supervisor-node.ts). K5: the check is
+// the boundary rule on the resolved file, so it carries no boot context.
+// K5: N5. Required: a gate-free layer would resolve every saved project workflow
+// (upstream 1.19.5 behaviour), so there is no legitimate caller without it.
+export interface LayerOptions {
+  projectScriptGate: ProjectScriptAllow
+}
+
+export const layer = (options: LayerOptions) => Layer.effect(
   Service,
   Effect.gen(function* () {
     const bus = yield* Bus.Service
@@ -565,9 +575,12 @@ export const layer = Layer.effect(
       // (e.g. isolated spawns, which provide their own Instance context).
       // Captured in the closure so the file hooks read it synchronously and
       // never touch ALS from inside the forked work fiber.
-      // A non-git project carries worktree "/"; anchor to the instance directory (tool/shell.ts:772).
+      // K3: capture the instance under the same fiber-safe lookup so the child-workflow
+      // resolver below never reads ALS from the forked work fiber.
       const instance = (yield* InstanceRef) ?? Instance
-      const workspaceRoot = input.workspace ?? (instance.worktree === "/" ? instance.directory : instance.worktree)
+      // A non-git project carries worktree "/"; anchor to the instance directory (tool/shell.ts:772).
+      const instanceWorktree = instance.worktree === "/" ? instance.directory : instance.worktree
+      const workspaceRoot = input.workspace ?? instanceWorktree
       const fileHooks = makeFileHooks(workspaceRoot)
       const deferred = yield* Deferred.make<RunOutcome>()
       const entry: RunEntry = {
@@ -1275,9 +1288,19 @@ export const layer = Layer.effect(
         const childRunID = "wf_" + createHash("sha256").update(runID + key).digest("hex")
         return bridge.promise(
           Effect.gen(function* () {
+            // K3: a built-in name is package code, not project code, so it bypasses
+            // the host gate. A saved name is asked of the host boundary rule (opencode
+            // passes TrustGate in LayerOptions). Upstream 1.19.5 runtime.ts:1278
+            // resolved saved children with no provenance check.
+            const builtin = isInlineScript(spec) ? undefined : BuiltinWorkflow.get(spec)
             const childScript = isInlineScript(spec)
               ? spec
-              : yield* Effect.promise(() => resolveWorkflowScript(spec, workspaceRoot, Instance.worktree))
+              : builtin
+                ? builtin.script
+                : yield* Effect.promise(() =>
+                    resolveWorkflowScript(spec, workspaceRoot, instanceWorktree, options.projectScriptGate),
+                  )
+
             if (childScript === null)
               return yield* Effect.die(new Error(`${WORKFLOW_STRUCTURAL_ERROR}: unknown workflow: ${JSON.stringify(spec)}`))
             // Nesting guards (T12) -- LAUNCH path only (a journal HIT early-returned
@@ -1657,11 +1680,7 @@ export const layer = Layer.effect(
   }),
 )
 
-export const defaultLayer = layer.pipe(
-  Layer.provide(Bus.defaultLayer),
-  Layer.provide(Inbox.defaultLayer),
-  Layer.provide(Provider.defaultLayer),
-  Layer.provide(Config.defaultLayer),
-)
-
+// K4 (ruling 7 Minor 6): no ungated defaultLayer export. The runtime takes its
+// project-script gate at construction; production wires layer({ projectScriptGate })
+// in effect/supervisor-node.ts, so a gate-free factory has no legitimate consumer.
 export * as WorkflowRuntime from "./runtime"

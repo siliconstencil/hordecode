@@ -16,6 +16,7 @@ import {
   ToolListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js"
 import { Config } from "@/config/config"
+import { TrustGate } from "@/project/trust-gate"
 import { ConfigMCPV1 } from "@opencode-ai/core/v1/config/mcp"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
@@ -146,6 +147,10 @@ interface State {
   clients: Record<string, MCPClient>
   defs: Record<string, MCPToolDef[]>
   instructions: Record<string, string>
+  // K5: names the state builder refused because their code source is outside every
+  // trusted root. Kept so the later entrances (connect/enable, auth) ask the same
+  // question instead of re-resolving the static config and spawning the command.
+  denied: Record<string, true>
 }
 
 export interface ServerInstructions {
@@ -345,6 +350,14 @@ const layer = Layer.effect(
       const [cmd, ...args] = mcp.command
       const baseDir = yield* InstanceState.directory
       const cwd = mcp.cwd ? path.resolve(baseDir, mcp.cwd) : baseDir
+      // K6: a relative command resolves against the cwd that will run it; the resolved
+      // path is the code origin and must pass before the transport spawns.
+      if (!TrustGate.mayRunCommand(cwd, cmd)) {
+        return {
+          client: undefined as MCPClient | undefined,
+          status: { status: "failed", error: `command ${cmd} is outside every trusted root` } as Status,
+        }
+      }
       const transport = new StdioClientTransport({
         stderr: "pipe",
         command: cmd,
@@ -501,6 +514,7 @@ const layer = Layer.effect(
           clients: {},
           defs: {},
           instructions: {},
+          denied: {},
         }
 
         yield* Effect.forEach(
@@ -509,6 +523,16 @@ const layer = Layer.effect(
             Effect.gen(function* () {
               if (!isMcpConfigured(mcp)) {
                 yield* Effect.logError("Ignoring MCP config entry without type", { key })
+                return
+              }
+
+              // K5: the one boundary rule, per entry: a command whose source config
+              // file is outside every trusted root does not connect.
+              const denied = Config.codeDeniedSources(cfg.code_origins, "mcp", key)
+              if (denied.length) {
+                for (const source of denied) TrustGate.warnDenied(source)
+                s.status[key] = { status: "disabled" }
+                s.denied[key] = true
                 return
               }
 
@@ -790,6 +814,10 @@ const layer = Layer.effect(
 
     const getMcpConfig = Effect.fnUntraced(function* (mcpName: string) {
       const s = yield* InstanceState.get(state)
+      // K5: the connect/enable and auth entrances resolve the name here. A name the
+      // state builder refused stays refused even though the static config still has
+      // it; otherwise the fallback below would hand the project command to create().
+      if (s.denied[mcpName]) return undefined
       if (s.config[mcpName]) return s.config[mcpName]
 
       const cfg = yield* cfgSvc.get()

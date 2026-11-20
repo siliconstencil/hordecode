@@ -4,6 +4,9 @@ import { define } from "../internal"
 import { Npm } from "../../npm"
 import { ProviderV2 } from "../../provider"
 
+// K6: unreachable today - no executor is wired to this V2 provider plugin, so nothing
+// calls it. When one is wired, evt.package (which can be a file:// project path) must
+// go through TrustGate.mayRunFrom before the import below. No code change here yet.
 export const SapAICorePlugin = define({
   id: "sap-ai-core",
   effect: Effect.fn(function* (ctx) {

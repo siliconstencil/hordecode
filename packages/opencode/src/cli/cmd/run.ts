@@ -217,6 +217,11 @@ export const RunCommand = effectCmd({
         type: "number",
         describe: "port for the local server (defaults to random port if no value provided)",
       })
+      .option("trust", {
+        type: "boolean",
+        describe: "trust this project and load its project code (plugins, hooks, tools, MCP, LSP, formatters)",
+        default: false,
+      })
       .option("variant", {
         type: "string",
         describe: "model variant (provider-specific reasoning effort, e.g., high, max, minimal)",
@@ -593,6 +598,9 @@ export const RunCommand = effectCmd({
         if (!args.agent) return undefined
         const name = args.agent
 
+        // K3: agent lookup reads the instance the gate booted (InstanceRef is the
+        // store.load context), never the cwd fallback at effect/instance-state.ts:17-38.
+        // Upstream v1.19.5 cli/cmd/run.ts:585 reads the same instance without a gate.
         const entry = await Effect.runPromise(
           agentSvc.get(name).pipe(Effect.provideService(InstanceRef, localInstance)),
         )
@@ -1007,10 +1015,44 @@ type MiniCommandInput = {
   replay?: boolean
   replayLimit?: number
   demo?: boolean
+  trust?: boolean
+}
+
+// K3: runMini hands the yargs handler a constructed args object, so it takes the
+// CLI gate entry itself instead of relying on yargs to invoke effectCmd. miniGate
+// resolves the same directory the run command resolves; enterMiniProject boots it
+// through the same store.load the handler repeats (cached), so the --mini path is
+// behind the trust decision before its config load can write.
+// Upstream v1.19.5 cli/cmd/run.ts:968-1002 passes the handler through unchanged.
+// K3: returns null when --trust was refused, so the caller exits non-zero with the
+// one line trustDirectory printed instead of booting the project anyway.
+export async function miniGate(input: MiniCommandInput): Promise<string | null | undefined> {
+  if (input.attach) return undefined
+  const directory = input.directory ? path.resolve(process.cwd(), input.directory) : process.cwd()
+  // K3: --trust is recorded before either boot, so the boot decision and the
+  // config loader's mayWrite see it. Upstream v1.19.5 has no trust flag at all.
+  const { recordTrust } = await import("../effect-cmd")
+  const outcome = await recordTrust(directory, input.trust === true)
+  if (outcome?.status === "refused") {
+    process.exitCode = 1
+    return null
+  }
+  return directory
+}
+
+export async function enterMiniProject(input: MiniCommandInput) {
+  const directory = await miniGate(input)
+  if (directory === null) return null
+  if (!directory) return undefined
+  const { enterProject } = await import("../effect-cmd")
+  return enterProject(directory)
 }
 
 export async function runMini(input: MiniCommandInput) {
   if (!RunCommand.handler) throw new Error("Mini command handler is unavailable")
+  // K3: the gate/boot runs before the handler body. runMini already recorded
+  // --trust, so the handler keeps its own trust flag off to avoid a second print.
+  if ((await enterMiniProject(input)) === null) return
   await RunCommand.handler({
     $0: "opencode",
     _: ["mini"],
@@ -1042,5 +1084,6 @@ export async function runMini(input: MiniCommandInput) {
     "dangerously-skip-permissions": false,
     dangerouslySkipPermissions: false,
     demo: input.demo ?? false,
+    trust: false,
   })
 }

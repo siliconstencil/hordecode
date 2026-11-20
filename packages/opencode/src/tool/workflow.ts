@@ -6,7 +6,8 @@ import { ConfigHarness } from "@opencode-ai/core/config/harness"
 import { InstanceState } from "../effect/instance-state"
 import { workflowRef } from "@opencode-ai/workflow/runtime-ref"
 import { BuiltinWorkflow } from "@opencode-ai/workflow/builtin"
-import { resolveWorkflowScript } from "@opencode-ai/workflow/resolve"
+import { resolveWorkflowFile } from "@opencode-ai/workflow/resolve"
+import { TrustGate } from "../project/trust-gate"
 import type { SessionID } from "../session/schema"
 
 const id = "workflow"
@@ -110,7 +111,14 @@ export function namedWorkflowRoots(workspace: string | undefined, instance: { wo
 export async function lookupNamedWorkflow(name: string, start: string, stop: string): Promise<string | null> {
   const builtin = BuiltinWorkflow.get(name)
   if (builtin) return builtin.script
-  return resolveWorkflowScript(name, start, stop)
+  const file = await resolveWorkflowFile(name, start, stop)
+  if (!file) return null
+  // K5: a workflow file is a code origin; it loads iff mayRunFrom its path.
+  if (!TrustGate.mayRunFrom(file)) {
+    TrustGate.warnDenied(file)
+    return null
+  }
+  return Bun.file(file).text()
 }
 
 export const WorkflowTool = Tool.define<typeof Parameters, Metadata, Config.Service>(

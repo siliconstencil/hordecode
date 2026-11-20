@@ -19,11 +19,39 @@ export function isInlineScript(nameOrScript: string): boolean {
 // can never inject a separator and escape the workflows dir.
 const SAFE_NAME = /^[A-Za-z0-9._-]+$/
 
-export async function resolveWorkflowScript(name: string, start: string, stop: string): Promise<string | null> {
+// K3: the guest `workflow()` primitive can name a project file. The host injects
+// this provenance check so project code does not run in an untrusted project;
+// packages/workflow must not import the opencode gate, so the callback is passed in.
+// K5: the check is the one boundary rule on the resolved file path alone; the
+// boundary reads the trust store, so it needs no boot context.
+// Upstream 1.19.5 workflow/src/resolve.ts:25-33 has no such check.
+export type ProjectScriptAllow = (file: string) => boolean | Promise<boolean>
+
+export async function resolveWorkflowScript(
+  name: string,
+  start: string,
+  stop: string,
+  allow?: ProjectScriptAllow,
+): Promise<string | null> {
+  const file = await resolveWorkflowFile(name, start, stop, allow)
+  if (!file) return null
+  return Filesystem.readText(file)
+}
+
+// Same lookup, returning the file path so a caller can apply a provenance check
+// (the trust gate) before the project file is read as code. A denied candidate
+// fails closed: a same-named file higher up the walk is not used in its place.
+export async function resolveWorkflowFile(
+  name: string,
+  start: string,
+  stop: string,
+  allow?: ProjectScriptAllow,
+): Promise<string | null> {
   if (!SAFE_NAME.test(name)) throw new Error(`invalid workflow name: ${JSON.stringify(name)}`)
   const subdirs = [".hordecode/workflows", ".claude/workflows"]
   for (const found of await collectUp(name, subdirs, start, stop)) {
-    return Filesystem.readText(found)
+    if (allow && !(await allow(found))) return null
+    return found
   }
   return null
 }

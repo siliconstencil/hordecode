@@ -33,7 +33,9 @@ describe("config HttpApi", () => {
   it.live(
     "serves config update through the default server app",
     Effect.gen(function* () {
-      const tmp = yield* tmpdirEffect({ config: { formatter: false, lsp: false } })
+      // K4: this test patches a project config file; the config loader refuses that write
+      // while the project is untrusted, so opt in to the trusted decision.
+      const tmp = yield* tmpdirEffect({ config: { formatter: false, lsp: false }, trust: true })
       const disposed = yield* waitDisposed(tmp.path).pipe(Effect.forkScoped({ startImmediately: true }))
 
       const response = yield* Effect.promise(() =>

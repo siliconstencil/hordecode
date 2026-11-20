@@ -7,6 +7,7 @@ import { InstanceState } from "@/effect/instance-state"
 import path from "path"
 import { mergeDeep } from "remeda"
 import { Config } from "@/config/config"
+import { TrustGate } from "@/project/trust-gate"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { errorMessage } from "@/util/error"
 import * as Formatter from "./formatter"
@@ -137,6 +138,13 @@ const layer = Layer.effect(
 
         if (cfg.formatter !== true) {
           for (const [name, item] of Object.entries(cfg.formatter)) {
+            // K5: a command whose source config file is outside every trusted root
+            // does not run.
+            const denied = Config.codeDeniedSources(cfg.code_origins, "formatter", name)
+            if (denied.length) {
+              for (const source of denied) TrustGate.warnDenied(source)
+              continue
+            }
             const builtIn = Formatter[name as keyof typeof Formatter]
 
             // Ruff and uv are both the same formatter, so disabling either should disable both.

@@ -22,6 +22,7 @@ import { Config } from "@/config/config"
 import { Provider } from "@/provider/provider"
 import { Worktree } from "@/worktree"
 import { WorkflowRuntime } from "@opencode-ai/workflow/runtime"
+import { TrustGate } from "@/project/trust-gate"
 
 const BusNode = LayerNode.make({
   service: Bus.Service,
@@ -114,8 +115,14 @@ export const SessionPruneNode = LayerNode.make({
 // the runtime's core-service yields ("@opencode/Provider" etc.) exactly like
 // SupervisorNode satisfies Supervisor's core Session.Service. The runtime populates
 // workflowRef (runtime.ts:1429), which tool/workflow.ts reads at call time.
+// K3: the runtime cannot import the gate (packages/workflow has no opencode
+// dependency), so the trust decision is injected here. K5: a child workflow file is
+// a code origin, decided by the same mayRunFrom the root lookup uses.
+// Upstream 1.19.5 has no workflow runtime and no gate.
 export const WorkflowNode = LayerNode.make({
   service: WorkflowRuntime.Service,
-  layer: WorkflowRuntime.layer as Layer.Layer<WorkflowRuntime.Service, never, never>,
+  layer: WorkflowRuntime.layer({
+    projectScriptGate: (file) => TrustGate.mayRunFrom(file),
+  }) as Layer.Layer<WorkflowRuntime.Service, never, never>,
   deps: [BusNode, InboxNode, Worktree.node, Provider.node, Config.node, Session.node, SupervisorRegistryNode],
 })

@@ -4,6 +4,7 @@ import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Server } from "../../src/server/server"
+import { TrustGate } from "../../src/project/trust-gate"
 import { PtyPaths } from "../../src/server/routes/instance/httpapi/groups/pty"
 import { withTimeout } from "../../src/util/timeout"
 import { resetDatabase } from "../fixture/db"
@@ -329,6 +330,8 @@ describe("HttpApi Server.listen", () => {
         return { initialized, completed }
       },
     })
+    // K2: project plugin code only loads for a trusted worktree.
+    await TrustGate.trust(tmp.path)
     const previous = process.env.OPENCODE_DISABLE_DEFAULT_PLUGINS
     process.env.OPENCODE_DISABLE_DEFAULT_PLUGINS = "1"
     let listener: Awaited<ReturnType<typeof startListener>> | undefined

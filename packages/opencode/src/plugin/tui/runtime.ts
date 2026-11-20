@@ -41,6 +41,7 @@ import { ConfigPlugin } from "@/config/plugin"
 import { ConfigPluginV1 } from "@opencode-ai/core/v1/config/plugin"
 import { createCommandShim } from "@opencode-ai/tui/plugin/command-shim"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { TrustGate } from "@/project/trust-gate"
 import { Effect } from "effect"
 import { createPluginRuntime, type PluginRuntime, type TuiPluginHost } from "@opencode-ai/tui/plugin/runtime"
 
@@ -256,7 +257,14 @@ function createThemeInstaller(
       path.basename(source_dir) === ".hordecode" || path.basename(source_dir) === ".opencode"
         ? path.join(source_dir, "themes")
         : path.join(source_dir, ".hordecode", "themes")
-    const dest_dir = meta.scope === "local" ? local_dir : path.join(Global.Path.config, "themes")
+    // K6: the destination follows the origin, not the old scope label, and a source is
+    // project-local only when it sits inside this worktree AND the trust gate allows it.
+    // mayRunFrom alone is also true for a user-owned global config dir and for any
+    // allowed ancestor, and those must write the global tree, never the project's.
+    const worktree = Filesystem.resolve(TrustGate.resolveWorktree(process.cwd()))
+    const in_worktree = Filesystem.contains(worktree, Filesystem.resolve(source_dir))
+    const dest_dir =
+      in_worktree && TrustGate.mayRunFrom(source_dir) ? local_dir : path.join(Global.Path.config, "themes")
     const dest = path.join(dest_dir, `${name}.json`)
     const stat = await Filesystem.statAsync(src)
     const mtime = stat ? Math.floor(typeof stat.mtimeMs === "bigint" ? Number(stat.mtimeMs) : stat.mtimeMs) : undefined
@@ -1087,9 +1095,16 @@ async function load(input: {
     )
     const pluginOrigins = config.plugin_origins ?? (await TuiConfig.pluginOrigins())
     const pureMode = Flag.HORDECODE_PURE || Flag.OPENCODE_PURE
-    const records = pureMode ? [] : pluginOrigins
-    if (pureMode && pluginOrigins.length) {
-    }
+    // K5: the TUI thread never boots an instance, and it no longer needs to: each
+    // origin is a code origin, and mayRunFrom answers from the trust store alone.
+    const allowedOrigins = pluginOrigins.filter((origin) => {
+      if (TrustGate.mayRunFrom(origin.source)) return true
+      TrustGate.warnDenied(origin.source)
+      return false
+    })
+    const records = pureMode ? [] : allowedOrigins
+    // K6 (ruling 4): removed the empty pure-mode if-block; `records` already selects
+    // [] under pure mode, so it had no effect.
 
     for (const item of internalTuiPlugins(flags)) {
       const entry = loadInternalPlugin(item)

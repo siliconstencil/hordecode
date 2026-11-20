@@ -1,4 +1,5 @@
 import { cmd } from "./cmd"
+import path from "path"
 import { UI } from "@/cli/ui"
 import { errorMessage } from "@opencode-ai/tui/util/error"
 import { validateSession } from "../tui/validate-session"
@@ -58,6 +59,11 @@ export const AttachCommand = cmd({
       .option("replay-limit", {
         type: "number",
         describe: "cap visible mini replay to the newest N messages",
+      })
+      .option("trust", {
+        type: "boolean",
+        describe: "trust this project and load its project code",
+        default: false,
       }),
   handler: async (args) => {
     if (args.replay === true) {
@@ -66,7 +72,6 @@ export const AttachCommand = cmd({
       return
     }
     const noReplay = args.replay === false || args.noReplay === true
-
     const directory = (() => {
       if (!args.dir) return undefined
       try {
@@ -74,9 +79,23 @@ export const AttachCommand = cmd({
         return process.cwd()
       } catch {
         // If the directory doesn't exist locally (remote attach), pass it through.
-        return args.dir
+        return path.resolve(args.dir)
       }
     })()
+
+    // K2: the one non-interactive opt-in. attach talks to a remote server, but the
+    // local project directory is what a later local run/TUI reads from the store.
+    // K3: a refused trust is an error, not a silent no-op.
+    // K4 (ruling 7 Minor 4): --dir X means trust X's worktree, not the cwd the
+    // command happened to start in.
+    if (args.trust) {
+      const { TrustGate } = await import("@/project/trust-gate")
+      const outcome = await TrustGate.trustDirectory(directory ?? process.cwd())
+      if (outcome.status === "refused") {
+        process.exitCode = 1
+        return
+      }
+    }
 
     if (args.mini) {
       const { runMini } = await import("./run")
