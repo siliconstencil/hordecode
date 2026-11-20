@@ -407,27 +407,43 @@ export const SupervisorTool = Tool.define(
             const providers = yield* provider.list()
             const allModels = Object.values(providers).flatMap((info) => Object.values(info.models))
             const filtered = op.vision ? allModels.filter((m) => m.capabilities.input.image === true) : allModels
-            const ordered = op.vision
+            const sorted = op.vision
               ? sortVisionModels(filtered)
               : [...filtered].sort((a, b) =>
                   `${a.providerID}/${a.id}`.localeCompare(`${b.providerID}/${b.id}`),
                 )
+            // F6: the session provider's models come first so the model does not pick a refused one.
+            const sessionProviderID = (ctx.extra as { model?: Provider.Model } | undefined)?.model?.providerID
+            const allowCrossProvider =
+              (yield* config.get()).supervisor?.allow_cross_provider_models === true
+            const onSessionProvider = (m: { providerID: string }) =>
+              sessionProviderID !== undefined && m.providerID === sessionProviderID
+            const ordered =
+              sessionProviderID === undefined
+                ? sorted
+                : [...sorted.filter(onSessionProvider), ...sorted.filter((m) => !onSessionProvider(m))]
+            const needsOptOut = (m: { providerID: string }) =>
+              !allowCrossProvider && sessionProviderID !== undefined && !onSessionProvider(m)
             const limit = op.limit ?? 50
             const shown = ordered.slice(0, limit)
-            const lines = shown.map((m) =>
-              `${m.providerID}/${m.id}${m.capabilities.input.image ? " (vision)" : ""}`,
+            const lines = shown.map(
+              (m) =>
+                `${m.providerID}/${m.id}${m.capabilities.input.image ? " (vision)" : ""}${needsOptOut(m) ? " (needs opt-out)" : ""}`,
             )
             const header = op.vision ? `Vision-capable models` : `Available models`
             const more =
               ordered.length > shown.length
                 ? `\n... and ${ordered.length - shown.length} more (raise --limit)`
                 : ""
+            const optOutNote = ordered.some(needsOptOut)
+              ? `\nModels marked "needs opt-out" run on another provider than this session; set "supervisor.allow_cross_provider_models": true to pass them to supervisor --model.`
+              : ""
             const output =
               shown.length === 0
                 ? op.vision
                   ? "No vision-capable models are configured. Configure a vision model or use an OCR tool."
                   : "No models are configured."
-                : `${header} (${shown.length} of ${ordered.length}):\n${lines.join("\n")}${more}\nPass any of these to supervisor --model.`
+                : `${header} (${shown.length} of ${ordered.length}):\n${lines.join("\n")}${more}\nPass any of these to supervisor --model.${optOutNote}`
             return {
               title: header,
               metadata: {} as Metadata,
@@ -564,6 +580,14 @@ export const SupervisorTool = Tool.define(
           const background = op.action === "spawn"
 
           const fallbackModel = (ctx.extra as { model?: Provider.Model } | undefined)?.model
+          const cfg = yield* config.get()
+          // F6: a literal model chosen by the model stays on the session provider unless the user opted out.
+          if (op.model && fallbackModel && cfg.supervisor?.allow_cross_provider_models !== true) {
+            const refusal = yield* ModelValue.crossProviderRefusal(provider, op.model, fallbackModel.providerID)
+            if (refusal) {
+              return yield* Effect.die(new Tool.InvalidArgumentsError({ tool: id, detail: refusal }))
+            }
+          }
           // op.model may be a model_groups name: an unknown group warns and falls back to the agent model.
           // The agent model resolves its own group (agent.modelRef) per spawn, as prompt turns do.
           const opModel = op.model
@@ -613,7 +637,7 @@ export const SupervisorTool = Tool.define(
             : { sessionID: ctx.sessionID, parentSupervisorID: ctx.supervisorID }
           // Breadth limit (see maxSubagentsLimit), per session tree.
           const rootSessionID = yield* rootSessionOf(sessions, ctx.sessionID)
-          const slotLimit = maxSubagentsLimit((yield* config.get()).supervisor?.max_subagents)
+          const slotLimit = maxSubagentsLimit(cfg.supervisor?.max_subagents)
           const subagentSlot = yield* acquireSubagentSlot(supervisorReg, rootSessionID, slotLimit)
           if (!subagentSlot) {
             return yield* Effect.die(new Error(subagentBreadthRefusal(slotLimit)))

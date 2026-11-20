@@ -158,6 +158,11 @@ export const Info = Schema.Struct({
         description:
           "Subagents the supervisor tool runs at once in one session tree (the session and every session under it). Default: 8. Values above 16 are capped at 16. Workflow agents have their own limit (workflow.maxConcurrentAgents).",
       }),
+      // F6: a model named by the model in a supervisor or session create call stays on the session provider.
+      allow_cross_provider_models: Schema.optional(Schema.Boolean).annotate({
+        description:
+          "Allow a `model` passed to the supervisor or session create tool to name a model on a provider other than the session's. Default: false. Model groups and agent models from the user's config are always allowed across providers.",
+      }),
     }),
   ).annotate({ description: "Supervisor tool settings." }),
   provider: Schema.optional(Schema.Record(Schema.String, ConfigProviderV1.Info)).annotate({

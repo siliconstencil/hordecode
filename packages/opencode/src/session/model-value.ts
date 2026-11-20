@@ -40,3 +40,25 @@ export const agentModel = Effect.fnUntraced(function* (
   const resolved = yield* resolveModelValue(provider, ag.modelRef, { agent: ag.name }, contextProviderID)
   return resolved ?? ag.model
 })
+
+// F6: a literal "provider/model" chosen by the model must stay on the session provider. A model
+// group (the user's config) is exempt and may cross providers. Returns the refusal text, or
+// undefined when the ref is allowed, naming the session provider's models so the caller can pick one.
+export const crossProviderRefusal = Effect.fnUntraced(function* (
+  provider: Provider.Interface,
+  ref: string,
+  sessionProviderID: ProviderV2.ID,
+) {
+  if (!ref.includes("/")) return undefined
+  const parsed = Provider.parseModel(ref)
+  if (parsed.providerID === sessionProviderID) return undefined
+  const providers = yield* provider.list()
+  const models = Object.values(providers[sessionProviderID]?.models ?? {}).map((m) => `${m.providerID}/${m.id}`)
+  const listed = models.length > 0 ? models.join(", ") : "none configured"
+  return (
+    `model "${ref}" is on provider "${parsed.providerID}", but this session runs on "${sessionProviderID}". ` +
+    `A model chosen in a tool call must stay on the session provider. ` +
+    `Models on "${sessionProviderID}": ${listed}. ` +
+    `Set "supervisor.allow_cross_provider_models": true to allow a model from another provider.`
+  )
+})
