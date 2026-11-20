@@ -23,6 +23,8 @@ const opt = (name: string, fallback: string) => {
   return args[idx + 1] ?? fallback
 }
 const root = path.resolve(import.meta.dir, "..")
+// P196A: the header cites the canonical path from the main checkout, which is what a reader there can open.
+const mainRoot = path.resolve(root, path.dirname((await $`git -C ${root} rev-parse --git-common-dir`.text()).trim()))
 const base = opt("--base", "v1.17.18")
 const ref = path.resolve(root, opt("--ref", "../repos/opencode-1.19.3"))
 const parityLabel = path.basename(ref).replace(/^opencode-/, "")
@@ -129,7 +131,7 @@ Regenerate with \`bun run script/upstream-map.ts\` (writes this file and \`docs/
 Reference points:
 
 - Git base: upstream tag \`${base}\` (an ancestor of \`main\`).
-- Parity reference: opencode ${parityLabel} checkout at \`${path.relative(root, ref)}\`.
+- Parity reference: opencode ${parityLabel} checkout at \`${path.relative(mainRoot, ref)}\`.
 - MiMo Code references: \`../repos/mimocode-v0.1.5\` (starting base) and \`../repos/mimocode-v0.1.11\` (parity), selective from 0.1.12.
 
 ## Classes

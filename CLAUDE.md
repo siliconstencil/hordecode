@@ -48,7 +48,7 @@ https://github.com/anomalyco/opencode and https://github.com/XiaomiMiMo/MiMo-Cod
 Create one with, for example,
 `git clone --depth 1 --branch v1.19.6 https://github.com/anomalyco/opencode ../repos/opencode-1.19.6`.
 Regenerate the ownership map with
-`bun run script/upstream-map.ts --base v1.19.6 --ref ../repos/opencode-1.19.6`.
+`bun run script/upstream-map.ts --base v1.17.18 --ref ../repos/opencode-1.19.6`.
 
 Never cite a folder by its label alone; check `package.json` version or the git tag first.
 
