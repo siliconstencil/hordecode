@@ -4,26 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-11-20
+
 ### Added
 
 - `supervisor.allow_cross_provider_models` (default off) lets a `model` passed to the supervisor or
   `session create` tool name a model on a provider other than the session's. Model groups and agent
   models from the user's config are always allowed across providers.
-
-### Fixed
-
-- A supervisor subagent that settles with a provider error reports the provider message in the tool
-  result (`Supervisor assistant failed: <name>: <message>`, one line, at most 300 characters)
-  instead of only the error name.
-- A `model` chosen by the model in a `supervisor` or `session create` call must stay on the session
-  provider; a cross-provider literal is refused with the session provider's models listed. The
-  `models` action lists the session provider's models first and marks the others as needing the
-  opt-out.
-
-## [0.1.6] - 2026-11-20
-
-### Added
-
 - Advisor `no_progress` trigger: consecutive read-only tool calls at the end of the turn (bash, edits and
   delegated work reset it; default 25, high 15, low 0 = off). `experimental.advisor.rearm: true` (default off) lets it fire again after the count grows by its
   threshold.
@@ -75,6 +62,13 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- A supervisor subagent that settles with a provider error reports the provider message in the tool
+  result (`Supervisor assistant failed: <name>: <message>`, one line, at most 300 characters)
+  instead of only the error name.
+- A `model` chosen by the model in a `supervisor` or `session create` call must stay on the session
+  provider; a cross-provider literal is refused with the session provider's models listed. The
+  `models` action lists the session provider's models first and marks the others as needing the
+  opt-out.
 - MiniMax streams that close a tool call before its last argument chunk are repaired before the SDK
   parses them; every other provider's stream is unchanged.
 - Overflow compaction no longer drops the user's attachments when replaying the last user turn.
