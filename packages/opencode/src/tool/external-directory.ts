@@ -7,6 +7,8 @@ import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Global } from "@opencode-ai/core/global"
 import { HarnessEnv } from "@opencode-ai/core/session/harness-env"
 import { ProtectedPath } from "@/permission/protected-path"
+// F7: the single write gate is where the installed-skill lock runs.
+import { InstalledSkill } from "@/permission/installed-skill"
 import { Config } from "@/config/config"
 import { isMemoryWriteEnabled } from "@/memory/write-gate"
 import { assertAgentWriteSandbox, assertMemoryWriteAllowed } from "@opencode-ai/core/tool/memory-path-guard"
@@ -118,6 +120,11 @@ export const assertWriteAllowed = Effect.fn("Tool.assertWriteAllowed")(function*
 ) {
   yield* assertExternalDirectoryEffect(ctx, target, options)
   if (!target) return
+
+  // F7: installed harness and research skills are read-only: a run must not
+  // rewrite the product's own instructions. The deny is hard, so no allow rule
+  // can relax it; user-authored skill dirs are outside these roots and stay writable.
+  yield* InstalledSkill.assert(ctx, [target])
 
   const ins = yield* InstanceState.context
   const full = process.platform === "win32" ? FSUtil.normalizePath(target) : target

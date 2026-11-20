@@ -30,7 +30,10 @@ Triage failed research runs. Diagnose which phase failed, why, and what to fix. 
 
 ## Failure Patterns
 
-Maintained in `../research/conf/failure-patterns.md`. Add new patterns as discovered.
+The catalog lives in `../research/conf/failure-patterns.md`. It is read-only: to add a
+pattern, write a proposal to `docs/harness/proposals/<run-id>-research-debug.md` with the
+evidence (run id, phase, detection output), the pattern, and the exact diff against the
+bundled file; then stop and ask the user.
 
 ## Anti-Patterns
 

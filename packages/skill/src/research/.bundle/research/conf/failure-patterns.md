@@ -1,6 +1,6 @@
 # Research Pipeline -- Known Failure Patterns
 
-> Maintained by research:debug skill. Updated after each failed run.
+> Maintained by the owner through proposals; research:debug never edits this file.
 > Analog to harness's eval/failure-patterns.md.
 
 ---

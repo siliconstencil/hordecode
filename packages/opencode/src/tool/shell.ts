@@ -29,6 +29,8 @@ import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner
 import { ShellPrompt, type Parameters } from "./shell/prompt"
 import { BashArity } from "@/permission/arity"
 import { ProtectedPath } from "@/permission/protected-path"
+// F7: shell redirects into an installed bundle root ask installed_skill_write.
+import { InstalledSkill } from "@/permission/installed-skill"
 import * as BashInteractive from "./bash-interactive"
 
 export { Parameters } from "./shell/prompt"
@@ -172,6 +174,8 @@ type Part = {
 type Scan = {
   dirs: Set<string>
   protected: Set<string>
+  // F7: redirect destinations resolved into an installed bundle root.
+  installed: Set<string>
   patterns: Set<string>
   always: Set<string>
   deletes: Set<string>
@@ -636,6 +640,8 @@ export const ShellTool = Tool.define(
       const scan: Scan = {
         dirs: new Set<string>(),
         protected: new Set<string>(),
+        // F7: one scan-owned set for redirect destinations under a bundle root.
+        installed: new Set<string>(),
         patterns: new Set<string>(),
         always: new Set<string>(),
         deletes: new Set<string>(),
@@ -723,6 +729,11 @@ export const ShellTool = Tool.define(
         const target = node?.childForFieldName("destination")
         const file = target && ProtectedPath.matchWord(target.text, cwd)
         if (file) scan.protected.add(file)
+        // F7: a redirect destination is reliably a write. Only a statically
+        // resolvable path is inspected; $VAR, ~, globs and command substitution
+        // are left to the open decision in reports/0.1.6/f7-installed-skills-read-only.md.
+        const resolved = target && staticPath(target.text, cwd)
+        for (const hit of resolved ? InstalledSkill.match(resolved) : []) scan.installed.add(hit)
       }
 
       return scan
@@ -1007,6 +1018,8 @@ export const ShellTool = Tool.define(
                   if (denied.length > 0) return
                   if (!containsPath(cwd, instanceCtx)) scan.dirs.add(cwd)
                   yield* ProtectedPath.assert(ctx, scan.protected)
+                  // F7: hard deny before the bash/askDelete prompt can offer an allow.
+                  yield* InstalledSkill.assert(ctx, scan.installed)
                   // Delete-containing commands are authorized by askDelete alone --
                   // the delete UI shows the full command (including any external
                   // paths it touches), so a separate bash/external_directory

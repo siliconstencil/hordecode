@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import { extractBuiltinBundle } from "../src/builtin/extract"
 import { extractHarnessBundle } from "../src/harness/extract"
 import { extractResearchBundle } from "../src/research/extract"
@@ -13,11 +13,27 @@ import { extractResearchBundle } from "../src/research/extract"
 // data root extracts nothing, while a bundle (or flag) change re-extracts.
 function countingFs() {
   const writes: string[] = []
+  // F7: content map so the integrity scan can verify files without touching disk.
+  const files = new Map<string, string>()
+  const mtimes = new Map<string, number>()
+  let tick = 1
   let marker: string | undefined
   const fsys = {
     existsSafe: (path: string) => Effect.succeed(path === marker),
-    writeWithDirs: (path: string) => {
+    stat: (path: string) =>
+      files.has(path)
+        ? Effect.succeed({
+            type: "File",
+            size: BigInt(Buffer.byteLength(files.get(path)!)),
+            mtime: Option.some(new Date(mtimes.get(path) ?? 0)),
+          })
+        : Effect.fail(new Error(`missing ${path}`)),
+    readFileString: (path: string) =>
+      files.has(path) ? Effect.succeed(files.get(path)!) : Effect.fail(new Error(`missing ${path}`)),
+    writeWithDirs: (path: string, content: string) => {
       writes.push(path)
+      files.set(path, content)
+      mtimes.set(path, tick++)
       if (path.includes("/.extracted-")) marker = path
       return Effect.void
     },
