@@ -374,6 +374,16 @@ const cases: Case[] = [
     file: "src/main.jl",
     files: { "Project.toml": "name = \"App\"\n", "src/main.jl": "module App\nend\n" },
   },
+  {
+    // K8: tinymist's default mode compiles the document, so the project's Typst code -
+    // including WASM plugins - runs. A recording server stands in for that compiler.
+    name: "Tinymist",
+    id: "tinymist",
+    binary: "tinymist",
+    marker: "k8-tinymist-init.json",
+    file: "main.typ",
+    files: { "typst.toml": "[package]\nname = \"app\"\n", "main.typ": "= Hi\n" },
+  },
 ]
 
 const untrusted = (item: Case) =>

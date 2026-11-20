@@ -2057,6 +2057,9 @@ export const Tinymist: Info = {
   extensions: [".typ", ".typc"],
   root: NearestRoot(["typst.toml"]),
   async spawn(root, _ctx, flags) {
+    // K8: tinymist's default mode compiles the document, so the project's Typst code -
+    // including WASM plugins in its sandbox - runs (tinymist docs, compile/export).
+    if (projectCodeDenied(root)) return
     let bin = which("tinymist")
 
     if (!bin) {
