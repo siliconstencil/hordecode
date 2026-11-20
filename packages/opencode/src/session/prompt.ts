@@ -1827,7 +1827,11 @@ const layer = Layer.effect(
                   messageID: lastAssistant.id,
                   sessionID,
                   type: "text",
-                  text: "The model ended the step without a tool call; retrying once.",
+                  // F4b: name the cut reason in the row.
+                  text:
+                    degenerate.kind === "repetition"
+                      ? "The model repeated itself; the step was stopped and retried once."
+                      : "The model ended the step without a tool call; retrying once.",
                   synthetic: true,
                   ignored: true,
                   time: { start: now, end: now },
@@ -1874,6 +1878,8 @@ const layer = Layer.effect(
                 role: "user",
                 sessionID,
                 agent: lastUser.agent,
+                // F4b: a DSML reentry keeps the agentID, or the supervisor row and tool allowlist are lost.
+                agentID: lastUser.agentID,
                 model: lastUser.model,
                 tools: lastUser.tools,
                 format: lastUser.format,

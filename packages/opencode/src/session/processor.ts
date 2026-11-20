@@ -2,6 +2,7 @@ import * as CacheWatch from "./cache-watch"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { Image } from "@/image/image"
+import { createRepetitionMonitor } from "./degenerate-step"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Cause, Deferred, Effect, Exit, Layer, Context, Scope, Schema } from "effect"
 import * as Stream from "effect/Stream"
@@ -212,6 +213,10 @@ interface ProcessorContext extends Input {
   snapshot: string | undefined
   blocked: boolean
   needsCompaction: boolean
+  // F4b: the stream was cut for repetition; the step ends as a clean stop.
+  repetitionCut: boolean
+  monitoring: boolean
+  sawToolCall: boolean
   currentText: SessionV1.TextPart | undefined
   reasoningMap: Record<string, SessionV1.ReasoningPart>
   stopReason?: string | null
@@ -258,12 +263,17 @@ const layer = Layer.effect(
         snapshot: initialSnapshot,
         blocked: false,
         needsCompaction: false,
+        repetitionCut: false,
+        monitoring: false,
+        sawToolCall: false,
         currentText: undefined,
         reasoningMap: {},
         tools: undefined,
         healed: undefined,
       }
       let aborted = false
+      // F4b: one monitor per processor, reset for every step.
+      const repetition = createRepetitionMonitor()
 
       const cfg = yield* config.get()
       const tryBestConfig = cfg.experimental?.try_best
@@ -528,6 +538,24 @@ const layer = Layer.effect(
               field: "text",
               delta: value.text,
             })
+
+            // F4b: never cut after a tool call, while a DSML envelope is streaming, or on a replay.
+            if (ctx.monitoring && !ctx.repetitionCut && !ctx.sawToolCall && !value.text.includes("\uFF5CDSML\uFF5C") && repetition.append(value.text)) {
+              ctx.repetitionCut = true
+              const now = Date.now()
+              yield* session.updatePart({
+                id: PartID.ascending(),
+                messageID: ctx.assistantMessage.id,
+                sessionID: ctx.assistantMessage.sessionID,
+                type: "text",
+                text: "",
+                synthetic: true,
+                ignored: true,
+                time: { start: now, end: now },
+                metadata: { repetitionCut: true },
+              } satisfies SessionV1.TextPart)
+              yield* Effect.logInfo("repetition:cut", { "session.id": ctx.sessionID })
+            }
             return
 
           case "reasoning-end":
@@ -554,6 +582,8 @@ const layer = Layer.effect(
           }
 
           case "tool-call": {
+            // F4b: sticky for the step; a settled tool must not re-open the repetition window.
+            ctx.sawToolCall = true
             if (ctx.assistantMessage.summary) {
               throw new Error(`Tool call not allowed while generating summary: ${value.name}`)
             }
@@ -808,6 +838,24 @@ const layer = Layer.effect(
               field: "text",
               delta: value.text,
             })
+
+            // F4b: never cut after a tool call, while a DSML envelope is streaming, or on a replay.
+            if (ctx.monitoring && !ctx.repetitionCut && !ctx.sawToolCall && !value.text.includes("\uFF5CDSML\uFF5C") && repetition.append(value.text)) {
+              ctx.repetitionCut = true
+              const now = Date.now()
+              yield* session.updatePart({
+                id: PartID.ascending(),
+                messageID: ctx.assistantMessage.id,
+                sessionID: ctx.assistantMessage.sessionID,
+                type: "text",
+                text: "",
+                synthetic: true,
+                ignored: true,
+                time: { start: now, end: now },
+                metadata: { repetitionCut: true },
+              } satisfies SessionV1.TextPart)
+              yield* Effect.logInfo("repetition:cut", { "session.id": ctx.sessionID })
+            }
             return
 
           case "text-end":
@@ -1035,6 +1083,11 @@ const layer = Layer.effect(
           messageID: input.assistantMessage.id,
         })
         ctx.needsCompaction = false
+        // F4b: the window is per step, so the retry starts with a clean buffer.
+        repetition.reset()
+        ctx.repetitionCut = false
+        ctx.monitoring = true
+        ctx.sawToolCall = false
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
         // The tools of this turn: a DSML envelope is healed only into a tool this turn may call.
         ctx.tools = streamInput.tools as never
@@ -1056,7 +1109,8 @@ const layer = Layer.effect(
                   yield* handleEvent(event as StreamEvent)
                 }),
               ),
-              Stream.takeUntil(() => ctx.needsCompaction),
+              // F4b: the cut ends the stream here; the provider request is aborted by the scope.
+              Stream.takeUntil(() => ctx.needsCompaction || ctx.repetitionCut),
               Stream.runDrain,
             )
 
@@ -1080,6 +1134,11 @@ const layer = Layer.effect(
                 })
               }
               ctx.assistantMessage.finish = "tool-calls"
+              yield* session.updateMessage(ctx.assistantMessage)
+            }
+            // F4b: a cut stream ends as a clean stop; the finish gate classifies the marker as repetition.
+            if (ctx.repetitionCut) {
+              ctx.assistantMessage.finish = "stop"
               yield* session.updateMessage(ctx.assistantMessage)
             }
           }).pipe(
@@ -1124,6 +1183,8 @@ const layer = Layer.effect(
       const replay = Effect.fn("SessionProcessor.replay")(function* (input: ReplayInput) {
         yield* Effect.logDebug("replay", { toolCalls: input.toolCalls.length, finish: input.finishReason })
         ctx.needsCompaction = false
+        // F4b: a replay of buffered text is not a live stream; never cut on it.
+        ctx.monitoring = false
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
         const ctrl = new AbortController()
         return yield* Effect.gen(function* () {

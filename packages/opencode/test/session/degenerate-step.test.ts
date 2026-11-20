@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { degenerateStep, isToolMarkupFragment, reasoningTailRepeats } from "../../src/session/degenerate-step"
+import { createRepetitionMonitor, degenerateStep, isToolMarkupFragment, reasoningTailRepeats } from "../../src/session/degenerate-step"
 
 const text = (s: string) => ({ type: "text", text: s })
 const reason = (s: string) => ({ type: "reasoning", text: s })
@@ -43,4 +43,39 @@ describe("degenerateStep", () => {
     expect(degenerateStep({ ...base, error: new Error("aborted"), parts: [text("</oldString>")] })).toBeUndefined())
   test("finish length is not degenerate", () =>
     expect(degenerateStep({ ...base, finish: "length", parts: [text("</oldString>")] })).toBeUndefined())
+})
+
+
+describe("createRepetitionMonitor", () => {
+  test("cuts a repeated reasoning stream", () => {
+    const monitor = createRepetitionMonitor()
+    expect(monitor.append("hmm: ".repeat(200))).toBe(true)
+  })
+  test("cuts the same stream at three-character delta boundaries", () => {
+    const monitor = createRepetitionMonitor()
+    const stream = "hmm: ".repeat(200)
+    let fired = false
+    for (let i = 0; i < stream.length && !fired; i += 3) fired = monitor.append(stream.slice(i, i + 3))
+    expect(fired).toBe(true)
+  })
+  test("does not cut ordinary prose", () => {
+    const monitor = createRepetitionMonitor()
+    expect(
+      monitor.append(
+        ("The file has three callers. I will read the first one, then update the test. " +
+          "There is no shortcut here; each branch needs its own check. ").repeat(6),
+      ),
+    ).toBe(false)
+  })
+  test("does not cut a short marker", () => {
+    const monitor = createRepetitionMonitor()
+    expect(monitor.append("</table>")).toBe(false)
+  })
+})
+
+describe("degenerateStep repetition cut marker", () => {
+  test("a repetition-cut marker is a repetition stop", () =>
+    expect(degenerateStep({ ...base, parts: [{ type: "text", text: "", metadata: { repetitionCut: true } }] })?.kind).toBe(
+      "repetition",
+    ))
 })
