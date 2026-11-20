@@ -46,7 +46,7 @@ import { EventV2Bridge } from "@/event-v2-bridge"
 import { Skill } from "../../src/skill"
 import { TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
-import { TestLLMServer } from "../lib/llm-server"
+import { TestLLMServer, reply } from "../lib/llm-server"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Location } from "@opencode-ai/core/location"
 import { InstanceBootstrap } from "@/project/bootstrap"
@@ -286,7 +286,7 @@ it.instance("field shape: a fragment stop is retried once and its payload is not
     const sessions = yield* Session.Service
     const chat = yield* sessions.create({ title: "degenerate retry", permission: allowAll })
 
-    yield* llm.reason(REPEAT, { text: "</oldString>" })
+    yield* llm.reason("The edit is nearly complete; check the closing tag next.", { text: "</oldString>" })
     yield* llm.text("Done.")
 
     yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
@@ -301,7 +301,7 @@ it.instance("field shape: a fragment stop is retried once and its payload is not
     // Stored history keeps what the user sees; only the replay copy drops it.
     const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
     expect(
-      msgs.some((m) => m.parts.some((p) => p.type === "reasoning" && p.text.includes("hmm: hmm: hmm:"))),
+      msgs.some((m) => m.parts.some((p) => p.type === "reasoning" && p.text.includes("closing tag"))),
     ).toBe(true)
     expect(msgs.some((m) => m.parts.some((p) => p.type === "text" && p.text.includes("</oldString>")))).toBe(true)
     const last = msgs.findLast((m) => m.info.role === "assistant")
@@ -354,7 +354,8 @@ it.instance("a repetition stop's long payload text is not replayed either", () =
     const marker = "const marker = 42"
     const payload = marker + "\n" + "x".repeat(60)
 
-    yield* llm.reason(REPEAT, { text: payload })
+    // Text first so it is stored; the repeated reasoning follows and cuts the stream.
+    yield* llm.push(reply().text(payload).reason(REPEAT).stop())
     yield* llm.text("Done.")
 
     yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
@@ -399,10 +400,108 @@ it.instance("the retry keeps the supervisor agentID and allowlist", () =>
     })
 
     expect(yield* llm.calls).toBe(2)
+    expect(yield* llm.calls).toBe(2)
     const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
     const reentry = msgs.findLast((m) => m.info.role === "user")
     expect(reentry?.info.role === "user" ? reentry.info.agentID : undefined).toBe("worker")
     const last = msgs.findLast((m) => m.info.role === "assistant")
     expect(last?.info.role === "assistant" ? last.info.agentID : undefined).toBe("worker")
+  }),
+)
+
+
+it.instance("a stream that degenerates is cut before its end and retried once", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "repetition cut", permission: allowAll })
+
+    const flow = reply()
+    for (let i = 0; i < 40; i++) flow.reason("hmm: ".repeat(8))
+    yield* llm.push(flow.stop())
+    yield* llm.text("Done.")
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+    expect(yield* llm.calls).toBe(2)
+    const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
+    const reasoning = msgs
+      .flatMap((m) => m.parts)
+      .filter((p) => p.type === "reasoning")
+      .reduce((n, p) => n + p.text.length, 0)
+    // The full stream is 40 x 8 x 5 = 1600 chars; the cut keeps well under half.
+    expect(reasoning).toBeLessThan(800)
+    expect(yield* degenerateParts(chat.id)).toHaveLength(1)
+    const last = msgs.findLast((m) => m.info.role === "assistant")
+    expect(last?.parts.some((p) => p.type === "text" && p.text.includes("Done."))).toBe(true)
+  }),
+)
+
+it.instance("a second degenerate stream ends the turn at the cap", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "repetition cut cap", permission: allowAll })
+
+    for (let round = 0; round < 2; round++) {
+      const flow = reply()
+      for (let i = 0; i < 40; i++) flow.reason("hmm: ".repeat(8))
+      yield* llm.push(flow.stop())
+    }
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "hello" }] })
+
+    expect(yield* llm.calls).toBe(2)
+    expect(yield* degenerateParts(chat.id)).toHaveLength(1)
+  }),
+)
+
+const B = "\uFF5C\uFF5C"
+const D = `${B}DSML${B}`
+const dsmlCall = [
+  `<${D} calls>`,
+  `tool call follows`,
+  `<${D} invoke name="read">`,
+  `<${D} parameter name="filePath" string="true">/x/y.rs</${D} parameter>`,
+  `</${D} invoke>`,
+  `</${D} calls>`,
+].join("\n")
+
+it.instance("a DSML reentry keeps the supervisor agentID", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig()
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const registry = yield* SupervisorRegistryService.Service
+    const chat = yield* sessions.create({ title: "DSML agentID", permission: allowAll })
+    yield* registry.register({
+      sessionID: chat.id,
+      supervisorID: "worker",
+      mode: "subagent",
+      parentSupervisorID: "main",
+      agent: "build",
+      description: "dsml agentID",
+      contextMode: "none",
+      contextWatermark: undefined,
+      background: false,
+      lifecycle: "persistent",
+      tools: ["grep"],
+    })
+
+    yield* llm.text(`Let me check.\n${dsmlCall}\n`)
+    yield* llm.text("done")
+
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      agentID: "worker",
+      parts: [{ type: "text", text: "hello" }],
+    })
+
+    const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
+    const reentry = msgs.findLast((m) => m.info.role === "user")
+    expect(reentry?.info.role === "user" ? reentry.info.agentID : undefined).toBe("worker")
   }),
 )
