@@ -238,6 +238,16 @@ does not count as Phase 5. The research gate's `validation` phase checks this on
 | No fabrication | if a source is not found, say so | Never approximate |
 | Status | DRAFT -> FINAL after user approval | INDEX.md update |
 
+### Known limits of phase scores
+
+<!-- # HC-22: score keywords are structural, not a quality judgment. -->
+`research-score.sh` checks section names, table shapes and keywords such as `traced` and
+`recommend`. Those checks show that the expected structure is present; they do not prove that the
+evidence is true or that the report is good. Quality judgment belongs to the auditor stage
+(`research:review`) and to the claim-to-evidence trace in `verified-evidence.md`, not to the phase
+score. A high score over weak evidence is a failed audit; a low score over a well-argued report
+means the expected structure is missing.
+
 ---
 
 ## 5. Workflow

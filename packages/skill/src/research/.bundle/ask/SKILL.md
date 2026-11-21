@@ -35,6 +35,10 @@ Record clarifications in `findings/<run-id>/intent.md`:
 ## Constraints: <time/depth/freshness>
 ```
 
+<!-- # HC-22: ask.evidence is the scored artifact; it carries the same six fields as intent.md. -->
+Also write `findings/<run-id>/ask.evidence` with the same six fields (original question,
+clarified scope, out of scope, depth, source preferences, constraints), then run the ask gate.
+
 ## HITL Checkpoint
 
 If the research is high-stakes or ambiguous, get explicit user approval before proceeding to SCOPE.
