@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Research gates require Phase 3 for FINAL and accept Phase 2 only through `<topic>/INDUSTRY-WAIVER.md`; `research-index.sh` writes one `## Topic Reports` table (HC-22).
+
 ## [0.1.6] - 2026-11-20
 
 ### Added

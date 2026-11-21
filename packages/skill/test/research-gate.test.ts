@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import path from "path"
 
@@ -97,5 +97,130 @@ describe("research score and aggregate include plan", () => {
     const result = await sh("research-aggregate.sh", "agg")
     expect(result.out).toContain("phases=2/8")
     expect(result.out).toContain("gate=PASS")
+  })
+})
+
+// HC-22: fixture topics for the Phase 3 requirement and the INDUSTRY-WAIVER.md bypass.
+const topic = (name: string, files: Record<string, string>) => {
+  const dir = path.join(work, name)
+  mkdirSync(dir, { recursive: true })
+  for (const [file, text] of Object.entries(files)) writeFileSync(path.join(dir, file), text)
+}
+
+const phases1234 = {
+  "T-DETAILED-REPORT.md": "# Detailed\n",
+  "T-INDUSTRY-EQUIVALENTS.md": "# Industry\n",
+  "T-DEEP-DIVE.md": "# Deep dive\n",
+  "T-CONCLUSION.md": "# Conclusion\n",
+  "T-VALIDATION.md": "# Validation\n",
+}
+
+describe("research gate: methodology phases", () => {
+  test("a FINAL topic without Phase 3 DEEP-DIVE fails", async () => {
+    topic("no-deep", {
+      "T-DETAILED-REPORT.md": "# Detailed\n",
+      "T-INDUSTRY-EQUIVALENTS.md": "# Industry\n",
+      "T-CONCLUSION.md": "# Conclusion\n",
+      "T-VALIDATION.md": "# Validation\n",
+    })
+    const result = await sh("research-gate.sh", "--check-methodology", "no-deep", "--final")
+    expect(result.code).toBe(1)
+    expect(result.out).toContain("DEEP-DIVE")
+  })
+
+  test("an INDUSTRY-WAIVER.md with a reason is the only Phase 2 bypass", async () => {
+    topic("waived", {
+      "T-DETAILED-REPORT.md": "# Detailed\n",
+      "T-DEEP-DIVE.md": "# Deep dive\n",
+      "T-CONCLUSION.md": "# Conclusion\n",
+      "T-VALIDATION.md": "# Validation\n",
+      "INDUSTRY-WAIVER.md": "# Waiver\nReason: no comparable public work exists.\n",
+    })
+    const result = await sh("research-gate.sh", "--check-methodology", "waived", "--final")
+    expect(result.code).toBe(0)
+    expect(result.out).toContain("PASS")
+  })
+
+  test("a missing or empty waiver fails Phase 2", async () => {
+    topic("no-waiver", {
+      "T-DETAILED-REPORT.md": "# Detailed\n",
+      "T-DEEP-DIVE.md": "# Deep dive\n",
+      "T-CONCLUSION.md": "# Conclusion\n",
+      "T-VALIDATION.md": "# Validation\n",
+    })
+    expect((await sh("research-gate.sh", "--check-methodology", "no-waiver", "--final")).code).toBe(1)
+    topic("empty-waiver", {
+      "T-DETAILED-REPORT.md": "# Detailed\n",
+      "T-DEEP-DIVE.md": "# Deep dive\n",
+      "T-CONCLUSION.md": "# Conclusion\n",
+      "T-VALIDATION.md": "# Validation\n",
+      "INDUSTRY-WAIVER.md": "",
+    })
+    expect((await sh("research-gate.sh", "--check-methodology", "empty-waiver", "--final")).code).toBe(1)
+    topic("no-reason", {
+      "T-DETAILED-REPORT.md": "# Detailed\n",
+      "T-DEEP-DIVE.md": "# Deep dive\n",
+      "T-CONCLUSION.md": "# Conclusion\n",
+      "T-VALIDATION.md": "# Validation\n",
+      "INDUSTRY-WAIVER.md": "# Waiver\n",
+    })
+    expect((await sh("research-gate.sh", "--check-methodology", "no-reason", "--final")).code).toBe(1)
+  })
+
+  test("the retired allow flag does not bypass Phase 2", async () => {
+    topic("flag-bypass", {
+      "T-DETAILED-REPORT.md": "# Detailed\n",
+      "T-DEEP-DIVE.md": "# Deep dive\n",
+      "T-CONCLUSION.md": "# Conclusion\n",
+      "T-VALIDATION.md": "# Validation\n",
+    })
+    const result = await sh("research-gate.sh", "--check-methodology", "flag-bypass", "--final", "--allow-missing-industry-equivalents")
+    expect(result.code).toBe(1)
+  })
+})
+
+const seedIndex = () =>
+  writeFileSync(
+    path.join(work, "INDEX.md"),
+    "# Index\n\n## Topic Reports\n\n| File | Topic | Phase | Status |\n|---|---|---|---|\n\n## Historical catalog (pre-2026-11-20)\n\nold\n",
+  )
+
+const indexText = () => readFileSync(path.join(work, "INDEX.md"), "utf8")
+
+describe("research index: one Topic Reports table", () => {
+  test("an unknown topic directory goes to Topic Reports, never Architecture", async () => {
+    seedIndex()
+    topic("newtopic", { "NEWTOPIC-DETAILED-REPORT.md": "# Detailed\n" })
+    const result = await sh("research-index.sh", "newtopic/NEWTOPIC-DETAILED-REPORT.md", "Nov 20", "DRAFT", "topic")
+    expect(result.code).toBe(0)
+    expect(indexText()).toContain("| `newtopic/NEWTOPIC-DETAILED-REPORT.md` | newtopic | DETAILED-REPORT | DRAFT |")
+    expect(indexText()).not.toContain("## Architecture")
+  })
+
+  test("FINAL without Phase 3 is refused and no row is written", async () => {
+    seedIndex()
+    topic("blocked", {
+      "BLOCKED-DETAILED-REPORT.md": "# Detailed\n",
+      "BLOCKED-INDUSTRY-EQUIVALENTS.md": "# Industry\n",
+      "BLOCKED-CONCLUSION.md": "# Conclusion\n",
+      "BLOCKED-VALIDATION.md": "# Validation\n",
+    })
+    const result = await sh("research-index.sh", "blocked/BLOCKED-CONCLUSION.md", "Nov 20", "FINAL", "topic")
+    expect(result.code).toBe(1)
+    expect(indexText()).not.toContain("blocked/BLOCKED-CONCLUSION.md")
+  })
+
+  test("FINAL with a recorded waiver is accepted", async () => {
+    seedIndex()
+    topic("accepted", {
+      "ACCEPTED-DETAILED-REPORT.md": "# Detailed\n",
+      "ACCEPTED-DEEP-DIVE.md": "# Deep dive\n",
+      "ACCEPTED-CONCLUSION.md": "# Conclusion\n",
+      "ACCEPTED-VALIDATION.md": "# Validation\n",
+      "INDUSTRY-WAIVER.md": "# Waiver\nReason: no comparable public work exists.\n",
+    })
+    const result = await sh("research-index.sh", "accepted/ACCEPTED-CONCLUSION.md", "Nov 20", "FINAL", "topic")
+    expect(result.code).toBe(0)
+    expect(indexText()).toContain("| `accepted/ACCEPTED-CONCLUSION.md` | accepted | CONCLUSION | FINAL |")
   })
 })
