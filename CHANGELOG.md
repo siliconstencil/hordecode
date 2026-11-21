@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Research gates require Phase 3 for FINAL and accept Phase 2 only through `<topic>/INDUSTRY-WAIVER.md`; `research-index.sh` writes one `## Topic Reports` table (HC-22).
+- `research-score.sh` scores `ask` from `ask.evidence`, and every stage skill names the artifact the score reads, so an evidence-only run does not lose points to an unnamed deliverable (HC-22 D1/D2).
+- Releases up to 0.1.5 shipped research gates that did not require Phase 3 (DEEP-DIVE) or accept the documented Phase 2 waiver, so a topic could be marked FINAL without them.
+
 ## [0.1.6] - 2026-11-20
 
 ### Added

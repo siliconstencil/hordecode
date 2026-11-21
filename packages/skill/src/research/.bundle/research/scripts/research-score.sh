@@ -7,9 +7,11 @@
 # Scores measure the artifact's structure, as scoring-metrics.conf defines it: source table
 # rows, claim rows that cite a source, UNCORROBORATED checkboxes, numbered research questions,
 # recorded metric keys, URL domain diversity. Each phase is scored on its gate evidence file
-# together with the deliverable the phase writes (scope: brief.md, gather: evidence-*.md,
-# verify: verified-evidence.md, filter: filtered-evidence.md, synthesize: report.md,
-# decide: decision.md, eval: metrics.md), because the deliverable is where the structure lives.
+# together with the deliverable the phase writes (ask: ask.evidence, scope: brief.md,
+# gather: evidence-*.md, verify: verified-evidence.md, filter: filtered-evidence.md,
+# synthesize: report.md, decide: decision.md, eval: metrics.md), because the deliverable is
+# where the structure lives.
+# HC-22: ask is scored from ask.evidence; the stage skills name every scored artifact.
 # Vocabulary counts as one bounded check per phase: repeating a word, or appending a block of
 # expected words, cannot lift a score past that check's share of the phase.
 
@@ -114,6 +116,15 @@ claim_source_ratio() {
 
 echo "research-score ${PHASE} (${SCORED}):" >&2
 case "${PHASE}" in
+  ask)
+    # HC-22: ask is scored from ask.evidence; it has no second deliverable.
+    check question "$(has 'original question|verbatim')" "(verbatim question recorded)"
+    check scope "$(has 'clarified scope')" "(clarified scope recorded)"
+    check out_of_scope "$(has 'out of scope')" "(out-of-scope recorded)"
+    check depth "$(has 'depth')" "(depth recorded)"
+    check source_preferences "$(has 'source preferences|source preference')" "(source preferences recorded)"
+    check constraints "$(has 'constraints?')" "(constraints recorded)"
+    ;;
   scope)
     Q=$(items_under 'question')
     check questions "$(capped "${Q}" 3)" "(${Q} research questions, 3 expected)"

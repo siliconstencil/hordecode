@@ -13,8 +13,10 @@ set -euo pipefail
 # Phase 4 CONCLUSION           -> basename contains CONCLUSION or REALITY-VS-DESIGN or COMPREHENSIVE-ANALYSIS (legacy)
 # Phase 5 VALIDATION           -> basename contains VALIDATION
 # Phase 6 COMPARISON           -> basename contains COMPARISON
-# Notes: case-insensitive; count presence (1 file suffices); Phase 2 exempt flag --allow-missing-industry-equivalents;
+# Notes: case-insensitive; count presence (1 file suffices); Phase 2 bypass is <topic>/INDUSTRY-WAIVER.md
+#        (non-empty, with a Reason: line) only; Phase 3 is mandatory for FINAL;
 #        Phase 4 dual match counts as present but emit WARN if >1 CONCLUSION candidate.
+# HC-22: the waiver file is the only Phase 2 bypass; Phase 3 is required for FINAL.
 
 detect_phases() {
   local dir="$1" base
@@ -23,7 +25,8 @@ detect_phases() {
   for f in "$dir"/*.md; do
     base="$(basename "$f")"
     [[ "$base" == *"DETAILED-REPORT"* ]] && has1=1
-    [[ "$base" == *"INDUSTRY-EQUIVALENTS"* || "$base" == *"INDUSTRY"* ]] && has2=1
+    # HC-22: the waiver file is not a Phase 2 report; never count it as one.
+    if [[ "$base" != *"INDUSTRY-WAIVER"* && ( "$base" == *"INDUSTRY-EQUIVALENTS"* || "$base" == *"INDUSTRY"* ) ]]; then has2=1; fi
     if [[ "$base" == *"DEEP-DIVE"* || "$base" == *"DEEPDIVE"* || "$base" == *"JURY-MODEL"* || "$base" == *"JURY"* ]]; then has3=1; fi
     if [[ "$base" == *"CONCLUSION"* || "$base" == *"REALITY-VS-DESIGN"* || "$base" == *"COMPREHENSIVE-ANALYSIS"* ]]; then has4=1; fi
     [[ "$base" == *"VALIDATION"* ]] && has5=1
@@ -35,10 +38,13 @@ detect_phases() {
 
 check_methodology() {
   local dir="$1"; shift || true
-  local force_final=0 allow_no_industry=0
+  local force_final=0
   while [[ $# -gt 0 ]]; do case "$1" in
     --final) force_final=1; shift;;
-    --allow-missing-industry-equivalents) allow_no_industry=1; shift;;
+    --allow-missing-industry-equivalents)
+      # HC-22: retired flag. Phase 2 accepts only INDUSTRY-WAIVER.md, never a flag or env value.
+      echo "WARN: --allow-missing-industry-equivalents is retired; use INDUSTRY-WAIVER.md" >&2
+      shift;;
     *) shift;;
   esac; done
 
@@ -65,11 +71,21 @@ check_methodology() {
   read -r has1 has2 has3 has4 has5 has6 <<<"$(detect_phases "$dir")"
   local missing=()
   [[ $has1 -eq 0 ]] && missing+=("DETAILED-REPORT (Phase 1)")
-  if [[ $has2 -eq 0 && $allow_no_industry -eq 0 ]]; then missing+=("INDUSTRY-EQUIVALENTS (Phase 2)"); fi
+  # HC-22: Phase 2 has one bypass only, the waiver file with a reason line.
+  local waiver="none"
+  if [[ $has2 -eq 0 ]]; then
+    if [[ -s "$dir/INDUSTRY-WAIVER.md" ]] && grep -qiE '^[[:space:]]*reason:[[:space:]]*[^[:space:]]' "$dir/INDUSTRY-WAIVER.md"; then
+      waiver="file"
+    else
+      missing+=("INDUSTRY-EQUIVALENTS (Phase 2) or INDUSTRY-WAIVER.md with a Reason: line")
+    fi
+  fi
+  # HC-22: Phase 3 is mandatory for FINAL; a DRAFT may still be incomplete.
+  [[ $has3 -eq 0 ]] && missing+=("DEEP-DIVE (Phase 3)")
   [[ $has4 -eq 0 ]] && missing+=("CONCLUSION (Phase 4)")
   [[ $has5 -eq 0 ]] && missing+=("VALIDATION (Phase 5)")
 
-  echo "Methodology check for $dir (topic: $topic, is_final=$is_final):"
+  echo "Methodology check for $dir (topic: $topic, is_final=$is_final, waiver: $waiver):"
   echo "  Phases present: 1:$has1 2:$has2 3:$has3 4:$has4 5:$has5 6:$has6"
   if [[ ${#missing[@]} -gt 0 ]]; then
     echo "MISSING: ${missing[*]}"
@@ -97,7 +113,8 @@ check_methodology() {
 
 if [[ "${1:-}" == "--check-methodology" ]]; then
   dir="${2:-}"
-  if [[ -z "$dir" ]]; then echo "Usage: $0 --check-methodology <research-dir> [--final] [--allow-missing-industry-equivalents]" >&2; exit 2; fi
+  # HC-22: usage no longer advertises the retired Phase 2 flag.
+  if [[ -z "$dir" ]]; then echo "Usage: $0 --check-methodology <research-dir> [--final]" >&2; exit 2; fi
   check_methodology "$dir" "${@:3}"
   exit $?
 fi

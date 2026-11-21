@@ -46,7 +46,10 @@ QUEUE.md and ADR-LOG.md apply only when the project keeps them.
 - Exit code: 0
 
 Mechanical gate (run it; the checks above are not self-enforcing): write
-`findings/<run-id>/decide.evidence` from `../research/templates/evidence.md` and carry the decision state (ADOPT, DEFER or REJECT), the reasoning and the evidence table.
+`findings/<run-id>/decision.md` from `../research/templates/decision.md` and
+`findings/<run-id>/decide.evidence` from `../research/templates/evidence.md`; carry the decision
+state (ADOPT, DEFER or REJECT), the reasoning and the evidence table.
+<!-- # HC-22: decision.md is the scored deliverable; decide.evidence is the gate file. -->
 Delete or mark `na` the conditional slots you do not use. Then, from the project root (the gate
 reads `findings/` relative to the working directory), run the gate script, resolving its path
 against this skill's base directory:
